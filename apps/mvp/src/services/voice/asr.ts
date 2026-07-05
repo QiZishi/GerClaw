@@ -1,10 +1,4 @@
-import { voiceConfig } from "@/lib/config";
-import {
-  generateTraceId,
-  fetchWithTimeout,
-  classifyError,
-  classifyHttpError,
-} from "../api-client";
+import { generateTraceId, classifyError } from "../api-client";
 
 function blobToBase64DataUrl(blob: Blob): Promise<string> {
   return new Promise((resolve, reject) => {
@@ -24,65 +18,46 @@ function blobToBase64DataUrl(blob: Blob): Promise<string> {
 export async function recognizeAudio(audioBlob: Blob): Promise<string> {
   const traceId = generateTraceId();
 
-  if (!voiceConfig.asrUrl || !voiceConfig.asrApiKey) {
-    throw new Error("ASR 服务未配置，请检查环境变量");
-  }
-
   try {
     const base64DataUrl = await blobToBase64DataUrl(audioBlob);
 
-    const url = voiceConfig.asrUrl.replace(/\/+$/, "") + "/chat/completions";
-
-    const body = {
-      model: voiceConfig.asrModel,
-      messages: [
-        {
-          role: "user",
-          content: [
-            {
-              type: "input_audio",
-              input_audio: {
-                data: base64DataUrl,
-              },
-            },
-          ],
-        },
-      ],
-      asr_options: {
+    const response = await fetch("/api/voice/asr", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        "X-Trace-Id": traceId,
+      },
+      body: JSON.stringify({
+        audio: base64DataUrl,
         language: "auto",
-      },
-      stream: false,
-    };
-
-    const response = await fetchWithTimeout(
-      url,
-      {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          "api-key": voiceConfig.asrApiKey,
-        },
-        body: JSON.stringify(body),
-        timeoutMs: 60000,
-      },
-      60000
-    );
+      }),
+    });
 
     if (!response.ok) {
       let errorMessage = `HTTP ${response.status}`;
       try {
         const errorBody = await response.text();
         if (errorBody) {
-          errorMessage = errorBody;
+          try {
+            const errorJson = JSON.parse(errorBody);
+            errorMessage = errorJson.error || errorMessage;
+          } catch {
+            errorMessage = errorBody;
+          }
         }
       } catch {
         // ignore
       }
-      throw classifyHttpError(response.status, errorMessage, traceId);
+      throw new Error(errorMessage);
     }
 
     const json = await response.json();
-    const text = json?.choices?.[0]?.message?.content;
+
+    if (json.error) {
+      throw new Error(json.error);
+    }
+
+    const text = json.text;
 
     if (typeof text !== "string") {
       throw new Error("ASR 响应格式异常，未获取到识别文本");

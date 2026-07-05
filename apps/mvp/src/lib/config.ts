@@ -48,7 +48,43 @@ const envSchema = z.object({
 export type EnvConfig = z.infer<typeof envSchema>;
 
 function loadEnv(): EnvConfig {
-  const parsed = envSchema.safeParse(process.env);
+  // 关键：Next.js 在编译时只替换 process.env.NEXT_PUBLIC_XXX 的直接引用，
+  // 不会把整个 process.env 对象注入客户端。必须显式提取每个变量。
+  const rawEnv = {
+    NEXT_PUBLIC_PRIMARY_URL: process.env.NEXT_PUBLIC_PRIMARY_URL,
+    NEXT_PUBLIC_PRIMARY_API_KEY: process.env.NEXT_PUBLIC_PRIMARY_API_KEY,
+    NEXT_PUBLIC_PRIMARY_MODEL: process.env.NEXT_PUBLIC_PRIMARY_MODEL,
+    NEXT_PUBLIC_PRIMARY_PROTOCOL: process.env.NEXT_PUBLIC_PRIMARY_PROTOCOL,
+
+    NEXT_PUBLIC_BACKUP1_URL: process.env.NEXT_PUBLIC_BACKUP1_URL,
+    NEXT_PUBLIC_BACKUP1_API_KEY: process.env.NEXT_PUBLIC_BACKUP1_API_KEY,
+    NEXT_PUBLIC_BACKUP1_MODEL: process.env.NEXT_PUBLIC_BACKUP1_MODEL,
+    NEXT_PUBLIC_BACKUP1_PROTOCOL: process.env.NEXT_PUBLIC_BACKUP1_PROTOCOL,
+
+    NEXT_PUBLIC_BACKUP2_URL: process.env.NEXT_PUBLIC_BACKUP2_URL,
+    NEXT_PUBLIC_BACKUP2_API_KEY: process.env.NEXT_PUBLIC_BACKUP2_API_KEY,
+    NEXT_PUBLIC_BACKUP2_MODEL: process.env.NEXT_PUBLIC_BACKUP2_MODEL,
+    NEXT_PUBLIC_BACKUP2_PROTOCOL: process.env.NEXT_PUBLIC_BACKUP2_PROTOCOL,
+
+    NEXT_PUBLIC_ASR_URL: process.env.NEXT_PUBLIC_ASR_URL,
+    NEXT_PUBLIC_ASR_API_KEY: process.env.NEXT_PUBLIC_ASR_API_KEY,
+    NEXT_PUBLIC_ASR_MODEL: process.env.NEXT_PUBLIC_ASR_MODEL,
+    NEXT_PUBLIC_TTS_URL: process.env.NEXT_PUBLIC_TTS_URL,
+    NEXT_PUBLIC_TTS_API_KEY: process.env.NEXT_PUBLIC_TTS_API_KEY,
+    NEXT_PUBLIC_TTS_MODEL: process.env.NEXT_PUBLIC_TTS_MODEL,
+    NEXT_PUBLIC_TTS_VOICE: process.env.NEXT_PUBLIC_TTS_VOICE,
+
+    NEXT_PUBLIC_ANYSEARCH_API_KEY: process.env.NEXT_PUBLIC_ANYSEARCH_API_KEY,
+    NEXT_PUBLIC_TAVILY_API_KEY: process.env.NEXT_PUBLIC_TAVILY_API_KEY,
+
+    NEXT_PUBLIC_MINERU_URL: process.env.NEXT_PUBLIC_MINERU_URL,
+    NEXT_PUBLIC_MINERU_API_KEY: process.env.NEXT_PUBLIC_MINERU_API_KEY,
+
+    NEXT_PUBLIC_APP_NAME: process.env.NEXT_PUBLIC_APP_NAME,
+    NEXT_PUBLIC_APP_VERSION: process.env.NEXT_PUBLIC_APP_VERSION,
+  };
+
+  const parsed = envSchema.safeParse(rawEnv);
   if (!parsed.success) {
     if (process.env.NODE_ENV === "development") {
       console.warn("[config] 环境变量校验警告：", parsed.error.format());
@@ -63,6 +99,20 @@ function loadEnv(): EnvConfig {
       console.warn(
         "[config] ⚠️ 主模型未配置：NEXT_PUBLIC_PRIMARY_URL 或 NEXT_PUBLIC_PRIMARY_API_KEY 为空，LLM 功能将不可用。请在 .env.local 中配置。"
       );
+    } else {
+      console.info(
+        `[config] ✅ 主模型已配置：${data.NEXT_PUBLIC_PRIMARY_MODEL} @ ${data.NEXT_PUBLIC_PRIMARY_URL}`
+      );
+    }
+    if (!data.NEXT_PUBLIC_ASR_API_KEY || !data.NEXT_PUBLIC_ASR_URL) {
+      console.warn("[config] ⚠️ ASR 未配置，语音识别功能将不可用。");
+    } else {
+      console.info(`[config] ✅ ASR 已配置：${data.NEXT_PUBLIC_ASR_MODEL}`);
+    }
+    if (!data.NEXT_PUBLIC_TTS_API_KEY || !data.NEXT_PUBLIC_TTS_URL) {
+      console.warn("[config] ⚠️ TTS 未配置，语音合成功能将不可用。");
+    } else {
+      console.info(`[config] ✅ TTS 已配置：${data.NEXT_PUBLIC_TTS_MODEL}`);
     }
   }
 

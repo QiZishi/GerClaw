@@ -1,75 +1,46 @@
-import { searchConfig } from "@/lib/config";
 import type { SearchResultItem } from "@/types/chat";
 import { generateId } from "@/lib/format";
-import {
-  generateTraceId,
-  fetchWithTimeout,
-  classifyError,
-  classifyHttpError,
-} from "../api-client";
+import { generateTraceId, classifyError } from "../api-client";
 
-interface TavilySearchResult {
+interface SearchResult {
   title: string;
   url: string;
   content: string;
   score?: number;
   published_date?: string;
-  raw_content?: string;
 }
 
-interface TavilyResponse {
-  results?: TavilySearchResult[];
-  answer?: string;
-  query?: string;
-  response_time?: number;
-}
-
-export async function searchTavily(query: string): Promise<SearchResultItem[]> {
+export async function search(query: string): Promise<SearchResultItem[]> {
   const traceId = generateTraceId();
 
-  if (!searchConfig.tavilyApiKey) {
-    return [];
-  }
-
   try {
-    const response = await fetchWithTimeout(
-      "https://api.tavily.com/search",
-      {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify({
-          api_key: searchConfig.tavilyApiKey,
-          query,
-          search_depth: "basic",
-          max_results: 5,
-        }),
-        timeoutMs: 15000,
+    const response = await fetch("/api/search", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        "X-Trace-Id": traceId,
       },
-      15000
-    );
+      body: JSON.stringify({
+        query,
+        maxResults: 5,
+      }),
+    });
 
     if (!response.ok) {
-      let errorMessage = `HTTP ${response.status}`;
-      try {
-        const errorBody = await response.text();
-        if (errorBody) {
-          errorMessage = errorBody;
-        }
-      } catch {
-        // ignore
-      }
-      throw classifyHttpError(response.status, errorMessage, traceId);
-    }
-
-    const data: TavilyResponse = await response.json();
-
-    if (!data.results || !Array.isArray(data.results)) {
+      console.warn("[search] Search API returned:", response.status);
       return [];
     }
 
-    return data.results.map((item) => {
+    const data = await response.json();
+
+    if (data.error) {
+      console.warn("[search] Search API error:", data.error);
+      return [];
+    }
+
+    const results: SearchResult[] = data.results || [];
+
+    return results.map((item) => {
       let source = "";
       try {
         const url = new URL(item.url);
@@ -88,11 +59,7 @@ export async function searchTavily(query: string): Promise<SearchResultItem[]> {
       } satisfies SearchResultItem;
     });
   } catch (error) {
-    console.error("[search] Tavily search failed:", classifyError(error, traceId));
+    console.error("[search] Search failed:", classifyError(error, traceId));
     return [];
   }
-}
-
-export async function search(query: string): Promise<SearchResultItem[]> {
-  return searchTavily(query);
 }

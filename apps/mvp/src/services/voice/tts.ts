@@ -1,10 +1,4 @@
-import { voiceConfig } from "@/lib/config";
-import {
-  generateTraceId,
-  fetchWithTimeout,
-  classifyError,
-  classifyHttpError,
-} from "../api-client";
+import { generateTraceId, classifyError } from "../api-client";
 
 interface TTSCallbacks {
   onAudioChunk?: (pcm: Int16Array) => void;
@@ -29,60 +23,33 @@ export async function streamTTS(
 ): Promise<void> {
   const traceId = generateTraceId();
 
-  if (!voiceConfig.ttsUrl || !voiceConfig.ttsApiKey) {
-    const err = new Error("TTS 服务未配置，请检查环境变量");
-    callbacks.onError?.(err);
-    return;
-  }
-
   try {
-    const url = voiceConfig.ttsUrl.replace(/\/+$/, "") + "/chat/completions";
-
-    const body = {
-      model: voiceConfig.ttsModel,
-      messages: [
-        {
-          role: "user",
-          content: "用温柔体贴的语调，语速适中，像在关心一位老人的健康状况",
-        },
-        {
-          role: "assistant",
-          content: text,
-        },
-      ],
-      audio: {
-        format: "pcm16",
-        voice: voiceConfig.ttsVoice,
+    const response = await fetch("/api/voice/tts", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        "X-Trace-Id": traceId,
       },
-      stream: true,
-    };
-
-    const response = await fetchWithTimeout(
-      url,
-      {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          "api-key": voiceConfig.ttsApiKey,
-        },
-        body: JSON.stringify(body),
-        signal,
-        timeoutMs: 60000,
-      },
-      60000
-    );
+      body: JSON.stringify({ text }),
+      signal,
+    });
 
     if (!response.ok) {
       let errorMessage = `HTTP ${response.status}`;
       try {
         const errorBody = await response.text();
         if (errorBody) {
-          errorMessage = errorBody;
+          try {
+            const errorJson = JSON.parse(errorBody);
+            errorMessage = errorJson.error || errorMessage;
+          } catch {
+            errorMessage = errorBody;
+          }
         }
       } catch {
         // ignore
       }
-      throw classifyHttpError(response.status, errorMessage, traceId);
+      throw new Error(errorMessage);
     }
 
     if (!response.body) {
@@ -119,6 +86,12 @@ export async function streamTTS(
 
           try {
             const json = JSON.parse(data);
+
+            // 检查代理路由错误消息
+            if (json.type === "error") {
+              throw new Error(json.message || "TTS 服务错误");
+            }
+
             const choice = json.choices?.[0];
             if (!choice) continue;
 
@@ -130,7 +103,10 @@ export async function streamTTS(
               const pcmData = base64ToInt16Array(audioData);
               callbacks.onAudioChunk?.(pcmData);
             }
-          } catch {
+          } catch (e) {
+            if (e instanceof Error && e.message.includes("TTS 服务错误")) {
+              throw e;
+            }
             // malformed JSON, skip
           }
         }
@@ -143,13 +119,19 @@ export async function streamTTS(
           if (data !== "[DONE]") {
             try {
               const json = JSON.parse(data);
+              if (json.type === "error") {
+                throw new Error(json.message || "TTS 服务错误");
+              }
               const choice = json.choices?.[0];
               const audioData = choice?.delta?.audio?.data;
               if (audioData && typeof audioData === "string") {
                 const pcmData = base64ToInt16Array(audioData);
                 callbacks.onAudioChunk?.(pcmData);
               }
-            } catch {
+            } catch (e) {
+              if (e instanceof Error && e.message.includes("TTS 服务错误")) {
+                throw e;
+              }
               // ignore
             }
           }

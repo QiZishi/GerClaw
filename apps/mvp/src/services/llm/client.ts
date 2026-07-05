@@ -1,15 +1,8 @@
-import { primaryModel, backup1Model, backup2Model } from "@/lib/config";
 import {
   ApiError,
   NetworkError,
-  TimeoutError,
-  RateLimitError,
-  AuthenticationError,
-  ServerError,
   generateTraceId,
-  fetchWithTimeout,
   classifyError,
-  classifyHttpError,
 } from "../api-client";
 
 export interface LLMMessage {
@@ -29,14 +22,6 @@ export interface StreamOptions {
   maxTokens?: number;
   signal?: AbortSignal;
   modelPreference?: "primary" | "backup1" | "backup2" | "auto";
-}
-
-interface ModelConfig {
-  url: string;
-  apiKey: string;
-  modelName: string;
-  protocol: string;
-  preference: "primary" | "backup1" | "backup2";
 }
 
 const PATIENT_SYSTEM_PROMPT = `你是GerClaw老年科AI医生助手，名叫"小Ger"。
@@ -83,232 +68,164 @@ export function buildSystemPrompt(role: "patient" | "doctor" | "visitor"): strin
   }
 }
 
-function getModelList(modelPreference: StreamOptions["modelPreference"]): ModelConfig[] {
-  switch (modelPreference) {
-    case "primary":
-      return [primaryModel];
-    case "backup1":
-      return [backup1Model];
-    case "backup2":
-      return [backup2Model];
-    case "auto":
-    default:
-      return [primaryModel, backup1Model, backup2Model];
-  }
-}
-
-function buildChatUrl(baseUrl: string): string {
-  const trimmedUrl = baseUrl.replace(/\/+$/, "");
-  if (trimmedUrl.endsWith("/chat/completions")) {
-    return trimmedUrl;
-  }
-  if (trimmedUrl.endsWith("/v1")) {
-    return `${trimmedUrl}/chat/completions`;
-  }
-  if (trimmedUrl.includes("/compatible-mode")) {
-    return `${trimmedUrl}/chat/completions`;
-  }
-  if (trimmedUrl.includes("/api/v1")) {
-    return `${trimmedUrl}/chat/completions`;
-  }
-  return `${trimmedUrl}/chat/completions`;
-}
-
-async function streamWithModel(
-  model: ModelConfig,
-  messages: LLMMessage[],
-  options: StreamOptions,
-  callbacks: LLMStreamCallbacks,
-  traceId: string
-): Promise<string> {
-  const url = buildChatUrl(model.url);
-  const temperature = options.temperature ?? 0.7;
-  const maxTokens = options.maxTokens;
-
-  const body: Record<string, unknown> = {
-    model: model.modelName,
-    messages,
-    stream: true,
-    temperature,
-  };
-
-  if (maxTokens) {
-    body.max_tokens = maxTokens;
-  }
-
-  const response = await fetchWithTimeout(
-    url,
-    {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        Authorization: `Bearer ${model.apiKey}`,
-      },
-      body: JSON.stringify(body),
-      signal: options.signal,
-      timeoutMs: 60000,
-    },
-    60000
-  );
-
-  if (!response.ok) {
-    let errorMessage = `HTTP ${response.status}`;
-    try {
-      const errorBody = await response.text();
-      if (errorBody) {
-        errorMessage = errorBody;
-      }
-    } catch {
-      // ignore
-    }
-    throw classifyHttpError(response.status, errorMessage, traceId);
-  }
-
-  if (!response.body) {
-    throw new ApiError("响应体为空", "EMPTY_RESPONSE", undefined, false, traceId);
-  }
-
-  const reader = response.body.getReader();
-  const decoder = new TextDecoder();
-  let fullText = "";
-  let buffer = "";
-
-  try {
-    while (true) {
-      if (options.signal?.aborted) {
-        throw new ApiError("请求已取消", "ABORTED", undefined, false, traceId);
-      }
-
-      const { done, value } = await reader.read();
-      if (done) break;
-
-      buffer += decoder.decode(value, { stream: true });
-      const lines = buffer.split("\n");
-      buffer = lines.pop() ?? "";
-
-      for (const line of lines) {
-        const trimmedLine = line.trim();
-        if (!trimmedLine) continue;
-        if (!trimmedLine.startsWith("data: ")) continue;
-
-        const data = trimmedLine.slice(6);
-        if (data === "[DONE]") {
-          return fullText;
-        }
-
-        try {
-          const json = JSON.parse(data);
-          const choice = json.choices?.[0];
-          if (!choice) continue;
-
-          const delta = choice.delta;
-          if (!delta) continue;
-
-          if (delta.reasoning_content) {
-            callbacks.onThinking?.(delta.reasoning_content);
-          }
-
-          if (delta.content) {
-            const textDelta = delta.content;
-            fullText += textDelta;
-            callbacks.onText?.(textDelta, fullText);
-          }
-        } catch {
-          // malformed JSON, skip this line
-        }
-      }
-    }
-
-    if (buffer.trim()) {
-      const trimmedLine = buffer.trim();
-      if (trimmedLine.startsWith("data: ")) {
-        const data = trimmedLine.slice(6);
-        if (data !== "[DONE]") {
-          try {
-            const json = JSON.parse(data);
-            const choice = json.choices?.[0];
-            if (choice?.delta?.content) {
-              const textDelta = choice.delta.content;
-              fullText += textDelta;
-              callbacks.onText?.(textDelta, fullText);
-            }
-          } catch {
-            // ignore
-          }
-        }
-      }
-    }
-  } finally {
-    reader.releaseLock();
-  }
-
-  return fullText;
-}
-
-function isFallbackableError(error: unknown): boolean {
-  if (error instanceof NetworkError) return true;
-  if (error instanceof TimeoutError) return true;
-  if (error instanceof RateLimitError) return true;
-  if (error instanceof ServerError) return true;
-  if (error instanceof AuthenticationError) return false;
-  if (error instanceof ApiError && error.retriable) return true;
-  return false;
-}
-
 export async function streamChat(
   messages: LLMMessage[],
   options: StreamOptions,
   callbacks: LLMStreamCallbacks
 ): Promise<void> {
   const traceId = generateTraceId();
-  const modelList = getModelList(options.modelPreference ?? "auto");
-  const availableModels = modelList.filter((m) => m.url && m.apiKey);
 
-  if (availableModels.length === 0) {
-    const error = new ApiError(
-      "未配置任何可用的LLM模型，请检查环境变量",
-      "NO_MODEL_CONFIGURED",
-      undefined,
-      false,
-      traceId
-    );
-    callbacks.onError?.(error);
-    return;
-  }
+  try {
+    const response = await fetch("/api/llm/chat", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        "X-Trace-Id": traceId,
+      },
+      body: JSON.stringify({
+        messages,
+        temperature: options.temperature ?? 0.7,
+        maxTokens: options.maxTokens,
+        modelPreference: options.modelPreference ?? "auto",
+      }),
+      signal: options.signal,
+    });
 
-  let lastError: unknown = null;
+    if (!response.ok) {
+      let errorMessage = `HTTP ${response.status}`;
+      try {
+        const errorBody = await response.text();
+        if (errorBody) {
+          try {
+            const errorJson = JSON.parse(errorBody);
+            errorMessage = errorJson.error || errorMessage;
+          } catch {
+            errorMessage = errorBody;
+          }
+        }
+      } catch {
+        // ignore
+      }
+      throw classifyError(new Error(errorMessage), traceId);
+    }
 
-  for (let i = 0; i < availableModels.length; i++) {
-    const model = availableModels[i];
-    const isLastModel = i === availableModels.length - 1;
+    if (!response.body) {
+      throw new NetworkError("响应体为空", traceId);
+    }
+
+    const reader = response.body.getReader();
+    const decoder = new TextDecoder();
+    let fullText = "";
+    let buffer = "";
 
     try {
-      const fullText = await streamWithModel(
-        model,
-        messages,
-        options,
-        callbacks,
-        traceId
-      );
+      while (true) {
+        if (options.signal?.aborted) {
+          throw new ApiError("请求已取消", "ABORTED", undefined, false, traceId);
+        }
+
+        const { done, value } = await reader.read();
+        if (done) break;
+
+        buffer += decoder.decode(value, { stream: true });
+        const lines = buffer.split("\n");
+        buffer = lines.pop() ?? "";
+
+        for (const line of lines) {
+          const trimmedLine = line.trim();
+          if (!trimmedLine) continue;
+          if (!trimmedLine.startsWith("data: ")) continue;
+
+          const data = trimmedLine.slice(6);
+          if (data === "[DONE]") {
+            callbacks.onDone?.(fullText);
+            return;
+          }
+
+          try {
+            const json = JSON.parse(data);
+
+            // 检查是否是代理路由发送的控制消息
+            if (json.type === "error") {
+              throw new ApiError(
+                json.message || "LLM 服务错误",
+                "LLM_ERROR",
+                undefined,
+                false,
+                traceId
+              );
+            }
+            if (json.type === "fallback") {
+              // 降级通知，继续等待后续数据
+              continue;
+            }
+
+            // 标准 SSE 格式的 LLM 响应
+            const choice = json.choices?.[0];
+            if (!choice) continue;
+
+            const delta = choice.delta;
+            if (!delta) continue;
+
+            if (delta.reasoning_content) {
+              callbacks.onThinking?.(delta.reasoning_content);
+            }
+
+            if (delta.content) {
+              const textDelta = delta.content;
+              fullText += textDelta;
+              callbacks.onText?.(textDelta, fullText);
+            }
+          } catch (e) {
+            if (e instanceof ApiError) {
+              throw e;
+            }
+            // malformed JSON, skip this line
+          }
+        }
+      }
+
+      // 处理缓冲区剩余数据
+      if (buffer.trim()) {
+        const trimmedLine = buffer.trim();
+        if (trimmedLine.startsWith("data: ")) {
+          const data = trimmedLine.slice(6);
+          if (data !== "[DONE]") {
+            try {
+              const json = JSON.parse(data);
+              if (json.type === "error") {
+                throw new ApiError(
+                  json.message || "LLM 服务错误",
+                  "LLM_ERROR",
+                  undefined,
+                  false,
+                  traceId
+                );
+              }
+              const choice = json.choices?.[0];
+              if (choice?.delta?.content) {
+                const textDelta = choice.delta.content;
+                fullText += textDelta;
+                callbacks.onText?.(textDelta, fullText);
+              }
+            } catch (e) {
+              if (e instanceof ApiError) throw e;
+              // ignore
+            }
+          }
+        }
+      }
+
       callbacks.onDone?.(fullText);
-      return;
-    } catch (error) {
-      lastError = error;
-
-      if (!isLastModel && isFallbackableError(error)) {
-        continue;
-      }
-
-      if (isLastModel || !isFallbackableError(error)) {
-        const classifiedError = classifyError(error, traceId);
-        callbacks.onError?.(classifiedError);
-        return;
-      }
+    } finally {
+      reader.releaseLock();
     }
-  }
-
-  if (lastError) {
-    const classifiedError = classifyError(lastError, traceId);
+  } catch (error) {
+    if (error instanceof ApiError) {
+      callbacks.onError?.(error);
+      return;
+    }
+    const classifiedError = classifyError(error, traceId);
     callbacks.onError?.(classifiedError);
   }
 }
