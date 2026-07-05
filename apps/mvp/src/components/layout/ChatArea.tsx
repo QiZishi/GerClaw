@@ -4,7 +4,6 @@ import { useEffect, useRef, useState } from "react";
 import {
   ArrowLeft,
   CheckCircle2,
-  Circle,
   Loader2,
   AlertTriangle,
 } from "lucide-react";
@@ -26,8 +25,11 @@ import { useAppStore } from "@/stores/appStore";
 import { useChatStore } from "@/stores/chatStore";
 import { scales } from "@/data/scales";
 import { cn } from "@/lib/utils";
-import { HIGH_RISK_SYMPTOMS, EMERGENCY_ALERT } from "@/lib/constants";
-import type { ChatActionType, Message, Scale, ScaleQuestion } from "@/types";
+import { HIGH_RISK_SYMPTOMS, EMERGENCY_ALERT, MEDICAL_DISCLAIMER } from "@/lib/constants";
+import { postprocessMedicalText } from "@/lib/security-postprocess";
+import { streamChat, buildSystemPrompt, type LLMMessage } from "@/services/llm";
+import { search } from "@/services/search/search-client";
+import type { ChatActionType, Message, MessageBlock, Scale, ScaleQuestion, SearchResultItem } from "@/types";
 import { generateId } from "@/lib/format";
 
 /** 检测文本中是否包含高风险症状关键词（铁律5关联） */
@@ -37,6 +39,20 @@ function detectHighRiskSymptoms(text: string): string[] {
     if (text.includes(kw)) matched.push(kw);
   }
   return matched;
+}
+
+const SEARCH_KEYWORDS = ["搜索", "查一下", "最新", "指南", "查一查", "搜一下", "帮我查", "最新的", "最新指南", "检索"];
+
+function detectSearchNeed(text: string): boolean {
+  return SEARCH_KEYWORDS.some((kw) => text.includes(kw));
+}
+
+function formatSearchResultsForLLM(results: SearchResultItem[]): string {
+  if (results.length === 0) return "";
+  const lines = results.map((r, i) => {
+    return `[${i + 1}] ${r.title}\n来源：${r.source}\n链接：${r.url}\n摘要：${r.snippet}`;
+  });
+  return `\n\n以下是联网搜索到的相关参考资料，请基于这些资料回答用户问题，并在回答中自然引用来源编号（如"根据资料[1]..."）：\n\n${lines.join("\n\n")}\n`;
 }
 
 /** 构建高风险症状立即就医强提示消息 */
@@ -61,153 +77,6 @@ function buildEmergencyMessage(matched: string[], role: "patient" | "doctor" | "
     createdAt: Date.now(),
     hasDisclaimer: true,
   };
-}
-
-/** 需要收集的字段定义 */
-interface FieldDef {
-  key: string;
-  label: string;
-  /** 患者端提问话术（亲切、易懂）*/
-  patientPrompt: string;
-  /** 医生端提问话术（专业、简洁）*/
-  doctorPrompt: string;
-}
-
-/** 五大处方需要收集的字段 */
-const PRESCRIPTION_FIELDS: FieldDef[] = [
-  {
-    key: "age",
-    label: "年龄",
-    patientPrompt: "请问您今年多大年纪啦？",
-    doctorPrompt: "患者年龄？",
-  },
-  {
-    key: "gender",
-    label: "性别",
-    patientPrompt: "请问您是男性还是女性呀？",
-    doctorPrompt: "患者性别？",
-  },
-  {
-    key: "chiefComplaint",
-    label: "主要不适",
-    patientPrompt:
-      "您现在哪里不舒服呢？可以跟我详细说说，比如哪里疼、有什么症状？",
-    doctorPrompt: "主诉？",
-  },
-  {
-    key: "history",
-    label: "既往病史",
-    patientPrompt:
-      "您以前有没有得过什么慢性病呀？比如高血压、糖尿病这些？",
-    doctorPrompt: "既往病史？",
-  },
-  {
-    key: "currentMedications",
-    label: "当前用药",
-    patientPrompt: "您现在有没有在吃什么药呢？药名是什么呀？",
-    doctorPrompt: "当前用药方案？",
-  },
-  {
-    key: "allergies",
-    label: "过敏史",
-    patientPrompt: "您有没有对什么药物或者食物过敏的情况？",
-    doctorPrompt: "过敏史？",
-  },
-];
-
-/** CGA 评估需要收集的字段 */
-const CGA_FIELDS: FieldDef[] = [
-  {
-    key: "age",
-    label: "年龄",
-    patientPrompt: "请问您今年多大年纪啦？",
-    doctorPrompt: "患者年龄？",
-  },
-  {
-    key: "livingStatus",
-    label: "居住情况",
-    patientPrompt: "您现在是自己住还是和家人一起住呀？日常生活能自己照顾自己吗？",
-    doctorPrompt: "居住情况与ADL/IADL？",
-  },
-  {
-    key: "cognitive",
-    label: "认知状态",
-    patientPrompt: "您最近记忆力怎么样？有没有经常忘事的情况？",
-    doctorPrompt: "认知功能筛查结果？",
-  },
-  {
-    key: "mood",
-    label: "情绪状态",
-    patientPrompt: "最近心情怎么样？会不会经常觉得闷闷不乐或者焦虑？",
-    doctorPrompt: "情绪/抑郁筛查？",
-  },
-  {
-    key: "mobility",
-    label: "活动能力",
-    patientPrompt: "走路稳不稳？最近半年有没有摔倒过？",
-    doctorPrompt: "跌倒史与步态？",
-  },
-  {
-    key: "nutrition",
-    label: "营养状况",
-    patientPrompt: "最近吃饭怎么样？体重有没有明显变化？",
-    doctorPrompt: "营养评估（MNA-SF）？",
-  },
-];
-
-/** 用药审查需要收集的字段 */
-const DRUG_REVIEW_FIELDS: FieldDef[] = [
-  {
-    key: "drugs",
-    label: "用药清单",
-    patientPrompt:
-      "请把您正在吃的所有药告诉我好吗？包括药名、每次吃多少、一天吃几次。也可以上传药盒照片。",
-    doctorPrompt: "请输入或上传患者完整用药清单。",
-  },
-  {
-    key: "condition",
-    label: "诊断/病情",
-    patientPrompt: "这些药是治什么病的呀？医生当时怎么跟您说的？",
-    doctorPrompt: "患者诊断与用药目的？",
-  },
-  {
-    key: "symptoms",
-    label: "不良反应",
-    patientPrompt: "吃药之后有没有觉得哪里不舒服？比如头晕、恶心、皮疹这些？",
-    doctorPrompt: "有无不良反应或不适？",
-  },
-];
-
-/** 健康画像需要收集的字段（医生端查询患者档案；患者端直接展示自己的档案） */
-const HEALTH_PROFILE_FIELDS: FieldDef[] = [
-  {
-    key: "patientId",
-    label: "患者标识",
-    patientPrompt: "",
-    doctorPrompt: "请输入患者姓名或身份证号以查询健康档案。",
-  },
-  {
-    key: "confirmView",
-    label: "确认查看",
-    patientPrompt: "好的，您的健康档案如下，请过目。如果有需要补充或修改的信息，随时告诉我。",
-    doctorPrompt: "",
-  },
-];
-
-/** 获取某个功能需要收集的字段 */
-function getFieldsForAction(action: ChatActionType): FieldDef[] {
-  switch (action) {
-    case "prescription":
-      return PRESCRIPTION_FIELDS;
-    case "cga":
-      return CGA_FIELDS;
-    case "drug-review":
-      return DRUG_REVIEW_FIELDS;
-    case "health-profile":
-      return HEALTH_PROFILE_FIELDS;
-    default:
-      return [];
-  }
 }
 
 /** 获取功能的开场消息（患者端 vs 医生端不同话术）*/
@@ -241,22 +110,6 @@ function getOpeningMessage(
   }
 }
 
-/** 根据已收集的字段，模拟 AI 追问下一个缺失字段 */
-function getNextPrompt(
-  action: ChatActionType,
-  collectedKeys: Set<string>,
-  role: "patient" | "doctor" | "visitor"
-): string | null {
-  const fields = getFieldsForAction(action);
-  const isPatient = role !== "doctor";
-  for (const f of fields) {
-    if (!collectedKeys.has(f.key)) {
-      return isPatient ? f.patientPrompt : f.doctorPrompt;
-    }
-  }
-  return null;
-}
-
 /**
  * §3.3 中间聊天区
  * 弹性宽度，根据 mainView 切换显示聊天或技能管理
@@ -272,24 +125,27 @@ export function ChatArea() {
   const setMainView = useAppStore((s) => s.setMainView);
   const chatAction = useAppStore((s) => s.chatAction);
   const setChatAction = useAppStore((s) => s.setChatAction);
+  const setRightPanel = useAppStore((s) => s.setRightPanel);
+  const setPanelContent = useAppStore((s) => s.setPanelContent);
+  const appendPanelContent = useAppStore((s) => s.appendPanelContent);
   const sidebarCollapsed = useAppStore((s) => s.sidebarCollapsed);
   const seniorMode = useAppStore((s) => s.seniorMode);
   const isGenerating = useChatStore((s) => s.isGenerating);
   const setGenerating = useChatStore((s) => s.setGenerating);
   const messagesBySession = useChatStore((s) => s.messagesBySession);
   const addMessage = useChatStore((s) => s.addMessage);
+  const updateMessage = useChatStore((s) => s.updateMessage);
+  const removeMessage = useChatStore((s) => s.removeMessage);
+  const updateSession = useChatStore((s) => s.updateSession);
   const createSession = useChatStore((s) => s.createSession);
   const storeSessions = useChatStore((s) => s.sessions);
 
-  // 各功能已收集的字段（sessionId -> { fieldKey: value }）
-  const [collectedFields, setCollectedFields] = useState<
-    Record<string, Record<string, string>>
-  >({});
-  // 各会话功能模式下的对话轮次计数（sessionId -> count），§6.4 上限5轮
+  const abortControllerRef = useRef<AbortController | null>(null);
+
+  // 各会话功能模式下的对话轮次计数（sessionId -> count），上限5轮
   const [collectRounds, setCollectRounds] = useState<Record<string, number>>({});
-  /** 信息补全上限轮次（设计要求10轮，经用户确认调整为5轮以适配老年患者） */
   const MAX_COLLECT_ROUNDS = 5;
-  const actionInitRef = useRef<string | null>(null); // 记录是否已为当前 action 发送开场消息
+  const actionInitRef = useRef<string | null>(null);
 
   // CGA：当前会话已选择的评估量表（sessionId -> Scale.id）
   const [cgaSelectedScale, setCgaSelectedScale] = useState<
@@ -320,6 +176,14 @@ export function ChatArea() {
     const fromStore = storeSessions.find((s) => s.id === currentSessionId);
     return fromStore?.title ?? "";
   })();
+
+  /** 从消息中提取纯文本内容 */
+  const getTextFromMessage = (msg: Message): string => {
+    return msg.blocks
+      .filter((b): b is Extract<MessageBlock, { kind: "text" }> => b.kind === "text")
+      .map((b) => b.content)
+      .join("\n");
+  };
 
   useEffect(() => {
     if (!currentSessionId) return;
@@ -360,8 +224,7 @@ export function ChatArea() {
             {
               kind: "text",
               id: generateId("block"),
-              content:
-                "健康档案功能正在开发中，真实API将在后续任务接入。",
+              content: postprocessMedicalText("好的，您的健康档案如下，请过目。如果有需要补充或修改的信息，随时告诉我。"),
             },
           ],
           status: "done",
@@ -378,12 +241,112 @@ export function ChatArea() {
     if (actionInitRef.current === initKey) return;
     actionInitRef.current = initKey;
 
+    // prescription 和 drug-review 使用 LLM 生成开场消息
+    if (chatAction === "prescription" || chatAction === "drug-review") {
+      setGenerating(true);
+      setPanelContent("");
+      
+      const assistantMsgId = generateId("msg");
+      const assistantBlockId = generateId("block");
+      
+      let systemPrompt = "";
+      if (chatAction === "prescription") {
+        systemPrompt = role === "doctor"
+          ? "你是GerClaw老年科医生AI助手，正在协助医生生成五大处方。请专业简洁地开场，告诉医生你将通过对话收集患者信息，一次问1-2个关键问题。"
+          : "你是GerClaw老年科AI医生助手，正在为老年患者生成五大处方（药物处方、运动处方、营养处方、心理处方、康复处方）。请通过亲切自然的对话了解患者情况，像聊天一样一次只问1-2个问题，开场请先问候并了解基本情况（年龄、性别、主要不适）。";
+      } else {
+        systemPrompt = role === "doctor"
+          ? "你是GerClaw老年科医生AI助手，正在协助医生进行用药审查。请专业简洁地开场，告诉医生你需要了解用药清单（药名/剂量/频次）、诊断、不良反应等信息。"
+          : "你是GerClaw老年科AI医生助手，正在为老年患者进行用药审查。请亲切地开场，告诉患者你需要了解正在吃的药（药名、每次吃多少、一天吃几次）、治什么病、吃药后有没有不舒服。";
+      }
+
+      const llmMessages: LLMMessage[] = [
+        { role: "system", content: systemPrompt },
+        { role: "user", content: "开始" }
+      ];
+
+      const assistantMsg: Message = {
+        id: assistantMsgId,
+        sessionId: sid!,
+        role: "assistant",
+        blocks: [
+          {
+            kind: "text",
+            id: assistantBlockId,
+            content: "",
+            streaming: true,
+          },
+        ],
+        status: "streaming",
+        createdAt: Date.now(),
+        hasDisclaimer: false,
+      };
+      addMessage(assistantMsg);
+
+      setTimeout(() => {
+        setCollectRounds((prev) => ({ ...prev, [sid!]: 0 }));
+      }, 0);
+
+      abortControllerRef.current = new AbortController();
+
+      streamChat(
+        llmMessages,
+        { signal: abortControllerRef.current.signal },
+        {
+          onText: (_delta, fullText) => {
+            updateMessage(assistantMsgId, {
+              blocks: [
+                {
+                  kind: "text",
+                  id: assistantBlockId,
+                  content: fullText,
+                  streaming: true,
+                },
+              ],
+            });
+          },
+          onDone: (fullText) => {
+            abortControllerRef.current = null;
+            const finalContent = postprocessMedicalText(fullText);
+            updateMessage(assistantMsgId, {
+              status: "done",
+              blocks: [
+                {
+                  kind: "text",
+                  id: assistantBlockId,
+                  content: finalContent,
+                  streaming: false,
+                },
+              ],
+              hasDisclaimer: true,
+            });
+            setGenerating(false);
+          },
+          onError: () => {
+            abortControllerRef.current = null;
+            const fallbackContent = getOpeningMessage(chatAction, role);
+            updateMessage(assistantMsgId, {
+              status: "done",
+              blocks: [
+                {
+                  kind: "text",
+                  id: assistantBlockId,
+                  content: postprocessMedicalText(fallbackContent),
+                  streaming: false,
+                },
+              ],
+              hasDisclaimer: true,
+            });
+            setGenerating(false);
+          },
+        }
+      );
+      return;
+    }
+
+    // 其他功能暂时使用硬编码开场（保留原有逻辑）
     setGenerating(true);
     setTimeout(() => {
-      setCollectedFields((prev) => {
-        if (prev[sid!]) return prev;
-        return { ...prev, [sid!]: {} };
-      });
       const aiMsg: Message = {
         id: generateId("msg"),
         sessionId: sid!,
@@ -392,7 +355,7 @@ export function ChatArea() {
           {
             kind: "text",
             id: generateId("block"),
-            content: getOpeningMessage(chatAction, role),
+            content: postprocessMedicalText(getOpeningMessage(chatAction, role)),
           },
         ],
         status: "done",
@@ -402,7 +365,7 @@ export function ChatArea() {
       addMessage(aiMsg);
       setGenerating(false);
     }, 300);
-  }, [chatAction, currentSessionId, role, createSession, setCurrentSession, addMessage, setGenerating, cgaSelectedScale]);
+  }, [chatAction, currentSessionId, role, createSession, setCurrentSession, addMessage, setGenerating, cgaSelectedScale, setPanelContent, updateMessage, appendPanelContent]);
 
   // 技能管理视图
   if (mainView === "skills") {
@@ -430,19 +393,71 @@ export function ChatArea() {
     );
   }
 
+  /** 首次AI回复完成后自动设置会话标题 */
+  const trySetSessionTitle = (sid: string, firstUserText: string) => {
+    const session = storeSessions.find((s) => s.id === sid);
+    if (session && session.title === "新对话") {
+      const title = firstUserText.slice(0, 20);
+      updateSession(sid, { title });
+    }
+  };
+
+  /** 停止生成 */
+  const handleStop = () => {
+    if (abortControllerRef.current) {
+      abortControllerRef.current.abort();
+      abortControllerRef.current = null;
+    }
+    const messages = currentSessionId ? messagesBySession[currentSessionId] ?? [] : [];
+    const streamingMsg = messages.find((m) => m.status === "streaming");
+    if (streamingMsg) {
+      const blocks = streamingMsg.blocks.map((b) => {
+        if (b.kind === "text" && b.streaming) {
+          return { ...b, streaming: false };
+        }
+        return b;
+      });
+      updateMessage(streamingMsg.id, {
+        status: "stopped",
+        blocks,
+      });
+    }
+    setGenerating(false);
+  };
+
+  /** 重新生成 */
+  const handleRegenerate = (messageId: string) => {
+    if (!currentSessionId) return;
+    const messages = messagesBySession[currentSessionId] ?? [];
+    const aiMsgIndex = messages.findIndex((m) => m.id === messageId);
+    if (aiMsgIndex === -1) return;
+    
+    let userMsgIndex = aiMsgIndex - 1;
+    while (userMsgIndex >= 0 && messages[userMsgIndex].role !== "user") {
+      userMsgIndex--;
+    }
+    if (userMsgIndex < 0) return;
+    
+    const userMsg = messages[userMsgIndex];
+    const userText = getTextFromMessage(userMsg);
+    
+    const messagesToRemove = messages.slice(userMsgIndex + 1, aiMsgIndex + 1);
+    messagesToRemove.forEach((m) => removeMessage(m.id));
+    
+    doSend(currentSessionId, userText, true);
+  };
+
   const handleSend = (text: string) => {
     if (!currentSessionId) {
-      // 无会话时先创建
       const sid = createSession(role);
       setCurrentSession(sid);
-      // 延迟一下让会话创建完成再发送
       setTimeout(() => doSend(sid, text), 50);
       return;
     }
     doSend(currentSessionId, text);
   };
 
-  const doSend = (sid: string, text: string) => {
+  const doSend = (sid: string, text: string, isRegenerate = false) => {
     const userMsg: Message = {
       id: generateId("msg"),
       sessionId: sid,
@@ -451,182 +466,441 @@ export function ChatArea() {
       status: "done",
       createdAt: Date.now(),
     };
-    addMessage(userMsg);
+    if (!isRegenerate) {
+      addMessage(userMsg);
+    }
     setGenerating(true);
 
     const highRisk = detectHighRiskSymptoms(text);
-    if (highRisk.length > 0) {
-      setTimeout(() => {
-        const emMsg = buildEmergencyMessage(highRisk, role);
-        emMsg.sessionId = sid;
-        addMessage(emMsg);
-        setGenerating(false);
-      }, 300);
-      return;
+    const hasHighRisk = highRisk.length > 0;
+
+    if (hasHighRisk) {
+      const emMsg = buildEmergencyMessage(highRisk, role);
+      emMsg.sessionId = sid;
+      addMessage(emMsg);
     }
 
-    if (chatAction !== "none") {
-      setTimeout(() => {
-        const prev = collectedFields[sid] ?? {};
-        const collected = { ...prev };
-        const fields = getFieldsForAction(chatAction);
+    if (chatAction !== "none" && chatAction !== "cga") {
+      const newRound = (collectRounds[sid] ?? 0) + 1;
+      setCollectRounds((prev) => ({ ...prev, [sid]: newRound }));
 
-        if (fields.find((f) => f.key === "age")) {
-          const ageMatch = text.match(/(\d{2})\s*岁/);
-          if (ageMatch) collected.age = ageMatch[1];
-          if (/\d{2}/.test(text) && !collected.age) {
-            const m = text.match(/(\d{2})/);
-            if (m && parseInt(m[1]) >= 40 && parseInt(m[1]) <= 120) {
-              collected.age = m[1];
+      const assistantMsgId = generateId("msg");
+      const assistantBlockId = generateId("block");
+
+      const assistantMsg: Message = {
+        id: assistantMsgId,
+        sessionId: sid,
+        role: "assistant",
+        blocks: [
+          {
+            kind: "text",
+            id: assistantBlockId,
+            content: "",
+            streaming: true,
+          },
+        ],
+        status: "streaming",
+        createdAt: Date.now(),
+        hasDisclaimer: false,
+      };
+      addMessage(assistantMsg);
+
+      const sessionMessages = messagesBySession[sid] ?? [];
+      const recentMessages = sessionMessages.slice(-20);
+
+      const buildActionMessages = (): LLMMessage[] => {
+        const llmMessages: LLMMessage[] = [];
+        
+        let systemPrompt = "";
+        const forceGenerate = newRound >= MAX_COLLECT_ROUNDS;
+        
+        if (chatAction === "prescription") {
+          systemPrompt = role === "doctor"
+            ? `你是GerClaw老年科医生AI助手，正在协助医生生成五大处方（药物处方、运动处方、营养处方、心理处方、康复处方）。请通过对话收集患者信息，一次只问1-2个关键问题。
+当你认为收集到足够信息（年龄、性别、主要不适、既往病史、当前用药、过敏史）后，在回复末尾输出特殊标记 [生成处方]，然后生成完整的Markdown格式五大处方报告。
+报告结构：# 五大处方建议 ## 一、药物处方 ## 二、运动处方 ## 三、营养处方 ## 四、心理处方 ## 五、康复处方，每个处方给出具体可执行的建议，包含循证依据和注意事项。
+${forceGenerate ? "重要：已达到对话轮次上限，请立即输出 [生成处方] 标记并生成完整报告。" : ""}`
+            : `你是GerClaw老年科AI医生助手，正在为老年患者生成五大处方（药物处方、运动处方、营养处方、心理处方、康复处方）。请通过亲切自然的对话了解患者情况，像聊天一样一次只问1-2个问题。
+当你收集到足够信息（年龄、性别、主要不适、既往病史、当前用药、过敏史）后，在回复末尾输出特殊标记 [生成处方]，然后生成完整的Markdown格式五大处方报告。
+报告结构：# 五大处方建议 ## 一、药物处方 ## 二、运动处方 ## 三、营养处方 ## 四、心理处方 ## 五、康复处方，每个处方给出具体可执行的建议。
+${forceGenerate ? "重要：已达到对话轮次上限，请立即输出 [生成处方] 标记并生成完整报告。" : ""}`;
+        } else if (chatAction === "drug-review") {
+          systemPrompt = role === "doctor"
+            ? `你是GerClaw老年科医生AI助手，正在协助医生进行用药审查。请通过对话收集用药信息（药名/剂量/频次、诊断、不良反应），一次只问1-2个关键问题。
+当你认为收集到足够信息后，在回复末尾输出特殊标记 [生成审查]，然后生成结构化的Markdown审查报告。
+报告必须以"⚠️ AI辅助用药审查仅供参考，不替代专业药师/医生判断。用药调整请遵医嘱。"开头。
+报告结构：# 用药审查报告 ## 一、用药汇总 ## 二、潜在相互作用提示 ## 三、Beers标准提醒 ## 四、剂量建议 ## 五、就医建议。
+${forceGenerate ? "重要：已达到对话轮次上限，请立即输出 [生成审查] 标记并生成完整报告。" : ""}`
+            : `你是GerClaw老年科AI医生助手，正在为老年患者进行用药审查。请通过亲切自然的对话了解用药情况（药名/剂量/频次、治什么病、有没有不舒服），一次只问1-2个问题。
+当你收集到足够信息后，在回复末尾输出特殊标记 [生成审查]，然后生成结构化的Markdown审查报告。
+报告必须以"⚠️ AI辅助用药审查仅供参考，不替代专业药师/医生判断。用药调整请遵医嘱。"开头。
+报告结构：# 用药审查报告 ## 一、用药汇总 ## 二、潜在相互作用提示 ## 三、老年人用药提醒 ## 四、建议 ## 五、就医提示。
+${forceGenerate ? "重要：已达到对话轮次上限，请立即输出 [生成审查] 标记并生成完整报告。" : ""}`;
+        }
+
+        llmMessages.push({ role: "system", content: systemPrompt });
+
+        for (const msg of recentMessages) {
+          if (msg.id === assistantMsgId) continue;
+          if (msg.role === "user") {
+            llmMessages.push({ role: "user", content: getTextFromMessage(msg) });
+          } else if (msg.role === "assistant") {
+            const msgText = getTextFromMessage(msg);
+            if (msgText) {
+              llmMessages.push({ role: "assistant", content: msgText });
             }
           }
         }
-        if (fields.find((f) => f.key === "gender")) {
-          if (/女|女性|女士|妈妈|奶奶|婆婆/.test(text)) collected.gender = "女";
-          else if (/男|男性|先生|爸爸|爷爷/.test(text)) collected.gender = "男";
-        }
-        if (fields.find((f) => f.key === "chiefComplaint")) {
-          if (text.length > 4 && !collected.chiefComplaint) {
-            collected.chiefComplaint = text.slice(0, 30);
-          }
-        }
-        if (fields.find((f) => f.key === "drugs")) {
-          if (!collected.drugs) collected.drugs = text.slice(0, 50);
-        }
-        if (fields.find((f) => f.key === "patientId")) {
-          if (!collected.patientId) collected.patientId = text.trim();
-        }
+        return llmMessages;
+      };
 
-        setCollectedFields((prev2) => ({ ...prev2, [sid]: collected }));
-        const newRound = (collectRounds[sid] ?? 0) + 1;
-        setCollectRounds((prev) => ({ ...prev, [sid]: newRound }));
+      const finishMarker = chatAction === "prescription" ? "[生成处方]" : "[生成审查]";
+      const panelType = chatAction as "prescription" | "drug-review";
+      const buttonLabel = chatAction === "prescription" ? "查看完整处方" : "查看审查结果";
 
-        const collectedSet = new Set(
-          Object.keys(collected).filter((k) => collected[k])
-        );
+      abortControllerRef.current = new AbortController();
 
-        let nextPrompt = getNextPrompt(chatAction, collectedSet, role);
-        const reachedLimit = newRound >= MAX_COLLECT_ROUNDS;
-        if (nextPrompt && reachedLimit) {
-          nextPrompt = null;
-        }
-
-        let replyContent: string;
-        let willFinish = false;
-
-        if (nextPrompt) {
-          const collectedList = Object.entries(collected)
-            .filter(([, v]) => v)
-            .map(([k, v]) => {
-              const f = fields.find((ff) => ff.key === k);
-              return f ? `${f.label}：${v}` : "";
-            })
-            .filter(Boolean)
-            .join("、");
-          const prefix = collectedList
-            ? role === "doctor"
-              ? `已记录：${collectedList}。`
-              : `好的，我已经记录了：${collectedList}。`
-            : role === "doctor"
-              ? "收到。"
-              : "好的，我收到了。";
-          replyContent = `${prefix}\n\n${nextPrompt}`;
-        } else {
-          willFinish = true;
-          replyContent =
-            role === "doctor"
-              ? "信息收集完毕，真实API接入后将生成结果（Task 3 接入）。"
-              : "好的，您的信息我都了解了，真实API接入后将生成建议（Task 3 接入）。";
-        }
-
-        const aiMsg: Message = {
-          id: generateId("msg"),
-          sessionId: sid,
-          role: "assistant",
-          blocks: [
-            {
-              kind: "text",
-              id: generateId("block"),
-              content: replyContent,
-            },
-          ],
-          status: "done",
-          createdAt: Date.now(),
-          hasDisclaimer: true,
-        };
-        addMessage(aiMsg);
-        setGenerating(false);
-
-        if (willFinish) {
-          setTimeout(() => {
-            const panelType = chatAction as
-              | "prescription"
-              | "cga"
-              | "health-profile"
-              | "drug-review";
-            const panelLabels: Record<string, string> = {
-              prescription: "查看完整处方",
-              cga: "查看评估报告",
-              "health-profile": "查看健康画像",
-              "drug-review": "查看审查结果",
-            };
-            const summaryText =
-              role === "doctor"
-                ? "信息已收集，真实报告生成功能将在后续任务中接入。"
-                : "您的信息已记录，完整建议功能将在后续任务中接入。";
-            const summaryMsg: Message = {
-              id: generateId("msg"),
-              sessionId: sid,
-              role: "assistant",
+      streamChat(
+        buildActionMessages(),
+        { signal: abortControllerRef.current.signal },
+        {
+          onText: (_delta, fullText) => {
+            updateMessage(assistantMsgId, {
               blocks: [
                 {
                   kind: "text",
-                  id: generateId("block"),
-                  content: summaryText,
-                },
-                {
-                  kind: "action",
-                  id: generateId("block"),
-                  summary:
-                    role === "doctor"
-                      ? "信息已收集，等待真实API接入。"
-                      : "信息已记录，等待真实API接入。",
-                  buttonLabel: panelLabels[panelType] ?? "查看完整报告",
-                  panelType,
+                  id: assistantBlockId,
+                  content: fullText,
+                  streaming: true,
                 },
               ],
+            });
+          },
+          onDone: (fullText) => {
+            abortControllerRef.current = null;
+            
+            const hasFinishMarker = fullText.includes(finishMarker);
+            let replyText = fullText;
+            let reportContent = "";
+            
+            if (hasFinishMarker) {
+              const parts = fullText.split(finishMarker);
+              replyText = parts[0].trim();
+              reportContent = parts.slice(1).join(finishMarker).trim();
+            }
+
+            const finalReplyContent = postprocessMedicalText(replyText);
+            updateMessage(assistantMsgId, {
               status: "done",
-              createdAt: Date.now(),
+              blocks: [
+                {
+                  kind: "text",
+                  id: assistantBlockId,
+                  content: finalReplyContent,
+                  streaming: false,
+                },
+              ],
               hasDisclaimer: true,
-            };
-            addMessage(summaryMsg);
-            const { setRightPanel } = useAppStore.getState();
-            setRightPanel(panelType);
-            setChatAction("none");
-          }, 500);
+            });
+
+            if (hasFinishMarker || newRound >= MAX_COLLECT_ROUNDS) {
+              setRightPanel(panelType);
+              setPanelContent("");
+              setGenerating(true);
+
+              const generateReport = async () => {
+                let reportSystemPrompt = "";
+                if (chatAction === "prescription") {
+                  reportSystemPrompt = role === "doctor"
+                    ? "你是GerClaw老年科医生AI助手。请基于之前的对话信息，生成一份完整、专业、结构化的Markdown格式五大处方报告（药物处方、运动处方、营养处方、心理处方、康复处方），包含循证依据和注意事项。每个处方给出具体可执行的建议。报告末尾附上医疗免责声明。"
+                    : "你是GerClaw老年科AI医生助手。请基于之前的对话信息，生成一份完整、亲切、易懂的Markdown格式五大处方报告（药物处方、运动处方、营养处方、心理处方、康复处方），用简单易懂的语言给出具体可执行的建议。报告末尾附上医疗免责声明。";
+                } else {
+                  reportSystemPrompt = role === "doctor"
+                    ? `你是GerClaw老年科医生AI助手。请基于之前的对话信息，生成一份专业的Markdown格式用药审查报告。
+报告必须以"⚠️ AI辅助用药审查仅供参考，不替代专业药师/医生判断。用药调整请遵医嘱。"开头。
+报告结构：# 用药审查报告 ## 一、用药汇总 ## 二、潜在相互作用提示 ## 三、Beers标准提醒 ## 四、剂量建议 ## 五、就医建议。
+报告末尾附上医疗免责声明。`
+                    : `你是GerClaw老年科AI医生助手。请基于之前的对话信息，生成一份易懂的Markdown格式用药审查报告。
+报告必须以"⚠️ AI辅助用药审查仅供参考，不替代专业药师/医生判断。用药调整请遵医嘱。"开头。
+报告结构：# 用药审查报告 ## 一、您正在吃的药 ## 二、需要注意的问题 ## 三、老年人用药提醒 ## 四、给您的建议 ## 五、什么时候需要看医生。
+报告末尾附上医疗免责声明。`;
+                }
+
+                const reportMessages: LLMMessage[] = [
+                  { role: "system", content: reportSystemPrompt },
+                ];
+                
+                for (const msg of recentMessages) {
+                  if (msg.role === "user") {
+                    reportMessages.push({ role: "user", content: getTextFromMessage(msg) });
+                  } else if (msg.role === "assistant") {
+                    const msgText = getTextFromMessage(msg);
+                    if (msgText) {
+                      reportMessages.push({ role: "assistant", content: msgText });
+                    }
+                  }
+                }
+                
+                if (reportContent) {
+                  reportMessages.push({ role: "assistant", content: reportContent });
+                }
+                reportMessages.push({ role: "user", content: "请生成完整报告。" });
+
+                let isFirstChunk = true;
+                let accumulatedReport = reportContent;
+                
+                abortControllerRef.current = new AbortController();
+                
+                streamChat(
+                  reportMessages,
+                  { signal: abortControllerRef.current.signal },
+                  {
+                    onText: (delta, fullText) => {
+                      if (isFirstChunk) {
+                        setPanelContent(fullText);
+                        isFirstChunk = false;
+                        accumulatedReport = fullText;
+                      } else {
+                        appendPanelContent(delta);
+                        accumulatedReport += delta;
+                      }
+                    },
+                    onDone: () => {
+                      abortControllerRef.current = null;
+                      const finalReport = postprocessMedicalText(accumulatedReport);
+                      setPanelContent(finalReport);
+                      
+                      const summaryMsg: Message = {
+                        id: generateId("msg"),
+                        sessionId: sid,
+                        role: "assistant",
+                        blocks: [
+                          {
+                            kind: "text",
+                            id: generateId("block"),
+                            content: chatAction === "prescription"
+                              ? (role === "doctor" ? "五大处方已生成，请在右侧面板查看。" : "您的五大处方建议已经生成好啦，请点击右侧面板查看完整内容哦～")
+                              : (role === "doctor" ? "用药审查报告已生成，请在右侧面板查看。" : "您的用药审查结果已经生成好啦，请点击右侧面板查看完整内容哦～"),
+                          },
+                          {
+                            kind: "action",
+                            id: generateId("block"),
+                            summary: chatAction === "prescription" ? "处方已生成" : "审查已完成",
+                            buttonLabel,
+                            panelType,
+                          },
+                        ],
+                        status: "done",
+                        createdAt: Date.now(),
+                        hasDisclaimer: true,
+                      };
+                      addMessage(summaryMsg);
+                      setGenerating(false);
+                      setChatAction("none");
+                    },
+                    onError: () => {
+                      abortControllerRef.current = null;
+                      const fallbackReport = reportContent || (chatAction === "prescription" 
+                        ? "# 五大处方建议\n\n## 一、药物处方\n请遵医嘱按时服药，注意观察用药反应。\n\n## 二、运动处方\n建议每天进行30分钟温和运动，如散步、太极拳。\n\n## 三、营养处方\n均衡饮食，多吃蔬菜水果，适量蛋白质。\n\n## 四、心理处方\n保持心情愉悦，多与家人朋友交流。\n\n## 五、康复处方\n根据身体状况循序渐进地进行康复训练。"
+                        : "# 用药审查报告\n\n⚠️ AI辅助用药审查仅供参考，不替代专业药师/医生判断。用药调整请遵医嘱。\n\n## 一、用药汇总\n请核对您的用药清单。\n\n## 二、潜在相互作用提示\n建议咨询专业药师。\n\n## 三、老年人用药提醒\n注意用药剂量，避免多重用药。\n\n## 四、建议\n定期复查，遵医嘱调整用药。\n\n## 五、就医建议\n如有不适请及时就医。");
+                      const finalReport = postprocessMedicalText(fallbackReport);
+                      setPanelContent(finalReport);
+                      
+                      const summaryMsg: Message = {
+                        id: generateId("msg"),
+                        sessionId: sid,
+                        role: "assistant",
+                        blocks: [
+                          {
+                            kind: "text",
+                            id: generateId("block"),
+                            content: chatAction === "prescription"
+                              ? "五大处方已生成，请在右侧面板查看。"
+                              : "用药审查报告已生成，请在右侧面板查看。",
+                          },
+                          {
+                            kind: "action",
+                            id: generateId("block"),
+                            summary: chatAction === "prescription" ? "处方已生成" : "审查已完成",
+                            buttonLabel,
+                            panelType,
+                          },
+                        ],
+                        status: "done",
+                        createdAt: Date.now(),
+                        hasDisclaimer: true,
+                      };
+                      addMessage(summaryMsg);
+                      setGenerating(false);
+                      setChatAction("none");
+                    },
+                  }
+                );
+              };
+
+              generateReport();
+            } else {
+              setGenerating(false);
+            }
+          },
+          onError: (error) => {
+            abortControllerRef.current = null;
+            const errorContent = postprocessMedicalText(`抱歉，发生了错误：${error.message}`);
+            updateMessage(assistantMsgId, {
+              status: "error",
+              blocks: [
+                {
+                  kind: "text",
+                  id: assistantBlockId,
+                  content: errorContent,
+                  streaming: false,
+                },
+              ],
+              hasDisclaimer: true,
+            });
+            setGenerating(false);
+          },
         }
-      }, 500);
+      );
+      return;
+    }
+
+    const assistantMsgId = generateId("msg");
+    const assistantBlockId = generateId("block");
+    const searchBlockId = generateId("block");
+    const needSearch = detectSearchNeed(text);
+
+    const assistantMsg: Message = {
+      id: assistantMsgId,
+      sessionId: sid,
+      role: "assistant",
+      blocks: [
+        {
+          kind: "text",
+          id: assistantBlockId,
+          content: "",
+          streaming: true,
+        },
+      ],
+      status: "streaming",
+      createdAt: Date.now(),
+      hasDisclaimer: false,
+    };
+    addMessage(assistantMsg);
+
+    const sessionMessages = messagesBySession[sid] ?? [];
+    const recentMessages = sessionMessages.slice(-40);
+
+    const buildLLMMessages = (searchContext: string): LLMMessage[] => {
+      const llmMessages: LLMMessage[] = [];
+      let systemPrompt = buildSystemPrompt(role);
+      if (hasHighRisk) {
+        systemPrompt += "\n\n重要提示：用户提到了高风险症状，你已经发送了紧急就医提示，请继续温和地安抚用户并强调立即就医的重要性，不要给出其他医疗建议。";
+      }
+      if (searchContext) {
+        systemPrompt += searchContext;
+      }
+      llmMessages.push({ role: "system", content: systemPrompt });
+
+      for (const msg of recentMessages) {
+        if (msg.id === assistantMsgId) continue;
+        if (msg.role === "user") {
+          llmMessages.push({ role: "user", content: getTextFromMessage(msg) });
+        } else if (msg.role === "assistant") {
+          const msgText = getTextFromMessage(msg);
+          if (msgText) {
+            llmMessages.push({ role: "assistant", content: msgText });
+          }
+        }
+      }
+      return llmMessages;
+    };
+
+    const buildBlocksWithText = (
+      textContent: string,
+      isStreaming: boolean,
+      searchResults?: SearchResultItem[]
+    ): MessageBlock[] => {
+      const blocks: MessageBlock[] = [];
+      if (searchResults && searchResults.length > 0) {
+        blocks.push({
+          kind: "search_results",
+          id: searchBlockId,
+          data: searchResults,
+        });
+      }
+      blocks.push({
+        kind: "text",
+        id: assistantBlockId,
+        content: textContent,
+        streaming: isStreaming,
+      });
+      return blocks;
+    };
+
+    const startStreaming = (searchResults: SearchResultItem[]) => {
+      const searchContext = formatSearchResultsForLLM(searchResults);
+      const llmMessages = buildLLMMessages(searchContext);
+
+      if (searchResults.length > 0) {
+        updateMessage(assistantMsgId, {
+          blocks: buildBlocksWithText("", true, searchResults),
+        });
+      }
+
+      abortControllerRef.current = new AbortController();
+
+      streamChat(
+        llmMessages,
+        { signal: abortControllerRef.current.signal },
+        {
+          onText: (_delta, fullText) => {
+            updateMessage(assistantMsgId, {
+              blocks: buildBlocksWithText(fullText, true, searchResults.length > 0 ? searchResults : undefined),
+            });
+          },
+          onDone: (fullText) => {
+            abortControllerRef.current = null;
+            const finalContent = postprocessMedicalText(fullText);
+            updateMessage(assistantMsgId, {
+              status: "done",
+              blocks: buildBlocksWithText(finalContent, false, searchResults.length > 0 ? searchResults : undefined),
+              hasDisclaimer: true,
+            });
+            setGenerating(false);
+
+            if (!isRegenerate) {
+              const sessionMsgs = messagesBySession[sid] ?? [];
+              const firstUserMsg = sessionMsgs.find((m) => m.role === "user");
+              if (firstUserMsg) {
+                trySetSessionTitle(sid, getTextFromMessage(firstUserMsg));
+              }
+            }
+          },
+          onError: (error) => {
+            abortControllerRef.current = null;
+            const errorContent = postprocessMedicalText(`抱歉，发生了错误：${error.message}`);
+            updateMessage(assistantMsgId, {
+              status: "error",
+              blocks: buildBlocksWithText(errorContent, false, searchResults.length > 0 ? searchResults : undefined),
+              hasDisclaimer: true,
+            });
+            setGenerating(false);
+          },
+        }
+      );
+    };
+
+    if (needSearch) {
+      search(text)
+        .then((results) => {
+          startStreaming(results);
+        })
+        .catch(() => {
+          startStreaming([]);
+        });
     } else {
-      setTimeout(() => {
-        const aiMsg: Message = {
-          id: generateId("msg"),
-          sessionId: sid,
-          role: "assistant",
-          blocks: [
-            {
-              kind: "text",
-              id: generateId("block"),
-              content:
-                "正在等待真实API接入，LLM对话功能将在Task 3中实现。",
-            },
-          ],
-          status: "done",
-          createdAt: Date.now(),
-          hasDisclaimer: true,
-        };
-        addMessage(aiMsg);
-        setGenerating(false);
-      }, 500);
+      startStreaming([]);
     }
   };
 
@@ -689,12 +963,6 @@ export function ChatArea() {
         return next;
       });
       setCgaCompleted((prev) => {
-        if (!prev[currentSessionId]) return prev;
-        const next = { ...prev };
-        delete next[currentSessionId];
-        return next;
-      });
-      setCollectedFields((prev) => {
         if (!prev[currentSessionId]) return prev;
         const next = { ...prev };
         delete next[currentSessionId];
@@ -764,12 +1032,116 @@ export function ChatArea() {
     if (!currentSessionId || !selectedScaleObj) return;
     const idx = cgaCurrentIndex[currentSessionId] ?? 0;
     if (idx >= selectedScaleObj.questions.length - 1) {
-      // 已是最后一题且已作答，完成评估
       setCgaCompleted((prev) => ({ ...prev, [currentSessionId]: true }));
-      setTimeout(() => {
-        const { setRightPanel } = useAppStore.getState();
-        setRightPanel("cga");
-      }, 600);
+      
+      // 计算得分并生成AI解读
+      const answers = cgaAnswers[currentSessionId] ?? {};
+      let totalScore = 0;
+      const answerDetails: string[] = [];
+      
+      selectedScaleObj.questions.forEach((q) => {
+        const answerValue = answers[q.id] as number | undefined;
+        const score = answerValue ?? 0;
+        totalScore += score;
+        
+        const selectedOption = q.options?.find((o) => o.value === score);
+        answerDetails.push(
+          `- ${q.text}\n  回答：${selectedOption?.label ?? "未作答"}（${score}分）`
+        );
+      });
+
+      let level = "";
+      let interpretation = "";
+      for (const threshold of selectedScaleObj.grading.thresholds) {
+        if (totalScore <= threshold.max) {
+          level = threshold.level;
+          interpretation = threshold.interpretation;
+          break;
+        }
+      }
+
+      const phq9SuicideRisk = !!(selectedScaleObj.id === "scale_phq9" && (answers["phq9_9"] as number | undefined) && (answers["phq9_9"] as number) > 0);
+
+      setRightPanel("cga");
+      setPanelContent("");
+      setGenerating(true);
+
+      const cgaSystemPrompt = role === "doctor"
+        ? `你是GerClaw老年科医生AI助手，正在解读${selectedScaleObj.fullName}（${selectedScaleObj.name}）评估结果。
+请基于患者的答题结果，给出专业的评估解读：
+1. 得分与分级说明
+2. 各维度/题目分析
+3. 针对性的临床建议
+4. 随访建议
+${phq9SuicideRisk ? "⚠️ 重要：PHQ-9第9题（自杀意念）得分>0，必须强烈建议立即就医评估，并给出心理危机干预热线：全国心理危机干预热线 400-161-9995，北京心理危机研究与干预中心 010-82951332。" : ""}
+请用Markdown格式输出，结构清晰，包含循证依据参考。报告末尾附上医疗免责声明。`
+        : `你是GerClaw老年科AI医生助手，正在为老年患者解读${selectedScaleObj.fullName}（${selectedScaleObj.name}）评估结果。
+请用亲切、易懂的语言为老人解释评估结果：
+1. 您的得分情况说明
+2. 各项回答的分析（用简单的话讲）
+3. 给您的具体建议
+4. 什么时候需要看医生
+${phq9SuicideRisk ? "⚠️ 重要：您在最后一题提到了伤害自己的想法，请务必立即告诉家人或医生，也可以拨打心理危机干预热线：400-161-9995（全国）或 010-82951332（北京），会有人24小时帮助您。" : ""}
+请用Markdown格式输出，语言温暖、易懂，避免专业术语。报告末尾附上医疗免责声明。`;
+
+      const cgaPromptText = `量表名称：${selectedScaleObj.fullName}（${selectedScaleObj.name}）
+总分：${totalScore} 分
+分级：${level}（${interpretation}）
+
+各题回答详情：
+${answerDetails.join("\n")}
+
+请基于以上信息生成完整的评估解读报告。`;
+
+      const cgaMessages: LLMMessage[] = [
+        { role: "system", content: cgaSystemPrompt },
+        { role: "user", content: cgaPromptText },
+      ];
+
+      abortControllerRef.current = new AbortController();
+
+      streamChat(
+        cgaMessages,
+        { signal: abortControllerRef.current.signal },
+        {
+          onText: (delta, fullText) => {
+            setPanelContent(fullText);
+          },
+          onDone: (fullText) => {
+            abortControllerRef.current = null;
+            const finalReport = postprocessMedicalText(fullText, { isSuicideRisk: phq9SuicideRisk });
+            setPanelContent(finalReport);
+            setGenerating(false);
+          },
+          onError: () => {
+            abortControllerRef.current = null;
+            const fallbackReport = `# ${selectedScaleObj.fullName}评估结果
+
+## 得分情况
+- 总分：**${totalScore} 分**
+- 分级：**${level}**
+- ${interpretation}
+
+## 各题回答
+${answerDetails.join("\n")}
+
+## 建议
+${phq9SuicideRisk 
+  ? "⚠️ **重要提示**：您在评估中提到了伤害自己的想法，请立即告诉家人或医生，或拨打心理危机干预热线：\n- 全国心理危机干预热线：400-161-9995\n- 北京心理危机研究与干预中心：010-82951332"
+  : level.includes("重度") || level.includes("障碍")
+    ? "建议您尽快就医，寻求专业医生的帮助。"
+    : level.includes("中度")
+      ? "建议您关注相关症状，必要时咨询专业医生。"
+      : "您的评估结果基本正常，建议保持健康的生活方式，定期复查。"
+}
+
+${MEDICAL_DISCLAIMER}`;
+            setPanelContent(postprocessMedicalText(fallbackReport));
+            setGenerating(false);
+          },
+        }
+      );
+      
       return;
     }
     setCgaCurrentIndex((prev) => ({
@@ -796,12 +1168,6 @@ export function ChatArea() {
     chatAction === "cga" &&
     !!currentSessionId &&
     !!cgaCompleted[currentSessionId];
-
-  // 当前会话已收集的字段
-  const currentCollected = currentSessionId
-    ? collectedFields[currentSessionId] ?? {}
-    : {};
-  const fields = getFieldsForAction(chatAction);
 
   const selectedScaleObj =
     chatAction === "cga" && currentSessionId
@@ -1051,7 +1417,7 @@ export function ChatArea() {
               评估完成
             </h2>
             <p className={cn("text-muted-foreground mb-6", seniorMode ? "text-lg" : "text-base")}>
-              {selectedScaleObj.fullName} 已完成，评估结果已生成在右侧面板。
+              {selectedScaleObj.fullName} 已完成，评估结果已生成。
             </p>
             <div className="flex items-center justify-center gap-3">
               <button
@@ -1066,20 +1432,20 @@ export function ChatArea() {
               </button>
               <button
                 type="button"
-                onClick={handleExitAction}
+                onClick={() => setRightPanel("cga")}
                 className={cn(
                   "px-4 py-2 rounded-md bg-primary text-primary-foreground text-sm hover:bg-primary/90",
                   seniorMode && "text-base py-3 px-6"
                 )}
               >
-                完成
+                查看评估报告 →
               </button>
             </div>
           </div>
         </div>
       ) : (
         <div className="flex-1 min-h-0 overflow-y-auto">
-          {messages.length > 0 && <MessageList messages={messages} />}
+          {messages.length > 0 && <MessageList messages={messages} onRegenerate={handleRegenerate} />}
 
           {/* 功能模式：AI 正在生成时的加载提示 */}
           {chatAction !== "none" && isGenerating && (
@@ -1087,57 +1453,6 @@ export function ChatArea() {
               <div className="flex items-center gap-2 text-sm text-muted-foreground">
                 <Loader2 className="size-4 animate-spin" />
                 AI 正在分析…
-              </div>
-            </div>
-          )}
-
-          {/* 功能模式底部进度条（非生成状态时显示，仅非 CGA 功能）*/}
-          {chatAction !== "none" && chatAction !== "cga" && !isGenerating && fields.length > 0 && (
-            <div className="border-t border-border/60 bg-muted/20 px-4 py-3">
-              <div className="max-w-3xl mx-auto">
-                <div className="flex items-center justify-between mb-2">
-                  <span className="text-sm font-medium">
-                    {actionTitles[chatAction]} — 信息收集进度
-                    <span className="text-xs text-muted-foreground ml-2">
-                      （第 {(collectRounds[currentSessionId!] ?? 0)} / {MAX_COLLECT_ROUNDS} 轮）
-                    </span>
-                  </span>
-                  <button
-                    type="button"
-                    onClick={handleExitAction}
-                    className="text-xs text-muted-foreground hover:text-foreground"
-                  >
-                    退出
-                  </button>
-                </div>
-                <div className="flex flex-wrap gap-2">
-                  {fields.map((f) => {
-                    const filled = !!currentCollected[f.key];
-                    return (
-                      <div
-                        key={f.key}
-                        className={cn(
-                          "inline-flex items-center gap-1 rounded-full px-2.5 py-1 text-xs border",
-                          filled
-                            ? "bg-primary/10 border-primary/30 text-primary"
-                            : "bg-muted border-border text-muted-foreground"
-                        )}
-                      >
-                        {filled ? (
-                          <CheckCircle2 className="size-3" />
-                        ) : (
-                          <Circle className="size-3" />
-                        )}
-                        {f.label}
-                      </div>
-                    );
-                  })}
-                </div>
-                <p className="text-xs text-muted-foreground mt-2">
-                  {role === "doctor"
-                    ? "请继续提供患者信息，系统将自动提取缺失字段。信息充分后自动生成结果。"
-                    : "您可以继续跟我聊天或者上传病历、检查报告，缺少的信息我会主动问您～"}
-                </p>
               </div>
             </div>
           )}
@@ -1149,7 +1464,7 @@ export function ChatArea() {
         <ChatInput
           onSend={handleSend}
           isGenerating={isGenerating}
-          onStop={() => setGenerating(false)}
+          onStop={handleStop}
         />
       )}
 

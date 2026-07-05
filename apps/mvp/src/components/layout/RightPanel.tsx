@@ -6,6 +6,7 @@ import { Button } from "@/components/ui/button";
 import { Separator } from "@/components/ui/separator";
 import { useAppStore } from "@/stores/appStore";
 import { cn } from "@/lib/utils";
+import { MarkdownRenderer } from "@/components/chat/MarkdownRenderer";
 import { PrescriptionEntry } from "@/components/prescription/PrescriptionEntry";
 import { ScaleSelector } from "@/components/cga/ScaleSelector";
 import { CGAReport } from "@/components/cga/CGAReport";
@@ -49,6 +50,7 @@ export function RightPanel() {
   const rightPanelWidth = useAppStore((s) => s.rightPanelWidth);
   const closeRightPanel = useAppStore((s) => s.closeRightPanel);
   const setRightPanelWidth = useAppStore((s) => s.setRightPanelWidth);
+  const panelContent = useAppStore((s) => s.panelContent);
 
   const draggingRef = useRef(false);
 
@@ -130,13 +132,13 @@ export function RightPanel() {
 
         {/* 内容（可二次编辑：所有结果文字支持 contentEditable）*/}
         <div
-          className="flex-1 min-h-0 overflow-y-auto"
+          className="flex-1 min-h-0 overflow-y-auto p-4"
           contentEditable
           suppressContentEditableWarning
           aria-label="结果内容（可编辑）"
           title="可直接编辑文字内容"
         >
-          <PanelContent type={rightPanelType} />
+          <PanelContent type={rightPanelType} panelContent={panelContent} />
         </div>
       </aside>
     </>
@@ -144,7 +146,7 @@ export function RightPanel() {
 }
 
 /** 根据 type 渲染对应面板内容 */
-function PanelContent({ type }: { type: NonNullable<RightPanelType> }) {
+function PanelContent({ type, panelContent }: { type: NonNullable<RightPanelType>; panelContent: string }) {
   switch (type) {
     case "skills":
       // 技能管理已迁移到中间栏，右侧面板不再处理此类型
@@ -155,14 +157,20 @@ function PanelContent({ type }: { type: NonNullable<RightPanelType> }) {
       );
 
     case "prescription":
+      if (panelContent) {
+        return <MarkdownRenderer content={panelContent} />;
+      }
       return <PrescriptionEntry initialStage="done" />;
 
     case "cga": {
+      if (panelContent) {
+        return <MarkdownRenderer content={panelContent} />;
+      }
       return (
-        <div className="flex flex-col h-full">
+        <div className="flex flex-col h-full -m-4">
           <ScaleSelector scales={scales} />
           <Separator />
-          <div className="flex-1 min-h-0 overflow-y-auto">
+          <div className="flex-1 min-h-0 overflow-y-auto p-4">
             <CGAReport report={emptyCGAReport} />
           </div>
         </div>
@@ -179,6 +187,9 @@ function PanelContent({ type }: { type: NonNullable<RightPanelType> }) {
       return <HealthProfilePanel />;
 
     case "drug-review":
+      if (panelContent) {
+        return <MarkdownRenderer content={panelContent} />;
+      }
       return <DrugReviewPanel />;
 
     case "settings":

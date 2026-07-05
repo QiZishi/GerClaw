@@ -52,6 +52,11 @@ interface AppState {
   chatAction: ChatActionType;
   setChatAction: (action: ChatActionType) => void;
 
+  // === 右侧面板 Markdown 内容（用于 LLM 流式输出报告）===
+  panelContent: string;
+  setPanelContent: (content: string) => void;
+  appendPanelContent: (delta: string) => void;
+
   // === 输入框上下文（标签区域）===
   loadedSkillIds: string[];
   uploadedFileIds: string[];
@@ -121,7 +126,12 @@ export const useAppStore = create<AppState>()(
 
       // === 聊天中加载的功能动作 ===
       chatAction: "none",
-      setChatAction: (chatAction) => set({ chatAction }),
+      setChatAction: (chatAction) => set({ chatAction, panelContent: "" }),
+
+      // === 右侧面板内容 ===
+      panelContent: "",
+      setPanelContent: (content) => set({ panelContent: content }),
+      appendPanelContent: (delta) => set((s) => ({ panelContent: s.panelContent + delta })),
 
       // === 输入框上下文 ===
       loadedSkillIds: [],

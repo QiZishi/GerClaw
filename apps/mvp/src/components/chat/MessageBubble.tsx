@@ -6,6 +6,8 @@ import {
   Copy,
   Download,
   ExternalLink,
+  Loader2,
+  Pause,
   RefreshCw,
   Volume2,
 } from "lucide-react";
@@ -28,22 +30,83 @@ import { SearchResultCard } from "@/components/search/SearchResultCard";
 import { FileTag } from "@/components/document/FileTag";
 import { DocumentToolCard } from "@/components/document/DocumentToolCard";
 import { MEDICAL_DISCLAIMER } from "@/lib/constants";
-import type { Message, RightPanelType } from "@/types";
+import type { Message, MessageBlock, RightPanelType } from "@/types";
+import { toast } from "@/components/ui/toast";
+import { useAudioPlayer } from "@/hooks/useAudioPlayer";
 
 interface MessageBubbleProps {
   message: Message;
   onRegenerate?: (id: string) => void;
 }
 
-/**
- * §3.3.2 消息气泡
- * 用户消息：靠右，bg-primary text-primary-foreground
- * AI 消息：靠左，bg-muted，左侧 GerClaw 头像
- * 遍历 message.blocks 渲染对应组件
- */
+function VoiceReadButton({ text, seniorMode }: { text: string; seniorMode: boolean }) {
+  const { isPlaying, isPaused, isLoading, play, pause } = useAudioPlayer();
+
+  const handleClick = () => {
+    try {
+      if (isPlaying || isLoading) {
+        pause();
+      } else {
+        play(text);
+      }
+    } catch {
+      toast.show("语音播放失败");
+    }
+  };
+
+  let icon;
+  let label;
+  if (isLoading) {
+    icon = <Loader2 className={cn("animate-spin", seniorMode ? "size-4" : "size-3.5")} />;
+    label = "加载中";
+  } else if (isPlaying && !isPaused) {
+    icon = <Pause className={cn(seniorMode ? "size-4" : "size-3.5")} />;
+    label = "暂停";
+  } else if (isPaused) {
+    icon = <Volume2 className={cn(seniorMode ? "size-4" : "size-3.5")} />;
+    label = "继续播放";
+  } else {
+    icon = <Volume2 className={cn(seniorMode ? "size-4" : "size-3.5")} />;
+    label = "语音朗读";
+  }
+
+  return (
+    <Tooltip>
+      <TooltipTrigger
+        render={
+          <Button
+            variant="ghost"
+            size={seniorMode ? "icon" : "icon-sm"}
+            className={cn(
+              "btn-icon",
+              (isPlaying || isLoading) && "text-primary bg-primary/10"
+            )}
+            onClick={handleClick}
+            aria-label={label}
+          />
+        }
+      >
+        {icon}
+      </TooltipTrigger>
+      <TooltipContent>{label}</TooltipContent>
+    </Tooltip>
+  );
+}
+
+function extractPlainText(blocks: MessageBlock[]): string {
+  return blocks
+    .filter((b): b is Extract<MessageBlock, { kind: "text" }> => b.kind === "text")
+    .map((b) => b.content)
+    .join("\n")
+    .replace(/[#*`_~\[\]()>|-]/g, "")
+    .replace(/\n{3,}/g, "\n\n")
+    .trim();
+}
+
 export function MessageBubble({ message, onRegenerate }: MessageBubbleProps) {
   const isUser = message.role === "user";
   const [copied, setCopied] = useState(false);
+  const seniorMode = useAppStore((s) => s.seniorMode);
   const setRightPanel = useAppStore((s) => s.setRightPanel);
 
   const handleViewReport = (panelType: RightPanelType) => {
@@ -51,15 +114,14 @@ export function MessageBubble({ message, onRegenerate }: MessageBubbleProps) {
   };
 
   const handleCopy = () => {
-    const textContent = message.blocks
-      .filter((b) => b.kind === "text")
-      .map((b) => (b.kind === "text" ? b.content : ""))
-      .join("\n");
+    const textContent = extractPlainText(message.blocks);
     navigator.clipboard?.writeText(textContent).then(() => {
       setCopied(true);
       setTimeout(() => setCopied(false), 1500);
     });
   };
+
+  const plainText = !isUser ? extractPlainText(message.blocks) : "";
 
   return (
     <div
@@ -68,7 +130,6 @@ export function MessageBubble({ message, onRegenerate }: MessageBubbleProps) {
         isUser ? "flex-row-reverse" : "flex-row"
       )}
     >
-      {/* 头像 */}
       <Avatar className="mt-0.5 shrink-0" size="default">
         <AvatarFallback
           className={cn(
@@ -85,7 +146,6 @@ export function MessageBubble({ message, onRegenerate }: MessageBubbleProps) {
         </AvatarFallback>
       </Avatar>
 
-      {/* 消息内容 */}
       <div
         className={cn(
           "flex flex-col gap-2 min-w-0 max-w-[80%]",
@@ -181,14 +241,12 @@ export function MessageBubble({ message, onRegenerate }: MessageBubbleProps) {
           </div>
         </div>
 
-        {/* 免责声明 */}
         {message.hasDisclaimer && (
           <div className="text-xs text-muted-foreground px-2">
             {MEDICAL_DISCLAIMER}
           </div>
         )}
 
-        {/* 操作按钮 */}
         <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
           <Tooltip>
             <TooltipTrigger
@@ -226,22 +284,8 @@ export function MessageBubble({ message, onRegenerate }: MessageBubbleProps) {
             </Tooltip>
           )}
 
-          {!isUser && (
-            <Tooltip>
-              <TooltipTrigger
-                render={
-                  <Button
-                    variant="ghost"
-                    size="icon-sm"
-                    className="btn-icon"
-                    aria-label="语音朗读"
-                  />
-                }
-              >
-                <Volume2 className="size-3.5" />
-              </TooltipTrigger>
-              <TooltipContent>语音朗读</TooltipContent>
-            </Tooltip>
+          {!isUser && plainText && (
+            <VoiceReadButton text={plainText} seniorMode={seniorMode} />
           )}
 
           {!isUser && (
