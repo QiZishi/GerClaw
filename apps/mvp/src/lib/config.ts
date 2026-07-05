@@ -6,7 +6,6 @@
 import { z } from "zod";
 
 const envSchema = z.object({
-  // === 主模型（OpenAI 兼容）===
   NEXT_PUBLIC_PRIMARY_URL: z.string().default(""),
   NEXT_PUBLIC_PRIMARY_API_KEY: z.string().default(""),
   NEXT_PUBLIC_PRIMARY_MODEL: z.string().default("gpt-4o"),
@@ -14,7 +13,6 @@ const envSchema = z.object({
     .enum(["openai", "dashscope", "anthropic"])
     .default("openai"),
 
-  // === 备份模型1（DashScope 兼容）===
   NEXT_PUBLIC_BACKUP1_URL: z.string().default(""),
   NEXT_PUBLIC_BACKUP1_API_KEY: z.string().default(""),
   NEXT_PUBLIC_BACKUP1_MODEL: z.string().default("qwen-plus"),
@@ -22,7 +20,6 @@ const envSchema = z.object({
     .enum(["openai", "dashscope", "anthropic"])
     .default("openai"),
 
-  // === 备份模型2（Anthropic 兼容）===
   NEXT_PUBLIC_BACKUP2_URL: z.string().default(""),
   NEXT_PUBLIC_BACKUP2_API_KEY: z.string().default(""),
   NEXT_PUBLIC_BACKUP2_MODEL: z.string().default("claude-sonnet-4-20250514"),
@@ -30,39 +27,50 @@ const envSchema = z.object({
     .enum(["openai", "dashscope", "anthropic"])
     .default("anthropic"),
 
-  // === Mimo 语音服务 ===
-  NEXT_PUBLIC_MIMO_API_KEY: z.string().default(""),
+  NEXT_PUBLIC_ASR_URL: z.string().default(""),
+  NEXT_PUBLIC_ASR_API_KEY: z.string().default(""),
   NEXT_PUBLIC_ASR_MODEL: z.string().default("mimo-v2.5-asr"),
+  NEXT_PUBLIC_TTS_URL: z.string().default(""),
+  NEXT_PUBLIC_TTS_API_KEY: z.string().default(""),
   NEXT_PUBLIC_TTS_MODEL: z.string().default("mimo-v2.5-tts"),
   NEXT_PUBLIC_TTS_VOICE: z.string().default("冰糖"),
 
-  // === 联网搜索 ===
   NEXT_PUBLIC_ANYSEARCH_API_KEY: z.string().default(""),
   NEXT_PUBLIC_TAVILY_API_KEY: z.string().default(""),
 
-  // === MinerU 文档解析 ===
   NEXT_PUBLIC_MINERU_URL: z.string().default(""),
   NEXT_PUBLIC_MINERU_API_KEY: z.string().default(""),
+
+  NEXT_PUBLIC_APP_NAME: z.string().default("GerClaw"),
+  NEXT_PUBLIC_APP_VERSION: z.string().default("0.1.0"),
 });
 
 export type EnvConfig = z.infer<typeof envSchema>;
 
-/** 解析环境变量，缺失时使用默认值（不抛错，UI 壳子阶段允许空值） */
 function loadEnv(): EnvConfig {
   const parsed = envSchema.safeParse(process.env);
   if (!parsed.success) {
-    // 开发期打印警告，但不阻塞启动（UI 壳子阶段使用 mock 数据）
     if (process.env.NODE_ENV === "development") {
       console.warn("[config] 环境变量校验警告：", parsed.error.format());
     }
     return envSchema.parse({});
   }
-  return parsed.data;
+
+  const data = parsed.data;
+
+  if (process.env.NODE_ENV === "development") {
+    if (!data.NEXT_PUBLIC_PRIMARY_URL || !data.NEXT_PUBLIC_PRIMARY_API_KEY) {
+      console.warn(
+        "[config] ⚠️ 主模型未配置：NEXT_PUBLIC_PRIMARY_URL 或 NEXT_PUBLIC_PRIMARY_API_KEY 为空，LLM 功能将不可用。请在 .env.local 中配置。"
+      );
+    }
+  }
+
+  return data;
 }
 
 export const env = loadEnv();
 
-/** 主模型配置 */
 export const primaryModel = {
   url: env.NEXT_PUBLIC_PRIMARY_URL,
   apiKey: env.NEXT_PUBLIC_PRIMARY_API_KEY,
@@ -71,7 +79,6 @@ export const primaryModel = {
   preference: "primary" as const,
 };
 
-/** 备份模型1 */
 export const backup1Model = {
   url: env.NEXT_PUBLIC_BACKUP1_URL,
   apiKey: env.NEXT_PUBLIC_BACKUP1_API_KEY,
@@ -80,7 +87,6 @@ export const backup1Model = {
   preference: "backup1" as const,
 };
 
-/** 备份模型2 */
 export const backup2Model = {
   url: env.NEXT_PUBLIC_BACKUP2_URL,
   apiKey: env.NEXT_PUBLIC_BACKUP2_API_KEY,
@@ -89,33 +95,34 @@ export const backup2Model = {
   preference: "backup2" as const,
 };
 
-/** 语音服务配置 */
 export const voiceConfig = {
-  mimoApiKey: env.NEXT_PUBLIC_MIMO_API_KEY,
+  asrUrl: env.NEXT_PUBLIC_ASR_URL,
+  asrApiKey: env.NEXT_PUBLIC_ASR_API_KEY,
   asrModel: env.NEXT_PUBLIC_ASR_MODEL,
+  ttsUrl: env.NEXT_PUBLIC_TTS_URL,
+  ttsApiKey: env.NEXT_PUBLIC_TTS_API_KEY,
   ttsModel: env.NEXT_PUBLIC_TTS_MODEL,
   ttsVoice: env.NEXT_PUBLIC_TTS_VOICE,
 };
 
-/** 搜索服务配置 */
 export const searchConfig = {
   anysearchApiKey: env.NEXT_PUBLIC_ANYSEARCH_API_KEY,
   tavilyApiKey: env.NEXT_PUBLIC_TAVILY_API_KEY,
 };
 
-/** 文档解析配置 */
 export const documentConfig = {
   mineruUrl: env.NEXT_PUBLIC_MINERU_URL,
   mineruApiKey: env.NEXT_PUBLIC_MINERU_API_KEY,
 };
 
-/** 是否已配置真实 API Key（用于 UI 提示是否走 mock） */
 export function hasRealLLMConfig(): boolean {
   return Boolean(primaryModel.apiKey && primaryModel.url);
 }
 
 export function hasRealVoiceConfig(): boolean {
-  return Boolean(voiceConfig.mimoApiKey);
+  return Boolean(
+    voiceConfig.asrApiKey && voiceConfig.asrUrl && voiceConfig.ttsUrl
+  );
 }
 
 export function hasRealSearchConfig(): boolean {

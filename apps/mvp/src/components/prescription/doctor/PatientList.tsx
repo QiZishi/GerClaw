@@ -11,20 +11,24 @@ import { Badge } from "@/components/ui/badge";
 import { Input } from "@/components/ui/input";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { useAppStore } from "@/stores/appStore";
-import { mockPatients, type MockPatient } from "@/data/mock/patients";
 import { formatDate } from "@/lib/format";
 import { cn } from "@/lib/utils";
 
-interface PatientListProps {
-  className?: string;
-  /** 选中患者回调 */
-  onSelectPatient?: (patient: MockPatient) => void;
-  /** 受控选中 ID */
-  selectedPatientId?: string | null;
+export interface Patient {
+  id: string;
+  name: string;
+  age: number;
+  gender: "男" | "女";
+  chiefComplaint: string;
+  conditions: string[];
+  currentMedications: string[];
+  recentCgaScore?: number;
+  status: "待评估" | "评估中" | "已完成";
+  lastVisit: string;
 }
 
 const STATUS_VARIANT: Record<
-  MockPatient["status"],
+  Patient["status"],
   "default" | "secondary" | "outline"
 > = {
   待评估: "secondary",
@@ -32,11 +36,14 @@ const STATUS_VARIANT: Record<
   已完成: "outline",
 };
 
-/**
- * §3.2.2 医生端患者列表
- * 用于医生端主视图：搜索 + 患者卡片列表
- * 选中后通过 onSelectPatient 上抛，由父组件加载对应患者上下文
- */
+const EMPTY_PATIENTS: Patient[] = [];
+
+interface PatientListProps {
+  className?: string;
+  onSelectPatient?: (patient: Patient) => void;
+  selectedPatientId?: string | null;
+}
+
 export function PatientList({
   className,
   onSelectPatient,
@@ -47,8 +54,8 @@ export function PatientList({
 
   const filtered = useMemo(() => {
     const q = query.trim().toLowerCase();
-    if (!q) return mockPatients;
-    return mockPatients.filter(
+    if (!q) return EMPTY_PATIENTS;
+    return EMPTY_PATIENTS.filter(
       (p) =>
         p.name.toLowerCase().includes(q) ||
         p.chiefComplaint.toLowerCase().includes(q) ||
@@ -69,10 +76,10 @@ export function PatientList({
             <UserRound className="size-4" />
             患者列表
           </h2>
-          <Badge variant="secondary">{mockPatients.length} 位患者</Badge>
+          <Badge variant="secondary">{EMPTY_PATIENTS.length} 位患者</Badge>
         </div>
         <div className="relative">
-          <Search className="absolute left-2 top-1/2 -translate-y-1/2 size-3.5 text-muted-foreground" />
+          <Search className="absolute left-2 top-1/2 -translate-y-1/2 size-3.5 text-muted-foreground pointer-events-none" />
           <Input
             placeholder="搜索姓名/主诉/诊断"
             value={query}
@@ -87,7 +94,7 @@ export function PatientList({
         <ul className="p-2 space-y-1.5">
           {filtered.length === 0 && (
             <li className="text-center text-xs text-muted-foreground py-8">
-              未找到匹配的患者
+              暂无患者数据
             </li>
           )}
           {filtered.map((p) => (
@@ -106,7 +113,7 @@ export function PatientList({
 }
 
 interface PatientListItemProps {
-  patient: MockPatient;
+  patient: Patient;
   active: boolean;
   seniorMode: boolean;
   onSelect: () => void;

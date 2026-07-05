@@ -1,11 +1,10 @@
 /**
- * Mock CGA 老年综合评估数据
+ * CGA 老年综合评估量表数据
  * 对齐 gerclaw设计要求.md §7 CGA 模块
  * 量表题目参考真实问卷量表
  */
-import type { CGAReport, Scale, ScaleResult } from "@/types";
+import type { Scale } from "@/types";
 
-/** PHQ-9 抑郁量表（9 题，4 级评分 0-3，总分 0-27） */
 const phq9: Scale = {
   id: "scale_phq9",
   name: "PHQ-9",
@@ -154,8 +153,7 @@ const phq9: Scale = {
   },
 };
 
-/** SAS 焦虑量表（5 题，4 级评分 1-4，总分 5-20） */
-const sas: Scale = {
+const gad7: Scale = {
   id: "scale_sas",
   name: "GAD-7",
   fullName: "广泛性焦虑量表",
@@ -245,7 +243,6 @@ const sas: Scale = {
   },
 };
 
-/** PSQI 睡眠质量量表（简化版） */
 const psqi: Scale = {
   id: "scale_psqi",
   name: "PSQI",
@@ -336,7 +333,6 @@ const psqi: Scale = {
   },
 };
 
-/** Mini-Cog 认知筛查（3 词回忆+画钟） */
 const miniCog: Scale = {
   id: "scale_minicog",
   name: "Mini-Cog",
@@ -417,7 +413,6 @@ const miniCog: Scale = {
   },
 };
 
-/** MMSE 简易智能状态检查（简化版） */
 const mmse: Scale = {
   id: "scale_mmse",
   name: "MMSE",
@@ -526,76 +521,4 @@ const mmse: Scale = {
   },
 };
 
-export const mockScales: Scale[] = [phq9, sas, psqi, miniCog, mmse];
-
-export const mockScaleResults: ScaleResult[] = [
-  {
-    scaleId: "scale_phq9",
-    scaleName: "PHQ-9 抑郁量表",
-    totalScore: 8,
-    maxScore: 27,
-    level: "轻度抑郁",
-    interpretation: "存在轻度抑郁症状，建议关注情绪变化，必要时复评",
-    answers: {},
-    completedAt: Date.now() - 3600_000,
-  },
-  {
-    scaleId: "scale_sas",
-    scaleName: "GAD-7 焦虑量表",
-    totalScore: 6,
-    maxScore: 21,
-    level: "轻度焦虑",
-    interpretation: "存在轻度焦虑症状，建议放松训练，必要时复评",
-    answers: {},
-    completedAt: Date.now() - 3500_000,
-  },
-  {
-    scaleId: "scale_psqi",
-    scaleName: "PSQI 睡眠质量",
-    totalScore: 9,
-    maxScore: 21,
-    level: "睡眠一般",
-    interpretation: "睡眠质量一般，建议改善睡眠卫生习惯",
-    answers: {},
-    completedAt: Date.now() - 3400_000,
-  },
-  {
-    scaleId: "scale_minicog",
-    scaleName: "Mini-Cog 认知筛查",
-    totalScore: 2,
-    maxScore: 5,
-    level: "认知障碍可能",
-    interpretation: "提示存在认知障碍可能，建议进一步 MMSE 评估",
-    answers: {},
-    completedAt: Date.now() - 3300_000,
-  },
-  {
-    scaleId: "scale_mmse",
-    scaleName: "MMSE 智能状态",
-    totalScore: 24,
-    maxScore: 30,
-    level: "轻度认知障碍",
-    interpretation: "提示轻度认知障碍，建议神经内科进一步评估",
-    answers: {},
-    completedAt: Date.now() - 3200_000,
-  },
-];
-
-export const mockCGAReport: CGAReport = {
-  id: "cga_demo_001",
-  sessionId: "sess_today_2",
-  patientName: "张桂芳",
-  patientAge: 78,
-  createdAt: Date.now() - 3200_000,
-  scaleResults: mockScaleResults,
-  summary:
-    "患者为老年女性，CGA 评估提示：轻度抑郁、轻度焦虑、睡眠质量一般、轻度认知障碍。综合风险等级为中等，建议针对心理和认知维度进行干预。",
-  recommendations: [
-    "针对轻度抑郁/焦虑：建议放松训练、社交活动，必要时心理科就诊",
-    "针对睡眠问题：改善睡眠卫生，必要时专科评估",
-    "针对轻度认知障碍：建议认知训练，神经内科进一步评估",
-    "3 个月后复评，动态监测认知和心理状态变化",
-  ],
-  riskLevel: "moderate",
-  disclaimer: "内容由 AI 生成，仅供参考。具体诊疗请遵医嘱。",
-};
+export const scales: Scale[] = [phq9, gad7, psqi, miniCog, mmse];

@@ -24,9 +24,7 @@ import { SkillManager } from "@/components/skills/SkillManager";
 import { ScaleSelector } from "@/components/cga/ScaleSelector";
 import { useAppStore } from "@/stores/appStore";
 import { useChatStore } from "@/stores/chatStore";
-import { mockMessagesBySession } from "@/data/mock/messages";
-import { mockSessions } from "@/data/mock/sessions";
-import { mockScales } from "@/data/mock/cga";
+import { scales } from "@/data/scales";
 import { cn } from "@/lib/utils";
 import { HIGH_RISK_SYMPTOMS, EMERGENCY_ALERT } from "@/lib/constants";
 import type { ChatActionType, Message, Scale, ScaleQuestion } from "@/types";
@@ -313,33 +311,20 @@ export function ChatArea() {
   // 老年模式退出功能二次确认弹窗
   const [showExitConfirm, setShowExitConfirm] = useState(false);
 
-  // store 中的消息 + mock 消息合并
   const messages: Message[] = currentSessionId
-    ? messagesBySession[currentSessionId] ??
-      mockMessagesBySession[currentSessionId] ??
-      []
+    ? messagesBySession[currentSessionId] ?? []
     : [];
 
-  // 当前会话标题
   const currentSessionTitle = (() => {
     if (!currentSessionId) return "";
     const fromStore = storeSessions.find((s) => s.id === currentSessionId);
-    if (fromStore) return fromStore.title;
-    const fromMock = mockSessions.find((s) => s.id === currentSessionId);
-    return fromMock?.title ?? "";
+    return fromStore?.title ?? "";
   })();
 
-  // 选中会话时，若 store 无消息但有 mock，加载到 store
   useEffect(() => {
     if (!currentSessionId) return;
-    if (messagesBySession[currentSessionId]) return;
-    const mock = mockMessagesBySession[currentSessionId];
-    if (mock) {
-      for (const m of mock) addMessage(m);
-    }
-    // 切换会话时重置开场标记
     actionInitRef.current = null;
-  }, [currentSessionId, messagesBySession, addMessage]);
+  }, [currentSessionId]);
 
   // 当 chatAction 变化时：自动创建会话（如需要）；非 CGA 直接发开场消息
   useEffect(() => {
@@ -361,7 +346,6 @@ export function ChatArea() {
       return;
     }
 
-    // 健康画像 + 患者端：直接展示个人档案，无需收集信息
     if (chatAction === "health-profile" && role !== "doctor") {
       const initKey = `${sid}:health-profile-patient`;
       if (actionInitRef.current === initKey) return;
@@ -377,7 +361,7 @@ export function ChatArea() {
               kind: "text",
               id: generateId("block"),
               content:
-                "好的，您的健康档案如下，请过目。如果有需要补充或修改的信息，随时告诉我。",
+                "健康档案功能正在开发中，真实API将在后续任务接入。",
             },
           ],
           status: "done",
@@ -386,12 +370,7 @@ export function ChatArea() {
         };
         addMessage(aiMsg);
         setGenerating(false);
-        // 直接展开右侧面板展示健康画像
-        setTimeout(() => {
-          const { setRightPanel } = useAppStore.getState();
-          setRightPanel("health-profile");
-        }, 600);
-      }, 600);
+      }, 300);
       return;
     }
 
@@ -399,7 +378,6 @@ export function ChatArea() {
     if (actionInitRef.current === initKey) return;
     actionInitRef.current = initKey;
 
-    // 延迟发送开场消息（模拟 AI 思考）
     setGenerating(true);
     setTimeout(() => {
       setCollectedFields((prev) => {
@@ -423,7 +401,7 @@ export function ChatArea() {
       };
       addMessage(aiMsg);
       setGenerating(false);
-    }, 600);
+    }, 300);
   }, [chatAction, currentSessionId, role, createSession, setCurrentSession, addMessage, setGenerating, cgaSelectedScale]);
 
   // 技能管理视图
@@ -476,7 +454,6 @@ export function ChatArea() {
     addMessage(userMsg);
     setGenerating(true);
 
-    // 铁律5：高风险症状检测，立即就医强提示
     const highRisk = detectHighRiskSymptoms(text);
     if (highRisk.length > 0) {
       setTimeout(() => {
@@ -484,19 +461,16 @@ export function ChatArea() {
         emMsg.sessionId = sid;
         addMessage(emMsg);
         setGenerating(false);
-      }, 600);
+      }, 300);
       return;
     }
 
-    // 在功能模式下：模拟信息提取+追问
     if (chatAction !== "none") {
       setTimeout(() => {
-        // 模拟"提取"了一些信息（简单关键词匹配，mock 阶段）
         const prev = collectedFields[sid] ?? {};
         const collected = { ...prev };
         const fields = getFieldsForAction(chatAction);
 
-        // 简单 mock 提取
         if (fields.find((f) => f.key === "age")) {
           const ageMatch = text.match(/(\d{2})\s*岁/);
           if (ageMatch) collected.age = ageMatch[1];
@@ -523,7 +497,6 @@ export function ChatArea() {
           if (!collected.patientId) collected.patientId = text.trim();
         }
 
-        // 更新收集的字段 + 累计轮次
         setCollectedFields((prev2) => ({ ...prev2, [sid]: collected }));
         const newRound = (collectRounds[sid] ?? 0) + 1;
         setCollectRounds((prev) => ({ ...prev, [sid]: newRound }));
@@ -532,9 +505,7 @@ export function ChatArea() {
           Object.keys(collected).filter((k) => collected[k])
         );
 
-        // 判断是否收集完毕
         let nextPrompt = getNextPrompt(chatAction, collectedSet, role);
-        // §6.4 上限5轮：达到上限仍有缺失字段时，用已有信息强制生成
         const reachedLimit = newRound >= MAX_COLLECT_ROUNDS;
         if (nextPrompt && reachedLimit) {
           nextPrompt = null;
@@ -544,7 +515,6 @@ export function ChatArea() {
         let willFinish = false;
 
         if (nextPrompt) {
-          // 还有字段缺失，追问
           const collectedList = Object.entries(collected)
             .filter(([, v]) => v)
             .map(([k, v]) => {
@@ -562,19 +532,11 @@ export function ChatArea() {
               : "好的，我收到了。";
           replyContent = `${prefix}\n\n${nextPrompt}`;
         } else {
-          // 信息收集完毕（或达到上限）
           willFinish = true;
-          if (reachedLimit) {
-            replyContent =
-              role === "doctor"
-                ? `已收集 ${newRound} 轮信息，将基于现有信息生成结果，请稍候…`
-                : `好的，我已经了解了您的整体情况，正在为您生成建议，请稍等一下哦～`;
-          } else {
-            replyContent =
-              role === "doctor"
-                ? "信息收集完毕，正在为您生成结果，请稍候…"
-                : "好的，您的信息我都了解了，正在为您生成建议，请稍等一下哦～";
-          }
+          replyContent =
+            role === "doctor"
+              ? "信息收集完毕，真实API接入后将生成结果（Task 3 接入）。"
+              : "好的，您的信息我都了解了，真实API接入后将生成建议（Task 3 接入）。";
         }
 
         const aiMsg: Message = {
@@ -595,7 +557,6 @@ export function ChatArea() {
         addMessage(aiMsg);
         setGenerating(false);
 
-        // 如果收集完毕，模拟生成后发送摘要+查看报告按钮，并展开右侧面板
         if (willFinish) {
           setTimeout(() => {
             const panelType = chatAction as
@@ -611,8 +572,8 @@ export function ChatArea() {
             };
             const summaryText =
               role === "doctor"
-                ? "结果已生成完毕，包含关键结论和建议。可点击下方按钮查看完整报告。"
-                : "好的，您的建议已经生成好啦！我帮您总结了关键内容，您可以点击下方按钮查看完整报告。";
+                ? "信息已收集，真实报告生成功能将在后续任务中接入。"
+                : "您的信息已记录，完整建议功能将在后续任务中接入。";
             const summaryMsg: Message = {
               id: generateId("msg"),
               sessionId: sid,
@@ -628,8 +589,8 @@ export function ChatArea() {
                   id: generateId("block"),
                   summary:
                     role === "doctor"
-                      ? "完整结果已生成，包含处方/评估/审查详情。"
-                      : "完整结果已生成，您可以查看详情。",
+                      ? "信息已收集，等待真实API接入。"
+                      : "信息已记录，等待真实API接入。",
                   buttonLabel: panelLabels[panelType] ?? "查看完整报告",
                   panelType,
                 },
@@ -642,11 +603,10 @@ export function ChatArea() {
             const { setRightPanel } = useAppStore.getState();
             setRightPanel(panelType);
             setChatAction("none");
-          }, 1500);
+          }, 500);
         }
-      }, 1000);
+      }, 500);
     } else {
-      // 普通聊天模式
       setTimeout(() => {
         const aiMsg: Message = {
           id: generateId("msg"),
@@ -657,7 +617,7 @@ export function ChatArea() {
               kind: "text",
               id: generateId("block"),
               content:
-                "已收到您的咨询，正在为您分析…（占位回复，后续接入真实 LLM）",
+                "正在等待真实API接入，LLM对话功能将在Task 3中实现。",
             },
           ],
           status: "done",
@@ -666,7 +626,7 @@ export function ChatArea() {
         };
         addMessage(aiMsg);
         setGenerating(false);
-      }, 1200);
+      }, 500);
     }
   };
 
@@ -843,10 +803,9 @@ export function ChatArea() {
     : {};
   const fields = getFieldsForAction(chatAction);
 
-  // 当前选中的量表
   const selectedScaleObj =
     chatAction === "cga" && currentSessionId
-      ? mockScales.find((s) => s.id === cgaSelectedScale[currentSessionId])
+      ? scales.find((s) => s.id === cgaSelectedScale[currentSessionId])
       : null;
 
   // CGA 答题：当前题目
@@ -936,7 +895,7 @@ export function ChatArea() {
                   : "您好，请选择您想做的评估，选好后我会通过几个简单的问题来帮您评估。"}
               </p>
             </div>
-            <ScaleSelector scales={mockScales} onSelect={handleSelectScale} />
+            <ScaleSelector scales={scales} onSelect={handleSelectScale} />
             <div className="mt-6 rounded-md border border-amber-200 bg-amber-50 dark:border-amber-900/40 dark:bg-amber-950/30 px-3 py-2 text-xs text-amber-800 dark:text-amber-200">
               AI 评估仅供健康参考，不能替代医生诊断。身体不适请及时就医。
             </div>

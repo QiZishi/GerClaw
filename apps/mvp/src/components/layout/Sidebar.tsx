@@ -44,7 +44,6 @@ import { LAYOUT } from "@/lib/constants";
 import { cn } from "@/lib/utils";
 import { formatRelativeTime, groupByTime, type SessionGroup } from "@/lib/format";
 import type { Session } from "@/types";
-import { mockSessions } from "@/data/mock/sessions";
 
 interface SidebarProps {
   /** 移动端用：关闭抽屉的回调 */
@@ -81,8 +80,7 @@ export function Sidebar({ onNavigate }: SidebarProps) {
 
   const isPatient = role !== "doctor";
 
-  // 合并 store 与 mock：若 store 无会话则用 mock
-  const effectiveSessions = sessions.length > 0 ? sessions : mockSessions;
+  const effectiveSessions = sessions;
 
   // 过滤+分组
   const groupedSessions = useMemo(() => {

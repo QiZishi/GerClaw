@@ -1,9 +1,9 @@
 /**
- * Mock 技能列表数据
+ * 技能列表数据
  * 对齐 gerclaw设计要求.md §4.9 Skill 模块 / design-docs/技能管理.md
  */
 
-export interface MockSkill {
+export interface Skill {
   id: string;
   name: string;
   description: string;
@@ -11,9 +11,10 @@ export interface MockSkill {
   enabled: boolean;
   source: "builtin" | "custom";
   tags: string[];
+  content?: string;
 }
 
-export const mockSkills: MockSkill[] = [
+export const skills: Skill[] = [
   {
     id: "skill_elderly_htn",
     name: "老年高血压管理",

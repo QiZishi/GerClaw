@@ -2,10 +2,10 @@
 
 import { Sparkles, X, Zap } from "lucide-react";
 import { cn } from "@/lib/utils";
-import type { MockSkill } from "@/data/mock/skills";
+import type { Skill } from "@/data/skills";
 
 interface SkillTagProps {
-  skill: Pick<MockSkill, "id" | "name" | "source">;
+  skill: Pick<Skill, "id" | "name" | "source">;
   /** 是否可关闭（已加载状态下显示 × 按钮） */
   removable?: boolean;
   /** 关闭回调 */

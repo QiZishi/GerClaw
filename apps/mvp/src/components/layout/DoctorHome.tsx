@@ -7,7 +7,7 @@ import { useAppStore } from "@/stores/appStore";
 import { useChatStore } from "@/stores/chatStore";
 import { PatientList } from "@/components/prescription/doctor/PatientList";
 import { ChatArea } from "@/components/layout/ChatArea";
-import type { MockPatient } from "@/data/mock/patients";
+import type { Patient } from "@/components/prescription/doctor/PatientList";
 
 /**
  * §3.2.2 医生端主视图
@@ -20,11 +20,11 @@ export function DoctorHome() {
   const setCurrentSession = useAppStore((s) => s.setCurrentSession);
   const setRightPanel = useAppStore((s) => s.setRightPanel);
   const createSession = useChatStore((s) => s.createSession);
-  const [selectedPatient, setSelectedPatient] = useState<MockPatient | null>(
+  const [selectedPatient, setSelectedPatient] = useState<Patient | null>(
     null
   );
 
-  const handleSelectPatient = (p: MockPatient) => {
+  const handleSelectPatient = (p: Patient) => {
     setSelectedPatient(p);
     const id = createSession("doctor");
     setCurrentSession(id);

@@ -12,7 +12,7 @@ import { Input } from "@/components/ui/input";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Separator } from "@/components/ui/separator";
 import { useAppStore } from "@/stores/appStore";
-import { mockSkills } from "@/data/mock/skills";
+import { skills } from "@/data/skills";
 import { cn } from "@/lib/utils";
 
 interface SkillSelectorProps {
@@ -37,8 +37,8 @@ export function SkillSelector({ children, className }: SkillSelectorProps) {
 
   const filtered = useMemo(() => {
     const q = query.trim().toLowerCase();
-    if (!q) return mockSkills;
-    return mockSkills.filter(
+    if (!q) return skills;
+    return skills.filter(
       (s) =>
         s.name.toLowerCase().includes(q) ||
         s.description.toLowerCase().includes(q) ||
@@ -166,7 +166,7 @@ export function SkillSelector({ children, className }: SkillSelectorProps) {
         <Separator />
         <div className="flex items-center justify-between px-3 py-2">
           <span className="text-xs text-muted-foreground">
-            已加载 {loadedSkillIds.length} / {mockSkills.length}
+            已加载 {loadedSkillIds.length} / {skills.length}
           </span>
           <Button
             variant="link"

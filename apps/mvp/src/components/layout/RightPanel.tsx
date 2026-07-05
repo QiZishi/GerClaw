@@ -12,9 +12,8 @@ import { CGAReport } from "@/components/cga/CGAReport";
 import { FileUpload } from "@/components/document/FileUpload";
 import { DocumentPreview } from "@/components/document/DocumentPreview";
 import { CitationList } from "@/components/search/CitationList";
-import { mockScales, mockCGAReport } from "@/data/mock/cga";
-import { mockPatientSummary } from "@/data/mock/prescription";
-import type { FileTag as FileTagData, RightPanelType } from "@/types";
+import { scales } from "@/data/scales";
+import type { FileTag as FileTagData, RightPanelType, CGAReport as CGAReportData } from "@/types";
 
 // 注：技能管理（skills）已迁移至中间栏显示，不再占用右侧面板
 const PANEL_TITLES: Record<NonNullable<RightPanelType>, string> = {
@@ -26,6 +25,17 @@ const PANEL_TITLES: Record<NonNullable<RightPanelType>, string> = {
   "health-profile": "健康画像",
   "drug-review": "用药审查",
   settings: "设置",
+};
+
+const emptyCGAReport: CGAReportData = {
+  id: "",
+  sessionId: "",
+  createdAt: 0,
+  scaleResults: [],
+  summary: "",
+  recommendations: [],
+  riskLevel: "low",
+  disclaimer: "内容由 AI 生成，仅供参考。身体不适请及时就医。",
 };
 
 /**
@@ -147,16 +157,17 @@ function PanelContent({ type }: { type: NonNullable<RightPanelType> }) {
     case "prescription":
       return <PrescriptionEntry initialStage="done" />;
 
-    case "cga":
+    case "cga": {
       return (
         <div className="flex flex-col h-full">
-          <ScaleSelector scales={mockScales} />
+          <ScaleSelector scales={scales} />
           <Separator />
           <div className="flex-1 min-h-0 overflow-y-auto">
-            <CGAReport report={mockCGAReport} />
+            <CGAReport report={emptyCGAReport} />
           </div>
         </div>
       );
+    }
 
     case "file-preview":
       return <FilePreviewPanel />;
@@ -207,7 +218,16 @@ function FilePreviewPanel() {
 /** 健康画像面板：mock 患者基本信息 */
 function HealthProfilePanel() {
   const seniorMode = useAppStore((s) => s.seniorMode);
-  const p = mockPatientSummary;
+  const p = {
+    name: "",
+    age: undefined as number | undefined,
+    gender: undefined as "male" | "female" | undefined,
+    chiefComplaint: "",
+    history: [] as string[],
+    allergies: [] as string[],
+    currentMedications: [] as string[],
+    vitals: {} as Record<string, string>,
+  };
   return (
     <div className="flex flex-col h-full overflow-y-auto p-3 space-y-3">
       <header className="flex items-center gap-2">

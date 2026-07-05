@@ -1,11 +1,26 @@
 "use client";
 
 import { useState } from "react";
-import type { PatientSummary, PrescriptionStage } from "@/types";
-import { mockPrescriptionReport } from "@/data/mock/prescription";
+import type { PatientSummary, PrescriptionReport as PrescriptionReportData, PrescriptionStage } from "@/types";
 import { CollectionForm } from "./CollectionForm";
 import { GeneratingOverlay } from "./GeneratingOverlay";
 import { PrescriptionReport } from "./PrescriptionReport";
+
+const emptyReport: PrescriptionReportData = {
+  id: "",
+  sessionId: "",
+  createdAt: Date.now(),
+  patient: {},
+  diagnosis: {
+    summary: "暂无诊断数据",
+    problems: [],
+    suspectedDiagnoses: [],
+    riskFactors: [],
+  },
+  sections: [],
+  citations: [],
+  disclaimer: "内容由 AI 生成，仅供参考。身体不适请及时就医。",
+};
 
 interface PrescriptionEntryProps {
   /** 初始阶段，默认 done（直接显示报告） */
@@ -62,5 +77,5 @@ export function PrescriptionEntry({
   }
 
   // done / completing / 默认：展示报告
-  return <PrescriptionReport report={mockPrescriptionReport} />;
+  return <PrescriptionReport report={emptyReport} />;
 }

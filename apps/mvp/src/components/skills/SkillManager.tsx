@@ -24,11 +24,11 @@ import { ScrollArea } from "@/components/ui/scroll-area";
 import { Separator } from "@/components/ui/separator";
 import { Switch } from "@/components/ui/switch";
 import { useAppStore } from "@/stores/appStore";
-import { mockSkills, type MockSkill } from "@/data/mock/skills";
+import { skills as initialSkills, type Skill } from "@/data/skills";
 import { generateId } from "@/lib/format";
 import { cn } from "@/lib/utils";
 
-type SkillCategory = MockSkill["category"];
+type SkillCategory = Skill["category"];
 
 const CATEGORIES: SkillCategory[] = ["通用", "专科", "自定义"];
 
@@ -60,7 +60,7 @@ export function SkillManager() {
   const removeLoadedSkill = useAppStore((s) => s.removeLoadedSkill);
 
   const [query, setQuery] = useState("");
-  const [skills, setSkills] = useState<MockSkill[]>(mockSkills);
+  const [skills, setSkills] = useState<Skill[]>(initialSkills);
   const [createOpen, setCreateOpen] = useState(false);
   const [draft, setDraft] = useState<CreateSkillInput>({
     name: "",
@@ -86,7 +86,7 @@ export function SkillManager() {
   }, [skills, query]);
 
   const grouped = useMemo(() => {
-    const map: Record<SkillCategory, MockSkill[]> = {
+    const map: Record<SkillCategory, Skill[]> = {
       通用: [],
       专科: [],
       自定义: [],
@@ -107,7 +107,7 @@ export function SkillManager() {
     showToast(enabled ? "技能已启用" : "技能已禁用并从输入框移除");
   };
 
-  const handleLoadToggle = (skill: MockSkill) => {
+  const handleLoadToggle = (skill: Skill) => {
     if (!skill.enabled) return;
     if (loadedSkillIds.includes(skill.id)) {
       removeLoadedSkill(skill.id);
@@ -127,7 +127,7 @@ export function SkillManager() {
       showToast("技能名称已存在");
       return;
     }
-    const newSkill: MockSkill = {
+    const newSkill: Skill = {
       id: `skill_custom_${generateId()}`,
       name,
       description: draft.description.trim() || "用户自定义技能",
@@ -135,6 +135,7 @@ export function SkillManager() {
       enabled: true,
       source: "custom",
       tags: ["自定义"],
+      content: draft.content.trim() || undefined,
     };
     setSkills((prev) => [...prev, newSkill]);
     setDraft({ name: "", description: "", content: "" });
@@ -311,7 +312,7 @@ export function SkillManager() {
 }
 
 interface SkillCardProps {
-  skill: MockSkill;
+  skill: Skill;
   loaded: boolean;
   onToggleLoad: () => void;
   onToggleEnabled: (enabled: boolean) => void;
