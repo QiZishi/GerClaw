@@ -1,0 +1,202 @@
+/**
+ * 对话相关类型定义
+ * 对齐 gerclaw设计要求.md §4.1 通用对话 / §4.2.3 可视化 / §3.3 主聊天区
+ */
+
+/** 消息角色 */
+export type MessageRole = "user" | "assistant" | "system";
+
+/** 消息状态 */
+export type MessageStatus = "streaming" | "done" | "error" | "stopped";
+
+/** 工具调用状态 */
+export type ToolCallStatus = "running" | "done" | "failed";
+
+/** 思维链状态 */
+export type ThinkingStatus = "thinking" | "done";
+
+/** 决策步骤状态 */
+export type DecisionStepStatus = "running" | "done" | "failed";
+
+/** 文件上传/解析状态 */
+export type FileStatus = "uploading" | "parsing" | "done" | "failed";
+
+/** 角色（医生/患者/访客） */
+export type Role = "patient" | "doctor" | "visitor";
+
+/** 主题 */
+export type Theme = "light" | "dark" | "system";
+
+/** 模型调用协议 */
+export type ModelProtocol = "openai" | "dashscope" | "anthropic";
+
+/** 模型优先级 */
+export type ModelPreference = "primary" | "backup1" | "backup2";
+
+/** 引用来源 */
+export interface Citation {
+  id: number;
+  title: string;
+  snippet: string;
+  url: string;
+  source: string;
+  publishedDate?: string;
+}
+
+/** 思维链块（§4.2.3 ThinkingBlock） */
+export interface ThinkingBlock {
+  id: string;
+  content: string;
+  status: ThinkingStatus;
+  startedAt: number;
+  endedAt?: number;
+}
+
+/** 工具调用块（§4.2.3 ToolCallBlock） */
+export interface ToolCallBlock {
+  id: string;
+  toolName: string;
+  toolIcon?: string;
+  params: Record<string, unknown>;
+  result?: unknown;
+  status: ToolCallStatus;
+  errorMessage?: string;
+  startedAt: number;
+  endedAt?: number;
+  durationMs?: number;
+}
+
+/** 子智能体节点（§4.2.3 SubAgentTree） */
+export interface SubAgentNode {
+  id: string;
+  name: string;
+  status: "running" | "done" | "failed";
+  children?: SubAgentNode[];
+  detail?: string;
+  startedAt: number;
+  endedAt?: number;
+}
+
+/** 决策步骤（§4.2.3 DecisionTimeline，ReAct Thought/Action/Observation） */
+export interface DecisionStep {
+  id: string;
+  stepIndex: number;
+  type: "thought" | "action" | "observation";
+  title: string;
+  content: string;
+  status: DecisionStepStatus;
+  durationMs?: number;
+  timestamp: number;
+}
+
+/** 联网搜索结果（§4.2.3 SearchResultCard） */
+export interface SearchResultItem {
+  id: string;
+  title: string;
+  url: string;
+  source: string;
+  snippet: string;
+  favicon?: string;
+  publishedDate?: string;
+}
+
+/** 文件标签（§4.2.3 FileTag + DocumentToolCard） */
+export interface FileTag {
+  id: string;
+  fileName: string;
+  fileType: string;
+  fileSize: number;
+  status: FileStatus;
+  progress?: number; // 0-100
+  errorMessage?: string;
+  thumbnailUrl?: string;
+  parsedMarkdown?: string;
+}
+
+/** 消息内容块（一条消息可包含多个块：文本/思维链/工具调用/搜索结果/文件/决策/操作按钮） */
+export type MessageBlock =
+  | { kind: "text"; id: string; content: string; streaming?: boolean }
+  | { kind: "thinking"; id: string; data: ThinkingBlock }
+  | { kind: "tool_call"; id: string; data: ToolCallBlock }
+  | { kind: "sub_agent"; id: string; data: SubAgentNode }
+  | { kind: "decision"; id: string; data: DecisionStep[] }
+  | { kind: "search_results"; id: string; data: SearchResultItem[] }
+  | { kind: "file"; id: string; data: FileTag }
+  | {
+      kind: "action";
+      id: string;
+      /** 摘要文字 */
+      summary: string;
+      /** 按钮文字 */
+      buttonLabel: string;
+      /** 点击按钮触发的右侧面板类型 */
+      panelType: RightPanelType;
+    };
+
+/** 消息 */
+export interface Message {
+  id: string;
+  sessionId: string;
+  role: MessageRole;
+  blocks: MessageBlock[];
+  citations?: Citation[];
+  status: MessageStatus;
+  createdAt: number;
+  /** 已加载技能ID列表 */
+  loadedSkills?: string[];
+  /** 已上传文件ID列表 */
+  uploadedFiles?: string[];
+  /** 是否含免责声明 */
+  hasDisclaimer?: boolean;
+}
+
+/** 会话 */
+export interface Session {
+  id: string;
+  title: string;
+  role: Role;
+  createdAt: number;
+  updatedAt: number;
+  pinned?: boolean;
+  /** 最后一条消息预览 */
+  lastMessagePreview?: string;
+  /** 消息数 */
+  messageCount: number;
+  /** 该会话生成的结果类型（用于自动展开右侧面板）*/
+  panelType?: RightPanelType;
+}
+
+/** 模型配置 */
+export interface ModelConfig {
+  url: string;
+  apiKey: string;
+  modelName: string;
+  protocol: ModelProtocol;
+  preference: ModelPreference;
+}
+
+/** 输入框上下文（标签区域：已加载技能/已上传文件） */
+export interface InputContext {
+  loadedSkillIds: string[];
+  uploadedFileIds: string[];
+}
+
+/** 聊天中可加载的功能动作类型（在中间栏执行，非右侧面板）*/
+export type ChatActionType =
+  | "none"
+  | "prescription"
+  | "cga"
+  | "drug-review"
+  | "health-profile";
+
+/** 右侧面板类型 */
+export type RightPanelType =
+  | "skills"
+  | "prescription"
+  | "cga"
+  | "file-preview"
+  | "citations"
+  | "health-profile"
+  | "drug-review"
+  | "settings"
+  | null;

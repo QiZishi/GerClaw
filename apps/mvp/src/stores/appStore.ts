@@ -1,0 +1,166 @@
+/**
+ * 应用状态 store
+ * 对齐 gerclaw设计要求.md §3.1 三栏布局 / §3.5 右侧动态面板 / §13.7 适老化
+ * 管理：侧边栏折叠/右侧面板/角色/老年模式/主题
+ */
+import { create } from "zustand";
+import { persist } from "zustand/middleware";
+import type { ChatActionType, RightPanelType, Role, Theme } from "@/types";
+import { LAYOUT } from "@/lib/constants";
+import { STORAGE_KEYS } from "@/lib/storage";
+
+interface AppState {
+  // === 主题 ===
+  theme: Theme;
+  setTheme: (theme: Theme) => void;
+
+  // === 角色 ===
+  role: Role;
+  setRole: (role: Role) => void;
+
+  // === 老年模式（仅患者端，默认开启）===
+  seniorMode: boolean;
+  setSeniorMode: (senior: boolean) => void;
+  toggleSeniorMode: () => void;
+
+  // === 侧边栏折叠 ===
+  sidebarCollapsed: boolean;
+  setSidebarCollapsed: (collapsed: boolean) => void;
+  toggleSidebar: () => void;
+  /** 移动端侧边栏抽屉 */
+  mobileSidebarOpen: boolean;
+  setMobileSidebarOpen: (open: boolean) => void;
+
+  // === 右侧动态面板 ===
+  rightPanelOpen: boolean;
+  rightPanelType: RightPanelType;
+  rightPanelWidth: number;
+  setRightPanel: (type: RightPanelType, open?: boolean) => void;
+  closeRightPanel: () => void;
+  setRightPanelWidth: (width: number) => void;
+
+  // === 当前会话 ===
+  currentSessionId: string | null;
+  setCurrentSession: (id: string | null) => void;
+
+  // === 中间栏视图（聊天 / 技能管理）===
+  // 对齐 Trae Work：点击技能管理在中间栏显示，而非右侧面板
+  mainView: "chat" | "skills";
+  setMainView: (view: "chat" | "skills") => void;
+
+  // === 聊天中加载的功能动作（在中间栏消息流末尾渲染对应组件）===
+  chatAction: ChatActionType;
+  setChatAction: (action: ChatActionType) => void;
+
+  // === 输入框上下文（标签区域）===
+  loadedSkillIds: string[];
+  uploadedFileIds: string[];
+  addLoadedSkill: (id: string) => void;
+  removeLoadedSkill: (id: string) => void;
+  addUploadedFile: (id: string) => void;
+  removeUploadedFile: (id: string) => void;
+  clearInputContext: () => void;
+}
+
+export const useAppStore = create<AppState>()(
+  persist(
+    (set, get) => ({
+      // === 主题 ===
+      theme: "system",
+      setTheme: (theme) => set({ theme }),
+
+      // === 角色 ===
+      role: "patient",
+      setRole: (role) =>
+        set({
+          role,
+          // 切换到医生端时关闭老年模式；切换到患者端时默认开启
+          seniorMode: role === "patient" ? true : false,
+        }),
+
+      // === 老年模式 ===
+      seniorMode: true, // 患者端默认开启
+      setSeniorMode: (seniorMode) => set({ seniorMode }),
+      toggleSeniorMode: () =>
+        set({ seniorMode: !get().seniorMode }),
+
+      // === 侧边栏 ===
+      sidebarCollapsed: false,
+      setSidebarCollapsed: (sidebarCollapsed) => set({ sidebarCollapsed }),
+      toggleSidebar: () =>
+        set({ sidebarCollapsed: !get().sidebarCollapsed }),
+      mobileSidebarOpen: false,
+      setMobileSidebarOpen: (mobileSidebarOpen) => set({ mobileSidebarOpen }),
+
+      // === 右侧面板 ===
+      rightPanelOpen: false,
+      rightPanelType: null,
+      rightPanelWidth: LAYOUT.rightPanel.default,
+      setRightPanel: (type, open = true) =>
+        set({
+          rightPanelType: type,
+          rightPanelOpen: open && type !== null,
+        }),
+      closeRightPanel: () =>
+        set({ rightPanelOpen: false, rightPanelType: null }),
+      setRightPanelWidth: (width) =>
+        set({
+          rightPanelWidth: Math.max(
+            LAYOUT.rightPanel.min,
+            Math.min(LAYOUT.rightPanel.max, width)
+          ),
+        }),
+
+      // === 当前会话 ===
+      currentSessionId: null,
+      setCurrentSession: (id) => set({ currentSessionId: id, chatAction: "none" }),
+
+      // === 中间栏视图 ===
+      mainView: "chat",
+      setMainView: (mainView) => set({ mainView }),
+
+      // === 聊天中加载的功能动作 ===
+      chatAction: "none",
+      setChatAction: (chatAction) => set({ chatAction }),
+
+      // === 输入框上下文 ===
+      loadedSkillIds: [],
+      uploadedFileIds: [],
+      addLoadedSkill: (id) =>
+        set((s) => ({
+          loadedSkillIds: s.loadedSkillIds.includes(id)
+            ? s.loadedSkillIds
+            : [...s.loadedSkillIds, id],
+        })),
+      removeLoadedSkill: (id) =>
+        set((s) => ({
+          loadedSkillIds: s.loadedSkillIds.filter((s) => s !== id),
+        })),
+      addUploadedFile: (id) =>
+        set((s) => ({
+          uploadedFileIds: s.uploadedFileIds.includes(id)
+            ? s.uploadedFileIds
+            : [...s.uploadedFileIds, id],
+        })),
+      removeUploadedFile: (id) =>
+        set((s) => ({
+          uploadedFileIds: s.uploadedFileIds.filter((f) => f !== id),
+        })),
+      clearInputContext: () =>
+        set({ loadedSkillIds: [], uploadedFileIds: [] }),
+    }),
+    {
+      name: "gerclaw:app-store",
+      partialize: (state) => ({
+        theme: state.theme,
+        role: state.role,
+        seniorMode: state.seniorMode,
+        sidebarCollapsed: state.sidebarCollapsed,
+        rightPanelWidth: state.rightPanelWidth,
+      }),
+    }
+  )
+);
+
+// 兼容 storage key 常量引用
+void STORAGE_KEYS;

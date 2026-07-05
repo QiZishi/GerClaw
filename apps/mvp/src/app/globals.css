@@ -1,0 +1,371 @@
+@import "tailwindcss";
+@import "tw-animate-css";
+@import "shadcn/tailwind.css";
+
+@custom-variant dark (&:is(.dark *));
+
+/* ============================================================
+ * GerClaw §13.1 医疗配色系统
+ * 浅色：医生端冷蓝 #2563EB / 患者端暖蓝 #0EA5E9（通过 data-role 区分）
+ * 深色：primary=#3B82F6
+ * ============================================================ */
+
+@theme inline {
+  --color-background: var(--background);
+  --color-foreground: var(--foreground);
+  --font-sans: var(--font-sans);
+  --font-mono: var(--font-mono);
+  --font-heading: var(--font-sans);
+  --color-sidebar-ring: var(--sidebar-ring);
+  --color-sidebar-border: var(--sidebar-border);
+  --color-sidebar-accent-foreground: var(--sidebar-accent-foreground);
+  --color-sidebar-accent: var(--sidebar-accent);
+  --color-sidebar-primary-foreground: var(--sidebar-primary-foreground);
+  --color-sidebar-primary: var(--sidebar-primary);
+  --color-sidebar-foreground: var(--sidebar-foreground);
+  --color-sidebar: var(--sidebar);
+  --color-chart-5: var(--chart-5);
+  --color-chart-4: var(--chart-4);
+  --color-chart-3: var(--chart-3);
+  --color-chart-2: var(--chart-2);
+  --color-chart-1: var(--chart-1);
+  --color-ring: var(--ring);
+  --color-input: var(--input);
+  --color-border: var(--border);
+  --color-destructive: var(--destructive);
+  --color-accent-foreground: var(--accent-foreground);
+  --color-accent: var(--accent);
+  --color-muted-foreground: var(--muted-foreground);
+  --color-muted: var(--muted);
+  --color-secondary-foreground: var(--secondary-foreground);
+  --color-secondary: var(--secondary);
+  --color-primary-foreground: var(--primary-foreground);
+  --color-primary: var(--primary);
+  --color-popover-foreground: var(--popover-foreground);
+  --color-popover: var(--popover);
+  --color-card-foreground: var(--card-foreground);
+  --color-card: var(--card);
+  --color-success: var(--success);
+  --color-success-foreground: var(--success-foreground);
+  --color-warning: var(--warning);
+  --color-warning-foreground: var(--warning-foreground);
+  --radius-sm: 4px;
+  --radius-md: 8px;
+  --radius-lg: 12px;
+  --radius-xl: 16px;
+  --radius-2xl: 20px;
+  --radius-3xl: 24px;
+  --radius-4xl: 28px;
+}
+
+/* ====== 浅色 - 默认（医生端冷蓝 #2563EB / 患者端暖蓝 #0EA5E9）====== */
+:root {
+  --background: #ffffff;
+  --foreground: #0f172a;
+  --card: #ffffff;
+  --card-foreground: #0f172a;
+  --popover: #ffffff;
+  --popover-foreground: #0f172a;
+  /* primary 默认医生端，[data-role="patient"] 覆盖 */
+  --primary: #2563eb;
+  --primary-foreground: #ffffff;
+  --secondary: #f1f5f9;
+  --secondary-foreground: #0f172a;
+  --muted: #f8fafc;
+  --muted-foreground: #475569;
+  --accent: #f1f5f9;
+  --accent-foreground: #0f172a;
+  --destructive: #ef4444;
+  --success: #10b981;
+  --success-foreground: #ffffff;
+  --warning: #f59e0b;
+  --warning-foreground: #ffffff;
+  --border: #e2e8f0;
+  --input: #e2e8f0;
+  --ring: #2563eb;
+  --chart-1: #2563eb;
+  --chart-2: #0ea5e9;
+  --chart-3: #10b981;
+  --chart-4: #f59e0b;
+  --chart-5: #ef4444;
+  --radius: 8px;
+  --sidebar: #f1f5f9;
+  --sidebar-foreground: #0f172a;
+  --sidebar-primary: #2563eb;
+  --sidebar-primary-foreground: #ffffff;
+  --sidebar-accent: #e2e8f0;
+  --sidebar-accent-foreground: #0f172a;
+  --sidebar-border: #e2e8f0;
+  --sidebar-ring: #2563eb;
+  --font-sans: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto,
+    "Helvetica Neue", Arial, sans-serif;
+  --font-mono: "SF Mono", Monaco, "Cascadia Code", "Roboto Mono", Consolas,
+    monospace;
+  /* 老年模式缩放因子 */
+  --senior-scale: 1;
+  --font-base: 18px;
+}
+
+/* 患者端：暖蓝 #0EA5E9 */
+[data-role="patient"] {
+  --primary: #0ea5e9;
+  --primary-foreground: #ffffff;
+  --ring: #0ea5e9;
+  --sidebar-primary: #0ea5e9;
+  --chart-1: #0ea5e9;
+}
+
+/* 访客端：默认患者配色 */
+[data-role="visitor"] {
+  --primary: #0ea5e9;
+  --primary-foreground: #ffffff;
+  --ring: #0ea5e9;
+  --sidebar-primary: #0ea5e9;
+  --chart-1: #0ea5e9;
+}
+
+/* ====== 深色 ====== */
+.dark {
+  --background: #0f172a;
+  --foreground: #f8fafc;
+  --card: #1e293b;
+  --card-foreground: #f8fafc;
+  --popover: #1e293b;
+  --popover-foreground: #f8fafc;
+  --primary: #3b82f6;
+  --primary-foreground: #ffffff;
+  --secondary: #1e293b;
+  --secondary-foreground: #f8fafc;
+  --muted: #1e293b;
+  --muted-foreground: #cbd5e1;
+  --accent: #334155;
+  --accent-foreground: #f8fafc;
+  --destructive: #ef4444;
+  --success: #10b981;
+  --success-foreground: #ffffff;
+  --warning: #f59e0b;
+  --warning-foreground: #ffffff;
+  --border: #334155;
+  --input: #334155;
+  --ring: #3b82f6;
+  --chart-1: #3b82f6;
+  --chart-2: #0ea5e9;
+  --chart-3: #10b981;
+  --chart-4: #f59e0b;
+  --chart-5: #ef4444;
+  --sidebar: #1e293b;
+  --sidebar-foreground: #f8fafc;
+  --sidebar-primary: #3b82f6;
+  --sidebar-primary-foreground: #ffffff;
+  --sidebar-accent: #334155;
+  --sidebar-accent-foreground: #f8fafc;
+  --sidebar-border: #334155;
+  --sidebar-ring: #3b82f6;
+}
+
+.dark[data-role="patient"],
+.dark[data-role="visitor"] {
+  --primary: #0ea5e9;
+  --primary-foreground: #ffffff;
+  --ring: #0ea5e9;
+  --sidebar-primary: #0ea5e9;
+  --chart-1: #0ea5e9;
+}
+
+/* ====== 老年模式（.senior-mode）====== */
+.senior-mode {
+  --senior-scale: 1.2;
+  --font-base: 20px;
+  font-size: 20px;
+  line-height: 1.8;
+}
+
+.senior-mode body {
+  font-size: 20px;
+  line-height: 1.8;
+}
+
+/* 老年模式按钮放大（≥48px）*/
+.senior-mode .btn-icon,
+.senior-mode [data-slot="button"][data-size="icon"],
+.senior-mode [data-slot="button"][data-size="icon-sm"],
+.senior-mode [data-slot="button"][data-size="icon-lg"] {
+  min-height: 48px;
+  min-width: 48px;
+}
+
+.senior-mode [data-slot="button"]:not(.btn-icon) {
+  min-height: 48px;
+  padding-top: 0.625rem;
+  padding-bottom: 0.625rem;
+}
+
+/* 老年模式：输入框放大（≥48px 高度）*/
+.senior-mode [data-slot="input"],
+.senior-mode input[type="text"],
+.senior-mode input[type="search"],
+.senior-mode textarea {
+  min-height: 48px;
+  font-size: 1rem;
+  padding-top: 0.5rem;
+  padding-bottom: 0.5rem;
+}
+
+/* 老年模式：会话项放大（更高、更大字号）*/
+.senior-mode [data-session-item],
+.senior-mode button[data-slot="dropdown-menu-trigger"] {
+  min-height: 56px;
+}
+
+/* 老年模式：焦点环更明显（高对比度）*/
+.senior-mode *:focus-visible {
+  outline: 3px solid var(--primary) !important;
+  outline-offset: 2px;
+  border-radius: 6px;
+}
+
+/* 老年模式：增强对比度（文字加深）*/
+.senior-mode .text-muted-foreground {
+  color: hsl(var(--foreground) / 0.85);
+}
+
+/* 老年模式：卡片/边框更明显 */
+.senior-mode [data-slot="card"],
+.senior-mode .border,
+.senior-mode .border-border {
+  border-width: 1.5px;
+}
+
+/* 老年模式：增大组件间距 */
+.senior-mode .space-y-1 > * + * {
+  margin-top: 0.5rem;
+}
+.senior-mode .space-y-2 > * + * {
+  margin-top: 0.625rem;
+}
+.senior-mode .space-y-3 > * + * {
+  margin-top: 0.875rem;
+}
+
+/* 老年模式：Tooltip 文字放大 */
+.senior-mode [data-slot="tooltip-content"] {
+  font-size: 0.875rem;
+  padding: 0.5rem 0.75rem;
+}
+
+/* 老年模式：图标稍大（更易识别）*/
+.senior-mode .size-4 {
+  width: 1.125rem;
+  height: 1.125rem;
+}
+
+/* 老年模式：聊天消息间距加大 */
+.senior-mode [data-message-bubble] {
+  margin-bottom: 1rem;
+  padding: 0.875rem 1rem;
+}
+
+/* 老年模式：欢迎页快捷卡片放大 */
+.senior-mode [data-quick-card] {
+  min-height: 96px;
+  padding: 1rem 1.125rem;
+}
+
+/* 老年模式：减小动画速度（避免眩晕）*/
+.senior-mode *,
+.senior-mode *::before,
+.senior-mode *::after {
+  animation-duration: calc(var(--animation-duration, 200ms) * 0.7) !important;
+  transition-duration: calc(var(--animation-duration, 200ms) * 0.7) !important;
+}
+
+/* ====== 基础层 ====== */
+@layer base {
+  * {
+    @apply border-border outline-ring/50;
+  }
+  html {
+    @apply font-sans antialiased;
+    font-size: var(--font-base);
+    scroll-behavior: smooth;
+  }
+  body {
+    @apply bg-background text-foreground;
+    font-feature-settings: "rlig" 1, "calt" 1;
+  }
+  code,
+  pre,
+  kbd,
+  samp {
+    font-family: var(--font-mono);
+  }
+}
+
+/* ====== 滚动条美化 ====== */
+@layer base {
+  ::-webkit-scrollbar {
+    width: 8px;
+    height: 8px;
+  }
+  ::-webkit-scrollbar-track {
+    background: transparent;
+  }
+  ::-webkit-scrollbar-thumb {
+    background: var(--border);
+    border-radius: 8px;
+  }
+  ::-webkit-scrollbar-thumb:hover {
+    background: var(--muted-foreground);
+  }
+}
+
+/* ====== 动画 ====== */
+@keyframes blink {
+  0%,
+  100% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0;
+  }
+}
+
+@keyframes pulse-dots {
+  0%,
+  80%,
+  100% {
+    opacity: 0.3;
+    transform: scale(0.8);
+  }
+  40% {
+    opacity: 1;
+    transform: scale(1);
+  }
+}
+
+.typing-cursor {
+  display: inline-block;
+  width: 2px;
+  height: 1em;
+  background: currentColor;
+  margin-left: 2px;
+  vertical-align: text-bottom;
+  animation: blink 1s step-end infinite;
+}
+
+.thinking-dot {
+  display: inline-block;
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: currentColor;
+  margin: 0 2px;
+  animation: pulse-dots 1.4s ease-in-out infinite both;
+}
+
+.thinking-dot:nth-child(1) {
+  animation-delay: -0.32s;
+}
+.thinking-dot:nth-child(2) {
+  animation-delay: -0.16s;
+}

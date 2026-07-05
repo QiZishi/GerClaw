@@ -1,0 +1,118 @@
+"use client";
+
+import { Menu, PanelLeftClose, Plus } from "lucide-react";
+import { Button } from "@/components/ui/button";
+import { Sheet, SheetContent, SheetTrigger } from "@/components/ui/sheet";
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipTrigger,
+} from "@/components/ui/tooltip";
+import { Sidebar } from "@/components/layout/Sidebar";
+import { ChatArea } from "@/components/layout/ChatArea";
+import { DoctorHome } from "@/components/layout/DoctorHome";
+import { RightPanel } from "@/components/layout/RightPanel";
+import { useAppStore } from "@/stores/appStore";
+import { useChatStore } from "@/stores/chatStore";
+
+/**
+ * 角色路由分发
+ * 静态导出无服务端路由，用条件渲染：role=doctor 显示医生端，否则患者端
+ * - 患者端：Sidebar + ChatArea + RightPanel
+ * - 医生端：Sidebar + DoctorHome（无会话显示 PatientList，有会话进入 ChatArea） + RightPanel
+ *
+ * 侧边栏折叠时不渲染 Sidebar，改在中间主视图左上角浮动显示"展开按钮 + 新建对话按钮"
+ */
+export default function Home() {
+  const role = useAppStore((s) => s.role);
+  const sidebarCollapsed = useAppStore((s) => s.sidebarCollapsed);
+  const toggleSidebar = useAppStore((s) => s.toggleSidebar);
+  const mobileSidebarOpen = useAppStore((s) => s.mobileSidebarOpen);
+  const setMobileSidebarOpen = useAppStore((s) => s.setMobileSidebarOpen);
+  const createSession = useChatStore((s) => s.createSession);
+  const setCurrentSession = useAppStore((s) => s.setCurrentSession);
+
+  const handleQuickNew = () => {
+    const id = createSession(role);
+    setCurrentSession(id);
+  };
+
+  return (
+    <div className="flex h-screen w-full overflow-hidden bg-background relative">
+      {/* 桌面端侧边栏（仅展开时渲染）*/}
+      {!sidebarCollapsed && (
+        <div className="hidden md:flex h-full">
+          <Sidebar />
+        </div>
+      )}
+
+      {/* 折叠时浮动顶栏：展开按钮 + 新建对话按钮（左上角并排）*/}
+      {sidebarCollapsed && (
+        <div className="hidden md:flex absolute top-2 left-2 z-30 items-center gap-1">
+          <Tooltip>
+            <TooltipTrigger
+              render={
+                <Button
+                  variant="ghost"
+                  size="icon"
+                  className="btn-icon"
+                  onClick={toggleSidebar}
+                  aria-label="展开侧边栏"
+                />
+              }
+            >
+              <PanelLeftClose className="size-4" />
+            </TooltipTrigger>
+            <TooltipContent side="bottom">展开侧边栏</TooltipContent>
+          </Tooltip>
+          <Tooltip>
+            <TooltipTrigger
+              render={
+                <Button
+                  variant="ghost"
+                  size="icon"
+                  className="btn-icon text-foreground hover:text-foreground"
+                  onClick={handleQuickNew}
+                  aria-label="新建对话"
+                />
+              }
+            >
+              <Plus className="size-4" />
+            </TooltipTrigger>
+            <TooltipContent side="bottom">新建对话</TooltipContent>
+          </Tooltip>
+        </div>
+      )}
+
+      {/* 移动端侧边栏（Sheet 抽屉）*/}
+      <div className="md:hidden">
+        <Sheet
+          open={mobileSidebarOpen}
+          onOpenChange={setMobileSidebarOpen}
+        >
+          <SheetTrigger
+            render={
+              <Button
+                variant="ghost"
+                size="icon"
+                className="btn-icon absolute top-2 left-2 z-20 md:hidden"
+                aria-label="打开菜单"
+              />
+            }
+          >
+            <Menu className="size-4" />
+          </SheetTrigger>
+          <SheetContent side="left" className="p-0 w-[280px]">
+            <Sidebar onNavigate={() => setMobileSidebarOpen(false)} />
+          </SheetContent>
+        </Sheet>
+      </div>
+
+      {/* 中间主视图：医生端用 DoctorHome，患者端用 ChatArea */}
+      {role === "doctor" ? <DoctorHome /> : <ChatArea />}
+
+      {/* 右侧动态面板 */}
+      <RightPanel />
+    </div>
+  );
+}

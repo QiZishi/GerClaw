@@ -1,0 +1,11 @@
+node_modules/
+.next/
+out/
+.env*
+!.env.example
+*.log
+.DS_Store
+docs/references/agentscope-examples/
+docs/references/agentscope参考/
+docs/references/问卷量表/
+docs/references/hzj_case.json
