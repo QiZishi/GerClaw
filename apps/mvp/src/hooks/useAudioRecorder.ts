@@ -9,6 +9,7 @@ interface UseAudioRecorderReturn {
   audioBlob: Blob | null;
   startRecording: () => Promise<void>;
   stopRecording: () => Promise<Blob>;
+  cancelRecording: () => void;
   error: string | null;
 }
 
@@ -29,6 +30,7 @@ export function useAudioRecorder(): UseAudioRecorderReturn {
   const startTimeRef = useRef<number>(0);
   const resolveStopRef = useRef<((blob: Blob) => void) | null>(null);
   const rejectStopRef = useRef<((err: Error) => void) | null>(null);
+  const isCancelRef = useRef(false);
 
   const cleanup = useCallback(() => {
     if (animationFrameRef.current) {
@@ -103,11 +105,13 @@ export function useAudioRecorder(): UseAudioRecorderReturn {
         setAudioLevel(0);
         setRecordingDuration(0);
         cleanup();
-        if (resolveStopRef.current) {
+        if (isCancelRef.current) {
+          isCancelRef.current = false;
+        } else if (resolveStopRef.current) {
           resolveStopRef.current(blob);
-          resolveStopRef.current = null;
-          rejectStopRef.current = null;
         }
+        resolveStopRef.current = null;
+        rejectStopRef.current = null;
       };
 
       mediaRecorder.onerror = (e) => {
@@ -182,11 +186,26 @@ export function useAudioRecorder(): UseAudioRecorderReturn {
         return;
       }
 
+      isCancelRef.current = false;
       resolveStopRef.current = resolve;
       rejectStopRef.current = reject;
       mediaRecorderRef.current.stop();
     });
   }, [audioBlob]);
+
+  const cancelRecording = useCallback(() => {
+    if (mediaRecorderRef.current && mediaRecorderRef.current.state !== "inactive") {
+      isCancelRef.current = true;
+      resolveStopRef.current = null;
+      rejectStopRef.current = null;
+      mediaRecorderRef.current.stop();
+    } else {
+      setIsRecording(false);
+      setAudioLevel(0);
+      setRecordingDuration(0);
+      cleanup();
+    }
+  }, [cleanup]);
 
   return {
     isRecording,
@@ -195,6 +214,7 @@ export function useAudioRecorder(): UseAudioRecorderReturn {
     audioBlob,
     startRecording,
     stopRecording,
+    cancelRecording,
     error,
   };
 }

@@ -3,6 +3,7 @@
 import { useState, useRef } from "react";
 import {
   BookOpen,
+  Check,
   ClipboardCheck,
   FileSearch,
   Loader2,
@@ -10,7 +11,6 @@ import {
   Paperclip,
   Pill,
   SendHorizonal,
-  Square,
   UserRound,
   X,
 } from "lucide-react";
@@ -33,6 +33,158 @@ interface ChatInputProps {
   onStop?: () => void;
 }
 
+function WaveformBars({ audioLevel, recordingDuration }: { audioLevel: number; recordingDuration: number }) {
+  const barCount = 28;
+  return (
+    <div className="flex items-center justify-center gap-[3px] flex-1 px-4 overflow-hidden">
+      {Array.from({ length: barCount }).map((_, i) => {
+        const centerDist = Math.abs(i - barCount / 2) / (barCount / 2);
+        const baseHeight = 4 + (1 - centerDist) * 8;
+        const levelMultiplier = 0.4 + audioLevel * 1.8;
+        const height = Math.min(baseHeight * levelMultiplier, 28);
+        const isActive = audioLevel > 0.05 || (i % 3 === 0 && recordingDuration % 2 === 0);
+        return (
+          <div
+            key={i}
+            className={cn(
+              "w-[3px] rounded-full transition-all duration-100",
+              isActive ? "bg-gray-800 dark:bg-gray-200" : "bg-gray-300 dark:bg-gray-600"
+            )}
+            style={{
+              height: `${height}px`,
+            }}
+          />
+        );
+      })}
+    </div>
+  );
+}
+
+function FunctionButtonGroup({
+  disabled,
+  role,
+  onShowToast,
+  onSetMainView,
+  onSetChatAction,
+}: {
+  disabled: boolean;
+  role: "patient" | "doctor" | "visitor";
+  onShowToast: (msg: string) => void;
+  onSetMainView: (view: "skills" | "chat") => void;
+  onSetChatAction: (action: "prescription" | "cga" | "drug-review" | "health-profile" | "none") => void;
+}) {
+  return (
+    <div className="flex items-center gap-0.5 flex-wrap">
+      <Tooltip>
+        <TooltipTrigger
+          render={
+            <Button
+              variant="ghost"
+              size="icon"
+              className="btn-icon"
+              onClick={() => onShowToast("文件上传功能开发中，敬请期待")}
+              aria-label="上传文件或图片"
+              disabled={disabled}
+            />
+          }
+        >
+          <Paperclip className="size-4" />
+        </TooltipTrigger>
+        <TooltipContent>上传文件或图片</TooltipContent>
+      </Tooltip>
+      <Tooltip>
+        <TooltipTrigger
+          render={
+            <Button
+              variant="ghost"
+              size="icon"
+              className="btn-icon"
+              onClick={() => onSetMainView("skills")}
+              aria-label="技能"
+              disabled={disabled}
+            />
+          }
+        >
+          <BookOpen className="size-4" />
+        </TooltipTrigger>
+        <TooltipContent>技能</TooltipContent>
+      </Tooltip>
+      <Tooltip>
+        <TooltipTrigger
+          render={
+            <Button
+              variant="ghost"
+              size="icon"
+              className="btn-icon"
+              onClick={() => onSetChatAction("prescription")}
+              aria-label="五大处方生成"
+              disabled={disabled}
+            />
+          }
+        >
+          <Pill className="size-4" />
+        </TooltipTrigger>
+        <TooltipContent>五大处方生成</TooltipContent>
+      </Tooltip>
+      <Tooltip>
+        <TooltipTrigger
+          render={
+            <Button
+              variant="ghost"
+              size="icon"
+              className="btn-icon"
+              onClick={() => onSetChatAction("cga")}
+              aria-label="老年综合评估"
+              disabled={disabled}
+            />
+          }
+        >
+          <ClipboardCheck className="size-4" />
+        </TooltipTrigger>
+        <TooltipContent>老年综合评估</TooltipContent>
+      </Tooltip>
+      {role === "doctor" && (
+        <Tooltip>
+          <TooltipTrigger
+            render={
+              <Button
+                variant="ghost"
+                size="icon"
+                className="btn-icon"
+                onClick={() => onSetChatAction("drug-review")}
+                aria-label="用药审查"
+                disabled={disabled}
+              />
+            }
+          >
+            <FileSearch className="size-4" />
+          </TooltipTrigger>
+          <TooltipContent>用药审查</TooltipContent>
+        </Tooltip>
+      )}
+      <Tooltip>
+        <TooltipTrigger
+          render={
+            <Button
+              variant="ghost"
+              size="icon"
+              className="btn-icon"
+              onClick={() => onSetChatAction("health-profile")}
+              aria-label={role === "doctor" ? "查看健康画像" : "我的健康画像"}
+              disabled={disabled}
+            />
+          }
+        >
+          <UserRound className="size-4" />
+        </TooltipTrigger>
+        <TooltipContent>
+          {role === "doctor" ? "查看健康画像" : "我的健康画像"}
+        </TooltipContent>
+      </Tooltip>
+    </div>
+  );
+}
+
 export function ChatInput({ onSend, isGenerating, onStop }: ChatInputProps) {
   const role = useAppStore((s) => s.role);
   const seniorMode = useAppStore((s) => s.seniorMode);
@@ -53,6 +205,7 @@ export function ChatInput({ onSend, isGenerating, onStop }: ChatInputProps) {
     audioLevel,
     startRecording,
     stopRecording,
+    cancelRecording,
   } = useAudioRecorder();
 
   const placeholder =
@@ -94,179 +247,100 @@ export function ChatInput({ onSend, isGenerating, onStop }: ChatInputProps) {
     return `${m}:${s.toString().padStart(2, "0")}`;
   };
 
-  const handleMicClick = async () => {
-    if (isRecording) {
+  const handleMicStart = async () => {
+    if (isTranscribing || isGenerating) return;
+    try {
+      await startRecording();
+    } catch (err) {
+      const message = err instanceof Error ? err.message : "无法启动录音";
+      toast.show(message);
+    }
+  };
+
+  const handleRecordingCancel = () => {
+    try {
+      cancelRecording();
+    } catch {
+      toast.show("取消录音失败");
+    }
+  };
+
+  const handleRecordingFinish = async () => {
+    try {
+      const blob = await stopRecording();
+      setIsTranscribing(true);
       try {
-        const blob = await stopRecording();
-        setIsTranscribing(true);
-        try {
-          const recognizedText = await recognizeAudio(blob);
-          if (recognizedText) {
-            setText((prev) => {
-              const newText = prev ? prev + " " + recognizedText : recognizedText;
-              return newText.slice(0, INPUT_LIMITS.maxMessageLength);
-            });
-            setTimeout(() => {
-              if (textareaRef.current) {
-                textareaRef.current.style.height = "auto";
-                textareaRef.current.style.height = `${Math.min(textareaRef.current.scrollHeight, 200)}px`;
-                textareaRef.current.focus();
-              }
-            }, 50);
-          }
-        } catch {
-          toast.show("语音识别失败，请重试");
-        } finally {
-          setIsTranscribing(false);
+        const recognizedText = await recognizeAudio(blob);
+        if (recognizedText) {
+          setText((prev) => {
+            const newText = prev ? prev + " " + recognizedText : recognizedText;
+            return newText.slice(0, INPUT_LIMITS.maxMessageLength);
+          });
+          setTimeout(() => {
+            if (textareaRef.current) {
+              textareaRef.current.style.height = "auto";
+              textareaRef.current.style.height = `${Math.min(textareaRef.current.scrollHeight, 200)}px`;
+              textareaRef.current.focus();
+            }
+          }, 50);
         }
       } catch {
-        toast.show("录音失败，请重试");
+        toast.show("语音识别失败，请重试");
+      } finally {
+        setIsTranscribing(false);
       }
-    } else if (!isTranscribing && !isGenerating) {
-      try {
-        await startRecording();
-      } catch (err) {
-        const message = err instanceof Error ? err.message : "无法启动录音";
-        toast.show(message);
-      }
+    } catch {
+      toast.show("录音失败，请重试");
     }
   };
 
-  const VolumeIndicator = () => {
-    const bars = 4;
+  if (isRecording) {
     return (
-      <div className="flex items-center gap-0.5 ml-1">
-        {Array.from({ length: bars }).map((_, i) => {
-          const threshold = (i + 1) / bars;
-          const isActive = audioLevel > threshold * 0.6;
-          return (
-            <div
-              key={i}
+      <div className="border-t border-border bg-background px-4 py-3">
+        <div className="max-w-3xl mx-auto">
+          <div className="flex items-center gap-3 rounded-xl bg-muted/70 px-3 py-3">
+            <button
+              type="button"
+              onClick={handleRecordingCancel}
               className={cn(
-                "w-1 rounded-full transition-all duration-75",
-                isActive ? "bg-red-500" : "bg-red-200 dark:bg-red-900/40"
+                "flex items-center justify-center shrink-0 rounded-full bg-gray-200 dark:bg-gray-700 text-gray-600 dark:text-gray-300 hover:bg-gray-300 dark:hover:bg-gray-600 transition-colors",
+                seniorMode ? "size-14" : "size-11"
               )}
-              style={{
-                height: `${6 + i * 3}px`,
-              }}
-            />
-          );
-        })}
+              aria-label="取消录音"
+            >
+              <X className={cn(seniorMode ? "size-6" : "size-5")} />
+            </button>
+
+            <WaveformBars audioLevel={audioLevel} recordingDuration={recordingDuration} />
+
+            <span className={cn(
+              "shrink-0 tabular-nums font-medium text-gray-700 dark:text-gray-300 min-w-[48px] text-center",
+              seniorMode ? "text-xl" : "text-lg"
+            )}>
+              {formatDuration(recordingDuration)}
+            </span>
+
+            <button
+              type="button"
+              onClick={handleRecordingFinish}
+              className={cn(
+                "flex items-center justify-center shrink-0 rounded-full transition-colors",
+                seniorMode ? "size-14" : "size-11",
+                "bg-indigo-600 hover:bg-indigo-700 text-white"
+              )}
+              aria-label="完成录音"
+            >
+              <Check className={cn(seniorMode ? "size-6" : "size-5")} strokeWidth={3} />
+            </button>
+          </div>
+        </div>
       </div>
     );
-  };
-
-  const renderMicButton = () => {
-    if (isGenerating) {
-      return (
-        <Tooltip>
-          <TooltipTrigger
-            render={
-              <Button
-                variant="destructive"
-                size="icon"
-                className="btn-icon"
-                onClick={onStop}
-                aria-label="停止生成"
-              />
-            }
-          >
-            <Square className="size-4" />
-          </TooltipTrigger>
-          <TooltipContent>停止生成</TooltipContent>
-        </Tooltip>
-      );
-    }
-
-    if (text.trim()) {
-      return (
-        <Tooltip>
-          <TooltipTrigger
-            render={
-              <Button
-                variant="default"
-                size="icon"
-                className="btn-icon"
-                onClick={handleSend}
-                aria-label="发送"
-              />
-            }
-          >
-            <SendHorizonal className="size-4" />
-          </TooltipTrigger>
-          <TooltipContent>发送</TooltipContent>
-        </Tooltip>
-      );
-    }
-
-    if (isTranscribing) {
-      return (
-        <div className="flex items-center gap-2 px-2">
-          <Loader2 className={cn("animate-spin text-primary", seniorMode ? "size-5" : "size-4")} />
-          <span className={cn("text-primary", seniorMode ? "text-base" : "text-sm")}>
-            {seniorMode ? "正在识别…" : "识别中…"}
-          </span>
-        </div>
-      );
-    }
-
-    if (isRecording) {
-      return (
-        <div className="flex items-center">
-          <Tooltip>
-            <TooltipTrigger
-              render={
-                <Button
-                  variant="destructive"
-                  size="icon"
-                  className={cn(
-                    "btn-icon animate-pulse",
-                    seniorMode && "size-12"
-                  )}
-                  onClick={handleMicClick}
-                  aria-label="停止录音"
-                />
-              }
-            >
-              <Square className={cn(seniorMode ? "size-5" : "size-4")} />
-            </TooltipTrigger>
-            <TooltipContent>停止录音</TooltipContent>
-          </Tooltip>
-          <span className={cn("ml-2 tabular-nums text-red-500 font-medium", seniorMode ? "text-base" : "text-sm")}>
-            {formatDuration(recordingDuration)}
-          </span>
-          <VolumeIndicator />
-          {seniorMode && (
-            <span className="ml-2 text-red-500 text-base">正在录音…（再次点击停止）</span>
-          )}
-        </div>
-      );
-    }
-
-    return (
-      <Tooltip>
-        <TooltipTrigger
-          render={
-            <Button
-              variant="ghost"
-              size="icon"
-              className={cn("btn-icon", seniorMode && "size-12")}
-              onClick={handleMicClick}
-              aria-label="语音输入"
-            />
-          }
-        >
-          <Mic className={cn(seniorMode ? "size-5" : "size-4")} />
-        </TooltipTrigger>
-        <TooltipContent>语音输入</TooltipContent>
-      </Tooltip>
-    );
-  };
+  }
 
   return (
     <div className="border-t border-border bg-background px-4 py-3">
       <div className="max-w-3xl mx-auto">
-        {/* 标签区域 */}
         {(loadedSkillIds.length > 0 || uploadedFileIds.length > 0) && (
           <div className="flex flex-wrap gap-2 mb-2">
             {loadedSkillIds.map((id) => (
@@ -306,147 +380,94 @@ export function ChatInput({ onSend, isGenerating, onStop }: ChatInputProps) {
           </div>
         )}
 
-        {/* 多行文本框（上方）*/}
-        <div className={cn(
-          "rounded-xl border border-border bg-muted/50 focus-within:ring-2 focus-within:ring-ring/40 transition-shadow",
-          isRecording && "border-red-400 ring-2 ring-red-200 dark:ring-red-900/40"
-        )}>
+        <div className="rounded-xl border border-border bg-muted/50 focus-within:ring-2 focus-within:ring-ring/40 transition-shadow">
           <textarea
             ref={textareaRef}
             value={text}
             onChange={handleInput}
             onKeyDown={handleKeyDown}
-            placeholder={isRecording ? (seniorMode ? "正在录音…" : "录音中…") : placeholder}
+            placeholder={isTranscribing ? (seniorMode ? "正在识别语音…" : "识别中…") : placeholder}
             rows={2}
-            disabled={isRecording || isTranscribing}
+            disabled={isTranscribing}
             className={cn(
               "w-full resize-none bg-transparent border-0 outline-none px-3 py-2 text-base leading-relaxed placeholder:text-muted-foreground max-h-[200px] disabled:opacity-60",
               seniorMode && "text-lg"
             )}
           />
 
-          {/* 底部功能按钮行 */}
           <div className="flex items-center justify-between gap-1 px-2 py-1.5 border-t border-border/60">
-            {/* 左侧功能按钮组 */}
-            <div className="flex items-center gap-0.5 flex-wrap">
-              <Tooltip>
-                <TooltipTrigger
-                  render={
-                    <Button
-                      variant="ghost"
-                      size="icon"
-                      className="btn-icon"
-                      onClick={() => toast.show("文件上传功能开发中，敬请期待")}
-                      aria-label="上传文件或图片"
-                      disabled={isRecording || isTranscribing}
-                    />
-                  }
-                >
-                  <Paperclip className="size-4" />
-                </TooltipTrigger>
-                <TooltipContent>上传文件或图片</TooltipContent>
-              </Tooltip>
-              <Tooltip>
-                <TooltipTrigger
-                  render={
-                    <Button
-                      variant="ghost"
-                      size="icon"
-                      className="btn-icon"
-                      onClick={() => setMainView("skills")}
-                      aria-label="技能"
-                      disabled={isRecording || isTranscribing}
-                    />
-                  }
-                >
-                  <BookOpen className="size-4" />
-                </TooltipTrigger>
-                <TooltipContent>技能</TooltipContent>
-              </Tooltip>
-              <Tooltip>
-                <TooltipTrigger
-                  render={
-                    <Button
-                      variant="ghost"
-                      size="icon"
-                      className="btn-icon"
-                      onClick={() => setChatAction("prescription")}
-                      aria-label="五大处方生成"
-                      disabled={isRecording || isTranscribing}
-                    />
-                  }
-                >
-                  <Pill className="size-4" />
-                </TooltipTrigger>
-                <TooltipContent>五大处方生成</TooltipContent>
-              </Tooltip>
-              <Tooltip>
-                <TooltipTrigger
-                  render={
-                    <Button
-                      variant="ghost"
-                      size="icon"
-                      className="btn-icon"
-                      onClick={() => setChatAction("cga")}
-                      aria-label="老年综合评估"
-                      disabled={isRecording || isTranscribing}
-                    />
-                  }
-                >
-                  <ClipboardCheck className="size-4" />
-                </TooltipTrigger>
-                <TooltipContent>老年综合评估</TooltipContent>
-              </Tooltip>
-              {/* 用药审查：仅医生端可见 */}
-              {role === "doctor" && (
+            <FunctionButtonGroup
+              disabled={isTranscribing}
+              role={role}
+              onShowToast={(msg) => toast.show(msg)}
+              onSetMainView={setMainView}
+              onSetChatAction={setChatAction}
+            />
+
+            <div className="flex items-center">
+              {isGenerating ? (
+                <Tooltip>
+                  <TooltipTrigger
+                    render={
+                      <Button
+                        variant="destructive"
+                        size="icon"
+                        className="btn-icon"
+                        onClick={onStop}
+                        aria-label="停止生成"
+                      />
+                    }
+                  >
+                    <span className="size-2.5 bg-current rounded-sm" />
+                  </TooltipTrigger>
+                  <TooltipContent>停止生成</TooltipContent>
+                </Tooltip>
+              ) : text.trim() ? (
+                <Tooltip>
+                  <TooltipTrigger
+                    render={
+                      <Button
+                        variant="default"
+                        size="icon"
+                        className="btn-icon"
+                        onClick={handleSend}
+                        aria-label="发送"
+                      />
+                    }
+                  >
+                    <SendHorizonal className="size-4" />
+                  </TooltipTrigger>
+                  <TooltipContent>发送</TooltipContent>
+                </Tooltip>
+              ) : isTranscribing ? (
+                <div className="flex items-center gap-2 px-2">
+                  <Loader2 className={cn("animate-spin text-primary", seniorMode ? "size-5" : "size-4")} />
+                  <span className={cn("text-primary", seniorMode ? "text-base" : "text-sm")}>
+                    {seniorMode ? "正在识别…" : "识别中…"}
+                  </span>
+                </div>
+              ) : (
                 <Tooltip>
                   <TooltipTrigger
                     render={
                       <Button
                         variant="ghost"
                         size="icon"
-                        className="btn-icon"
-                        onClick={() => setChatAction("drug-review")}
-                        aria-label="用药审查"
-                        disabled={isRecording || isTranscribing}
+                        className={cn("btn-icon", seniorMode && "size-12")}
+                        onClick={handleMicStart}
+                        aria-label="语音输入"
                       />
                     }
                   >
-                    <FileSearch className="size-4" />
+                    <Mic className={cn(seniorMode ? "size-5" : "size-4")} />
                   </TooltipTrigger>
-                  <TooltipContent>用药审查</TooltipContent>
+                  <TooltipContent>语音输入</TooltipContent>
                 </Tooltip>
               )}
-              {/* 健康画像：医生患者都可见，两端功能差异化 */}
-              <Tooltip>
-                <TooltipTrigger
-                  render={
-                    <Button
-                      variant="ghost"
-                      size="icon"
-                      className="btn-icon"
-                      onClick={() => setChatAction("health-profile")}
-                      aria-label={
-                        role === "doctor" ? "查看健康画像" : "我的健康画像"
-                      }
-                      disabled={isRecording || isTranscribing}
-                    />
-                  }
-                >
-                  <UserRound className="size-4" />
-                </TooltipTrigger>
-                <TooltipContent>
-                  {role === "doctor" ? "查看健康画像" : "我的健康画像"}
-                </TooltipContent>
-              </Tooltip>
             </div>
-
-            {/* 右侧发送/停止/语音 */}
-            {renderMicButton()}
           </div>
         </div>
 
-        {/* 医疗免责声明（仅显示，不显示字数统计）*/}
         <div className="mt-1.5 text-xs text-muted-foreground">
           {MEDICAL_DISCLAIMER}
         </div>

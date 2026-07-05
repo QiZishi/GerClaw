@@ -1,12 +1,20 @@
 /**
  * 医疗安全后处理
- * 对齐铁律5：禁止确定性诊断，所有医疗输出带免责声明，高风险症状提示立即就医
+ * 对齐铁律5：禁止确定性诊断，高风险症状提示立即就医
+ * 免责声明由UI层统一显示（MessageBubble底部/ChatInput底部），此处不再追加文本
  */
-
-import { MEDICAL_DISCLAIMER } from "@/lib/constants";
 
 const SUICIDE_RISK_ALERT =
   "⚠️ 如果您有伤害自己的想法，请立即拨打心理危机干预热线：北京 010-82951332，全国 24 小时热线：400-161-9995。请告诉您的家人或医生。";
+
+const DISCLAIMER_PATTERNS = [
+  /内容由\s*AI\s*生成[，,。.\s]*仅供参考[，,。.\s]*身体不适请及时就医[。.]?\s*$/g,
+  /以上建议仅供参考[，,。.\s]*身体不适请及时就医[。.]?\s*$/g,
+  /AI辅助建议[，,。.\s]*需结合临床判断[。.]?\s*$/g,
+  /以上仅供参考[，,。.\s]*不能替代线下就医[。.]?\s*$/g,
+  /本平台仅供健康咨询参考[，,。.\s]*不能替代线下就医[。.]?\s*$/g,
+  /\n{2,}内容由\s*AI\s*生成[\s\S]*$/g,
+];
 
 interface DiagnosticPattern {
   pattern: RegExp;
@@ -49,10 +57,12 @@ function replaceDiagnosticLanguage(text: string): string {
   return result;
 }
 
-function appendDisclaimerIfMissing(text: string): string {
-  if (text.includes(MEDICAL_DISCLAIMER)) return text;
-  const trimmed = text.trim();
-  return trimmed ? `${trimmed}\n\n${MEDICAL_DISCLAIMER}` : MEDICAL_DISCLAIMER;
+function stripModelGeneratedDisclaimer(text: string): string {
+  let result = text.trim();
+  for (const pattern of DISCLAIMER_PATTERNS) {
+    result = result.replace(pattern, "").trim();
+  }
+  return result;
 }
 
 function prependSuicideAlert(text: string): string {
@@ -68,7 +78,7 @@ export function postprocessMedicalText(
 
   result = replaceDiagnosticLanguage(result);
 
-  result = appendDisclaimerIfMissing(result);
+  result = stripModelGeneratedDisclaimer(result);
 
   if (options?.isSuicideRisk) {
     result = prependSuicideAlert(result);

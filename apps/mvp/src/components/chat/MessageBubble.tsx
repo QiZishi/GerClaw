@@ -2,13 +2,13 @@
 
 import { useState } from "react";
 import {
-  Activity,
   Copy,
   Download,
   ExternalLink,
   Loader2,
   Pause,
   RefreshCw,
+  Stethoscope,
   Volume2,
 } from "lucide-react";
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
@@ -138,7 +138,7 @@ export function MessageBubble({ message, onRegenerate }: MessageBubbleProps) {
           {isUser ? (
             <span className="text-xs">我</span>
           ) : (
-            <Activity className="size-4" />
+            <Stethoscope className="size-4" />
           )}
         </AvatarFallback>
       </Avatar>

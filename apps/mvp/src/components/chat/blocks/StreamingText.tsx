@@ -1,20 +1,15 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
+import { Loader2 } from "lucide-react";
 import { cn } from "@/lib/utils";
 
 interface StreamingTextProps {
-  /** 完整目标文本（流式追加至该文本） */
   content: string;
-  /** 是否处于流式状态 */
   streaming?: boolean;
   className?: string;
 }
 
-/**
- * 流式文本：逐字追加 + 末尾闪烁光标
- * 仅在 streaming=true 时执行逐字追加；非流式时直接渲染完整文本。
- */
 export function StreamingText({
   content,
   streaming = false,
@@ -26,7 +21,6 @@ export function StreamingText({
   useEffect(() => {
     if (!streaming) return;
     if (timerRef.current) clearInterval(timerRef.current);
-    // 流式：从当前已显示长度逐步追加
     let idx = displayed.length;
     if (idx >= content.length) return;
     timerRef.current = setInterval(() => {
@@ -44,9 +38,16 @@ export function StreamingText({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [content, streaming]);
 
-  // 非流式时直接渲染完整内容，避免在 effect 中同步 setState
   if (!streaming) {
     return <span className={cn("whitespace-pre-wrap", className)}>{content}</span>;
+  }
+
+  if (!displayed) {
+    return (
+      <span className={cn("inline-flex items-center", className)}>
+        <Loader2 className="size-4 animate-spin text-muted-foreground" />
+      </span>
+    );
   }
 
   return (

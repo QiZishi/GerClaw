@@ -1,7 +1,7 @@
 "use client";
 
 import { useState } from "react";
-import { Activity, ChevronLeft, Stethoscope } from "lucide-react";
+import { ChevronLeft, Stethoscope } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { useAppStore } from "@/stores/appStore";
 import { useChatStore } from "@/stores/chatStore";
@@ -81,7 +81,7 @@ export function DoctorHome() {
           <span className="text-sm font-medium">医生工作台</span>
         </div>
         <div className="flex items-center gap-1.5 text-xs text-muted-foreground">
-          <Activity className="size-3.5" />
+          <Stethoscope className="size-3.5" />
           <span>GerClaw 辅助诊疗</span>
         </div>
       </header>
