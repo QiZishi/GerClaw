@@ -1,25 +1,11 @@
 import { generateTraceId, classifyError } from "../api-client";
-
-function blobToBase64DataUrl(blob: Blob): Promise<string> {
-  return new Promise((resolve, reject) => {
-    const reader = new FileReader();
-    reader.onloadend = () => {
-      if (typeof reader.result === "string") {
-        resolve(reader.result);
-      } else {
-        reject(new Error("Failed to convert blob to base64"));
-      }
-    };
-    reader.onerror = () => reject(reader.error);
-    reader.readAsDataURL(blob);
-  });
-}
+import { convertBlobToWavBase64 } from "./audio-convert";
 
 export async function recognizeAudio(audioBlob: Blob): Promise<string> {
   const traceId = generateTraceId();
 
   try {
-    const base64DataUrl = await blobToBase64DataUrl(audioBlob);
+    const { base64: wavBase64 } = await convertBlobToWavBase64(audioBlob);
 
     const response = await fetch("/api/voice/asr", {
       method: "POST",
@@ -28,8 +14,8 @@ export async function recognizeAudio(audioBlob: Blob): Promise<string> {
         "X-Trace-Id": traceId,
       },
       body: JSON.stringify({
-        audio: base64DataUrl,
-        language: "auto",
+        audio: wavBase64,
+        format: "wav",
       }),
     });
 

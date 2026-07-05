@@ -18,27 +18,30 @@ export async function POST(request: NextRequest) {
 
   try {
     const body = await request.json();
-    const { text, voice, model } = body;
+    const { text, voice } = body;
+
+    if (!text || typeof text !== "string") {
+      return Response.json(
+        { error: "缺少要合成的文本" },
+        { status: 400 }
+      );
+    }
 
     const url = TTS_URL.replace(/\/+$/, "") + "/chat/completions";
 
     const requestBody: Record<string, unknown> = {
-      model: model || TTS_MODEL,
+      model: TTS_MODEL,
       messages: [
-        {
-          role: "user",
-          content: "用温柔体贴的语调，语速适中，像在关心一位老人的健康状况",
-        },
         {
           role: "assistant",
           content: text,
         },
       ],
       audio: {
-        format: "pcm16",
+        format: "wav",
         voice: voice || TTS_VOICE,
       },
-      stream: true,
+      stream: false,
     };
 
     const response = await fetch(url, {
@@ -46,7 +49,6 @@ export async function POST(request: NextRequest) {
       headers: {
         "Content-Type": "application/json",
         Authorization: `Bearer ${TTS_API_KEY}`,
-        "api-key": TTS_API_KEY,
       },
       body: JSON.stringify(requestBody),
     });
@@ -59,41 +61,23 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    if (!response.body) {
+    const json = await response.json();
+    const audioBase64 = json?.choices?.[0]?.message?.audio?.data;
+
+    if (!audioBase64 || typeof audioBase64 !== "string") {
       return Response.json(
-        { error: "TTS 响应体为空" },
+        { error: "TTS 响应格式异常，未获取到音频数据" },
         { status: 502 }
       );
     }
 
-    const encoder = new TextEncoder();
+    const audioBuffer = Buffer.from(audioBase64, "base64");
 
-    const stream = new ReadableStream({
-      async start(controller) {
-        const reader = response.body!.getReader();
-        const decoder = new TextDecoder();
-
-        try {
-          while (true) {
-            const { done, value } = await reader.read();
-            if (done) break;
-            const text = decoder.decode(value, { stream: true });
-            controller.enqueue(encoder.encode(text));
-          }
-        } finally {
-          reader.releaseLock();
-        }
-
-        controller.enqueue(encoder.encode("data: [DONE]\n\n"));
-        controller.close();
-      },
-    });
-
-    return new Response(stream, {
+    return new Response(audioBuffer, {
       headers: {
-        "Content-Type": "text/event-stream",
+        "Content-Type": "audio/wav",
+        "Content-Length": audioBuffer.length.toString(),
         "Cache-Control": "no-cache",
-        Connection: "keep-alive",
       },
     });
   } catch (error) {

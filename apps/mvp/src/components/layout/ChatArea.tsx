@@ -487,18 +487,15 @@ export function ChatArea() {
 
     const buildLLMHistory = (excludeMsgId?: string): LLMMessage[] => {
       const allMsgs = getLatestMessages();
-      return allMsgs
-        .filter((m) => m.id !== excludeMsgId)
-        .filter((m) => m.role === "user" || m.role === "assistant")
-        .map((m) => {
-          if (m.role === "user") {
-            return { role: "user" as const, content: getTextFromMessage(m) };
-          } else {
-            const content = getTextFromMessage(m);
-            return content ? { role: "assistant" as const, content } : null;
-          }
-        })
-        .filter((m): m is LLMMessage => m !== null);
+      const result: LLMMessage[] = [];
+      for (const m of allMsgs) {
+        if (m.id === excludeMsgId) continue;
+        if (m.role !== "user" && m.role !== "assistant") continue;
+        const content = getTextFromMessage(m);
+        if (m.role === "assistant" && !content) continue;
+        result.push({ role: m.role, content });
+      }
+      return result;
     };
 
     if (chatAction !== "none" && chatAction !== "cga") {

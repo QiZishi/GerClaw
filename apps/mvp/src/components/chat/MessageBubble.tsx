@@ -40,12 +40,12 @@ interface MessageBubbleProps {
 }
 
 function VoiceReadButton({ text, seniorMode }: { text: string; seniorMode: boolean }) {
-  const { isPlaying, isPaused, isLoading, play, pause } = useAudioPlayer();
+  const { isPlaying, isLoading, play, stop } = useAudioPlayer();
 
   const handleClick = () => {
     try {
       if (isPlaying || isLoading) {
-        pause();
+        stop();
       } else {
         play(text);
       }
@@ -59,12 +59,9 @@ function VoiceReadButton({ text, seniorMode }: { text: string; seniorMode: boole
   if (isLoading) {
     icon = <Loader2 className={cn("animate-spin", seniorMode ? "size-4" : "size-3.5")} />;
     label = "加载中";
-  } else if (isPlaying && !isPaused) {
+  } else if (isPlaying) {
     icon = <Pause className={cn(seniorMode ? "size-4" : "size-3.5")} />;
-    label = "暂停";
-  } else if (isPaused) {
-    icon = <Volume2 className={cn(seniorMode ? "size-4" : "size-3.5")} />;
-    label = "继续播放";
+    label = "停止播放";
   } else {
     icon = <Volume2 className={cn(seniorMode ? "size-4" : "size-3.5")} />;
     label = "语音朗读";

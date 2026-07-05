@@ -17,12 +17,42 @@ export async function POST(request: NextRequest) {
 
   try {
     const body = await request.json();
-    const { audio, model, language } = body;
+    let { audio, format } = body;
+
+    if (!audio || typeof audio !== "string") {
+      return Response.json(
+        { error: "缺少音频数据" },
+        { status: 400 }
+      );
+    }
+
+    // 处理 data URL 格式（data:audio/xxx;base64,...），提取纯 base64
+    if (audio.startsWith("data:")) {
+      const commaIndex = audio.indexOf(",");
+      if (commaIndex === -1) {
+        return Response.json(
+          { error: "音频数据格式无效" },
+          { status: 400 }
+        );
+      }
+      // 从 MIME type 推断格式
+      const mimeHeader = audio.slice(5, commaIndex);
+      if (!format) {
+        if (mimeHeader.includes("wav")) format = "wav";
+        else if (mimeHeader.includes("webm")) format = "webm";
+        else if (mimeHeader.includes("mp4") || mimeHeader.includes("m4a")) format = "mp4";
+        else if (mimeHeader.includes("ogg")) format = "ogg";
+        else if (mimeHeader.includes("mpeg") || mimeHeader.includes("mp3")) format = "mp3";
+      }
+      audio = audio.slice(commaIndex + 1);
+    }
 
     const url = ASR_URL.replace(/\/+$/, "") + "/chat/completions";
 
+    const audioFormat = format || "wav";
+
     const requestBody: Record<string, unknown> = {
-      model: model || ASR_MODEL,
+      model: ASR_MODEL,
       messages: [
         {
           role: "user",
@@ -31,14 +61,12 @@ export async function POST(request: NextRequest) {
               type: "input_audio",
               input_audio: {
                 data: audio,
+                format: audioFormat,
               },
             },
           ],
         },
       ],
-      asr_options: {
-        language: language || "auto",
-      },
       stream: false,
     };
 
@@ -47,7 +75,6 @@ export async function POST(request: NextRequest) {
       headers: {
         "Content-Type": "application/json",
         Authorization: `Bearer ${ASR_API_KEY}`,
-        "api-key": ASR_API_KEY,
       },
       body: JSON.stringify(requestBody),
     });
