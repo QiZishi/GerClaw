@@ -21,6 +21,15 @@ export function ThinkingBlock({ data }: ThinkingBlockProps) {
       ? data.endedAt - data.startedAt
       : undefined;
 
+  if (isThinking && !hasContent) {
+    return (
+      <div className="flex items-center gap-2 py-1 text-sm text-muted-foreground/60">
+        <Loader2 className="size-3.5 shrink-0 animate-spin" />
+        <span>思考中...</span>
+      </div>
+    );
+  }
+
   return (
     <div className="rounded-xl border border-border/40 bg-muted/30 overflow-hidden mb-2">
       <button

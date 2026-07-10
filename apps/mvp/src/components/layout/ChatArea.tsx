@@ -2052,16 +2052,6 @@ ${phq9SuicideRisk
       ) : (
         <div className="flex-1 min-h-0 flex flex-col">
           {messages.length > 0 && <MessageList messages={messages} onRegenerate={handleRegenerate} />}
-
-          {/* 功能模式：AI 正在生成时的加载提示 */}
-          {chatAction !== "none" && isGenerating && (
-            <div className="px-4 py-2 max-w-3xl mx-auto w-full">
-              <div className="flex items-center gap-2 text-sm text-muted-foreground">
-                <Loader2 className="size-4 animate-spin" />
-                AI 正在分析…
-              </div>
-            </div>
-          )}
         </div>
       )}
 

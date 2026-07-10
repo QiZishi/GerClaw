@@ -393,19 +393,35 @@
   animation: blink 1s step-end infinite;
 }
 
-.thinking-dot {
+.typing-dot {
   display: inline-block;
-  width: 6px;
-  height: 6px;
+  width: 5px;
+  height: 5px;
   border-radius: 50%;
   background: currentColor;
-  margin: 0 2px;
-  animation: pulse-dots 1.4s ease-in-out infinite both;
+  margin: 0 1.5px;
+  animation: typing-bounce 1.2s ease-in-out infinite both;
 }
 
-.thinking-dot:nth-child(1) {
+.typing-dot:nth-child(1) {
   animation-delay: -0.32s;
 }
-.thinking-dot:nth-child(2) {
+.typing-dot:nth-child(2) {
   animation-delay: -0.16s;
+}
+.typing-dot:nth-child(3) {
+  animation-delay: 0s;
+}
+
+@keyframes typing-bounce {
+  0%,
+  60%,
+  100% {
+    opacity: 0.4;
+    transform: translateY(0);
+  }
+  30% {
+    opacity: 1;
+    transform: translateY(-3px);
+  }
 }

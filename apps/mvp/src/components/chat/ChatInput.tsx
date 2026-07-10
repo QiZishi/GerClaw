@@ -635,7 +635,7 @@ export function ChatInput({ onSend, isGenerating, onStop }: ChatInputProps) {
                       <Button
                         variant="destructive"
                         size="icon"
-                        className={cn("btn-icon animate-pulse", seniorMode && "size-12")}
+                        className={cn("btn-icon", seniorMode && "size-12")}
                         onClick={onStop}
                         aria-label="停止生成"
                       />

@@ -1,7 +1,6 @@
 "use client";
 
 import { useState, useEffect, useRef } from "react";
-import { Loader2 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { MarkdownRenderer } from "../MarkdownRenderer";
 import type { Citation } from "@/types";
@@ -81,8 +80,10 @@ function StreamingTextInner({
 
   if (!displayedContent) {
     return (
-      <span className={cn("inline-flex items-center", className)}>
-        <Loader2 className="size-4 animate-spin text-muted-foreground" />
+      <span className={cn("inline-flex items-center gap-0.5 h-5 text-muted-foreground/60", className)}>
+        <span className="typing-dot" />
+        <span className="typing-dot" />
+        <span className="typing-dot" />
       </span>
     );
   }
