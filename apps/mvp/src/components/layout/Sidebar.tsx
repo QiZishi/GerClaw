@@ -370,13 +370,23 @@ function SessionItem({
 
   return (
     <div
+      data-session-item
       className={cn(
-        "group relative flex items-center gap-2 rounded-lg px-2 py-2 cursor-pointer hover:bg-sidebar-accent transition-colors",
-        active && "bg-sidebar-accent"
+        "group relative flex items-center gap-2 rounded-xl px-2 py-2.5 mx-0.5 cursor-pointer transition-colors duration-150 ease-out",
+        active
+          ? "bg-sidebar-accent text-sidebar-accent-foreground"
+          : "hover:bg-sidebar-accent/70"
       )}
       onClick={onSelect}
     >
-      <div className="flex-1 min-w-0">
+      {/* 选中态左侧指示条 */}
+      <div
+        className={cn(
+          "absolute left-0 top-1/2 -translate-y-1/2 w-1 h-5 rounded-full bg-primary transition-all duration-200 ease-out",
+          active ? "opacity-100" : "opacity-0"
+        )}
+      />
+      <div className="flex-1 min-w-0 ml-1">
         <div className="flex items-center gap-1">
           {session.pinned && <Pin className="size-3 text-primary shrink-0" />}
           <div className="text-sm font-medium truncate">{session.title}</div>
@@ -386,10 +396,10 @@ function SessionItem({
         </div>
       </div>
       {/* 操作按钮 */}
-      <div className="flex items-center gap-0.5 opacity-0 group-hover:opacity-100 transition-opacity">
+      <div className="flex items-center gap-0.5 opacity-0 group-hover:opacity-100 focus-within:opacity-100 transition-opacity duration-150 ease-out">
         <button
           type="button"
-          className="p-1 rounded hover:bg-background text-muted-foreground hover:text-foreground"
+          className="p-1.5 rounded-lg hover:bg-background text-muted-foreground hover:text-foreground transition-colors"
           onClick={(e) => {
             e.stopPropagation();
             onTogglePin();
@@ -400,7 +410,7 @@ function SessionItem({
         </button>
         <button
           type="button"
-          className="p-1 rounded hover:bg-background text-muted-foreground hover:text-destructive"
+          className="p-1.5 rounded-lg hover:bg-background text-muted-foreground hover:text-destructive transition-colors"
           onClick={(e) => {
             e.stopPropagation();
             onDelete();

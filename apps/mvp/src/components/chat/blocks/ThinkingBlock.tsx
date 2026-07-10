@@ -5,6 +5,7 @@ import { Brain, ChevronDown, Loader2 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import type { ThinkingBlock as ThinkingBlockData } from "@/types";
 import { formatDuration } from "@/lib/format";
+import { useReducedMotion } from "@/hooks/useReducedMotion";
 
 interface ThinkingBlockProps {
   data: ThinkingBlockData;
@@ -12,6 +13,7 @@ interface ThinkingBlockProps {
 
 export function ThinkingBlock({ data }: ThinkingBlockProps) {
   const [expanded, setExpanded] = useState(false);
+  const reducedMotion = useReducedMotion();
   const isThinking = data.status === "thinking";
   const hasContent = data.content.length > 0;
   const duration =
@@ -20,7 +22,7 @@ export function ThinkingBlock({ data }: ThinkingBlockProps) {
       : undefined;
 
   return (
-    <div className="rounded-lg border border-border/40 bg-muted/30 overflow-hidden mb-2">
+    <div className="rounded-xl border border-border/40 bg-muted/30 overflow-hidden mb-2">
       <button
         type="button"
         onClick={() => setExpanded((v) => !v)}
@@ -45,15 +47,26 @@ export function ThinkingBlock({ data }: ThinkingBlockProps) {
         {hasContent && (
           <ChevronDown
             className={cn(
-              "size-4 shrink-0 text-muted-foreground/60 transition-transform",
+              "size-4 shrink-0 text-muted-foreground/60",
+              reducedMotion ? "" : "transition-transform duration-200 ease-out",
               expanded && "rotate-180"
             )}
           />
         )}
       </button>
-      {expanded && hasContent && (
-        <div className="px-3 pb-3 pt-1 text-sm text-muted-foreground/80 whitespace-pre-wrap border-t border-border/30 leading-relaxed">
-          {data.content}
+      {hasContent && (
+        <div
+          className={cn(
+            "grid",
+            reducedMotion ? "" : "transition-[grid-template-rows] duration-200 ease-out",
+            expanded ? "grid-rows-[1fr]" : "grid-rows-[0fr]"
+          )}
+        >
+          <div className="overflow-hidden">
+            <div className="px-3 pb-3 pt-1 text-sm text-muted-foreground/80 whitespace-pre-wrap border-t border-border/30 leading-relaxed">
+              {data.content}
+            </div>
+          </div>
         </div>
       )}
     </div>

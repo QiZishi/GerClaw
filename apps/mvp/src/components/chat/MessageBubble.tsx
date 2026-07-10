@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import Image from "next/image";
 import {
   Copy,
@@ -107,8 +107,14 @@ function extractPlainText(blocks: MessageBlock[]): string {
 export function MessageBubble({ message, onRegenerate }: MessageBubbleProps) {
   const isUser = message.role === "user";
   const [copied, setCopied] = useState(false);
+  const [appeared, setAppeared] = useState(false);
   const seniorMode = useAppStore((s) => s.seniorMode);
   const setRightPanel = useAppStore((s) => s.setRightPanel);
+
+  useEffect(() => {
+    const timer = setTimeout(() => setAppeared(true), 10);
+    return () => clearTimeout(timer);
+  }, []);
 
   const handleViewReport = (panelType: RightPanelType) => {
     setRightPanel(panelType);
@@ -138,12 +144,18 @@ export function MessageBubble({ message, onRegenerate }: MessageBubbleProps) {
   };
 
   const plainText = !isUser ? extractPlainText(message.blocks) : "";
+  const messageAnimation = cn(
+    "transition-all duration-200 ease-out",
+    appeared ? "opacity-100 translate-y-0" : "opacity-0 translate-y-2"
+  );
 
   return (
     <div
+      data-message-bubble
       className={cn(
         "group flex gap-3 px-4 py-3",
-        isUser ? "flex-row-reverse" : "flex-row"
+        isUser ? "flex-row-reverse" : "flex-row",
+        messageAnimation
       )}
     >
       <Avatar className="mt-0.5 shrink-0" size="default">
@@ -170,10 +182,10 @@ export function MessageBubble({ message, onRegenerate }: MessageBubbleProps) {
       >
         <div
           className={cn(
-            "rounded-2xl px-4 py-2.5",
+            "rounded-2xl px-4 py-2.5 shadow-sm",
             isUser
               ? "bg-primary text-primary-foreground rounded-tr-sm"
-              : "bg-muted text-foreground rounded-tl-sm"
+              : "bg-card text-foreground rounded-tl-sm border border-border/50"
           )}
         >
           {!isUser && message.steps && message.steps.length > 0 && (
@@ -291,8 +303,10 @@ export function MessageBubble({ message, onRegenerate }: MessageBubbleProps) {
         )}
 
         <div className={cn(
-          "flex items-center gap-1 opacity-0 group-hover:opacity-100 focus-within:opacity-100 transition-opacity",
-          seniorMode && "gap-1.5"
+          "flex items-center gap-1 transition-opacity duration-150 ease-out",
+          seniorMode
+            ? "opacity-100 gap-1.5"
+            : "opacity-0 group-hover:opacity-100 focus-within:opacity-100"
         )}>
           <Tooltip>
             <TooltipTrigger

@@ -7,6 +7,7 @@ import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 import { formatDuration } from "@/lib/format";
 import type { ToolCallBlock as ToolCallBlockData } from "@/types";
+import { useReducedMotion } from "@/hooks/useReducedMotion";
 
 interface ToolCallBlockProps {
   data: ToolCallBlockData;
@@ -68,6 +69,7 @@ function StatusBadge({ status }: { status: ToolCallBlockData["status"] }) {
 
 export function ToolCallBlock({ data, onRetry }: ToolCallBlockProps) {
   const [expanded, setExpanded] = useState(false);
+  const reducedMotion = useReducedMotion();
   const isRunning = data.status === "running";
   const isSearch = isWebSearch(data.toolName);
   const hasContent = (data.params && Object.keys(data.params).length > 0) || data.result !== undefined;
@@ -75,6 +77,9 @@ export function ToolCallBlock({ data, onRetry }: ToolCallBlockProps) {
   const displayName = getToolDisplayName(data.toolName);
   const searchQuery = isSearch ? getSearchQuery(data) : "";
   const resultCount = isSearch ? getSearchResultCount(data) : 0;
+
+  const expandTransition = reducedMotion ? "" : "transition-[grid-template-rows] duration-200 ease-out";
+  const chevronTransition = reducedMotion ? "" : "transition-transform duration-200 ease-out";
 
   const toolIconEl = isRunning ? (
     <Loader2 className="size-4 shrink-0 animate-spin" />
@@ -87,7 +92,7 @@ export function ToolCallBlock({ data, onRetry }: ToolCallBlockProps) {
   // 搜索工具：紧凑展示，不默认显示JSON详情
   if (isSearch) {
     return (
-      <div className="rounded-lg border border-border/40 bg-muted/30 overflow-hidden mb-2">
+      <div className="rounded-xl border border-border/40 bg-muted/30 overflow-hidden mb-2">
         <div className="flex w-full items-center justify-between gap-2 px-3 py-2">
           <span className="flex items-center gap-2 text-sm text-muted-foreground/80 min-w-0">
             {toolIconEl}
@@ -140,7 +145,8 @@ export function ToolCallBlock({ data, onRetry }: ToolCallBlockProps) {
               >
                 <ChevronDown
                   className={cn(
-                    "size-3.5 text-muted-foreground/60 transition-transform",
+                    "size-3.5 text-muted-foreground/60",
+                    chevronTransition,
                     expanded && "rotate-180"
                   )}
                 />
@@ -148,31 +154,41 @@ export function ToolCallBlock({ data, onRetry }: ToolCallBlockProps) {
             )}
           </span>
         </div>
-        {expanded && hasContent && (
-          <div className="border-t border-border/30 px-3 pb-3 pt-1 space-y-2 text-sm text-muted-foreground/80">
-            {data.args && Object.keys(data.args).length > 0 && (
-              <div>
-                <div className="text-xs text-muted-foreground mb-1">参数</div>
-                <pre className="bg-muted rounded p-2 overflow-x-auto font-mono text-xs text-muted-foreground/80">
-                  {JSON.stringify(data.args, null, 2)}
-                </pre>
-              </div>
+        {hasContent && (
+          <div
+            className={cn(
+              "grid",
+              expandTransition,
+              expanded ? "grid-rows-[1fr]" : "grid-rows-[0fr]"
             )}
-            {data.result !== undefined && (
-              <div>
-                <div className="text-xs text-muted-foreground mb-1">结果</div>
-                <pre className="bg-muted rounded p-2 overflow-x-auto font-mono text-xs text-muted-foreground/80 max-h-48 overflow-y-auto">
-                  {typeof data.result === "string"
-                    ? data.result
-                    : JSON.stringify(data.result, null, 2)}
-                </pre>
+          >
+            <div className="overflow-hidden">
+              <div className="border-t border-border/30 px-3 pb-3 pt-1 space-y-2 text-sm text-muted-foreground/80">
+                {data.args && Object.keys(data.args).length > 0 && (
+                  <div>
+                    <div className="text-xs text-muted-foreground mb-1">参数</div>
+                    <pre className="bg-muted rounded p-2 overflow-x-auto font-mono text-xs text-muted-foreground/80">
+                      {JSON.stringify(data.args, null, 2)}
+                    </pre>
+                  </div>
+                )}
+                {data.result !== undefined && (
+                  <div>
+                    <div className="text-xs text-muted-foreground mb-1">结果</div>
+                    <pre className="bg-muted rounded p-2 overflow-x-auto font-mono text-xs text-muted-foreground/80 max-h-48 overflow-y-auto">
+                      {typeof data.result === "string"
+                        ? data.result
+                        : JSON.stringify(data.result, null, 2)}
+                    </pre>
+                  </div>
+                )}
+                {data.status === "failed" && data.errorMessage && (
+                  <div className="text-destructive text-xs">
+                    错误：{data.errorMessage}
+                  </div>
+                )}
               </div>
-            )}
-            {data.status === "failed" && data.errorMessage && (
-              <div className="text-destructive text-xs">
-                错误：{data.errorMessage}
-              </div>
-            )}
+            </div>
           </div>
         )}
       </div>
@@ -181,7 +197,7 @@ export function ToolCallBlock({ data, onRetry }: ToolCallBlockProps) {
 
   // 其他工具：保持原有可展开样式
   return (
-    <div className="rounded-lg border border-border/40 bg-muted/30 overflow-hidden mb-2">
+    <div className="rounded-xl border border-border/40 bg-muted/30 overflow-hidden mb-2">
       <button
         type="button"
         onClick={() => setExpanded((v) => !v)}
@@ -201,51 +217,62 @@ export function ToolCallBlock({ data, onRetry }: ToolCallBlockProps) {
         {hasContent && (
           <ChevronDown
             className={cn(
-              "size-4 shrink-0 text-muted-foreground/60 transition-transform",
+              "size-4 shrink-0 text-muted-foreground/60",
+              chevronTransition,
               expanded && "rotate-180"
             )}
           />
         )}
       </button>
-      {expanded && hasContent && (
-        <div className="border-t border-border/30 px-3 pb-3 pt-1 space-y-2 text-sm text-muted-foreground/80">
-          {data.params && Object.keys(data.params).length > 0 && (
-            <div>
-              <div className="text-xs text-muted-foreground mb-1">参数</div>
-              <pre className="bg-muted rounded p-2 overflow-x-auto font-mono text-xs text-muted-foreground/80">
-                {JSON.stringify(data.params, null, 2)}
-              </pre>
+      {hasContent && (
+        <div
+          className={cn(
+            "grid",
+            expandTransition,
+            expanded ? "grid-rows-[1fr]" : "grid-rows-[0fr]"
+          )}
+        >
+          <div className="overflow-hidden">
+            <div className="border-t border-border/30 px-3 pb-3 pt-1 space-y-2 text-sm text-muted-foreground/80">
+              {data.params && Object.keys(data.params).length > 0 && (
+                <div>
+                  <div className="text-xs text-muted-foreground mb-1">参数</div>
+                  <pre className="bg-muted rounded p-2 overflow-x-auto font-mono text-xs text-muted-foreground/80">
+                    {JSON.stringify(data.params, null, 2)}
+                  </pre>
+                </div>
+              )}
+              {data.result !== undefined && (
+                <div>
+                  <div className="text-xs text-muted-foreground mb-1">结果</div>
+                  <pre className="bg-muted rounded p-2 overflow-x-auto font-mono text-xs text-muted-foreground/80 max-h-48 overflow-y-auto">
+                    {typeof data.result === "string"
+                      ? data.result
+                      : JSON.stringify(data.result, null, 2)}
+                  </pre>
+                </div>
+              )}
+              {data.status === "failed" && data.errorMessage && (
+                <div className="text-destructive text-xs">
+                  错误：{data.errorMessage}
+                </div>
+              )}
+              {data.status === "failed" && onRetry && (
+                <Button
+                  size="sm"
+                  variant="outline"
+                  className="gap-1 h-7 text-xs"
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    onRetry(data.id);
+                  }}
+                >
+                  <RotateCw className="size-3" />
+                  重试
+                </Button>
+              )}
             </div>
-          )}
-          {data.result !== undefined && (
-            <div>
-              <div className="text-xs text-muted-foreground mb-1">结果</div>
-              <pre className="bg-muted rounded p-2 overflow-x-auto font-mono text-xs text-muted-foreground/80 max-h-48 overflow-y-auto">
-                {typeof data.result === "string"
-                  ? data.result
-                  : JSON.stringify(data.result, null, 2)}
-              </pre>
-            </div>
-          )}
-          {data.status === "failed" && data.errorMessage && (
-            <div className="text-destructive text-xs">
-              错误：{data.errorMessage}
-            </div>
-          )}
-          {data.status === "failed" && onRetry && (
-            <Button
-              size="sm"
-              variant="outline"
-              className="gap-1 h-7 text-xs"
-              onClick={(e) => {
-                e.stopPropagation();
-                onRetry(data.id);
-              }}
-            >
-              <RotateCw className="size-3" />
-              重试
-            </Button>
-          )}
+          </div>
         </div>
       )}
     </div>

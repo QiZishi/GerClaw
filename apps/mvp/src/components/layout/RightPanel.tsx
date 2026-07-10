@@ -16,6 +16,7 @@ import { CitationList } from "@/components/search/CitationList";
 import { ExportButton } from "@/components/prescription/ExportButton";
 import { scales } from "@/data/scales";
 import type { FileTag as FileTagData, RightPanelType, CGAReport as CGAReportData } from "@/types";
+import { useReducedMotion } from "@/hooks/useReducedMotion";
 
 // 注：技能管理（skills）已迁移至中间栏显示，不再占用右侧面板
 const PANEL_TITLES: Record<NonNullable<RightPanelType>, string> = {
@@ -54,6 +55,27 @@ export function RightPanel() {
   const closeRightPanel = useAppStore((s) => s.closeRightPanel);
   const setRightPanelWidth = useAppStore((s) => s.setRightPanelWidth);
   const panelContent = useAppStore((s) => s.panelContent);
+  const reducedMotion = useReducedMotion();
+
+  const [mounted, setMounted] = useState(false);
+  const [visible, setVisible] = useState(false);
+
+  useEffect(() => {
+    if (rightPanelOpen && rightPanelType) {
+      const rafId = requestAnimationFrame(() => {
+        setMounted(true);
+        requestAnimationFrame(() => setVisible(true));
+      });
+      return () => cancelAnimationFrame(rafId);
+    } else if (mounted) {
+      const rafId = requestAnimationFrame(() => setVisible(false));
+      const timer = setTimeout(() => setMounted(false), reducedMotion ? 0 : 250);
+      return () => {
+        cancelAnimationFrame(rafId);
+        clearTimeout(timer);
+      };
+    }
+  }, [rightPanelOpen, rightPanelType, mounted, reducedMotion]);
 
   const draggingRef = useRef(false);
 
@@ -85,29 +107,44 @@ export function RightPanel() {
     };
   }, [setRightPanelWidth]);
 
-  if (!rightPanelOpen || !rightPanelType) {
+  if (!mounted || !rightPanelType) {
     return null;
   }
 
   const title = PANEL_TITLES[rightPanelType] ?? "面板";
+  const isMobile = typeof window !== "undefined" && window.innerWidth < 768;
+  const mobileTransition = reducedMotion ? "" : "transition-transform duration-250 ease-out";
+  const desktopTransition = reducedMotion ? "" : "transition-all duration-250 ease-out";
+  const opacityTransitionClass = reducedMotion ? "" : "transition-opacity duration-250 ease-out";
 
   return (
     <>
       {/* 移动端遮罩 */}
       <div
-        className="fixed inset-0 z-30 bg-black/40 md:hidden"
+        className={cn(
+          "fixed inset-0 z-30 bg-black/40 md:hidden",
+          opacityTransitionClass,
+          visible ? "opacity-100" : "opacity-0 pointer-events-none"
+        )}
         onClick={closeRightPanel}
         aria-hidden
       />
       <aside
         className={cn(
-          "fixed md:relative right-0 top-0 z-40 md:z-auto h-full bg-background border-l border-border flex flex-col",
-          "w-full md:w-auto"
+          "fixed right-0 top-0 z-40 h-full bg-background border-l border-border flex flex-col overflow-hidden",
+          "md:relative md:z-auto",
+          isMobile ? "w-full" : "shrink-0",
+          isMobile
+            ? cn(mobileTransition, visible ? "translate-x-0" : "translate-x-full")
+            : cn(desktopTransition, visible ? "opacity-100" : "opacity-0")
         )}
         style={{
-          width: typeof window !== "undefined" && window.innerWidth < 768
+          width: isMobile
             ? "100%"
-            : rightPanelWidth,
+            : (visible ? rightPanelWidth : 0),
+          minWidth: isMobile ? "auto" : (visible ? rightPanelWidth : 0),
+          borderLeftWidth: isMobile ? "" : (visible ? "" : "0px"),
+          pointerEvents: visible ? "auto" : "none",
         }}
       >
         {/* 拖拽手柄 */}
