@@ -3,6 +3,7 @@
 import { useMemo, useState, useSyncExternalStore } from "react";
 import {
   Zap,
+  Check,
   HelpCircle,
   LogOut,
   Menu,
@@ -15,6 +16,7 @@ import {
   Sun,
   Trash2,
   User,
+  Users,
 } from "lucide-react";
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
 import { Badge } from "@/components/ui/badge";
@@ -88,7 +90,45 @@ export function Sidebar({ onNavigate }: SidebarProps) {
 
   const [searchQuery, setSearchQuery] = useState("");
 
-  const isPatient = role !== "doctor";
+  const isPatient = role === "patient";
+  const isDoctor = role === "doctor";
+  const isVisitor = role === "visitor";
+
+  function getRoleBadgeLabel() {
+    switch (role) {
+      case "doctor":
+        return "医生端";
+      case "patient":
+        return "患者端";
+      case "visitor":
+      default:
+        return "访客端";
+    }
+  }
+
+  function getRoleBadgeColor() {
+    switch (role) {
+      case "doctor":
+        return "bg-blue-100 text-blue-700 dark:bg-blue-950/40 dark:text-blue-300";
+      case "patient":
+        return "";
+      case "visitor":
+      default:
+        return "bg-gray-100 text-gray-600 dark:bg-gray-800 dark:text-gray-400";
+    }
+  }
+
+  function getModeLabel() {
+    switch (role) {
+      case "doctor":
+        return "医生模式";
+      case "patient":
+        return "患者模式";
+      case "visitor":
+      default:
+        return "访客模式";
+    }
+  }
 
   const effectiveSessions = sessions;
 
@@ -157,8 +197,8 @@ export function Sidebar({ onNavigate }: SidebarProps) {
         </div>
         <div className="flex items-center gap-2 min-w-0 flex-1">
           <span className="font-bold text-base">GerClaw</span>
-          <Badge variant="secondary" className="shrink-0">
-            {isPatient ? "患者端" : "医生端"}
+          <Badge variant="secondary" className={cn("shrink-0", getRoleBadgeColor())}>
+            {getRoleBadgeLabel()}
           </Badge>
         </div>
         <Tooltip>
@@ -267,13 +307,19 @@ export function Sidebar({ onNavigate }: SidebarProps) {
           >
             <Avatar size="default" className="shrink-0">
               <AvatarFallback>
-                <User className="size-4" />
+                {isDoctor ? (
+                  <Stethoscope className="size-4" />
+                ) : isPatient ? (
+                  <User className="size-4" />
+                ) : (
+                  <Users className="size-4" />
+                )}
               </AvatarFallback>
             </Avatar>
             <div className="flex-1 min-w-0 text-left">
               <div className="text-sm font-medium truncate">访客用户</div>
               <div className="text-xs text-muted-foreground truncate">
-                {isPatient ? "患者模式" : "医生模式"}
+                {getModeLabel()}
               </div>
             </div>
           </DropdownMenuTrigger>
@@ -283,20 +329,34 @@ export function Sidebar({ onNavigate }: SidebarProps) {
             </DropdownMenuGroup>
             <DropdownMenuSeparator />
 
-            {/* 角色切换 */}
-            <div className="flex items-center justify-between px-2 py-1.5 text-sm">
-              <div className="flex flex-col">
-                <span>{isPatient ? "当前：患者" : "当前：医生"}</span>
-                <span className="text-[10px] text-muted-foreground">
-                  切换到{isPatient ? "医生" : "患者"}端
-                </span>
-              </div>
-              <Switch
-                checked={role === "doctor"}
-                onCheckedChange={(v) => setRole(v ? "doctor" : "patient")}
-                aria-label={`切换到${isPatient ? "医生" : "患者"}端`}
-              />
-            </div>
+            {/* 角色选择 */}
+            <DropdownMenuLabel className="text-xs font-normal text-muted-foreground">选择模式</DropdownMenuLabel>
+            <DropdownMenuItem
+              className={cn("cursor-pointer gap-2", isVisitor && "bg-accent")}
+              onClick={() => setRole("visitor")}
+            >
+              <Users className="size-4 text-gray-500" />
+              <span>访客模式</span>
+              {isVisitor && <Check className="size-4 ml-auto" />}
+            </DropdownMenuItem>
+            <DropdownMenuItem
+              className={cn("cursor-pointer gap-2", isPatient && "bg-accent")}
+              onClick={() => setRole("patient")}
+            >
+              <User className="size-4 text-primary" />
+              <span>患者模式</span>
+              {isPatient && <Check className="size-4 ml-auto" />}
+            </DropdownMenuItem>
+            <DropdownMenuItem
+              className={cn("cursor-pointer gap-2", isDoctor && "bg-accent")}
+              onClick={() => setRole("doctor")}
+            >
+              <Stethoscope className="size-4 text-blue-600" />
+              <span>医生模式</span>
+              {isDoctor && <Check className="size-4 ml-auto" />}
+            </DropdownMenuItem>
+
+            <DropdownMenuSeparator />
 
             {/* 老年模式（仅患者端）*/}
             {isPatient && (

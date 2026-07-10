@@ -4,7 +4,6 @@ import { useState } from "react";
 import { Brain, ChevronDown, Loader2 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import type { ThinkingBlock as ThinkingBlockData } from "@/types";
-import { formatDuration } from "@/lib/format";
 import { useReducedMotion } from "@/hooks/useReducedMotion";
 
 interface ThinkingBlockProps {
@@ -16,10 +15,6 @@ export function ThinkingBlock({ data }: ThinkingBlockProps) {
   const reducedMotion = useReducedMotion();
   const isThinking = data.status === "thinking";
   const hasContent = data.content.length > 0;
-  const duration =
-    data.endedAt && data.startedAt
-      ? data.endedAt - data.startedAt
-      : undefined;
 
   if (isThinking && !hasContent) {
     return (
@@ -45,13 +40,8 @@ export function ThinkingBlock({ data }: ThinkingBlockProps) {
             <Brain className="size-4 shrink-0" />
           )}
           <span className="font-medium">
-            {isThinking ? "思考中..." : "思考过程"}
+            {isThinking ? "思考中..." : expanded ? "已深度思考" : "思考过程"}
           </span>
-          {!isThinking && duration !== undefined && (
-            <span className="text-xs text-muted-foreground/60">
-              · {formatDuration(duration)}
-            </span>
-          )}
         </span>
         {hasContent && (
           <ChevronDown

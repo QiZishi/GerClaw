@@ -42,10 +42,17 @@ export function SourceReferences({ citations, className }: SourceReferencesProps
         className
       )}
     >
-      <button
-        type="button"
+      <div
+        role="button"
+        tabIndex={0}
         onClick={() => setExpanded((v) => !v)}
-        className="flex w-full items-center justify-between gap-2 px-3 py-2 hover:bg-muted/40 transition-colors"
+        onKeyDown={(e) => {
+          if (e.key === "Enter" || e.key === " ") {
+            e.preventDefault();
+            setExpanded((v) => !v);
+          }
+        }}
+        className="flex w-full items-center justify-between gap-2 px-3 py-2 hover:bg-muted/40 transition-colors cursor-pointer"
         aria-expanded={expanded}
       >
         <span className="flex items-center gap-1.5 text-muted-foreground font-medium">
@@ -76,7 +83,7 @@ export function SourceReferences({ citations, className }: SourceReferencesProps
             )}
           />
         </div>
-      </button>
+      </div>
 
       {expanded && (
         <div className="border-t border-border/40 px-2 py-2">

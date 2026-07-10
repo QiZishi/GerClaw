@@ -98,16 +98,16 @@ export const useAppStore = create<AppState>()(
       setTheme: (theme) => set({ theme }),
 
       // === 角色 ===
-      role: "patient",
+      role: "visitor",
       setRole: (role) =>
         set({
           role,
-          // 切换到医生端时关闭老年模式；切换到患者端时默认开启
+          // 切换到医生端时关闭老年模式；切换到患者端时默认开启；访客模式关闭
           seniorMode: role === "patient" ? true : false,
         }),
 
       // === 老年模式 ===
-      seniorMode: true, // 患者端默认开启
+      seniorMode: false, // 访客模式默认关闭
       setSeniorMode: (seniorMode) => set({ seniorMode }),
       toggleSeniorMode: () =>
         set({ seniorMode: !get().seniorMode }),

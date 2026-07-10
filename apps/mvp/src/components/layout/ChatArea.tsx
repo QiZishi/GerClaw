@@ -160,13 +160,16 @@ function buildEmergencyMessage(matched: string[], role: "patient" | "doctor" | "
   };
 }
 
-/** 获取功能的开场消息（患者端 vs 医生端不同话术）*/
+/** 获取功能的开场消息（患者端 vs 医生端 vs 访客端不同话术）*/
 function getOpeningMessage(
   action: ChatActionType,
   role: "patient" | "doctor" | "visitor",
   scaleName?: string
 ): string {
-  const isPatient = role !== "doctor";
+  if (role === "visitor") {
+    return "欢迎体验 GerClaw！请先在左下角菜单选择「患者模式」或「医生模式」开始使用完整功能。您也可以直接提问了解平台功能。";
+  }
+  const isPatient = role === "patient";
   switch (action) {
     case "prescription":
       return isPatient
@@ -355,7 +358,7 @@ export function ChatArea() {
       return;
     }
 
-    if (chatAction === "health-profile" && role !== "doctor") {
+    if (chatAction === "health-profile" && role === "patient") {
       const initKey = `${sid}:health-profile-patient`;
       if (actionInitRef.current === initKey) return;
       actionInitRef.current = initKey;

@@ -89,6 +89,9 @@ export function ToolCallBlock({ data, onRetry }: ToolCallBlockProps) {
     <Wrench className="size-4 shrink-0" />
   );
 
+  const shouldShowExpandButton = isSearch ? false : hasContent;
+  const shouldShowExpandContent = isSearch ? false : hasContent;
+
   // 搜索工具：紧凑展示，不默认显示JSON详情
   if (isSearch) {
     return (
@@ -106,18 +109,13 @@ export function ToolCallBlock({ data, onRetry }: ToolCallBlockProps) {
                 「{searchQuery}」· 已找到 {resultCount} 个结果
               </span>
             ) : data.status === "failed" ? (
-              <span className="flex items-center gap-1 text-destructive">
-                <AlertTriangle className="size-3.5" />
-                搜索失败
+              <span className="flex items-center gap-1 text-destructive truncate">
+                <AlertTriangle className="size-3.5 shrink-0" />
+                搜索失败{data.errorMessage ? `：${data.errorMessage}` : ""}
               </span>
             ) : searchQuery ? (
               <span className="truncate">「{searchQuery}」</span>
             ) : null}
-            {data.durationMs !== undefined && data.status === "done" && (
-              <span className="text-xs text-muted-foreground/60 shrink-0">
-                · {formatDuration(data.durationMs)}
-              </span>
-            )}
           </span>
           <span className="flex items-center gap-1 shrink-0">
             <StatusBadge status={data.status} />
@@ -135,7 +133,7 @@ export function ToolCallBlock({ data, onRetry }: ToolCallBlockProps) {
                 重试
               </Button>
             )}
-            {hasContent && (
+            {shouldShowExpandButton && (
               <button
                 type="button"
                 onClick={() => setExpanded((v) => !v)}
@@ -154,7 +152,7 @@ export function ToolCallBlock({ data, onRetry }: ToolCallBlockProps) {
             )}
           </span>
         </div>
-        {hasContent && (
+        {shouldShowExpandContent && (
           <div
             className={cn(
               "grid",
@@ -172,7 +170,7 @@ export function ToolCallBlock({ data, onRetry }: ToolCallBlockProps) {
                     </pre>
                   </div>
                 )}
-                {data.result !== undefined && (
+                {data.result !== undefined && isRunning && (
                   <div>
                     <div className="text-xs text-muted-foreground mb-1">结果</div>
                     <pre className="bg-muted rounded p-2 overflow-x-auto font-mono text-xs text-muted-foreground/80 max-h-48 overflow-y-auto">
@@ -180,11 +178,6 @@ export function ToolCallBlock({ data, onRetry }: ToolCallBlockProps) {
                         ? data.result
                         : JSON.stringify(data.result, null, 2)}
                     </pre>
-                  </div>
-                )}
-                {data.status === "failed" && data.errorMessage && (
-                  <div className="text-destructive text-xs">
-                    错误：{data.errorMessage}
                   </div>
                 )}
               </div>

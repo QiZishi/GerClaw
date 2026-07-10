@@ -6,6 +6,7 @@ import {
   RefreshCw,
   Stethoscope,
   UserRound,
+  Users,
 } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -22,20 +23,47 @@ import { cn } from "@/lib/utils";
 import type { Role } from "@/types";
 
 interface RoleSwitcherProps {
-  /** 紧凑模式：仅显示图标按钮 */
   compact?: boolean;
   className?: string;
-  /** 是否在切换后刷新页面（默认 false，避免开发体验中断） */
   reloadOnSwitch?: boolean;
 }
 
-/**
- * §角色切换 角色切换按钮 + 确认对话框
- * 对齐 design-docs/角色切换.md §2.3 角色切换完整流程
- * 流程：点击 → 弹确认 → 用户确认 → 调用 setRole → 可选 reload
- *
- * 严格 mock：不调用真实后端，仅修改 appStore.role
- */
+function getRoleLabel(role: Role) {
+  switch (role) {
+    case "doctor":
+      return "医生端";
+    case "patient":
+      return "患者端";
+    case "visitor":
+    default:
+      return "访客端";
+  }
+}
+
+function getRoleDescription(role: Role) {
+  switch (role) {
+    case "doctor":
+      return "专业医学界面，适用于老年科医生";
+    case "patient":
+      return "适老化界面，适合老年朋友使用";
+    case "visitor":
+    default:
+      return "了解平台功能，选择适合您的模式";
+  }
+}
+
+function RoleIcon({ role, className }: { role: Role; className?: string }) {
+  switch (role) {
+    case "doctor":
+      return <Stethoscope className={className} />;
+    case "patient":
+      return <UserRound className={className} />;
+    case "visitor":
+    default:
+      return <Users className={className} />;
+  }
+}
+
 export function RoleSwitcher({
   compact,
   className,
@@ -45,22 +73,35 @@ export function RoleSwitcher({
   const setRole = useAppStore((s) => s.setRole);
   const [open, setOpen] = useState(false);
   const [switching, setSwitching] = useState(false);
+  const [selectedRole, setSelectedRole] = useState<Role | null>(null);
 
-  const targetRole: Role = role === "doctor" ? "patient" : "doctor";
-  const TargetIcon = targetRole === "doctor" ? Stethoscope : UserRound;
-  const CurrentIcon = role === "doctor" ? Stethoscope : UserRound;
+  const handleSelectRole = (targetRole: Role) => {
+    if (targetRole === role) {
+      setOpen(false);
+      return;
+    }
+    setSelectedRole(targetRole);
+  };
 
   const handleConfirm = () => {
+    if (!selectedRole) return;
     setSwitching(true);
-    // 模拟切换延迟（避免瞬时闪烁）
     setTimeout(() => {
-      setRole(targetRole);
+      setRole(selectedRole);
       setSwitching(false);
+      setSelectedRole(null);
       setOpen(false);
       if (reloadOnSwitch && typeof window !== "undefined") {
         window.location.reload();
       }
     }, 500);
+  };
+
+  const handleOpenChange = (openState: boolean) => {
+    setOpen(openState);
+    if (!openState) {
+      setSelectedRole(null);
+    }
   };
 
   if (compact) {
@@ -71,16 +112,17 @@ export function RoleSwitcher({
           size="icon"
           className={cn("btn-icon", className)}
           onClick={() => setOpen(true)}
-          aria-label={`切换到${targetRole === "doctor" ? "医生端" : "患者端"}`}
+          aria-label={`切换角色，当前${getRoleLabel(role)}`}
         >
-          <TargetIcon className="size-4" />
+          <RoleIcon role={role} className="size-4" />
         </Button>
-        <ConfirmDialog
+        <RoleSelectDialog
           open={open}
-          onOpenChange={setOpen}
-          role={role}
-          targetRole={targetRole}
+          onOpenChange={handleOpenChange}
+          currentRole={role}
+          selectedRole={selectedRole}
           switching={switching}
+          onSelectRole={handleSelectRole}
           onConfirm={handleConfirm}
         />
       </>
@@ -96,102 +138,134 @@ export function RoleSwitcher({
           "flex items-center gap-2 w-full rounded-lg border border-border bg-card px-3 py-2 hover:bg-muted/50 transition-colors text-left",
           className
         )}
-        aria-label={`切换到${targetRole === "doctor" ? "医生端" : "患者端"}`}
+        aria-label={`切换角色，当前${getRoleLabel(role)}`}
       >
         <div
           className={cn(
             "flex size-8 shrink-0 items-center justify-center rounded-md",
             role === "doctor"
               ? "bg-blue-100 text-blue-700 dark:bg-blue-950/40 dark:text-blue-300"
-              : "bg-primary/10 text-primary"
+              : role === "patient"
+              ? "bg-primary/10 text-primary"
+              : "bg-gray-100 text-gray-600 dark:bg-gray-800 dark:text-gray-400"
           )}
         >
-          <CurrentIcon className="size-4" />
+          <RoleIcon role={role} className="size-4" />
         </div>
         <div className="flex-1 min-w-0">
           <div className="text-sm font-medium">
-            {role === "doctor" ? "医生端" : "患者端"}
+            {getRoleLabel(role)}
           </div>
           <div className="text-xs text-muted-foreground">
-            点击切换到{targetRole === "doctor" ? "医生" : "患者"}模式
+            点击切换角色模式
           </div>
         </div>
         <RefreshCw className="size-3.5 text-muted-foreground shrink-0" />
       </button>
-      <ConfirmDialog
+      <RoleSelectDialog
         open={open}
-        onOpenChange={setOpen}
-        role={role}
-        targetRole={targetRole}
+        onOpenChange={handleOpenChange}
+        currentRole={role}
+        selectedRole={selectedRole}
         switching={switching}
+        onSelectRole={handleSelectRole}
         onConfirm={handleConfirm}
       />
     </>
   );
 }
 
-interface ConfirmDialogProps {
+interface RoleSelectDialogProps {
   open: boolean;
   onOpenChange: (open: boolean) => void;
-  role: Role;
-  targetRole: Role;
+  currentRole: Role;
+  selectedRole: Role | null;
   switching: boolean;
+  onSelectRole: (role: Role) => void;
   onConfirm: () => void;
 }
 
-function ConfirmDialog({
+function RoleSelectDialog({
   open,
   onOpenChange,
-  role,
-  targetRole,
+  currentRole,
+  selectedRole,
   switching,
+  onSelectRole,
   onConfirm,
-}: ConfirmDialogProps) {
-  const isSwitchingToDoctor = targetRole === "doctor";
+}: RoleSelectDialogProps) {
+  const roles: Role[] = ["visitor", "patient", "doctor"];
+
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="sm:max-w-sm">
+      <DialogContent className="sm:max-w-md">
         <DialogHeader>
           <DialogTitle className="flex items-center gap-2">
-            {isSwitchingToDoctor ? (
-              <Stethoscope className="size-4 text-blue-600" />
-            ) : (
-              <UserRound className="size-4 text-primary" />
-            )}
-            切换到{isSwitchingToDoctor ? "医生端" : "患者端"}
+            <Users className="size-4" />
+            选择角色模式
           </DialogTitle>
           <DialogDescription>
-            切换后将更新界面布局与可用功能。
-            {!isSwitchingToDoctor && (
-              <>
-                患者端默认开启
-                <span className="font-medium text-foreground">老年模式</span>
-                以提供适老化体验。
-              </>
-            )}
-            {isSwitchingToDoctor && (
-              <>
-                医生端将
-                <span className="font-medium text-foreground">关闭老年模式</span>
-                ，启用标准医学界面。
-              </>
-            )}
+            选择适合您的使用模式，切换后将更新界面布局与可用功能。
           </DialogDescription>
         </DialogHeader>
 
-        <div className="rounded-md border border-border bg-muted/40 p-2.5 text-xs space-y-1.5">
-          <div className="flex items-center justify-between">
-            <span className="text-muted-foreground">当前角色</span>
-            <Badge variant="outline">
-              {role === "doctor" ? "医生端" : "患者端"}
-            </Badge>
-          </div>
-          <div className="flex items-center justify-between">
-            <span className="text-muted-foreground">目标角色</span>
-            <Badge variant="default">
-              {targetRole === "doctor" ? "医生端" : "患者端"}
-            </Badge>
-          </div>
+        <div className="space-y-2 py-2">
+          {roles.map((r) => {
+            const isCurrent = r === currentRole;
+            const isSelected = r === selectedRole;
+            return (
+              <button
+                key={r}
+                type="button"
+                onClick={() => onSelectRole(r)}
+                disabled={isCurrent || switching}
+                className={cn(
+                  "w-full flex items-center gap-3 rounded-lg border p-3 text-left transition-all",
+                  isCurrent
+                    ? "border-border bg-muted/30 opacity-60 cursor-not-allowed"
+                    : isSelected
+                    ? "border-primary bg-primary/5 ring-2 ring-primary/20"
+                    : "border-border hover:border-primary/50 hover:bg-muted/50 cursor-pointer"
+                )}
+              >
+                <div
+                  className={cn(
+                    "flex size-10 shrink-0 items-center justify-center rounded-lg",
+                    r === "doctor"
+                      ? "bg-blue-100 text-blue-700 dark:bg-blue-950/40 dark:text-blue-300"
+                      : r === "patient"
+                      ? "bg-primary/10 text-primary"
+                      : "bg-gray-100 text-gray-600 dark:bg-gray-800 dark:text-gray-400"
+                  )}
+                >
+                  <RoleIcon role={r} className="size-5" />
+                </div>
+                <div className="flex-1 min-w-0">
+                  <div className="flex items-center gap-2">
+                    <span className="font-medium">{getRoleLabel(r)}</span>
+                    {isCurrent && (
+                      <Badge variant="secondary" className="text-xs">
+                        当前
+                      </Badge>
+                    )}
+                  </div>
+                  <div className="text-xs text-muted-foreground mt-0.5">
+                    {getRoleDescription(r)}
+                  </div>
+                  {r === "patient" && !isCurrent && (
+                    <div className="text-xs text-primary mt-1">
+                      将自动开启老年模式
+                    </div>
+                  )}
+                  {r === "doctor" && !isCurrent && (
+                    <div className="text-xs text-blue-600 mt-1">
+                      将关闭老年模式，启用专业界面
+                    </div>
+                  )}
+                </div>
+              </button>
+            );
+          })}
         </div>
 
         <DialogFooter>
@@ -205,7 +279,7 @@ function ConfirmDialog({
           <Button
             variant="default"
             onClick={onConfirm}
-            disabled={switching}
+            disabled={!selectedRole || switching}
             className="gap-1.5"
           >
             {switching ? (
