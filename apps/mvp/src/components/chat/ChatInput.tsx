@@ -13,6 +13,7 @@ import {
   Paperclip,
   Pill,
   SendHorizonal,
+  Square,
   UserRound,
   X,
 } from "lucide-react";
@@ -617,13 +618,13 @@ export function ChatInput({ onSend, isGenerating, onStop }: ChatInputProps) {
                       <Button
                         variant="destructive"
                         size="icon"
-                        className="btn-icon"
+                        className={cn("btn-icon animate-pulse", seniorMode && "size-12")}
                         onClick={onStop}
                         aria-label="停止生成"
                       />
                     }
                   >
-                    <span className="size-2.5 bg-current rounded-sm" />
+                    <Square className="size-4 fill-current" />
                   </TooltipTrigger>
                   <TooltipContent>停止生成</TooltipContent>
                 </Tooltip>

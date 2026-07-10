@@ -42,6 +42,7 @@ function buildChatUrl(baseUrl: string): string {
 }
 
 export async function POST(request: NextRequest) {
+  const abortSignal = request.signal;
   const body = await request.json();
   const { messages, temperature, maxTokens, modelPreference } = body;
 
@@ -98,6 +99,7 @@ export async function POST(request: NextRequest) {
               Authorization: `Bearer ${model.apiKey}`,
             },
             body: JSON.stringify(reqBody),
+            signal: abortSignal,
           });
 
           if (!response.ok) {
@@ -159,12 +161,22 @@ export async function POST(request: NextRequest) {
 
           try {
             while (true) {
+              if (abortSignal.aborted) {
+                controller.close();
+                return;
+              }
               const { done, value } = await reader.read();
               if (done) break;
 
               const text = decoder.decode(value, { stream: true });
               controller.enqueue(encoder.encode(text));
             }
+          } catch (readError) {
+            if (abortSignal.aborted) {
+              controller.close();
+              return;
+            }
+            throw readError;
           } finally {
             reader.releaseLock();
           }

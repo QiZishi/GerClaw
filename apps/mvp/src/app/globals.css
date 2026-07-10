@@ -299,6 +299,20 @@
   samp {
     font-family: var(--font-mono);
   }
+
+  button,
+  a,
+  [role="button"],
+  input[type="button"],
+  input[type="submit"],
+  input[type="reset"] {
+    transition: background-color 220ms ease-out,
+                border-color 220ms ease-out,
+                color 220ms ease-out,
+                opacity 220ms ease-out,
+                box-shadow 220ms ease-out,
+                transform 220ms ease-out;
+  }
 }
 
 /* ====== 滚动条美化 ====== */
