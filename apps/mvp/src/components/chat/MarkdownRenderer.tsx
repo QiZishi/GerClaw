@@ -260,7 +260,7 @@ function renderInline(text: string, citations?: Citation[]): ReactNode[] {
       const citation = citations?.find((c) => c && c.id === citeId);
       if (citation) {
         nodes.push(
-          <CitationPopover key={`cite-${idx}`} citation={citation} index={citeId} />
+          <CitationPopover key={`cite-${idx}`} citation={citation} index={citeId} allCitations={citations} />
         );
       } else {
         nodes.push(

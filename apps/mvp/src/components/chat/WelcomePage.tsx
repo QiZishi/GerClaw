@@ -36,7 +36,7 @@ export function WelcomePage({
     ? "您好，我是 GerClaw 健康助手，有什么可以帮您？"
     : "您好，GerClaw 辅助诊疗已就绪";
 
-  // 患者端快捷卡片：五大处方、CGA、健康画像（患者管理自己的档案）
+  // 患者端快捷卡片：四大功能入口
   const patientCards = [
     {
       icon: Pill,
@@ -49,6 +49,12 @@ export function WelcomePage({
       label: "老年综合评估",
       desc: "CGA 多维度健康评估",
       action: "cga" as const,
+    },
+    {
+      icon: FileSearch,
+      label: "用药审查",
+      desc: "检查用药是否适合老年人",
+      action: "drug-review" as const,
     },
     {
       icon: UserRound,

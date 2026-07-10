@@ -1,65 +1,92 @@
 "use client";
 
 import { useState } from "react";
-import { Download, FileText, FileType2 } from "lucide-react";
+import { Download, FileText, FileType2, Check } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
+import { exportToMarkdown } from "@/lib/export";
+import { toast } from "@/components/ui/toast";
 import type { ExportFormat } from "@/types";
 
 interface ExportButtonProps {
   className?: string;
-  onExport?: (format: ExportFormat) => void;
+  title: string;
+  content: string;
+  subtitle?: string;
+  variant?: "buttons" | "dropdown";
 }
 
-/**
- * §结果导出 — 导出按钮组
- * PDF / Markdown / DOCX 三个图标按钮
- * mock 阶段：点击弹 Toast"导出功能将在 0002 阶段接入"
- */
-export function ExportButton({ className, onExport }: ExportButtonProps) {
-  const [toast, setToast] = useState<string | null>(null);
+export function ExportButton({ className, title, content, subtitle, variant = "buttons" }: ExportButtonProps) {
+  const [exported, setExported] = useState(false);
 
-  const handle = (format: ExportFormat) => {
-    if (onExport) {
-      onExport(format);
-      return;
+  const handleMarkdown = () => {
+    try {
+      exportToMarkdown({ title, content, subtitle });
+      setExported(true);
+      toast.show("Markdown 文件已下载");
+      setTimeout(() => setExported(false), 2000);
+    } catch {
+      toast.show("导出失败，请重试");
     }
-    setToast(`已请求导出 ${format.toUpperCase()}，导出功能将在 0002 阶段接入`);
-    setTimeout(() => setToast(null), 2000);
   };
 
-  const buttons: { format: ExportFormat; label: string; icon: typeof FileText }[] = [
-    { format: "pdf", label: "PDF", icon: FileText },
-    { format: "markdown", label: "MD", icon: FileType2 },
-    { format: "docx", label: "DOCX", icon: Download },
-  ];
+  const handle = (format: ExportFormat) => {
+    if (format === "markdown") {
+      handleMarkdown();
+      return;
+    }
+    toast.show(`${format.toUpperCase()} 导出即将推出，当前支持 Markdown 导出`);
+  };
+
+  if (variant === "dropdown") {
+    return (
+      <div className={cn("relative", className)}>
+        <Button
+          variant="outline"
+          size="sm"
+          className="gap-1.5"
+          onClick={handleMarkdown}
+          aria-label="导出"
+        >
+          {exported ? <Check className="size-3.5 text-green-600" /> : <Download className="size-3.5" />}
+          <span>{exported ? "已导出" : "导出"}</span>
+        </Button>
+      </div>
+    );
+  }
 
   return (
-    <div className={cn("relative", className)}>
-      <div className="flex items-center gap-1.5">
-        {buttons.map((b) => (
-          <Button
-            key={b.format}
-            variant="outline"
-            size="sm"
-            className="gap-1"
-            onClick={() => handle(b.format)}
-            aria-label={`导出为 ${b.label}`}
-          >
-            <b.icon className="size-3.5" />
-            <span>{b.label}</span>
-          </Button>
-        ))}
-      </div>
-      {toast && (
-        <div
-          role="status"
-          aria-live="polite"
-          className="absolute top-full right-0 mt-1 z-10 rounded-md border border-border bg-popover px-3 py-1.5 text-xs text-popover-foreground shadow-md whitespace-nowrap"
-        >
-          {toast}
-        </div>
-      )}
+    <div className={cn("flex items-center gap-1.5", className)}>
+      <Button
+        variant="outline"
+        size="sm"
+        className="gap-1"
+        onClick={() => handle("markdown")}
+        aria-label="导出为 Markdown"
+      >
+        {exported ? <Check className="size-3.5 text-green-600" /> : <FileType2 className="size-3.5" />}
+        <span>MD</span>
+      </Button>
+      <Button
+        variant="outline"
+        size="sm"
+        className="gap-1 opacity-50"
+        onClick={() => handle("pdf")}
+        aria-label="导出为 PDF（即将推出）"
+      >
+        <FileText className="size-3.5" />
+        <span>PDF</span>
+      </Button>
+      <Button
+        variant="outline"
+        size="sm"
+        className="gap-1 opacity-50"
+        onClick={() => handle("docx")}
+        aria-label="导出为 DOCX（即将推出）"
+      >
+        <Download className="size-3.5" />
+        <span>DOCX</span>
+      </Button>
     </div>
   );
 }

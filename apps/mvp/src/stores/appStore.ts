@@ -5,7 +5,7 @@
  */
 import { create } from "zustand";
 import { persist } from "zustand/middleware";
-import type { ChatActionType, RightPanelType, Role, Theme } from "@/types";
+import type { ChatActionType, Citation, RightPanelType, Role, Theme } from "@/types";
 import { LAYOUT } from "@/lib/constants";
 import { STORAGE_KEYS } from "@/lib/storage";
 
@@ -57,6 +57,10 @@ interface AppState {
   setPanelContent: (content: string) => void;
   appendPanelContent: (delta: string) => void;
 
+  // === 当前引用列表（点击角标时设置，右侧面板显示）===
+  currentCitations: Citation[];
+  setCurrentCitations: (citations: Citation[]) => void;
+
   // === 输入框上下文（标签区域）===
   loadedSkillIds: string[];
   uploadedFileIds: string[];
@@ -65,6 +69,25 @@ interface AppState {
   addUploadedFile: (id: string) => void;
   removeUploadedFile: (id: string) => void;
   clearInputContext: () => void;
+
+  // === 网络状态 ===
+  isOnline: boolean;
+  setIsOnline: (online: boolean) => void;
+
+  // === 服务可用性 ===
+  asrAvailable: boolean;
+  ttsAvailable: boolean;
+  setAsrAvailable: (available: boolean) => void;
+  setTtsAvailable: (available: boolean) => void;
+
+  // === 存储警告 ===
+  storageFull: boolean;
+  setStorageFull: (full: boolean) => void;
+
+  // === 流式中断提示 ===
+  streamingInterrupted: boolean;
+  interruptedMessageId: string | null;
+  setStreamingInterrupted: (interrupted: boolean, messageId?: string | null) => void;
 }
 
 export const useAppStore = create<AppState>()(
@@ -133,6 +156,10 @@ export const useAppStore = create<AppState>()(
       setPanelContent: (content) => set({ panelContent: content }),
       appendPanelContent: (delta) => set((s) => ({ panelContent: s.panelContent + delta })),
 
+      // === 当前引用列表 ===
+      currentCitations: [],
+      setCurrentCitations: (citations) => set({ currentCitations: citations }),
+
       // === 输入框上下文 ===
       loadedSkillIds: [],
       uploadedFileIds: [],
@@ -158,6 +185,26 @@ export const useAppStore = create<AppState>()(
         })),
       clearInputContext: () =>
         set({ loadedSkillIds: [], uploadedFileIds: [] }),
+
+      // === 网络状态 ===
+      isOnline: true,
+      setIsOnline: (isOnline) => set({ isOnline }),
+
+      // === 服务可用性 ===
+      asrAvailable: true,
+      ttsAvailable: true,
+      setAsrAvailable: (asrAvailable) => set({ asrAvailable }),
+      setTtsAvailable: (ttsAvailable) => set({ ttsAvailable }),
+
+      // === 存储警告 ===
+      storageFull: false,
+      setStorageFull: (storageFull) => set({ storageFull }),
+
+      // === 流式中断提示 ===
+      streamingInterrupted: false,
+      interruptedMessageId: null,
+      setStreamingInterrupted: (streamingInterrupted, interruptedMessageId = null) =>
+        set({ streamingInterrupted, interruptedMessageId }),
     }),
     {
       name: "gerclaw:app-store",

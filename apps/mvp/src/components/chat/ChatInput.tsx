@@ -1,11 +1,13 @@
 "use client";
 
-import { useState, useRef } from "react";
+import { useState, useRef, useEffect } from "react";
+import Image from "next/image";
 import {
-  BookOpen,
+  Zap,
   Check,
   ClipboardCheck,
   FileSearch,
+  ImageIcon,
   Loader2,
   Mic,
   Paperclip,
@@ -21,14 +23,24 @@ import {
   TooltipTrigger,
 } from "@/components/ui/tooltip";
 import { useAppStore } from "@/stores/appStore";
-import { INPUT_LIMITS, MEDICAL_DISCLAIMER } from "@/lib/constants";
+import { INPUT_LIMITS, MEDICAL_DISCLAIMER, ALLOWED_IMAGE_MIME_TYPES } from "@/lib/constants";
 import { toast } from "@/components/ui/toast";
 import { cn } from "@/lib/utils";
 import { useAudioRecorder } from "@/hooks/useAudioRecorder";
 import { recognizeAudio } from "@/services/voice/asr";
+import { generateId } from "@/lib/format";
+import type { ImageAttachment } from "@/types";
+
+interface PendingImage {
+  id: string;
+  mimeType: string;
+  base64: string;
+  previewUrl: string;
+  alt?: string;
+}
 
 interface ChatInputProps {
-  onSend?: (text: string) => void;
+  onSend?: (text: string, images?: ImageAttachment[]) => void;
   isGenerating?: boolean;
   onStop?: () => void;
 }
@@ -60,18 +72,28 @@ function WaveformBars({ audioLevel, recordingDuration }: { audioLevel: number; r
   );
 }
 
+const ALLOWED_FILE_EXT = [".pdf", ".docx", ".md", ".txt"];
+const ALLOWED_FILE_MIME = [
+  "application/pdf",
+  "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+  "text/markdown",
+  "text/plain",
+];
+
 function FunctionButtonGroup({
   disabled,
   role,
-  onShowToast,
   onSetMainView,
   onSetChatAction,
+  onPickImage,
+  onPickFile,
 }: {
   disabled: boolean;
   role: "patient" | "doctor" | "visitor";
-  onShowToast: (msg: string) => void;
   onSetMainView: (view: "skills" | "chat") => void;
   onSetChatAction: (action: "prescription" | "cga" | "drug-review" | "health-profile" | "none") => void;
+  onPickImage: () => void;
+  onPickFile: () => void;
 }) {
   return (
     <div className="flex items-center gap-0.5 flex-wrap">
@@ -82,7 +104,24 @@ function FunctionButtonGroup({
               variant="ghost"
               size="icon"
               className="btn-icon"
-              onClick={() => onShowToast("文件上传功能开发中，敬请期待")}
+              onClick={onPickImage}
+              aria-label="上传图片"
+              disabled={disabled}
+            />
+          }
+        >
+          <ImageIcon className="size-4" />
+        </TooltipTrigger>
+        <TooltipContent>上传图片</TooltipContent>
+      </Tooltip>
+      <Tooltip>
+        <TooltipTrigger
+          render={
+            <Button
+              variant="ghost"
+              size="icon"
+              className="btn-icon"
+              onClick={onPickFile}
               aria-label="上传文件或图片"
               disabled={disabled}
             />
@@ -90,7 +129,7 @@ function FunctionButtonGroup({
         >
           <Paperclip className="size-4" />
         </TooltipTrigger>
-        <TooltipContent>上传文件或图片</TooltipContent>
+        <TooltipContent>上传文件（PDF/DOCX/MD/TXT，待MinerU接入）</TooltipContent>
       </Tooltip>
       <Tooltip>
         <TooltipTrigger
@@ -105,7 +144,7 @@ function FunctionButtonGroup({
             />
           }
         >
-          <BookOpen className="size-4" />
+          <Zap className="size-4" />
         </TooltipTrigger>
         <TooltipContent>技能</TooltipContent>
       </Tooltip>
@@ -190,14 +229,22 @@ export function ChatInput({ onSend, isGenerating, onStop }: ChatInputProps) {
   const seniorMode = useAppStore((s) => s.seniorMode);
   const loadedSkillIds = useAppStore((s) => s.loadedSkillIds);
   const uploadedFileIds = useAppStore((s) => s.uploadedFileIds);
+  const addUploadedFile = useAppStore((s) => s.addUploadedFile);
   const removeLoadedSkill = useAppStore((s) => s.removeLoadedSkill);
   const removeUploadedFile = useAppStore((s) => s.removeUploadedFile);
   const setMainView = useAppStore((s) => s.setMainView);
   const setChatAction = useAppStore((s) => s.setChatAction);
+  const isOnline = useAppStore((s) => s.isOnline);
+  const asrAvailable = useAppStore((s) => s.asrAvailable);
 
   const [text, setText] = useState("");
   const [isTranscribing, setIsTranscribing] = useState(false);
+  const [pendingImages, setPendingImages] = useState<PendingImage[]>([]);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
+  const imageInputRef = useRef<HTMLInputElement>(null);
+  const fileInputRef = useRef<HTMLInputElement>(null);
+
+  const micDisabled = !isOnline || !asrAvailable || isTranscribing || isGenerating;
 
   const {
     isRecording,
@@ -207,6 +254,119 @@ export function ChatInput({ onSend, isGenerating, onStop }: ChatInputProps) {
     stopRecording,
     cancelRecording,
   } = useAudioRecorder();
+
+  useEffect(() => {
+    return () => {
+      pendingImages.forEach((img) => URL.revokeObjectURL(img.previewUrl));
+    };
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  const readFileAsBase64 = (file: File): Promise<string> => {
+    return new Promise((resolve, reject) => {
+      const reader = new FileReader();
+      reader.onload = () => {
+        const result = reader.result as string;
+        const base64 = result.split(",")[1] ?? "";
+        resolve(base64);
+      };
+      reader.onerror = () => reject(reader.error);
+      reader.readAsDataURL(file);
+    });
+  };
+
+  const handleImageSelect = () => {
+    imageInputRef.current?.click();
+  };
+
+  const handleFileSelect = () => {
+    fileInputRef.current?.click();
+  };
+
+  const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const files = e.target.files;
+    if (!files || files.length === 0) return;
+
+    const remaining = INPUT_LIMITS.maxFileCount - uploadedFileIds.length;
+    if (remaining <= 0) {
+      toast.show(`最多上传 ${INPUT_LIMITS.maxFileCount} 个文件`);
+      e.target.value = "";
+      return;
+    }
+
+    let addedCount = 0;
+    for (let i = 0; i < Math.min(files.length, remaining); i++) {
+      const file = files[i];
+      const ext = `.${file.name.split(".").pop()?.toLowerCase()}`;
+      const typeOk = ALLOWED_FILE_MIME.includes(file.type) || ALLOWED_FILE_EXT.includes(ext);
+      if (!typeOk) {
+        toast.show(`不支持的文件类型：${file.name}，请上传 PDF/DOCX/MD/TXT`);
+        continue;
+      }
+      if (file.size > INPUT_LIMITS.maxFileSize) {
+        toast.show(`文件 ${file.name} 超过 10MB 限制`);
+        continue;
+      }
+      addUploadedFile(file.name);
+      addedCount++;
+    }
+
+    if (addedCount > 0) {
+      toast.show(`已添加 ${addedCount} 个文件（文档解析待MinerU接入）`);
+    }
+    e.target.value = "";
+  };
+
+  const handleImageChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const files = e.target.files;
+    if (!files || files.length === 0) return;
+
+    const remaining = INPUT_LIMITS.maxImageCount - pendingImages.length;
+    if (remaining <= 0) {
+      toast.show(`最多上传 ${INPUT_LIMITS.maxImageCount} 张图片`);
+      e.target.value = "";
+      return;
+    }
+
+    const newImages: PendingImage[] = [];
+    for (let i = 0; i < Math.min(files.length, remaining); i++) {
+      const file = files[i];
+      if (!ALLOWED_IMAGE_MIME_TYPES.includes(file.type as (typeof ALLOWED_IMAGE_MIME_TYPES)[number])) {
+        toast.show(`不支持的图片格式：${file.type}，请上传 JPG/PNG/WebP/GIF`);
+        continue;
+      }
+      if (file.size > INPUT_LIMITS.maxImageSize) {
+        toast.show(`图片 ${file.name} 超过 5MB 限制`);
+        continue;
+      }
+      try {
+        const base64 = await readFileAsBase64(file);
+        const previewUrl = URL.createObjectURL(file);
+        newImages.push({
+          id: generateId("img"),
+          mimeType: file.type,
+          base64,
+          previewUrl,
+          alt: file.name,
+        });
+      } catch {
+        toast.show(`读取图片 ${file.name} 失败`);
+      }
+    }
+
+    if (newImages.length > 0) {
+      setPendingImages((prev) => [...prev, ...newImages]);
+    }
+    e.target.value = "";
+  };
+
+  const removePendingImage = (id: string) => {
+    setPendingImages((prev) => {
+      const img = prev.find((p) => p.id === id);
+      if (img) URL.revokeObjectURL(img.previewUrl);
+      return prev.filter((p) => p.id !== id);
+    });
+  };
 
   const placeholder =
     role === "doctor"
@@ -219,9 +379,16 @@ export function ChatInput({ onSend, isGenerating, onStop }: ChatInputProps) {
 
   const handleSend = () => {
     const trimmed = text.trim();
-    if (!trimmed || isGenerating || isTranscribing) return;
-    onSend?.(trimmed);
+    if ((!trimmed && pendingImages.length === 0) || isGenerating || isTranscribing || !isOnline) return;
+    const images: ImageAttachment[] | undefined = pendingImages.length > 0
+      ? pendingImages.map((p) => ({ mimeType: p.mimeType, base64: p.base64, alt: p.alt }))
+      : undefined;
+    onSend?.(trimmed, images);
     setText("");
+    setPendingImages((prev) => {
+      prev.forEach((img) => URL.revokeObjectURL(img.previewUrl));
+      return [];
+    });
     if (textareaRef.current) {
       textareaRef.current.style.height = "auto";
     }
@@ -341,14 +508,34 @@ export function ChatInput({ onSend, isGenerating, onStop }: ChatInputProps) {
   return (
     <div className="border-t border-border bg-background px-4 py-3">
       <div className="max-w-3xl mx-auto">
-        {(loadedSkillIds.length > 0 || uploadedFileIds.length > 0) && (
+        {(loadedSkillIds.length > 0 || uploadedFileIds.length > 0 || pendingImages.length > 0) && (
           <div className="flex flex-wrap gap-2 mb-2">
+            {pendingImages.map((img) => (
+              <div key={img.id} className="relative group">
+                <Image
+                  src={img.previewUrl}
+                  alt={img.alt ?? "上传图片"}
+                  width={64}
+                  height={64}
+                  unoptimized
+                  className="w-16 h-16 object-cover rounded-md border border-border"
+                />
+                <button
+                  type="button"
+                  onClick={() => removePendingImage(img.id)}
+                  className="absolute -top-1.5 -right-1.5 size-5 rounded-full bg-destructive text-destructive-foreground flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity shadow"
+                  aria-label="移除图片"
+                >
+                  <X className="size-3" />
+                </button>
+              </div>
+            ))}
             {loadedSkillIds.map((id) => (
               <span
                 key={id}
                 className="inline-flex items-center gap-1 rounded-full bg-primary/10 text-primary text-xs px-2 py-1"
               >
-                <BookOpen className="size-3" />
+                <Zap className="size-3" />
                 {id}
                 <button
                   type="button"
@@ -380,6 +567,23 @@ export function ChatInput({ onSend, isGenerating, onStop }: ChatInputProps) {
           </div>
         )}
 
+        <input
+          ref={imageInputRef}
+          type="file"
+          accept={ALLOWED_IMAGE_MIME_TYPES.join(",")}
+          multiple
+          className="hidden"
+          onChange={handleImageChange}
+        />
+        <input
+          ref={fileInputRef}
+          type="file"
+          accept={ALLOWED_FILE_EXT.join(",")}
+          multiple
+          className="hidden"
+          onChange={handleFileChange}
+        />
+
         <div className="rounded-xl border border-border bg-muted/50 focus-within:ring-2 focus-within:ring-ring/40 transition-shadow">
           <textarea
             ref={textareaRef}
@@ -399,9 +603,10 @@ export function ChatInput({ onSend, isGenerating, onStop }: ChatInputProps) {
             <FunctionButtonGroup
               disabled={isTranscribing}
               role={role}
-              onShowToast={(msg) => toast.show(msg)}
               onSetMainView={setMainView}
               onSetChatAction={setChatAction}
+              onPickImage={handleImageSelect}
+              onPickFile={handleFileSelect}
             />
 
             <div className="flex items-center">
@@ -422,7 +627,7 @@ export function ChatInput({ onSend, isGenerating, onStop }: ChatInputProps) {
                   </TooltipTrigger>
                   <TooltipContent>停止生成</TooltipContent>
                 </Tooltip>
-              ) : text.trim() ? (
+              ) : text.trim() || pendingImages.length > 0 ? (
                 <Tooltip>
                   <TooltipTrigger
                     render={
@@ -432,12 +637,15 @@ export function ChatInput({ onSend, isGenerating, onStop }: ChatInputProps) {
                         className="btn-icon"
                         onClick={handleSend}
                         aria-label="发送"
+                        disabled={!isOnline}
                       />
                     }
                   >
                     <SendHorizonal className="size-4" />
                   </TooltipTrigger>
-                  <TooltipContent>发送</TooltipContent>
+                  <TooltipContent>
+                    {!isOnline ? "网络已断开，请检查网络连接" : "发送"}
+                  </TooltipContent>
                 </Tooltip>
               ) : isTranscribing ? (
                 <div className="flex items-center gap-2 px-2">
@@ -455,20 +663,30 @@ export function ChatInput({ onSend, isGenerating, onStop }: ChatInputProps) {
                         size="icon"
                         className={cn("btn-icon", seniorMode && "size-12")}
                         onClick={handleMicStart}
-                        aria-label="语音输入"
+                        aria-label={micDisabled ? "语音服务暂时不可用" : "语音输入"}
+                        disabled={micDisabled}
                       />
                     }
                   >
                     <Mic className={cn(seniorMode ? "size-5" : "size-4")} />
                   </TooltipTrigger>
-                  <TooltipContent>语音输入</TooltipContent>
+                  <TooltipContent>
+                    {!isOnline 
+                      ? "网络已断开，语音服务暂不可用" 
+                      : !asrAvailable 
+                        ? "语音服务暂时不可用" 
+                        : "语音输入"}
+                  </TooltipContent>
                 </Tooltip>
               )}
             </div>
           </div>
         </div>
 
-        <div className="mt-1.5 text-xs text-muted-foreground">
+        <div className={cn(
+          "mt-1.5 text-muted-foreground",
+          seniorMode ? "text-xs" : "text-[11px]"
+        )}>
           {MEDICAL_DISCLAIMER}
         </div>
       </div>

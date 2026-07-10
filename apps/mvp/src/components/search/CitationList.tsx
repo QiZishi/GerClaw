@@ -17,7 +17,7 @@ import { cn } from "@/lib/utils";
 import type { Citation } from "@/types";
 
 interface CitationListProps {
-  /** 引用列表（默认使用内置 mock） */
+  /** 引用列表（默认从 store 获取 currentCitations，fallback 到 mock） */
   citations?: Citation[];
   className?: string;
 }
@@ -28,10 +28,12 @@ interface CitationListProps {
  * 支持按来源筛选 + 关键词搜索 + 点击跳转原文
  */
 export function CitationList({
-  citations = defaultMockCitations,
+  citations: propCitations,
   className,
 }: CitationListProps) {
   const seniorMode = useAppStore((s) => s.seniorMode);
+  const storeCitations = useAppStore((s) => s.currentCitations);
+  const citations = propCitations ?? (storeCitations.length > 0 ? storeCitations : defaultMockCitations);
   const [query, setQuery] = useState("");
   const [sourceFilter, setSourceFilter] = useState<string | null>(null);
 

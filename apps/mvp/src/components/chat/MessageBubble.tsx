@@ -1,6 +1,7 @@
 "use client";
 
 import { useState } from "react";
+import Image from "next/image";
 import {
   Copy,
   Download,
@@ -24,6 +25,7 @@ import { MarkdownRenderer } from "./MarkdownRenderer";
 import { StreamingText } from "./blocks/StreamingText";
 import { ThinkingBlock } from "./blocks/ThinkingBlock";
 import { ToolCallBlock } from "./blocks/ToolCallBlock";
+import { SimpleStepIndicator } from "./blocks/SimpleStepIndicator";
 import { SubAgentTree } from "./blocks/SubAgentTree";
 import { DecisionTimeline } from "./blocks/DecisionTimeline";
 import { SearchResultCard } from "@/components/search/SearchResultCard";
@@ -33,6 +35,7 @@ import { MEDICAL_DISCLAIMER } from "@/lib/constants";
 import type { Message, MessageBlock, RightPanelType } from "@/types";
 import { toast } from "@/components/ui/toast";
 import { useAudioPlayer } from "@/hooks/useAudioPlayer";
+import { exportToMarkdown } from "@/lib/export";
 
 interface MessageBubbleProps {
   message: Message;
@@ -118,6 +121,21 @@ export function MessageBubble({ message, onRegenerate }: MessageBubbleProps) {
     });
   };
 
+  const handleExport = () => {
+    try {
+      const textContent = extractPlainText(message.blocks);
+      const title = textContent.slice(0, 50).replace(/[#*`_~\[\]()>|-]/g, "").trim() || "AI回复";
+      exportToMarkdown({
+        title: `GerClaw回复 - ${title}`,
+        content: textContent,
+        subtitle: "单条消息导出",
+      });
+      toast.show("消息已导出为 Markdown");
+    } catch {
+      toast.show("导出失败，请重试");
+    }
+  };
+
   const plainText = !isUser ? extractPlainText(message.blocks) : "";
 
   return (
@@ -157,6 +175,9 @@ export function MessageBubble({ message, onRegenerate }: MessageBubbleProps) {
               : "bg-muted text-foreground rounded-tl-sm"
           )}
         >
+          {!isUser && message.steps && message.steps.length > 0 && (
+            <SimpleStepIndicator steps={message.steps} />
+          )}
           <div className="space-y-2">
             {message.blocks.map((block) => {
               switch (block.kind) {
@@ -176,6 +197,20 @@ export function MessageBubble({ message, onRegenerate }: MessageBubbleProps) {
                       content={block.content}
                       citations={message.citations}
                     />
+                  );
+                case "image":
+                  return (
+                    <div key={block.id} className="mt-1 first:mt-0">
+                      <Image
+                        src={`data:${block.data.mimeType};base64,${block.data.base64}`}
+                        alt={block.data.alt ?? "用户上传的图片"}
+                        width={240}
+                        height={320}
+                        unoptimized
+                        className="max-w-[240px] max-h-[320px] w-auto h-auto rounded-lg object-cover cursor-pointer hover:opacity-90 transition-opacity"
+                        onClick={() => window.open(`data:${block.data.mimeType};base64,${block.data.base64}`, "_blank")}
+                      />
+                    </div>
                   );
                 case "thinking":
                   return (
@@ -239,25 +274,31 @@ export function MessageBubble({ message, onRegenerate }: MessageBubbleProps) {
         </div>
 
         {message.hasDisclaimer && (
-          <div className="text-xs text-muted-foreground px-2">
+          <div className={cn(
+            "text-muted-foreground px-2",
+            seniorMode ? "text-xs" : "text-[11px]"
+          )}>
             {MEDICAL_DISCLAIMER}
           </div>
         )}
 
-        <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
+        <div className={cn(
+          "flex items-center gap-1 opacity-0 group-hover:opacity-100 focus-within:opacity-100 transition-opacity",
+          seniorMode && "gap-1.5"
+        )}>
           <Tooltip>
             <TooltipTrigger
               render={
                 <Button
                   variant="ghost"
-                  size="icon-sm"
+                  size={seniorMode ? "icon" : "icon-sm"}
                   className="btn-icon"
                   onClick={handleCopy}
                   aria-label="复制"
                 />
               }
             >
-              <Copy className="size-3.5" />
+              <Copy className={cn(seniorMode ? "size-4" : "size-3.5")} />
             </TooltipTrigger>
             <TooltipContent>{copied ? "已复制" : "复制"}</TooltipContent>
           </Tooltip>
@@ -268,14 +309,14 @@ export function MessageBubble({ message, onRegenerate }: MessageBubbleProps) {
                 render={
                   <Button
                     variant="ghost"
-                    size="icon-sm"
+                    size={seniorMode ? "icon" : "icon-sm"}
                     className="btn-icon"
                     onClick={() => onRegenerate(message.id)}
                     aria-label="重新生成"
                   />
                 }
               >
-                <RefreshCw className="size-3.5" />
+                <RefreshCw className={cn(seniorMode ? "size-4" : "size-3.5")} />
               </TooltipTrigger>
               <TooltipContent>重新生成</TooltipContent>
             </Tooltip>
@@ -291,15 +332,16 @@ export function MessageBubble({ message, onRegenerate }: MessageBubbleProps) {
                 render={
                   <Button
                     variant="ghost"
-                    size="icon-sm"
+                    size={seniorMode ? "icon" : "icon-sm"}
                     className="btn-icon"
+                    onClick={handleExport}
                     aria-label="导出"
                   />
                 }
               >
-                <Download className="size-3.5" />
+                <Download className={cn(seniorMode ? "size-4" : "size-3.5")} />
               </TooltipTrigger>
-              <TooltipContent>导出</TooltipContent>
+              <TooltipContent>导出为 Markdown</TooltipContent>
             </Tooltip>
           )}
         </div>

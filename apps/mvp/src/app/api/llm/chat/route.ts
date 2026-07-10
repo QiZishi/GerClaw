@@ -85,7 +85,7 @@ export async function POST(request: NextRequest) {
             messages,
             stream: true,
             temperature: temperature ?? 0.7,
-            enable_thinking: false,
+            enable_thinking: true,
           };
           if (maxTokens) {
             reqBody.max_tokens = maxTokens;

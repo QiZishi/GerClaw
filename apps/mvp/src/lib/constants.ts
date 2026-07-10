@@ -69,9 +69,9 @@ export const LAYOUT = {
     collapsed: 64, // 60-70px 区间中值
   },
   rightPanel: {
-    default: 480, // 加宽以完整显示内容，避免遮挡
-    min: 360,
-    max: 640,
+    default: 400,
+    min: 320,
+    max: 500,
   },
 } as const;
 
@@ -104,7 +104,17 @@ export const INPUT_LIMITS = {
   maxFileCount: 5,
   maxFileSize: 10 * 1024 * 1024, // 10MB
   maxAudioDuration: 60, // 秒
+  maxImageCount: 5,
+  maxImageSize: 5 * 1024 * 1024, // 5MB
 } as const;
+
+/** 允许的图片 MIME 类型 */
+export const ALLOWED_IMAGE_MIME_TYPES = [
+  "image/jpeg",
+  "image/png",
+  "image/webp",
+  "image/gif",
+] as const;
 
 /** 五大处方信息补全对话轮次上限（§6.4） */
 export const PRESCRIPTION_COMPLETING_MAX_TURNS = 10;

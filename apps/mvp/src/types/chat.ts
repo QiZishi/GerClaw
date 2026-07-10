@@ -7,7 +7,7 @@
 export type MessageRole = "user" | "assistant" | "system";
 
 /** 消息状态 */
-export type MessageStatus = "streaming" | "done" | "error" | "stopped";
+export type MessageStatus = "streaming" | "done" | "error" | "stopped" | "interrupted";
 
 /** 工具调用状态 */
 export type ToolCallStatus = "running" | "done" | "failed";
@@ -17,6 +17,20 @@ export type ThinkingStatus = "thinking" | "done";
 
 /** 决策步骤状态 */
 export type DecisionStepStatus = "running" | "done" | "failed";
+
+/** 简化步骤状态（用于SimpleStepIndicator） */
+export type SimpleStepStatus = "pending" | "running" | "done";
+
+/** 简化步骤图标类型 */
+export type SimpleStepIcon = "thinking" | "search" | "answering";
+
+/** 简化步骤（思考中→搜索中→回答中） */
+export interface SimpleStepData {
+  id: string;
+  label: string;
+  status: SimpleStepStatus;
+  icon: SimpleStepIcon;
+}
 
 /** 文件上传/解析状态 */
 export type FileStatus = "uploading" | "parsing" | "done" | "failed";
@@ -113,9 +127,19 @@ export interface FileTag {
   parsedMarkdown?: string;
 }
 
-/** 消息内容块（一条消息可包含多个块：文本/思维链/工具调用/搜索结果/文件/决策/操作按钮） */
+/** 图片附件 */
+export interface ImageAttachment {
+  mimeType: string;
+  /** base64 数据（不含 data: 前缀） */
+  base64: string;
+  /** 文件名或 alt 文本 */
+  alt?: string;
+}
+
+/** 消息内容块（一条消息可包含多个块：文本/图片/思维链/工具调用/搜索结果/文件/决策/操作按钮） */
 export type MessageBlock =
   | { kind: "text"; id: string; content: string; streaming?: boolean }
+  | { kind: "image"; id: string; data: ImageAttachment }
   | { kind: "thinking"; id: string; data: ThinkingBlock }
   | { kind: "tool_call"; id: string; data: ToolCallBlock }
   | { kind: "sub_agent"; id: string; data: SubAgentNode }
@@ -140,6 +164,8 @@ export interface Message {
   role: MessageRole;
   blocks: MessageBlock[];
   citations?: Citation[];
+  /** 简化步骤指示器状态（思考中→搜索中→回答中） */
+  steps?: SimpleStepData[];
   status: MessageStatus;
   createdAt: number;
   /** 已加载技能ID列表 */

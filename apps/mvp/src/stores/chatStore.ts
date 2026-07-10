@@ -5,8 +5,9 @@
  * 支持 localStorage 持久化
  */
 import { create } from "zustand";
-import type { Message, Session } from "@/types";
+import type { Message, Session, SimpleStepData } from "@/types";
 import { generateId } from "@/lib/format";
+import { toast } from "@/components/ui/toast";
 
 const STORAGE_KEYS = {
   sessions: "gerclaw_sessions",
@@ -14,6 +15,27 @@ const STORAGE_KEYS = {
 } as const;
 
 const MAX_MESSAGES_PER_SESSION = 50;
+
+let storageFullToastShown = false;
+
+function isQuotaExceededError(err: unknown): boolean {
+  return (
+    err instanceof DOMException &&
+    (err.name === "QuotaExceededError" ||
+      err.name === "NS_ERROR_DOM_QUOTA_REACHED" ||
+      err.code === 22)
+  );
+}
+
+function notifyStorageFull() {
+  if (!storageFullToastShown) {
+    storageFullToastShown = true;
+    toast.show("存储空间已满，请导出重要对话后清除历史记录");
+    setTimeout(() => {
+      storageFullToastShown = false;
+    }, 60000);
+  }
+}
 
 function loadFromStorage<T>(key: string, fallback: T): T {
   if (typeof window === "undefined") return fallback;
@@ -35,8 +57,10 @@ function saveToStorage<T>(key: string, value: T): void {
   if (typeof window === "undefined") return;
   try {
     window.localStorage.setItem(key, JSON.stringify(value));
-  } catch {
-    // silently fail
+  } catch (err) {
+    if (isQuotaExceededError(err)) {
+      notifyStorageFull();
+    }
   }
 }
 
@@ -80,6 +104,17 @@ interface ChatState {
   setMessages: (sessionId: string, messages: Message[]) => void;
   addMessage: (message: Message) => void;
   updateMessage: (id: string, patch: Partial<Message>) => void;
+  appendMessageText: (id: string, blockId: string, delta: string) => void;
+  initMessageThinking: (id: string, thinkingBlockId: string) => void;
+  appendMessageThinking: (id: string, thinkingBlockId: string, delta: string) => void;
+  finalizeMessageThinking: (id: string, thinkingBlockId: string) => void;
+  initMessageToolCall: (id: string, toolBlockId: string, toolName: string, params: Record<string, unknown>) => void;
+  completeMessageToolCall: (id: string, toolBlockId: string, result: unknown) => void;
+  failMessageToolCall: (id: string, toolBlockId: string, errorMessage: string) => void;
+  initMessageSteps: (id: string, steps: SimpleStepData[]) => void;
+  updateMessageStep: (id: string, stepId: string, patch: Partial<SimpleStepData>) => void;
+  finalizeMessageSteps: (id: string) => void;
+  setMessageCitations: (id: string, citations: Message["citations"]) => void;
   removeMessage: (id: string) => void;
   getMessages: (sessionId: string) => Message[];
 
@@ -188,6 +223,263 @@ export const useChatStore = create<ChatState>()((set, get) => ({
       for (const sid of Object.keys(next)) {
         next[sid] = next[sid].map((m) =>
           m.id === id ? { ...m, ...patch } : m
+        );
+      }
+      const truncated = truncateMessages(next);
+      saveToStorage(STORAGE_KEYS.messages, truncated);
+      return { messagesBySession: truncated };
+    }),
+  appendMessageText: (id, blockId, delta) =>
+    set((s) => {
+      const next = { ...s.messagesBySession };
+      for (const sid of Object.keys(next)) {
+        next[sid] = next[sid].map((m) => {
+          if (m.id !== id) return m;
+          return {
+            ...m,
+            blocks: m.blocks.map((b) => {
+              if (b.kind !== "text" || b.id !== blockId) return b;
+              return { ...b, content: b.content + delta };
+            }),
+          };
+        });
+      }
+      const truncated = truncateMessages(next);
+      saveToStorage(STORAGE_KEYS.messages, truncated);
+      return { messagesBySession: truncated };
+    }),
+  initMessageThinking: (id, thinkingBlockId) =>
+    set((s) => {
+      const next = { ...s.messagesBySession };
+      for (const sid of Object.keys(next)) {
+        next[sid] = next[sid].map((m) => {
+          if (m.id !== id) return m;
+          const hasThinking = m.blocks.some((b) => b.kind === "thinking");
+          if (hasThinking) return m;
+          return {
+            ...m,
+            blocks: [
+              {
+                kind: "thinking",
+                id: thinkingBlockId,
+                data: {
+                  id: thinkingBlockId,
+                  content: "",
+                  status: "thinking",
+                  startedAt: Date.now(),
+                },
+              },
+              ...m.blocks,
+            ],
+          };
+        });
+      }
+      const truncated = truncateMessages(next);
+      saveToStorage(STORAGE_KEYS.messages, truncated);
+      return { messagesBySession: truncated };
+    }),
+  appendMessageThinking: (id, thinkingBlockId, delta) =>
+    set((s) => {
+      const next = { ...s.messagesBySession };
+      for (const sid of Object.keys(next)) {
+        next[sid] = next[sid].map((m) => {
+          if (m.id !== id) return m;
+          return {
+            ...m,
+            blocks: m.blocks.map((b) => {
+              if (b.kind !== "thinking" || b.id !== thinkingBlockId) return b;
+              return {
+                ...b,
+                data: {
+                  ...b.data,
+                  content: b.data.content + delta,
+                  status: "thinking",
+                },
+              };
+            }),
+          };
+        });
+      }
+      const truncated = truncateMessages(next);
+      saveToStorage(STORAGE_KEYS.messages, truncated);
+      return { messagesBySession: truncated };
+    }),
+  finalizeMessageThinking: (id, thinkingBlockId) =>
+    set((s) => {
+      const next = { ...s.messagesBySession };
+      for (const sid of Object.keys(next)) {
+        next[sid] = next[sid].map((m) => {
+          if (m.id !== id) return m;
+          return {
+            ...m,
+            blocks: m.blocks.map((b) => {
+              if (b.kind !== "thinking" || b.id !== thinkingBlockId) return b;
+              return {
+                ...b,
+                data: {
+                  ...b.data,
+                  status: "done",
+                  endedAt: Date.now(),
+                },
+              };
+            }),
+          };
+        });
+      }
+      const truncated = truncateMessages(next);
+      saveToStorage(STORAGE_KEYS.messages, truncated);
+      return { messagesBySession: truncated };
+    }),
+  initMessageToolCall: (id, toolBlockId, toolName, params) =>
+    set((s) => {
+      const next = { ...s.messagesBySession };
+      for (const sid of Object.keys(next)) {
+        next[sid] = next[sid].map((m) => {
+          if (m.id !== id) return m;
+          const hasTool = m.blocks.some((b) => b.kind === "tool_call" && b.id === toolBlockId);
+          if (hasTool) return m;
+          const thinkingBlock = m.blocks.find((b) => b.kind === "thinking");
+          const textBlockIdx = m.blocks.findIndex((b) => b.kind === "text");
+          const newBlock = {
+            kind: "tool_call" as const,
+            id: toolBlockId,
+            data: {
+              id: toolBlockId,
+              toolName,
+              params,
+              status: "running" as const,
+              startedAt: Date.now(),
+            },
+          };
+          let newBlocks = [...m.blocks];
+          if (thinkingBlock && textBlockIdx !== -1) {
+            newBlocks = [
+              ...newBlocks.slice(0, textBlockIdx),
+              newBlock,
+              ...newBlocks.slice(textBlockIdx),
+            ];
+          } else {
+            newBlocks.push(newBlock);
+          }
+          return { ...m, blocks: newBlocks };
+        });
+      }
+      const truncated = truncateMessages(next);
+      saveToStorage(STORAGE_KEYS.messages, truncated);
+      return { messagesBySession: truncated };
+    }),
+  completeMessageToolCall: (id, toolBlockId, result) =>
+    set((s) => {
+      const now = Date.now();
+      const next = { ...s.messagesBySession };
+      for (const sid of Object.keys(next)) {
+        next[sid] = next[sid].map((m) => {
+          if (m.id !== id) return m;
+          return {
+            ...m,
+            blocks: m.blocks.map((b) => {
+              if (b.kind !== "tool_call" || b.id !== toolBlockId) return b;
+              const durationMs = b.data.startedAt ? now - b.data.startedAt : undefined;
+              return {
+                ...b,
+                data: {
+                  ...b.data,
+                  status: "done" as const,
+                  result,
+                  endedAt: now,
+                  durationMs,
+                },
+              };
+            }),
+          };
+        });
+      }
+      const truncated = truncateMessages(next);
+      saveToStorage(STORAGE_KEYS.messages, truncated);
+      return { messagesBySession: truncated };
+    }),
+  failMessageToolCall: (id, toolBlockId, errorMessage) =>
+    set((s) => {
+      const now = Date.now();
+      const next = { ...s.messagesBySession };
+      for (const sid of Object.keys(next)) {
+        next[sid] = next[sid].map((m) => {
+          if (m.id !== id) return m;
+          return {
+            ...m,
+            blocks: m.blocks.map((b) => {
+              if (b.kind !== "tool_call" || b.id !== toolBlockId) return b;
+              const durationMs = b.data.startedAt ? now - b.data.startedAt : undefined;
+              return {
+                ...b,
+                data: {
+                  ...b.data,
+                  status: "failed" as const,
+                  errorMessage,
+                  endedAt: now,
+                  durationMs,
+                },
+              };
+            }),
+          };
+        });
+      }
+      const truncated = truncateMessages(next);
+      saveToStorage(STORAGE_KEYS.messages, truncated);
+      return { messagesBySession: truncated };
+    }),
+  initMessageSteps: (id, steps) =>
+    set((s) => {
+      const next = { ...s.messagesBySession };
+      for (const sid of Object.keys(next)) {
+        next[sid] = next[sid].map((m) =>
+          m.id === id ? { ...m, steps } : m
+        );
+      }
+      const truncated = truncateMessages(next);
+      saveToStorage(STORAGE_KEYS.messages, truncated);
+      return { messagesBySession: truncated };
+    }),
+  updateMessageStep: (id, stepId, patch) =>
+    set((s) => {
+      const next = { ...s.messagesBySession };
+      for (const sid of Object.keys(next)) {
+        next[sid] = next[sid].map((m) => {
+          if (m.id !== id || !m.steps) return m;
+          return {
+            ...m,
+            steps: m.steps.map((st) =>
+              st.id === stepId ? { ...st, ...patch } : st
+            ),
+          };
+        });
+      }
+      const truncated = truncateMessages(next);
+      saveToStorage(STORAGE_KEYS.messages, truncated);
+      return { messagesBySession: truncated };
+    }),
+  finalizeMessageSteps: (id) =>
+    set((s) => {
+      const next = { ...s.messagesBySession };
+      for (const sid of Object.keys(next)) {
+        next[sid] = next[sid].map((m) => {
+          if (m.id !== id || !m.steps) return m;
+          return {
+            ...m,
+            steps: m.steps.map((st) => ({ ...st, status: "done" as const })),
+          };
+        });
+      }
+      const truncated = truncateMessages(next);
+      saveToStorage(STORAGE_KEYS.messages, truncated);
+      return { messagesBySession: truncated };
+    }),
+  setMessageCitations: (id, citations) =>
+    set((s) => {
+      const next = { ...s.messagesBySession };
+      for (const sid of Object.keys(next)) {
+        next[sid] = next[sid].map((m) =>
+          m.id === id ? { ...m, citations } : m
         );
       }
       const truncated = truncateMessages(next);

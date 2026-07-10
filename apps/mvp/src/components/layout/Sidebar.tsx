@@ -1,8 +1,8 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useMemo, useState, useSyncExternalStore } from "react";
 import {
-  BookOpen,
+  Zap,
   HelpCircle,
   LogOut,
   Menu,
@@ -56,7 +56,17 @@ interface SidebarProps {
  * 顶部：标识 / 折叠按钮 / 新建对话 / 搜索 / 历史列表 / 技能入口
  * 底部：用户信息 / 模式切换 / 老年模式 / 主题
  */
+const emptySubscribe = () => () => {};
+const clientSnapshot = () => true;
+const serverSnapshot = () => false;
+
 export function Sidebar({ onNavigate }: SidebarProps) {
+  const mounted = useSyncExternalStore(
+    emptySubscribe,
+    clientSnapshot,
+    serverSnapshot
+  );
+
   const role = useAppStore((s) => s.role);
   const seniorMode = useAppStore((s) => s.seniorMode);
   const toggleSidebar = useAppStore((s) => s.toggleSidebar);
@@ -181,7 +191,7 @@ export function Sidebar({ onNavigate }: SidebarProps) {
         </Button>
       </div>
 
-      {/* 第2行：技能管理（图标在前，"技能"两字在后；书本样式） */}
+      {/* 第2行：技能管理（⚡图标在前，"技能"两字在后） */}
       <div className="px-3 pb-2">
         <Button
           variant={mainView === "skills" ? "secondary" : "ghost"}
@@ -189,7 +199,7 @@ export function Sidebar({ onNavigate }: SidebarProps) {
           onClick={handleToggleSkills}
           aria-label="技能"
         >
-          <BookOpen className="size-4" />
+          <Zap className="size-4" />
           <span>技能</span>
         </Button>
       </div>
@@ -210,28 +220,34 @@ export function Sidebar({ onNavigate }: SidebarProps) {
       {/* 历史对话列表 */}
       <ScrollArea className="flex-1 min-h-0">
         <div className="px-2 py-1">
-          {(Object.keys(groupedSessions) as SessionGroup[]).map((group) => {
-            const list = groupedSessions[group];
-            if (list.length === 0) return null;
-            return (
-              <div key={group} className="mb-2">
-                <div className="px-2 py-1 text-xs font-medium text-muted-foreground">
-                  {group}
+          {!mounted ? (
+            <div className="px-2 py-4 text-center text-sm text-muted-foreground">
+              加载中...
+            </div>
+          ) : (
+            (Object.keys(groupedSessions) as SessionGroup[]).map((group) => {
+              const list = groupedSessions[group];
+              if (list.length === 0) return null;
+              return (
+                <div key={group} className="mb-2">
+                  <div className="px-2 py-1 text-xs font-medium text-muted-foreground">
+                    {group}
+                  </div>
+                  {list.map((s) => (
+                    <SessionItem
+                      key={s.id}
+                      session={s}
+                      active={currentSessionId === s.id}
+                      onSelect={() => handleSelectSession(s.id)}
+                      onRename={(title) => renameSession(s.id, title)}
+                      onDelete={() => removeSession(s.id)}
+                      onTogglePin={() => togglePinSession(s.id)}
+                    />
+                  ))}
                 </div>
-                {list.map((s) => (
-                  <SessionItem
-                    key={s.id}
-                    session={s}
-                    active={currentSessionId === s.id}
-                    onSelect={() => handleSelectSession(s.id)}
-                    onRename={(title) => renameSession(s.id, title)}
-                    onDelete={() => removeSession(s.id)}
-                    onTogglePin={() => togglePinSession(s.id)}
-                  />
-                ))}
-              </div>
-            );
-          })}
+              );
+            })
+          )}
         </div>
       </ScrollArea>
 

@@ -1,11 +1,17 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import {
   ArrowLeft,
   CheckCircle2,
   Loader2,
   AlertTriangle,
+  Download,
+  Mic,
+  Volume2,
+  VolumeX,
+  X,
+  Check,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import {
@@ -29,7 +35,12 @@ import { HIGH_RISK_SYMPTOMS, EMERGENCY_ALERT } from "@/lib/constants";
 import { postprocessMedicalText } from "@/lib/security-postprocess";
 import { streamChat, buildSystemPrompt, type LLMMessage } from "@/services/llm";
 import { search } from "@/services/search/search-client";
-import type { ChatActionType, Message, MessageBlock, Scale, ScaleQuestion, SearchResultItem } from "@/types";
+import { exportConversationToMarkdown } from "@/lib/export";
+import { toast } from "@/components/ui/toast";
+import { useAudioPlayer } from "@/hooks/useAudioPlayer";
+import { useAudioRecorder } from "@/hooks/useAudioRecorder";
+import { recognizeAudio } from "@/services/voice/asr";
+import type { ChatActionType, Citation, ImageAttachment, Message, MessageBlock, Scale, ScaleQuestion, SearchResultItem, SimpleStepData } from "@/types";
 import { generateId } from "@/lib/format";
 
 /** 检测文本中是否包含高风险症状关键词（铁律5关联） */
@@ -39,6 +50,91 @@ function detectHighRiskSymptoms(text: string): string[] {
     if (text.includes(kw)) matched.push(kw);
   }
   return matched;
+}
+
+const POSITIVE_KEYWORDS = ["是", "是的", "对", "有", "嗯", "好", "没错", "正确", "对的", "嗯对", "有的"];
+const NEGATIVE_KEYWORDS = ["否", "不是", "没有", "不", "无", "不对", "错", "不是的", "没", "木有"];
+const NUMBER_MAP: Record<string, number> = {
+  "1": 1, "一": 1, "第一个": 1, "第一": 1,
+  "2": 2, "二": 2, "第二个": 2, "第二": 2,
+  "3": 3, "三": 3, "第三个": 3, "第三": 3,
+  "4": 4, "四": 4, "第四个": 4, "第四": 4,
+  "5": 5, "五": 5, "第五个": 5, "第五": 5,
+  "6": 6, "六": 6, "第六个": 6, "第六": 6,
+};
+
+function matchCGAAnswerByVoice(text: string, options: ScaleQuestion["options"]): number | null {
+  if (!options) return null;
+  const normalized = text.trim().replace(/[。，！？\s]/g, "");
+
+  for (const keyword of POSITIVE_KEYWORDS) {
+    if (normalized.includes(keyword)) {
+      const yesOpt = options.find((o) => {
+        const label = o.label.replace(/[。，！？\s]/g, "");
+        return label.includes("是") || label === "是" || o.value === 1 || label.includes("有");
+      });
+      if (yesOpt) return yesOpt.value;
+      if (options.length >= 2) return options[0].value;
+    }
+  }
+
+  for (const keyword of NEGATIVE_KEYWORDS) {
+    if (normalized.includes(keyword) && !normalized.includes("不是没有") && !normalized.includes("不是不")) {
+      const noOpt = options.find((o) => {
+        const label = o.label.replace(/[。，！？\s]/g, "");
+        return label.includes("否") || label === "否" || label === "不是" || o.value === 0 || label.includes("没有") || label.includes("无");
+      });
+      if (noOpt) return noOpt.value;
+      if (options.length >= 2) return options[options.length - 1].value;
+    }
+  }
+
+  for (const [numStr, numVal] of Object.entries(NUMBER_MAP)) {
+    if (normalized.includes(numStr) && numVal <= options.length) {
+      const idx = numVal - 1;
+      if (idx >= 0 && idx < options.length) return options[idx].value;
+    }
+  }
+
+  for (const opt of options) {
+    const label = opt.label.replace(/[。，！？\s]/g, "");
+    if (label && (normalized.includes(label) || label.includes(normalized))) {
+      return opt.value;
+    }
+  }
+
+  return null;
+}
+
+function formatRecordingDuration(seconds: number): string {
+  const m = Math.floor(seconds / 60);
+  const s = seconds % 60;
+  return `${m}:${s.toString().padStart(2, "0")}`;
+}
+
+function WaveformBars({ audioLevel, recordingDuration, seniorMode }: { audioLevel: number; recordingDuration: number; seniorMode: boolean }) {
+  const barCount = seniorMode ? 20 : 28;
+  return (
+    <div className="flex items-center justify-center gap-[3px] flex-1 px-4 overflow-hidden">
+      {Array.from({ length: barCount }).map((_, i) => {
+        const centerDist = Math.abs(i - barCount / 2) / (barCount / 2);
+        const baseHeight = 4 + (1 - centerDist) * (seniorMode ? 10 : 8);
+        const levelMultiplier = 0.4 + audioLevel * 1.8;
+        const height = Math.min(baseHeight * levelMultiplier, seniorMode ? 36 : 28);
+        const isActive = audioLevel > 0.05 || (i % 3 === 0 && recordingDuration % 2 === 0);
+        return (
+          <div
+            key={i}
+            className={cn(
+              "w-[3px] rounded-full transition-all duration-100",
+              isActive ? "bg-gray-800 dark:bg-gray-200" : "bg-gray-300 dark:bg-gray-600"
+            )}
+            style={{ height: `${height}px` }}
+          />
+        );
+      })}
+    </div>
+  );
 }
 
 const SEARCH_KEYWORDS = ["搜索", "查一下", "最新", "指南", "查一查", "搜一下", "帮我查", "最新的", "最新指南", "检索"];
@@ -53,6 +149,17 @@ function formatSearchResultsForLLM(results: SearchResultItem[]): string {
     return `[${i + 1}] ${r.title}\n来源：${r.source}\n链接：${r.url}\n摘要：${r.snippet}`;
   });
   return `\n\n以下是联网搜索到的相关参考资料，请基于这些资料回答用户问题，并在回答中自然引用来源编号（如"根据资料[1]..."）：\n\n${lines.join("\n\n")}\n`;
+}
+
+function searchResultsToCitations(results: SearchResultItem[]): Citation[] {
+  return results.map((r, i) => ({
+    id: i + 1,
+    title: r.title,
+    snippet: r.snippet,
+    url: r.url,
+    source: r.source,
+    publishedDate: r.publishedDate,
+  }));
 }
 
 /** 构建高风险症状立即就医强提示消息 */
@@ -132,20 +239,56 @@ export function ChatArea() {
   const seniorMode = useAppStore((s) => s.seniorMode);
   const isGenerating = useChatStore((s) => s.isGenerating);
   const setGenerating = useChatStore((s) => s.setGenerating);
+  const { play: playTTS, stop: stopTTS, isPlaying: isTTSPlaying, isLoading: isTTSLoading } = useAudioPlayer();
+  const {
+    isRecording: isCGARecording,
+    recordingDuration: cgaRecordingDuration,
+    audioLevel: cgaAudioLevel,
+    startRecording: startCGARecording,
+    stopRecording: stopCGARecording,
+    cancelRecording: cancelCGARecording,
+  } = useAudioRecorder();
+
+  const extractPlainTextForTTS = useCallback((text: string): string => {
+    return text
+      .replace(/[#*`_~\[\]()>|-]/g, "")
+      .replace(/\n{3,}/g, "\n\n")
+      .trim();
+  }, []);
+
+  const autoReadIfSeniorMode = useCallback((text: string) => {
+    if (seniorMode && text.trim()) {
+      playTTS(extractPlainTextForTTS(text));
+    }
+  }, [seniorMode, playTTS, extractPlainTextForTTS]);
   const messagesBySession = useChatStore((s) => s.messagesBySession);
   const addMessage = useChatStore((s) => s.addMessage);
   const updateMessage = useChatStore((s) => s.updateMessage);
+  const appendMessageText = useChatStore((s) => s.appendMessageText);
+  const initMessageThinking = useChatStore((s) => s.initMessageThinking);
+  const appendMessageThinking = useChatStore((s) => s.appendMessageThinking);
+  const finalizeMessageThinking = useChatStore((s) => s.finalizeMessageThinking);
+  const initMessageToolCall = useChatStore((s) => s.initMessageToolCall);
+  const completeMessageToolCall = useChatStore((s) => s.completeMessageToolCall);
+  const failMessageToolCall = useChatStore((s) => s.failMessageToolCall);
+  const updateMessageStep = useChatStore((s) => s.updateMessageStep);
+  const finalizeMessageSteps = useChatStore((s) => s.finalizeMessageSteps);
   const removeMessage = useChatStore((s) => s.removeMessage);
   const updateSession = useChatStore((s) => s.updateSession);
   const createSession = useChatStore((s) => s.createSession);
   const storeSessions = useChatStore((s) => s.sessions);
 
   const abortControllerRef = useRef<AbortController | null>(null);
+  const autoReadRef = useRef<(text: string) => void>(() => {});
 
   // 各会话功能模式下的对话轮次计数（sessionId -> count），上限5轮
   const [collectRounds, setCollectRounds] = useState<Record<string, number>>({});
   const MAX_COLLECT_ROUNDS = 5;
   const actionInitRef = useRef<string | null>(null);
+
+  useEffect(() => {
+    autoReadRef.current = autoReadIfSeniorMode;
+  }, [autoReadIfSeniorMode]);
 
   // CGA：当前会话已选择的评估量表（sessionId -> Scale.id）
   const [cgaSelectedScale, setCgaSelectedScale] = useState<
@@ -166,6 +309,36 @@ export function ChatArea() {
   );
   // 老年模式退出功能二次确认弹窗
   const [showExitConfirm, setShowExitConfirm] = useState(false);
+  // CGA语音答题状态
+  const [cgaIsTranscribing, setCgaIsTranscribing] = useState(false);
+
+  // CGA：朗读当前题目
+  const speakCGAQuestion = useCallback((question: ScaleQuestion) => {
+    let text = `第${(cgaCurrentIndex[currentSessionId!] ?? 0) + 1}题：${question.text}。`;
+    if (question.options && question.options.length > 0) {
+      text += "选项：";
+      question.options.forEach((opt, i) => {
+        text += `${i + 1}、${opt.label}。`;
+      });
+    }
+    playTTS(text);
+  }, [cgaCurrentIndex, currentSessionId, playTTS]);
+
+  // CGA：老年模式下自动朗读题目
+  useEffect(() => {
+    if (!seniorMode || !currentSessionId || chatAction !== "cga") return;
+    const selectedScaleId = cgaSelectedScale[currentSessionId];
+    if (!selectedScaleId || cgaCompleted[currentSessionId]) return;
+    const idx = cgaCurrentIndex[currentSessionId] ?? 0;
+    const scale = scales.find((s) => s.id === selectedScaleId);
+    if (!scale) return;
+    const question = scale.questions[idx];
+    if (!question) return;
+    const timer = setTimeout(() => {
+      speakCGAQuestion(question);
+    }, 300);
+    return () => clearTimeout(timer);
+  }, [seniorMode, currentSessionId, chatAction, cgaSelectedScale, cgaCurrentIndex, cgaCompleted, speakCGAQuestion]);
 
   const messages: Message[] = currentSessionId
     ? messagesBySession[currentSessionId] ?? []
@@ -248,6 +421,7 @@ export function ChatArea() {
       
       const assistantMsgId = generateId("msg");
       const assistantBlockId = generateId("block");
+      const thinkingBlockId = generateId("block");
       
       let systemPrompt = "";
       if (chatAction === "prescription") {
@@ -289,55 +463,105 @@ export function ChatArea() {
 
       abortControllerRef.current = new AbortController();
 
+      initMessageThinking(assistantMsgId, thinkingBlockId);
+
       streamChat(
         llmMessages,
         { signal: abortControllerRef.current.signal },
         {
-          onText: (_delta, fullText) => {
-            updateMessage(assistantMsgId, {
-              blocks: [
-                {
-                  kind: "text",
-                  id: assistantBlockId,
-                  content: fullText,
-                  streaming: true,
-                },
-              ],
-            });
+          onThinkingStart: () => {
+            initMessageThinking(assistantMsgId, thinkingBlockId);
+          },
+          onThinkingDelta: (delta) => {
+            appendMessageThinking(assistantMsgId, thinkingBlockId, delta);
+          },
+          onThinkingDone: () => {
+            finalizeMessageThinking(assistantMsgId, thinkingBlockId);
+          },
+          onText: (delta) => {
+            appendMessageText(assistantMsgId, assistantBlockId, delta);
           },
           onDone: (fullText) => {
             abortControllerRef.current = null;
+            finalizeMessageThinking(assistantMsgId, thinkingBlockId);
             const finalContent = postprocessMedicalText(fullText);
+            const currentMsg = useChatStore.getState().messagesBySession[sid!]?.find(m => m.id === assistantMsgId);
+            const existingThinkingBlock = currentMsg?.blocks.find(b => b.kind === "thinking");
+            const finalBlocks: MessageBlock[] = [];
+            if (existingThinkingBlock) {
+              finalBlocks.push(existingThinkingBlock);
+            } else {
+              finalBlocks.push({
+                kind: "thinking",
+                id: thinkingBlockId,
+                data: {
+                  id: thinkingBlockId,
+                  content: "",
+                  status: "done",
+                  startedAt: Date.now(),
+                  endedAt: Date.now(),
+                },
+              });
+            }
+            finalBlocks.push({
+              kind: "text",
+              id: assistantBlockId,
+              content: finalContent,
+              streaming: false,
+            });
             updateMessage(assistantMsgId, {
               status: "done",
-              blocks: [
-                {
-                  kind: "text",
-                  id: assistantBlockId,
-                  content: finalContent,
-                  streaming: false,
-                },
-              ],
+              blocks: finalBlocks,
               hasDisclaimer: true,
             });
             setGenerating(false);
+            autoReadRef.current(finalContent);
           },
           onError: () => {
             abortControllerRef.current = null;
+            finalizeMessageThinking(assistantMsgId, thinkingBlockId);
             const fallbackContent = getOpeningMessage(chatAction, role);
-            updateMessage(assistantMsgId, {
-              status: "done",
-              blocks: [
-                {
-                  kind: "text",
-                  id: assistantBlockId,
-                  content: postprocessMedicalText(fallbackContent),
-                  streaming: false,
+            const currentMsg = useChatStore.getState().messagesBySession[sid!]?.find(m => m.id === assistantMsgId);
+            const existingThinkingBlock = currentMsg?.blocks.find(b => b.kind === "thinking");
+            const existingTextBlock = currentMsg?.blocks.find(b => b.kind === "text" && b.id === assistantBlockId);
+            const existingContent = existingTextBlock && existingTextBlock.kind === "text" ? existingTextBlock.content : "";
+            
+            const finalBlocks: MessageBlock[] = [];
+            if (existingThinkingBlock) {
+              finalBlocks.push(existingThinkingBlock);
+            } else {
+              finalBlocks.push({
+                kind: "thinking",
+                id: thinkingBlockId,
+                data: {
+                  id: thinkingBlockId,
+                  content: "",
+                  status: "done",
+                  startedAt: Date.now(),
+                  endedAt: Date.now(),
                 },
-              ],
+              });
+            }
+            
+            let finalContent = existingContent || fallbackContent;
+            if (!existingContent.trim()) {
+              finalContent = fallbackContent;
+            }
+            const processedContent = postprocessMedicalText(finalContent);
+            
+            finalBlocks.push({
+              kind: "text",
+              id: assistantBlockId,
+              content: processedContent,
+              streaming: false,
+            });
+            updateMessage(assistantMsgId, {
+              status: existingContent.trim() ? "interrupted" : "done",
+              blocks: finalBlocks,
               hasDisclaimer: true,
             });
             setGenerating(false);
+            autoReadRef.current(processedContent);
           },
         }
       );
@@ -365,7 +589,7 @@ export function ChatArea() {
       addMessage(aiMsg);
       setGenerating(false);
     }, 300);
-  }, [chatAction, currentSessionId, role, createSession, setCurrentSession, addMessage, setGenerating, cgaSelectedScale, setPanelContent, updateMessage, appendPanelContent]);
+  }, [chatAction, currentSessionId, role, createSession, setCurrentSession, addMessage, setGenerating, cgaSelectedScale, setPanelContent, updateMessage, appendMessageText, appendPanelContent, initMessageThinking, appendMessageThinking, finalizeMessageThinking]);
 
   // 技能管理视图
   if (mainView === "skills") {
@@ -408,9 +632,13 @@ export function ChatArea() {
       abortControllerRef.current.abort();
       abortControllerRef.current = null;
     }
-    const messages = currentSessionId ? messagesBySession[currentSessionId] ?? [] : [];
-    const streamingMsg = messages.find((m) => m.status === "streaming");
+    const currentMsgs = currentSessionId ? useChatStore.getState().messagesBySession[currentSessionId] ?? [] : [];
+    const streamingMsg = currentMsgs.find((m) => m.status === "streaming");
     if (streamingMsg) {
+      const thinkingBlock = streamingMsg.blocks.find((b) => b.kind === "thinking");
+      if (thinkingBlock) {
+        finalizeMessageThinking(streamingMsg.id, thinkingBlock.id);
+      }
       const blocks = streamingMsg.blocks.map((b) => {
         if (b.kind === "text" && b.streaming) {
           return { ...b, streaming: false };
@@ -440,29 +668,59 @@ export function ChatArea() {
     
     const userMsg = messages[userMsgIndex];
     const userText = getTextFromMessage(userMsg);
+    const userImages: ImageAttachment[] = userMsg.blocks
+      .filter((b): b is Extract<MessageBlock, { kind: "image" }> => b.kind === "image")
+      .map((b) => b.data);
     
     const messagesToRemove = messages.slice(userMsgIndex + 1, aiMsgIndex + 1);
     messagesToRemove.forEach((m) => removeMessage(m.id));
     
-    doSend(currentSessionId, userText, true);
+    doSend(currentSessionId, userText, true, userImages.length > 0 ? userImages : undefined);
   };
 
-  const handleSend = (text: string) => {
+  const handleSend = (text: string, images?: ImageAttachment[]) => {
     if (!currentSessionId) {
       const sid = createSession(role);
       setCurrentSession(sid);
-      setTimeout(() => doSend(sid, text), 50);
+      setTimeout(() => doSend(sid, text, false, images), 50);
       return;
     }
-    doSend(currentSessionId, text);
+    doSend(currentSessionId, text, false, images);
   };
 
-  const doSend = (sid: string, text: string, isRegenerate = false) => {
+  const handleExportConversation = () => {
+    if (!currentSessionId || messages.length === 0) return;
+    try {
+      const conv = messages.map((m) => ({
+        role: m.role as "user" | "assistant",
+        content: getTextFromMessage(m),
+      }));
+      exportConversationToMarkdown(currentSessionTitle || "对话记录", conv);
+      toast.show("对话记录已导出为 Markdown");
+    } catch {
+      toast.show("导出失败，请重试");
+    }
+  };
+
+  const doSend = (sid: string, text: string, isRegenerate = false, images?: ImageAttachment[]) => {
+    const userBlocks: MessageBlock[] = [];
+    if (images && images.length > 0) {
+      for (const img of images) {
+        userBlocks.push({
+          kind: "image",
+          id: generateId("block"),
+          data: img,
+        });
+      }
+    }
+    if (text) {
+      userBlocks.push({ kind: "text", id: generateId("block"), content: text });
+    }
     const userMsg: Message = {
       id: generateId("msg"),
       sessionId: sid,
       role: "user",
-      blocks: [{ kind: "text", id: generateId("block"), content: text }],
+      blocks: userBlocks,
       status: "done",
       createdAt: Date.now(),
     };
@@ -485,14 +743,42 @@ export function ChatArea() {
       return useChatStore.getState().messagesBySession[sid] ?? [];
     };
 
+    const messageBlocksToLLMContent = (msg: Message): string | LLMMessage["content"] => {
+      const textParts: string[] = [];
+      const imageParts: { type: "image_url"; image_url: { url: string } }[] = [];
+      for (const block of msg.blocks) {
+        if (block.kind === "text") {
+          textParts.push(block.content);
+        } else if (block.kind === "image") {
+          const { mimeType, base64 } = block.data;
+          imageParts.push({
+            type: "image_url",
+            image_url: { url: `data:${mimeType};base64,${base64}` },
+          });
+        }
+      }
+      const textContent = textParts.join("\n").trim();
+      if (imageParts.length === 0) {
+        return textContent;
+      }
+      const parts: LLMMessage["content"] = [];
+      if (textContent) {
+        parts.push({ type: "text", text: textContent });
+      }
+      parts.push(...imageParts);
+      return parts.length > 0 ? parts : textContent;
+    };
+
     const buildLLMHistory = (excludeMsgId?: string): LLMMessage[] => {
       const allMsgs = getLatestMessages();
       const result: LLMMessage[] = [];
       for (const m of allMsgs) {
         if (m.id === excludeMsgId) continue;
         if (m.role !== "user" && m.role !== "assistant") continue;
-        const content = getTextFromMessage(m);
-        if (m.role === "assistant" && !content) continue;
+        const content = messageBlocksToLLMContent(m);
+        const isEmpty = typeof content === "string" ? !content : content.length === 0;
+        if (m.role === "assistant" && isEmpty) continue;
+        if (isEmpty) continue;
         result.push({ role: m.role, content });
       }
       return result;
@@ -504,6 +790,7 @@ export function ChatArea() {
 
       const assistantMsgId = generateId("msg");
       const assistantBlockId = generateId("block");
+      const thinkingBlockId = generateId("block");
 
       const assistantMsg: Message = {
         id: assistantMsgId,
@@ -522,6 +809,7 @@ export function ChatArea() {
         hasDisclaimer: false,
       };
       addMessage(assistantMsg);
+      initMessageThinking(assistantMsgId, thinkingBlockId);
 
       const forceGenerate = newRound >= MAX_COLLECT_ROUNDS;
 
@@ -573,20 +861,21 @@ ${forceGenerate ? "重要：已达到对话轮次上限，请立即输出 [生�
         buildActionMessages(),
         { signal: abortControllerRef.current.signal },
         {
-          onText: (_delta, fullText) => {
-            updateMessage(assistantMsgId, {
-              blocks: [
-                {
-                  kind: "text",
-                  id: assistantBlockId,
-                  content: fullText,
-                  streaming: true,
-                },
-              ],
-            });
+          onThinkingStart: () => {
+            initMessageThinking(assistantMsgId, thinkingBlockId);
+          },
+          onThinkingDelta: (delta) => {
+            appendMessageThinking(assistantMsgId, thinkingBlockId, delta);
+          },
+          onThinkingDone: () => {
+            finalizeMessageThinking(assistantMsgId, thinkingBlockId);
+          },
+          onText: (delta) => {
+            appendMessageText(assistantMsgId, assistantBlockId, delta);
           },
           onDone: (fullText) => {
             abortControllerRef.current = null;
+            finalizeMessageThinking(assistantMsgId, thinkingBlockId);
             
             const hasFinishMarker = fullText.includes(finishMarker);
             let replyText = fullText;
@@ -599,18 +888,37 @@ ${forceGenerate ? "重要：已达到对话轮次上限，请立即输出 [生�
             }
 
             const finalReplyContent = postprocessMedicalText(replyText);
+            const currentMsg = useChatStore.getState().messagesBySession[sid]?.find(m => m.id === assistantMsgId);
+            const existingThinkingBlock = currentMsg?.blocks.find(b => b.kind === "thinking");
+            const finalBlocks: MessageBlock[] = [];
+            if (existingThinkingBlock) {
+              finalBlocks.push(existingThinkingBlock);
+            } else {
+              finalBlocks.push({
+                kind: "thinking",
+                id: thinkingBlockId,
+                data: {
+                  id: thinkingBlockId,
+                  content: "",
+                  status: "done",
+                  startedAt: Date.now(),
+                  endedAt: Date.now(),
+                },
+              });
+            }
+            finalBlocks.push({
+              kind: "text",
+              id: assistantBlockId,
+              content: finalReplyContent,
+              streaming: false,
+            });
             updateMessage(assistantMsgId, {
               status: "done",
-              blocks: [
-                {
-                  kind: "text",
-                  id: assistantBlockId,
-                  content: finalReplyContent,
-                  streaming: false,
-                },
-              ],
+              blocks: finalBlocks,
               hasDisclaimer: true,
             });
+
+            autoReadRef.current(finalReplyContent);
 
             if (hasFinishMarker || newRound >= MAX_COLLECT_ROUNDS) {
               setRightPanel(panelType);
@@ -672,6 +980,9 @@ ${forceGenerate ? "重要：已达到对话轮次上限，请立即输出 [生�
                       const finalReport = postprocessMedicalText(accumulatedReport);
                       setPanelContent(finalReport);
                       
+                      const summaryText = chatAction === "prescription"
+                        ? (role === "doctor" ? "五大处方已生成，请在右侧面板查看。" : "您的五大处方建议已经生成好啦，请点击右侧面板查看完整内容哦～")
+                        : (role === "doctor" ? "用药审查报告已生成，请在右侧面板查看。" : "您的用药审查结果已经生成好啦，请点击右侧面板查看完整内容哦～");
                       const summaryMsg: Message = {
                         id: generateId("msg"),
                         sessionId: sid,
@@ -680,9 +991,7 @@ ${forceGenerate ? "重要：已达到对话轮次上限，请立即输出 [生�
                           {
                             kind: "text",
                             id: generateId("block"),
-                            content: chatAction === "prescription"
-                              ? (role === "doctor" ? "五大处方已生成，请在右侧面板查看。" : "您的五大处方建议已经生成好啦，请点击右侧面板查看完整内容哦～")
-                              : (role === "doctor" ? "用药审查报告已生成，请在右侧面板查看。" : "您的用药审查结果已经生成好啦，请点击右侧面板查看完整内容哦～"),
+                            content: summaryText,
                           },
                           {
                             kind: "action",
@@ -699,6 +1008,7 @@ ${forceGenerate ? "重要：已达到对话轮次上限，请立即输出 [生�
                       addMessage(summaryMsg);
                       setGenerating(false);
                       setChatAction("none");
+                      autoReadRef.current(summaryText);
                     },
                     onError: () => {
                       abortControllerRef.current = null;
@@ -708,6 +1018,9 @@ ${forceGenerate ? "重要：已达到对话轮次上限，请立即输出 [生�
                       const finalReport = postprocessMedicalText(fallbackReport);
                       setPanelContent(finalReport);
                       
+                      const summaryText = chatAction === "prescription"
+                        ? "五大处方已生成，请在右侧面板查看。"
+                        : "用药审查报告已生成，请在右侧面板查看。";
                       const summaryMsg: Message = {
                         id: generateId("msg"),
                         sessionId: sid,
@@ -716,9 +1029,7 @@ ${forceGenerate ? "重要：已达到对话轮次上限，请立即输出 [生�
                           {
                             kind: "text",
                             id: generateId("block"),
-                            content: chatAction === "prescription"
-                              ? "五大处方已生成，请在右侧面板查看。"
-                              : "用药审查报告已生成，请在右侧面板查看。",
+                            content: summaryText,
                           },
                           {
                             kind: "action",
@@ -735,6 +1046,7 @@ ${forceGenerate ? "重要：已达到对话轮次上限，请立即输出 [生�
                       addMessage(summaryMsg);
                       setGenerating(false);
                       setChatAction("none");
+                      autoReadRef.current(summaryText);
                     },
                   }
                 );
@@ -745,22 +1057,52 @@ ${forceGenerate ? "重要：已达到对话轮次上限，请立即输出 [生�
               setGenerating(false);
             }
           },
-          onError: (error) => {
+          onError: () => {
             abortControllerRef.current = null;
-            const errorContent = postprocessMedicalText(`抱歉，发生了错误：${error.message}`);
-            updateMessage(assistantMsgId, {
-              status: "error",
-              blocks: [
-                {
-                  kind: "text",
-                  id: assistantBlockId,
-                  content: errorContent,
-                  streaming: false,
+            finalizeMessageThinking(assistantMsgId, thinkingBlockId);
+            const currentMsg = useChatStore.getState().messagesBySession[sid]?.find(m => m.id === assistantMsgId);
+            const existingThinkingBlock = currentMsg?.blocks.find(b => b.kind === "thinking");
+            const existingTextBlock = currentMsg?.blocks.find(b => b.kind === "text" && b.id === assistantBlockId);
+            const existingContent = existingTextBlock && existingTextBlock.kind === "text" ? existingTextBlock.content : "";
+            
+            const finalBlocks: MessageBlock[] = [];
+            if (existingThinkingBlock) {
+              finalBlocks.push(existingThinkingBlock);
+            } else {
+              finalBlocks.push({
+                kind: "thinking",
+                id: thinkingBlockId,
+                data: {
+                  id: thinkingBlockId,
+                  content: "",
+                  status: "done",
+                  startedAt: Date.now(),
+                  endedAt: Date.now(),
                 },
-              ],
+              });
+            }
+            
+            let finalContent = existingContent;
+            if (finalContent.trim()) {
+              finalContent += "\n\n---\n*回复中断，点击下方「重新生成」按钮继续*";
+            } else {
+              finalContent = "*回复中断，请点击重新生成按钮重试*";
+            }
+            const processedContent = postprocessMedicalText(finalContent);
+            
+            finalBlocks.push({
+              kind: "text",
+              id: assistantBlockId,
+              content: processedContent,
+              streaming: false,
+            });
+            updateMessage(assistantMsgId, {
+              status: "interrupted",
+              blocks: finalBlocks,
               hasDisclaimer: true,
             });
             setGenerating(false);
+            autoReadRef.current(processedContent);
           },
         }
       );
@@ -769,8 +1111,27 @@ ${forceGenerate ? "重要：已达到对话轮次上限，请立即输出 [生�
 
     const assistantMsgId = generateId("msg");
     const assistantBlockId = generateId("block");
+    const thinkingBlockId = generateId("block");
     const searchBlockId = generateId("block");
+    const toolCallBlockId = generateId("block");
+    const stepThinkingId = generateId("step");
+    const stepSearchId = generateId("step");
+    const stepAnsweringId = generateId("step");
     const needSearch = detectSearchNeed(text);
+
+    const buildInitialSteps = (withSearch: boolean): SimpleStepData[] => {
+      if (withSearch) {
+        return [
+          { id: stepThinkingId, label: "思考中", status: "pending", icon: "thinking" },
+          { id: stepSearchId, label: "搜索中", status: "running", icon: "search" },
+          { id: stepAnsweringId, label: "回答中", status: "pending", icon: "answering" },
+        ];
+      }
+      return [
+        { id: stepThinkingId, label: "思考中", status: "running", icon: "thinking" },
+        { id: stepAnsweringId, label: "回答中", status: "pending", icon: "answering" },
+      ];
+    };
 
     const assistantMsg: Message = {
       id: assistantMsgId,
@@ -784,11 +1145,15 @@ ${forceGenerate ? "重要：已达到对话轮次上限，请立即输出 [生�
           streaming: true,
         },
       ],
+      steps: buildInitialSteps(needSearch),
       status: "streaming",
       createdAt: Date.now(),
       hasDisclaimer: false,
     };
     addMessage(assistantMsg);
+    if (!needSearch) {
+      initMessageThinking(assistantMsgId, thinkingBlockId);
+    }
 
     const buildLLMMessages = (searchContext: string): LLMMessage[] => {
       const llmMessages: LLMMessage[] = [];
@@ -801,19 +1166,43 @@ ${forceGenerate ? "重要：已达到对话轮次上限，请立即输出 [生�
       }
       llmMessages.push({ role: "system", content: systemPrompt });
 
-      // 使用getLatestMessages获取最新历史，排除当前正在流式的空assistant消息
       const history = buildLLMHistory(assistantMsgId);
       llmMessages.push(...history);
       return llmMessages;
     };
 
-    const buildBlocksWithText = (
-      textContent: string,
-      isStreaming: boolean,
-      searchResults?: SearchResultItem[]
-    ): MessageBlock[] => {
+    const startStreaming = (searchResults: SearchResultItem[]) => {
+      const searchContext = formatSearchResultsForLLM(searchResults);
+      const llmMessages = buildLLMMessages(searchContext);
+      const citations = searchResultsToCitations(searchResults);
+
+      if (needSearch) {
+        updateMessageStep(assistantMsgId, stepSearchId, { status: "done" });
+        updateMessageStep(assistantMsgId, stepThinkingId, { status: "running" });
+      }
+
+      const currentMsg = useChatStore.getState().messagesBySession[sid]?.find(m => m.id === assistantMsgId);
+      const existingThinkingBlock = currentMsg?.blocks.find(b => b.kind === "thinking");
+      const existingToolBlock = currentMsg?.blocks.find(b => b.kind === "tool_call" && b.id === toolCallBlockId);
       const blocks: MessageBlock[] = [];
-      if (searchResults && searchResults.length > 0) {
+      if (existingThinkingBlock) {
+        blocks.push(existingThinkingBlock);
+      } else {
+        blocks.push({
+          kind: "thinking",
+          id: thinkingBlockId,
+          data: {
+            id: thinkingBlockId,
+            content: "",
+            status: "thinking",
+            startedAt: Date.now(),
+          },
+        });
+      }
+      if (existingToolBlock) {
+        blocks.push(existingToolBlock);
+      }
+      if (searchResults.length > 0) {
         blocks.push({
           kind: "search_results",
           id: searchBlockId,
@@ -823,21 +1212,10 @@ ${forceGenerate ? "重要：已达到对话轮次上限，请立即输出 [生�
       blocks.push({
         kind: "text",
         id: assistantBlockId,
-        content: textContent,
-        streaming: isStreaming,
+        content: "",
+        streaming: true,
       });
-      return blocks;
-    };
-
-    const startStreaming = (searchResults: SearchResultItem[]) => {
-      const searchContext = formatSearchResultsForLLM(searchResults);
-      const llmMessages = buildLLMMessages(searchContext);
-
-      if (searchResults.length > 0) {
-        updateMessage(assistantMsgId, {
-          blocks: buildBlocksWithText("", true, searchResults),
-        });
-      }
+      updateMessage(assistantMsgId, { blocks, citations: searchResults.length > 0 ? citations : undefined });
 
       abortControllerRef.current = new AbortController();
 
@@ -845,17 +1223,43 @@ ${forceGenerate ? "重要：已达到对话轮次上限，请立即输出 [生�
         llmMessages,
         { signal: abortControllerRef.current.signal },
         {
-          onText: (_delta, fullText) => {
-            updateMessage(assistantMsgId, {
-              blocks: buildBlocksWithText(fullText, true, searchResults.length > 0 ? searchResults : undefined),
-            });
+          onThinkingStart: () => {
+            initMessageThinking(assistantMsgId, thinkingBlockId);
+          },
+          onThinkingDelta: (delta) => {
+            appendMessageThinking(assistantMsgId, thinkingBlockId, delta);
+          },
+          onThinkingDone: () => {
+            finalizeMessageThinking(assistantMsgId, thinkingBlockId);
+            updateMessageStep(assistantMsgId, stepThinkingId, { status: "done" });
+            updateMessageStep(assistantMsgId, stepAnsweringId, { status: "running" });
+          },
+          onText: (delta) => {
+            appendMessageText(assistantMsgId, assistantBlockId, delta);
           },
           onDone: (fullText) => {
             abortControllerRef.current = null;
+            finalizeMessageThinking(assistantMsgId, thinkingBlockId);
+            finalizeMessageSteps(assistantMsgId);
             const finalContent = postprocessMedicalText(fullText);
+            const msgNow = useChatStore.getState().messagesBySession[sid]?.find(m => m.id === assistantMsgId);
+            const finalBlocks: MessageBlock[] = [];
+            const tb = msgNow?.blocks.find(b => b.kind === "thinking");
+            const tcb = msgNow?.blocks.find(b => b.kind === "tool_call");
+            const sb = msgNow?.blocks.find(b => b.kind === "search_results");
+            if (tb) finalBlocks.push(tb);
+            if (tcb) finalBlocks.push(tcb);
+            if (sb) finalBlocks.push(sb);
+            finalBlocks.push({
+              kind: "text",
+              id: assistantBlockId,
+              content: finalContent,
+              streaming: false,
+            });
             updateMessage(assistantMsgId, {
               status: "done",
-              blocks: buildBlocksWithText(finalContent, false, searchResults.length > 0 ? searchResults : undefined),
+              blocks: finalBlocks,
+              citations: searchResults.length > 0 ? citations : undefined,
               hasDisclaimer: true,
             });
             setGenerating(false);
@@ -868,12 +1272,38 @@ ${forceGenerate ? "重要：已达到对话轮次上限，请立即输出 [生�
               }
             }
           },
-          onError: (error) => {
+          onError: () => {
             abortControllerRef.current = null;
-            const errorContent = postprocessMedicalText(`抱歉，发生了错误：${error.message}`);
+            finalizeMessageThinking(assistantMsgId, thinkingBlockId);
+            finalizeMessageSteps(assistantMsgId);
+            const msgNow = useChatStore.getState().messagesBySession[sid]?.find(m => m.id === assistantMsgId);
+            const finalBlocks: MessageBlock[] = [];
+            const tb = msgNow?.blocks.find(b => b.kind === "thinking");
+            const tcb = msgNow?.blocks.find(b => b.kind === "tool_call");
+            const sb = msgNow?.blocks.find(b => b.kind === "search_results");
+            const existingTextBlock = msgNow?.blocks.find(b => b.kind === "text" && b.id === assistantBlockId);
+            const existingContent = existingTextBlock && existingTextBlock.kind === "text" ? existingTextBlock.content : "";
+            
+            if (tb) finalBlocks.push(tb);
+            if (tcb) finalBlocks.push(tcb);
+            if (sb) finalBlocks.push(sb);
+            
+            let finalContent = existingContent;
+            if (finalContent.trim()) {
+              finalContent += "\n\n---\n*回复中断，点击下方「重新生成」按钮继续*";
+            } else {
+              finalContent = "*回复中断，请点击重新生成按钮重试*";
+            }
+            
+            finalBlocks.push({
+              kind: "text",
+              id: assistantBlockId,
+              content: postprocessMedicalText(finalContent),
+              streaming: false,
+            });
             updateMessage(assistantMsgId, {
-              status: "error",
-              blocks: buildBlocksWithText(errorContent, false, searchResults.length > 0 ? searchResults : undefined),
+              status: "interrupted",
+              blocks: finalBlocks,
               hasDisclaimer: true,
             });
             setGenerating(false);
@@ -883,11 +1313,21 @@ ${forceGenerate ? "重要：已达到对话轮次上限，请立即输出 [生�
     };
 
     if (needSearch) {
+      initMessageToolCall(assistantMsgId, toolCallBlockId, "联网搜索", { query: text });
       search(text)
         .then((results) => {
+          if (results.length > 0) {
+            completeMessageToolCall(assistantMsgId, toolCallBlockId, {
+              resultCount: results.length,
+              titles: results.map(r => r.title),
+            });
+          } else {
+            completeMessageToolCall(assistantMsgId, toolCallBlockId, { resultCount: 0 });
+          }
           startStreaming(results);
         })
-        .catch(() => {
+        .catch((err) => {
+          failMessageToolCall(assistantMsgId, toolCallBlockId, err instanceof Error ? err.message : "搜索失败");
           startStreaming([]);
         });
     } else {
@@ -999,7 +1439,7 @@ ${forceGenerate ? "重要：已达到对话轮次上限，请立即输出 [生�
   /** CGA：选择某个选项后，记录答案（不自动跳转，需手动点"下一题"） */
   const handleAnswerQuestion = (question: ScaleQuestion, value: number) => {
     if (!currentSessionId) return;
-    // 仅记录答案，高亮选中项，激活"下一题"按钮
+    stopTTS();
     setCgaAnswers((prev) => ({
       ...prev,
       [currentSessionId]: {
@@ -1012,18 +1452,79 @@ ${forceGenerate ? "重要：已达到对话轮次上限，请立即输出 [生�
   /** CGA：跳到上一题 */
   const handlePrevQuestion = () => {
     if (!currentSessionId) return;
+    stopTTS();
     setCgaCurrentIndex((prev) => ({
       ...prev,
       [currentSessionId]: Math.max(0, (prev[currentSessionId] ?? 0) - 1),
     }));
   };
 
+  /** CGA：语音答题 - 开始录音 */
+  const handleCGAMicStart = async () => {
+    if (cgaIsTranscribing || isCGARecording) return;
+    stopTTS();
+    try {
+      await startCGARecording();
+    } catch (err) {
+      const message = err instanceof Error ? err.message : "无法启动录音";
+      toast.show(message);
+    }
+  };
+
+  /** CGA：语音答题 - 取消录音 */
+  const handleCGARecordingCancel = () => {
+    try {
+      cancelCGARecording();
+    } catch {
+      toast.show("取消录音失败");
+    }
+  };
+
+  /** CGA：语音答题 - 完成录音并识别 */
+  const handleCGARecordingFinish = async () => {
+    if (!currentSessionId || !currentQuestion) return;
+    try {
+      const blob = await stopCGARecording();
+      setCgaIsTranscribing(true);
+      stopTTS();
+      try {
+        const recognizedText = await recognizeAudio(blob);
+        if (recognizedText && currentQuestion.options) {
+          const matchedValue = matchCGAAnswerByVoice(recognizedText, currentQuestion.options);
+          if (matchedValue !== null) {
+            handleAnswerQuestion(currentQuestion, matchedValue);
+            const selectedOpt = currentQuestion.options.find((o) => o.value === matchedValue);
+            toast.show(`已选择：${selectedOpt?.label ?? ""}`);
+            setTimeout(() => {
+              handleNextQuestion();
+            }, 800);
+          } else {
+            toast.show(`识别结果："${recognizedText}"，请手动选择选项`);
+          }
+        } else if (recognizedText) {
+          toast.show(`识别结果："${recognizedText}"，请手动选择`);
+        }
+      } catch {
+        toast.show("语音识别失败，请重试或手动选择");
+      } finally {
+        setCgaIsTranscribing(false);
+      }
+    } catch {
+      toast.show("录音失败，请重试");
+      setCgaIsTranscribing(false);
+    }
+  };
+
   /** CGA：跳到下一题（需已回答当前题）；最后一题则完成评估 */
   const handleNextQuestion = () => {
     if (!currentSessionId || !selectedScaleObj) return;
+    stopTTS();
     const idx = cgaCurrentIndex[currentSessionId] ?? 0;
     if (idx >= selectedScaleObj.questions.length - 1) {
       setCgaCompleted((prev) => ({ ...prev, [currentSessionId]: true }));
+      if (seniorMode) {
+        playTTS("评估已完成，请在右侧查看结果。");
+      }
       
       // 计算得分并生成AI解读
       const answers = cgaAnswers[currentSessionId] ?? {};
@@ -1221,12 +1722,24 @@ ${phq9SuicideRisk
               </button>
             </>
           ) : (
-            <span
-              className="font-medium truncate"
-              title={currentSessionTitle}
-            >
-              {currentSessionTitle || "新对话"}
-            </span>
+            <>
+              <span
+                className="font-medium truncate"
+                title={currentSessionTitle}
+              >
+                {currentSessionTitle || "新对话"}
+              </span>
+              <Button
+                variant="ghost"
+                size="sm"
+                className="gap-1 text-xs"
+                onClick={handleExportConversation}
+                aria-label="导出对话"
+              >
+                <Download className="size-3.5" />
+                <span>导出</span>
+              </Button>
+            </>
           )}
         </header>
       )}
@@ -1258,6 +1771,65 @@ ${phq9SuicideRisk
         </div>
       ) : showCgaQuiz && currentQuestion && selectedScaleObj ? (
         /* CGA 答题阶段：逐题展示题目 + 选项卡片 */
+        isCGARecording ? (
+          <div className="flex-1 min-h-0 overflow-y-auto">
+            <div className="max-w-2xl mx-auto px-4 py-6">
+              <div className="mb-6">
+                <div className="flex items-center justify-between mb-2">
+                  <span className={cn("text-muted-foreground", seniorMode ? "text-lg" : "text-sm")}>
+                    第 {(cgaCurrentIndex[currentSessionId!] ?? 0) + 1} / {selectedScaleObj.questions.length} 题 — 语音答题中
+                  </span>
+                </div>
+              </div>
+              <div className={cn(
+                "rounded-xl bg-muted/70",
+                seniorMode ? "px-4 py-5" : "px-3 py-4"
+              )}>
+                <div className="flex items-center gap-3">
+                  <button
+                    type="button"
+                    onClick={handleCGARecordingCancel}
+                    className={cn(
+                      "flex items-center justify-center shrink-0 rounded-full bg-gray-200 dark:bg-gray-700 text-gray-600 dark:text-gray-300 hover:bg-gray-300 dark:hover:bg-gray-600 transition-colors",
+                      seniorMode ? "size-14" : "size-11"
+                    )}
+                    aria-label="取消录音"
+                  >
+                    <X className={cn(seniorMode ? "size-6" : "size-5")} />
+                  </button>
+
+                  <WaveformBars audioLevel={cgaAudioLevel} recordingDuration={cgaRecordingDuration} seniorMode={seniorMode} />
+
+                  <span className={cn(
+                    "shrink-0 tabular-nums font-medium text-gray-700 dark:text-gray-300 min-w-[48px] text-center",
+                    seniorMode ? "text-xl" : "text-lg"
+                  )}>
+                    {formatRecordingDuration(cgaRecordingDuration)}
+                  </span>
+
+                  <button
+                    type="button"
+                    onClick={handleCGARecordingFinish}
+                    className={cn(
+                      "flex items-center justify-center shrink-0 rounded-full transition-colors",
+                      seniorMode ? "size-14" : "size-11",
+                      "bg-indigo-600 hover:bg-indigo-700 text-white"
+                    )}
+                    aria-label="完成答题"
+                  >
+                    <Check className={cn(seniorMode ? "size-6" : "size-5")} strokeWidth={3} />
+                  </button>
+                </div>
+                <p className={cn(
+                  "text-center text-muted-foreground mt-3",
+                  seniorMode ? "text-base" : "text-sm"
+                )}>
+                  请说出您的答案
+                </p>
+              </div>
+            </div>
+          </div>
+        ) : (
         <div className="flex-1 min-h-0 overflow-y-auto">
           <div className="max-w-2xl mx-auto px-4 py-6">
             {/* 进度条（老年模式辅助文字≥18px） */}
@@ -1280,14 +1852,46 @@ ${phq9SuicideRisk
               </div>
             </div>
 
-            {/* 题目（老年模式≥18px） */}
+            {/* 题目（老年模式≥18px）+ 朗读按钮 */}
             <div className="mb-6">
-              <h3 className={cn("font-semibold mb-1", seniorMode ? "text-xl" : "text-lg")}>
-                {currentQuestion.text}
-              </h3>
-              {currentQuestion.hint && (
-                <p className={cn("text-muted-foreground mt-1", seniorMode ? "text-base" : "text-sm")}>
-                  {currentQuestion.hint}
+              <div className="flex items-start justify-between gap-2">
+                <div className="flex-1">
+                  <h3 className={cn("font-semibold mb-1", seniorMode ? "text-xl" : "text-lg")}>
+                    {currentQuestion.text}
+                  </h3>
+                  {currentQuestion.hint && (
+                    <p className={cn("text-muted-foreground mt-1", seniorMode ? "text-base" : "text-sm")}>
+                      {currentQuestion.hint}
+                    </p>
+                  )}
+                </div>
+                <button
+                  type="button"
+                  onClick={isTTSPlaying || isTTSLoading ? stopTTS : () => currentQuestion && speakCGAQuestion(currentQuestion)}
+                  className={cn(
+                    "flex items-center justify-center shrink-0 rounded-full transition-colors",
+                    seniorMode ? "size-12" : "size-10",
+                    isTTSPlaying
+                      ? "bg-primary text-primary-foreground"
+                      : isTTSLoading
+                        ? "bg-muted text-muted-foreground"
+                        : "bg-muted hover:bg-muted/80 text-foreground"
+                  )}
+                  aria-label={isTTSPlaying ? "停止朗读" : "朗读题目"}
+                >
+                  {isTTSLoading ? (
+                    <Loader2 className={cn("animate-spin", seniorMode ? "size-5" : "size-4")} />
+                  ) : isTTSPlaying ? (
+                    <VolumeX className={cn(seniorMode ? "size-5" : "size-4")} />
+                  ) : (
+                    <Volume2 className={cn(seniorMode ? "size-5" : "size-4")} />
+                  )}
+                </button>
+              </div>
+              {cgaIsTranscribing && (
+                <p className={cn("text-primary mt-2 flex items-center gap-2", seniorMode ? "text-base" : "text-sm")}>
+                  <Loader2 className={cn("animate-spin", seniorMode ? "size-5" : "size-4")} />
+                  正在识别语音...
                 </p>
               )}
             </div>
@@ -1302,8 +1906,8 @@ ${phq9SuicideRisk
                     type="button"
                     onClick={() => handleAnswerQuestion(currentQuestion, opt.value)}
                     className={cn(
-                      "w-full flex items-start gap-3 rounded-lg border p-4 text-left transition-all",
-                      seniorMode && "p-5",
+                      "w-full flex items-start gap-3 rounded-lg border text-left transition-all",
+                      seniorMode ? "p-5 min-h-[72px]" : "p-4",
                       selected
                         ? "border-primary bg-primary/10 ring-1 ring-primary"
                         : "border-border bg-card hover:border-primary/40 hover:bg-muted/40"
@@ -1311,27 +1915,27 @@ ${phq9SuicideRisk
                   >
                     <div
                       className={cn(
-                        "flex items-center justify-center size-7 rounded-full border-2 shrink-0 mt-0.5",
-                        seniorMode && "size-9",
+                        "flex items-center justify-center rounded-full border-2 shrink-0 mt-0.5",
+                        seniorMode ? "size-9" : "size-7",
                         selected
                           ? "border-primary bg-primary text-primary-foreground"
                           : "border-muted-foreground/30"
                       )}
                     >
-                      {selected && <CheckCircle2 className="size-4" />}
+                      {selected && <CheckCircle2 className={cn(seniorMode ? "size-5" : "size-4")} />}
                     </div>
                     <div className="min-w-0 flex-1">
                       <div className={cn("font-medium", seniorMode ? "text-lg" : "text-base")}>
                         {opt.label}
                       </div>
                       {opt.description && (
-                        <div className="text-xs text-muted-foreground mt-0.5">
+                        <div className={cn("text-muted-foreground mt-0.5", seniorMode ? "text-sm" : "text-xs")}>
                           {opt.description}
                         </div>
                       )}
                     </div>
                     {opt.value > 0 && (
-                      <span className="text-xs text-muted-foreground shrink-0">
+                      <span className={cn("text-muted-foreground shrink-0", seniorMode ? "text-sm" : "text-xs")}>
                         {opt.value} 分
                       </span>
                     )}
@@ -1340,14 +1944,14 @@ ${phq9SuicideRisk
               })}
             </div>
 
-            {/* 上一题 / 下一题（适老化大按钮，选中后激活） */}
+            {/* 上一题 / 语音答题 / 下一题（适老化大按钮≥48px） */}
             <div className="flex items-center justify-between mt-8 gap-3">
               <Button
                 variant="outline"
                 size="sm"
                 onClick={handlePrevQuestion}
                 disabled={(cgaCurrentIndex[currentSessionId!] ?? 0) === 0}
-                className={cn("shrink-0", seniorMode && "min-h-12 px-5 text-base")}
+                className={cn("shrink-0", seniorMode ? "min-h-12 px-5 text-base" : "h-9 px-3 text-sm")}
                 aria-label="上一题"
               >
                 ← 上一题
@@ -1357,11 +1961,36 @@ ${phq9SuicideRisk
                   type="button"
                   onClick={handleReselectScale}
                   className={cn(
-                    "text-sm text-muted-foreground hover:text-foreground",
-                    seniorMode && "text-base"
+                    "text-muted-foreground hover:text-foreground",
+                    seniorMode ? "text-base min-h-12 px-2" : "text-sm"
                   )}
                 >
                   重选量表
+                </button>
+                <button
+                  type="button"
+                  onClick={handleCGAMicStart}
+                  disabled={cgaIsTranscribing}
+                  className={cn(
+                    "flex items-center justify-center gap-2 rounded-full transition-colors font-medium",
+                    seniorMode ? "h-12 px-5 text-base" : "h-10 px-4 text-sm",
+                    cgaIsTranscribing
+                      ? "bg-muted text-muted-foreground cursor-not-allowed"
+                      : "bg-rose-500 hover:bg-rose-600 text-white shadow-md"
+                  )}
+                  aria-label="语音答题"
+                >
+                  {cgaIsTranscribing ? (
+                    <>
+                      <Loader2 className={cn("animate-spin", seniorMode ? "size-5" : "size-4")} />
+                      识别中
+                    </>
+                  ) : (
+                    <>
+                      <Mic className={cn(seniorMode ? "size-5" : "size-4")} />
+                      {seniorMode ? "语音答题" : ""}
+                    </>
+                  )}
                 </button>
                 {currentAnswers[currentQuestion.id] !== undefined && (
                   <Button
@@ -1370,7 +1999,7 @@ ${phq9SuicideRisk
                     onClick={handleNextQuestion}
                     className={cn(
                       "shrink-0",
-                      seniorMode && "min-h-12 px-6 text-base"
+                      seniorMode ? "min-h-12 px-6 text-base" : "h-9 px-3 text-sm"
                     )}
                     aria-label={
                       (cgaCurrentIndex[currentSessionId!] ?? 0) >=
@@ -1388,11 +2017,12 @@ ${phq9SuicideRisk
               </div>
             </div>
 
-            <div className="mt-8 rounded-md border border-amber-200 bg-amber-50 dark:border-amber-900/40 dark:bg-amber-950/30 px-3 py-2 text-xs text-amber-800 dark:text-amber-200">
+            <div className={cn("mt-8 rounded-md border border-amber-200 bg-amber-50 dark:border-amber-900/40 dark:bg-amber-950/30 px-3 py-2 text-amber-800 dark:text-amber-200", seniorMode ? "text-sm" : "text-xs")}>
               AI 评估仅供健康参考，不能替代医生诊断。身体不适请及时就医。
             </div>
           </div>
         </div>
+        )
       ) : cgaFinished && selectedScaleObj ? (
         /* CGA 答题完成 */
         <div className="flex-1 min-h-0 overflow-y-auto">
@@ -1413,8 +2043,8 @@ ${phq9SuicideRisk
                 type="button"
                 onClick={handleReselectScale}
                 className={cn(
-                  "px-4 py-2 rounded-md border border-border text-sm hover:bg-muted",
-                  seniorMode && "text-base py-3 px-6"
+                  "rounded-md border border-border hover:bg-muted",
+                  seniorMode ? "min-h-12 px-6 text-base py-3" : "px-4 py-2 text-sm"
                 )}
               >
                 重新评估
@@ -1423,8 +2053,8 @@ ${phq9SuicideRisk
                 type="button"
                 onClick={() => setRightPanel("cga")}
                 className={cn(
-                  "px-4 py-2 rounded-md bg-primary text-primary-foreground text-sm hover:bg-primary/90",
-                  seniorMode && "text-base py-3 px-6"
+                  "rounded-md bg-primary text-primary-foreground hover:bg-primary/90",
+                  seniorMode ? "min-h-12 px-6 text-base py-3" : "px-4 py-2 text-sm"
                 )}
               >
                 查看评估报告 →

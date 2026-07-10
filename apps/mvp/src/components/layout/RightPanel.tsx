@@ -13,20 +13,23 @@ import { CGAReport } from "@/components/cga/CGAReport";
 import { FileUpload } from "@/components/document/FileUpload";
 import { DocumentPreview } from "@/components/document/DocumentPreview";
 import { CitationList } from "@/components/search/CitationList";
+import { ExportButton } from "@/components/prescription/ExportButton";
 import { scales } from "@/data/scales";
 import type { FileTag as FileTagData, RightPanelType, CGAReport as CGAReportData } from "@/types";
 
 // 注：技能管理（skills）已迁移至中间栏显示，不再占用右侧面板
 const PANEL_TITLES: Record<NonNullable<RightPanelType>, string> = {
   skills: "技能管理",
-  prescription: "处方预览",
-  cga: "CGA 评估",
+  prescription: "五大处方报告",
+  cga: "CGA 评估报告",
   "file-preview": "文件预览",
   citations: "引用列表",
   "health-profile": "健康画像",
-  "drug-review": "用药审查",
+  "drug-review": "用药审查报告",
   settings: "设置",
 };
+
+const EXPORTABLE_PANELS: RightPanelType[] = ["prescription", "cga", "drug-review"];
 
 const emptyCGAReport: CGAReportData = {
   id: "",
@@ -110,22 +113,33 @@ export function RightPanel() {
         {/* 拖拽手柄 */}
         <div
           onMouseDown={handleMouseDown}
-          className="absolute left-0 top-0 bottom-0 w-1 cursor-col-resize hover:bg-primary/30 transition-colors"
+          className="absolute left-0 top-0 bottom-0 w-3 cursor-col-resize hover:bg-primary/20 active:bg-primary/30 transition-colors flex items-center justify-center"
           aria-label="拖拽调整宽度"
-        />
+        >
+          <div className="w-0.5 h-12 bg-border rounded-full group-hover:bg-primary/50" />
+        </div>
 
         {/* 头部 */}
         <header className="flex items-center justify-between gap-2 px-4 h-12 shrink-0 border-b border-border">
           <span className="font-medium text-sm">{title}</span>
-          <Button
-            variant="ghost"
-            size="icon-sm"
-            className="btn-icon"
-            onClick={closeRightPanel}
-            aria-label="关闭"
-          >
-            <X className="size-4" />
-          </Button>
+          <div className="flex items-center gap-1">
+            {EXPORTABLE_PANELS.includes(rightPanelType) && panelContent && (
+              <ExportButton
+                title={title}
+                content={panelContent}
+                variant="dropdown"
+              />
+            )}
+            <Button
+              variant="ghost"
+              size="icon-sm"
+              className="btn-icon"
+              onClick={closeRightPanel}
+              aria-label="关闭"
+            >
+              <X className="size-4" />
+            </Button>
+          </div>
         </header>
 
         <Separator />

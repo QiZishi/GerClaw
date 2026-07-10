@@ -1,7 +1,7 @@
 "use client";
 
 import { useState } from "react";
-import { Check, ChevronDown, Loader2, RotateCw, Wrench, X } from "lucide-react";
+import { Check, ChevronDown, Loader2, RotateCw, Search, Wrench, X } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
@@ -13,79 +13,95 @@ interface ToolCallBlockProps {
   onRetry?: (id: string) => void;
 }
 
-/**
- * §4.2.3 工具调用块
- * 三态：running / done / failed
- * 默认折叠，展开显示 JSON 参数 + 结果 + 耗时
- */
+function getToolDisplayName(toolName: string): string {
+  const lower = toolName.toLowerCase();
+  if (lower.includes("search") || lower.includes("搜索") || lower.includes("联网")) {
+    return "联网搜索";
+  }
+  return toolName;
+}
+
+function StatusBadge({ status }: { status: ToolCallBlockData["status"] }) {
+  switch (status) {
+    case "running":
+      return (
+        <Badge variant="secondary" className="gap-1 text-blue-600">
+          <Loader2 className="size-3 animate-spin" />
+          运行中
+        </Badge>
+      );
+    case "done":
+      return (
+        <Badge variant="secondary" className="gap-1 text-green-600">
+          <Check className="size-3" />
+          完成
+        </Badge>
+      );
+    case "failed":
+      return (
+        <Badge variant="destructive" className="gap-1">
+          <X className="size-3" />
+          失败
+        </Badge>
+      );
+  }
+}
+
 export function ToolCallBlock({ data, onRetry }: ToolCallBlockProps) {
   const [expanded, setExpanded] = useState(false);
+  const isRunning = data.status === "running";
+  const hasContent = (data.params && Object.keys(data.params).length > 0) || data.result !== undefined;
 
-  const statusBadge = () => {
-    switch (data.status) {
-      case "running":
-        return (
-          <Badge variant="secondary" className="gap-1 text-blue-600">
-            <Loader2 className="size-3 animate-spin" />
-            运行中
-          </Badge>
-        );
-      case "done":
-        return (
-          <Badge variant="secondary" className="gap-1 text-green-600">
-            <Check className="size-3" />
-            完成
-          </Badge>
-        );
-      case "failed":
-        return (
-          <Badge variant="destructive" className="gap-1">
-            <X className="size-3" />
-            失败
-          </Badge>
-        );
-    }
-  };
+  const displayName = getToolDisplayName(data.toolName);
+  const toolIconEl = isRunning ? (
+    <Loader2 className="size-4 shrink-0 animate-spin" />
+  ) : data.toolName.toLowerCase().includes("search") || data.toolName.toLowerCase().includes("搜索") || data.toolName.toLowerCase().includes("联网") ? (
+    <Search className="size-4 shrink-0" />
+  ) : (
+    <Wrench className="size-4 shrink-0" />
+  );
 
   return (
-    <div className="rounded-lg border border-border bg-card overflow-hidden">
+    <div className="rounded-lg border border-border/40 bg-muted/30 overflow-hidden mb-2">
       <button
         type="button"
         onClick={() => setExpanded((v) => !v)}
         className="flex w-full items-center justify-between gap-2 px-3 py-2 text-left hover:bg-muted/50 transition-colors"
         aria-expanded={expanded}
       >
-        <span className="flex items-center gap-2 min-w-0">
-          <Wrench className="size-4 shrink-0 text-muted-foreground" />
-          <span className="text-sm font-medium truncate">
-            {data.toolName}
-          </span>
-          {statusBadge()}
+        <span className="flex items-center gap-2 text-sm text-muted-foreground/80">
+          {toolIconEl}
+          <span className="font-medium">{displayName}</span>
+          <StatusBadge status={data.status} />
           {data.durationMs !== undefined && (
-            <span className="text-xs text-muted-foreground shrink-0">
-              {formatDuration(data.durationMs)}
+            <span className="text-xs text-muted-foreground/60">
+              · {formatDuration(data.durationMs)}
             </span>
           )}
         </span>
-        <ChevronDown
-          className={cn(
-            "size-4 shrink-0 text-muted-foreground transition-transform",
-            expanded && "rotate-180"
-          )}
-        />
+        {hasContent && (
+          <ChevronDown
+            className={cn(
+              "size-4 shrink-0 text-muted-foreground/60 transition-transform",
+              expanded && "rotate-180"
+            )}
+          />
+        )}
       </button>
-      {expanded && (
-        <div className="border-t border-border/60 px-3 py-2 space-y-2 text-xs">
-          <div>
-            <div className="text-muted-foreground mb-1">参数</div>
-            <pre className="bg-muted rounded p-2 overflow-x-auto font-mono text-xs">
-              {JSON.stringify(data.params, null, 2)}
-            </pre>
-          </div>
+      {expanded && hasContent && (
+        <div className="border-t border-border/30 px-3 pb-3 pt-1 space-y-2 text-sm text-muted-foreground/80">
+          {data.params && Object.keys(data.params).length > 0 && (
+            <div>
+              <div className="text-xs text-muted-foreground mb-1">参数</div>
+              <pre className="bg-muted rounded p-2 overflow-x-auto font-mono text-xs text-muted-foreground/80">
+                {JSON.stringify(data.params, null, 2)}
+              </pre>
+            </div>
+          )}
           {data.result !== undefined && (
             <div>
-              <div className="text-muted-foreground mb-1">结果</div>
-              <pre className="bg-muted rounded p-2 overflow-x-auto font-mono text-xs">
+              <div className="text-xs text-muted-foreground mb-1">结果</div>
+              <pre className="bg-muted rounded p-2 overflow-x-auto font-mono text-xs text-muted-foreground/80 max-h-48 overflow-y-auto">
                 {typeof data.result === "string"
                   ? data.result
                   : JSON.stringify(data.result, null, 2)}
@@ -101,8 +117,11 @@ export function ToolCallBlock({ data, onRetry }: ToolCallBlockProps) {
             <Button
               size="sm"
               variant="outline"
-              className="gap-1"
-              onClick={() => onRetry(data.id)}
+              className="gap-1 h-7 text-xs"
+              onClick={(e) => {
+                e.stopPropagation();
+                onRetry(data.id);
+              }}
             >
               <RotateCw className="size-3" />
               重试

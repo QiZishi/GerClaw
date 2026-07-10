@@ -25,7 +25,6 @@ import type {
 } from "@/types";
 import { Disclaimer } from "./Disclaimer";
 import { EmergencyAlert } from "./EmergencyAlert";
-import { ExportButton } from "./ExportButton";
 import { VoiceReadButton } from "./VoiceReadButton";
 
 interface PrescriptionReportProps {
@@ -77,7 +76,6 @@ export function PrescriptionReport({ report }: PrescriptionReportProps) {
         </div>
         <div className="flex items-center gap-1">
           <VoiceReadButton text={report.diagnosis.summary} />
-          <ExportButton />
         </div>
       </div>
 
