@@ -24,7 +24,9 @@ import {
 } from "@/components/ui/dialog";
 import { ChatInput } from "@/components/chat/ChatInput";
 import { MessageList } from "@/components/chat/MessageList";
+import { ExportDialog } from "@/components/chat/ExportDialog";
 import { WelcomePage } from "@/components/chat/WelcomePage";
+import { DeleteConfirmDialog } from "@/components/chat/DeleteConfirmDialog";
 import { SkillManager } from "@/components/skills/SkillManager";
 import { ScaleSelector } from "@/components/cga/ScaleSelector";
 import { useAppStore } from "@/stores/appStore";
@@ -34,13 +36,12 @@ import { cn } from "@/lib/utils";
 import { HIGH_RISK_SYMPTOMS, EMERGENCY_ALERT } from "@/lib/constants";
 import { postprocessMedicalText } from "@/lib/security-postprocess";
 import { streamChat, buildSystemPrompt, type LLMMessage } from "@/services/llm";
-import { exportConversationToMarkdown } from "@/lib/export";
+import { generateId } from "@/lib/format";
 import { toast } from "@/components/ui/toast";
 import { useAudioPlayer } from "@/hooks/useAudioPlayer";
 import { useAudioRecorder } from "@/hooks/useAudioRecorder";
 import { recognizeAudio } from "@/services/voice/asr";
 import type { ChatActionType, Citation, ImageAttachment, Message, MessageBlock, Scale, ScaleQuestion, SearchResultItem } from "@/types";
-import { generateId } from "@/lib/format";
 
 /** 检测文本中是否包含高风险症状关键词（铁律5关联） */
 function detectHighRiskSymptoms(text: string): string[] {
@@ -244,6 +245,7 @@ export function ChatArea() {
   const updateMessage = useChatStore((s) => s.updateMessage);
   const appendMessageText = useChatStore((s) => s.appendMessageText);
   const initMessageThinking = useChatStore((s) => s.initMessageThinking);
+  const startMessageThinkingBlock = useChatStore((s) => s.startMessageThinkingBlock);
   const appendMessageThinking = useChatStore((s) => s.appendMessageThinking);
   const finalizeMessageThinking = useChatStore((s) => s.finalizeMessageThinking);
   const initMessageToolCall = useChatStore((s) => s.initMessageToolCall);
@@ -255,6 +257,7 @@ export function ChatArea() {
 
   const abortControllerRef = useRef<AbortController | null>(null);
   const autoReadRef = useRef<(text: string) => void>(() => {});
+  const currentThinkingBlockIdRef = useRef<string | null>(null);
 
   // 各会话功能模式下的对话轮次计数（sessionId -> count），上限5轮
   const [collectRounds, setCollectRounds] = useState<Record<string, number>>({});
@@ -284,6 +287,12 @@ export function ChatArea() {
   );
   // 老年模式退出功能二次确认弹窗
   const [showExitConfirm, setShowExitConfirm] = useState(false);
+  // 删除消息确认弹窗
+  const [deleteConfirmId, setDeleteConfirmId] = useState<string | null>(null);
+  // 导出对话框
+  const [showExportDialog, setShowExportDialog] = useState(false);
+  const [exportDefaultSelectedIds, setExportDefaultSelectedIds] = useState<string[]>([]);
+  const [exportDialogKey, setExportDialogKey] = useState(0);
   // CGA语音答题状态
   const [cgaIsTranscribing, setCgaIsTranscribing] = useState(false);
 
@@ -396,7 +405,8 @@ export function ChatArea() {
       
       const assistantMsgId = generateId("msg");
       const assistantBlockId = generateId("block");
-      const thinkingBlockId = generateId("block");
+      const initialThinkingBlockId = generateId("block");
+      currentThinkingBlockIdRef.current = initialThinkingBlockId;
       
       let systemPrompt = "";
       if (chatAction === "prescription") {
@@ -438,7 +448,7 @@ export function ChatArea() {
 
       abortControllerRef.current = new AbortController();
 
-      initMessageThinking(assistantMsgId, thinkingBlockId);
+      initMessageThinking(assistantMsgId, initialThinkingBlockId);
 
       const currentModelId = useChatStore.getState().selectedModelId;
 
@@ -447,13 +457,21 @@ export function ChatArea() {
         { signal: abortControllerRef.current.signal, tools: [], modelPreference: currentModelId },
         {
           onThinkingStart: () => {
-            initMessageThinking(assistantMsgId, thinkingBlockId);
+            const newBlockId = generateId("block");
+            currentThinkingBlockIdRef.current = newBlockId;
+            startMessageThinkingBlock(assistantMsgId, newBlockId);
           },
           onThinkingDelta: (delta) => {
-            appendMessageThinking(assistantMsgId, thinkingBlockId, delta);
+            const currentId = currentThinkingBlockIdRef.current;
+            if (currentId) {
+              appendMessageThinking(assistantMsgId, currentId, delta);
+            }
           },
           onThinkingDone: () => {
-            finalizeMessageThinking(assistantMsgId, thinkingBlockId);
+            const currentId = currentThinkingBlockIdRef.current;
+            if (currentId) {
+              finalizeMessageThinking(assistantMsgId, currentId);
+            }
           },
           onText: (delta) => {
             appendMessageText(assistantMsgId, assistantBlockId, delta);
@@ -463,35 +481,21 @@ export function ChatArea() {
           },
           onDone: (fullText) => {
             abortControllerRef.current = null;
-            finalizeMessageThinking(assistantMsgId, thinkingBlockId);
+            const currentId = currentThinkingBlockIdRef.current;
+            if (currentId) {
+              finalizeMessageThinking(assistantMsgId, currentId);
+            }
             const finalContent = postprocessMedicalText(fullText);
             const currentMsg = useChatStore.getState().messagesBySession[sid!]?.find(m => m.id === assistantMsgId);
-            const existingThinkingBlock = currentMsg?.blocks.find(b => b.kind === "thinking");
-            const finalBlocks: MessageBlock[] = [];
-            if (existingThinkingBlock) {
-              finalBlocks.push(existingThinkingBlock);
-            } else {
-              finalBlocks.push({
-                kind: "thinking",
-                id: thinkingBlockId,
-                data: {
-                  id: thinkingBlockId,
-                  content: "",
-                  status: "done",
-                  startedAt: Date.now(),
-                  endedAt: Date.now(),
-                },
-              });
-            }
-            finalBlocks.push({
-              kind: "text",
-              id: assistantBlockId,
-              content: finalContent,
-              streaming: false,
-            });
+            const updatedBlocks = currentMsg?.blocks.map((b) => {
+              if (b.kind === "text" && b.id === assistantBlockId) {
+                return { ...b, content: finalContent, streaming: false };
+              }
+              return b;
+            }) ?? [];
             updateMessage(assistantMsgId, {
               status: "done",
-              blocks: finalBlocks,
+              blocks: updatedBlocks,
               hasDisclaimer: true,
             });
             setGenerating(false);
@@ -499,29 +503,14 @@ export function ChatArea() {
           },
           onError: () => {
             abortControllerRef.current = null;
-            finalizeMessageThinking(assistantMsgId, thinkingBlockId);
+            const currentId = currentThinkingBlockIdRef.current;
+            if (currentId) {
+              finalizeMessageThinking(assistantMsgId, currentId);
+            }
             const fallbackContent = getOpeningMessage(chatAction, role);
             const currentMsg = useChatStore.getState().messagesBySession[sid!]?.find(m => m.id === assistantMsgId);
-            const existingThinkingBlock = currentMsg?.blocks.find(b => b.kind === "thinking");
             const existingTextBlock = currentMsg?.blocks.find(b => b.kind === "text" && b.id === assistantBlockId);
             const existingContent = existingTextBlock && existingTextBlock.kind === "text" ? existingTextBlock.content : "";
-            
-            const finalBlocks: MessageBlock[] = [];
-            if (existingThinkingBlock) {
-              finalBlocks.push(existingThinkingBlock);
-            } else {
-              finalBlocks.push({
-                kind: "thinking",
-                id: thinkingBlockId,
-                data: {
-                  id: thinkingBlockId,
-                  content: "",
-                  status: "done",
-                  startedAt: Date.now(),
-                  endedAt: Date.now(),
-                },
-              });
-            }
             
             let finalContent = existingContent || fallbackContent;
             if (!existingContent.trim()) {
@@ -529,15 +518,15 @@ export function ChatArea() {
             }
             const processedContent = postprocessMedicalText(finalContent);
             
-            finalBlocks.push({
-              kind: "text",
-              id: assistantBlockId,
-              content: processedContent,
-              streaming: false,
-            });
+            const updatedBlocks = currentMsg?.blocks.map((b) => {
+              if (b.kind === "text" && b.id === assistantBlockId) {
+                return { ...b, content: processedContent, streaming: false };
+              }
+              return b;
+            }) ?? [];
             updateMessage(assistantMsgId, {
               status: existingContent.trim() ? "interrupted" : "done",
-              blocks: finalBlocks,
+              blocks: updatedBlocks,
               hasDisclaimer: true,
             });
             setGenerating(false);
@@ -569,7 +558,7 @@ export function ChatArea() {
       addMessage(aiMsg);
       setGenerating(false);
     }, 300);
-  }, [chatAction, currentSessionId, role, createSession, setCurrentSession, addMessage, setGenerating, cgaSelectedScale, setPanelContent, updateMessage, appendMessageText, appendPanelContent, initMessageThinking, appendMessageThinking, finalizeMessageThinking]);
+  }, [chatAction, currentSessionId, role, createSession, setCurrentSession, addMessage, setGenerating, cgaSelectedScale, setPanelContent, updateMessage, appendMessageText, appendPanelContent, initMessageThinking, startMessageThinkingBlock, appendMessageThinking, finalizeMessageThinking]);
 
   // 技能管理视图
   if (mainView === "skills") {
@@ -615,10 +604,11 @@ export function ChatArea() {
     const currentMsgs = currentSessionId ? useChatStore.getState().messagesBySession[currentSessionId] ?? [] : [];
     const streamingMsg = currentMsgs.find((m) => m.status === "streaming");
     if (streamingMsg) {
-      const thinkingBlock = streamingMsg.blocks.find((b) => b.kind === "thinking");
-      if (thinkingBlock) {
-        finalizeMessageThinking(streamingMsg.id, thinkingBlock.id);
-      }
+      streamingMsg.blocks.forEach((b) => {
+        if (b.kind === "thinking" && b.data.status === "thinking") {
+          finalizeMessageThinking(streamingMsg.id, b.id);
+        }
+      });
       const blocks = streamingMsg.blocks.map((b) => {
         if (b.kind === "text" && b.streaming) {
           return { ...b, streaming: false };
@@ -658,6 +648,24 @@ export function ChatArea() {
     doSend(currentSessionId, userText, true, userImages.length > 0 ? userImages : undefined);
   };
 
+  /** 删除消息 */
+  const handleDeleteMessage = (messageId: string) => {
+    const currentMsgs = currentSessionId ? messagesBySession[currentSessionId] ?? [] : [];
+    const streamingMsg = currentMsgs.find((m) => m.status === "streaming");
+    if (streamingMsg && streamingMsg.id === messageId && abortControllerRef.current) {
+      handleStop();
+    }
+    setDeleteConfirmId(messageId);
+  };
+
+  const confirmDelete = () => {
+    if (deleteConfirmId) {
+      removeMessage(deleteConfirmId);
+      toast.show("消息已删除");
+    }
+    setDeleteConfirmId(null);
+  };
+
   const handleSend = (text: string, images?: ImageAttachment[]) => {
     if (!currentSessionId) {
       const sid = createSession(role);
@@ -670,16 +678,22 @@ export function ChatArea() {
 
   const handleExportConversation = () => {
     if (!currentSessionId || messages.length === 0) return;
-    try {
-      const conv = messages.map((m) => ({
-        role: m.role as "user" | "assistant",
-        content: getTextFromMessage(m),
-      }));
-      exportConversationToMarkdown(currentSessionTitle || "对话记录", conv);
-      toast.show("对话记录已导出为 Markdown");
-    } catch {
-      toast.show("导出失败，请重试");
+    setExportDefaultSelectedIds(messages.map((m) => m.id));
+    setExportDialogKey((k) => k + 1);
+    setShowExportDialog(true);
+  };
+
+  const handleExportMessage = (messageId: string) => {
+    if (!currentSessionId || messages.length === 0) return;
+    const idx = messages.findIndex((m) => m.id === messageId);
+    if (idx === -1) return;
+    const selectedIds: string[] = [messageId];
+    if (idx > 0 && messages[idx].role === "assistant" && messages[idx - 1].role === "user") {
+      selectedIds.unshift(messages[idx - 1].id);
     }
+    setExportDefaultSelectedIds(selectedIds);
+    setExportDialogKey((k) => k + 1);
+    setShowExportDialog(true);
   };
 
   const doSend = (sid: string, text: string, isRegenerate = false, images?: ImageAttachment[]) => {
@@ -771,7 +785,8 @@ export function ChatArea() {
 
       const assistantMsgId = generateId("msg");
       const assistantBlockId = generateId("block");
-      const thinkingBlockId = generateId("block");
+      const initialThinkingBlockId = generateId("block");
+      currentThinkingBlockIdRef.current = initialThinkingBlockId;
 
       const assistantMsg: Message = {
         id: assistantMsgId,
@@ -790,7 +805,7 @@ export function ChatArea() {
         hasDisclaimer: false,
       };
       addMessage(assistantMsg);
-      initMessageThinking(assistantMsgId, thinkingBlockId);
+      initMessageThinking(assistantMsgId, initialThinkingBlockId);
 
       const forceGenerate = newRound >= MAX_COLLECT_ROUNDS;
 
@@ -843,13 +858,21 @@ ${forceGenerate ? "重要：已达到对话轮次上限，请立即输出 [生�
         { signal: abortControllerRef.current.signal, tools: [], modelPreference: selectedModelId },
         {
           onThinkingStart: () => {
-            initMessageThinking(assistantMsgId, thinkingBlockId);
+            const newBlockId = generateId("block");
+            currentThinkingBlockIdRef.current = newBlockId;
+            startMessageThinkingBlock(assistantMsgId, newBlockId);
           },
           onThinkingDelta: (delta) => {
-            appendMessageThinking(assistantMsgId, thinkingBlockId, delta);
+            const currentId = currentThinkingBlockIdRef.current;
+            if (currentId) {
+              appendMessageThinking(assistantMsgId, currentId, delta);
+            }
           },
           onThinkingDone: () => {
-            finalizeMessageThinking(assistantMsgId, thinkingBlockId);
+            const currentId = currentThinkingBlockIdRef.current;
+            if (currentId) {
+              finalizeMessageThinking(assistantMsgId, currentId);
+            }
           },
           onText: (delta) => {
             appendMessageText(assistantMsgId, assistantBlockId, delta);
@@ -859,7 +882,10 @@ ${forceGenerate ? "重要：已达到对话轮次上限，请立即输出 [生�
           },
           onDone: (fullText) => {
             abortControllerRef.current = null;
-            finalizeMessageThinking(assistantMsgId, thinkingBlockId);
+            const currentId = currentThinkingBlockIdRef.current;
+            if (currentId) {
+              finalizeMessageThinking(assistantMsgId, currentId);
+            }
             
             const hasFinishMarker = fullText.includes(finishMarker);
             let replyText = fullText;
@@ -873,32 +899,15 @@ ${forceGenerate ? "重要：已达到对话轮次上限，请立即输出 [生�
 
             const finalReplyContent = postprocessMedicalText(replyText);
             const currentMsg = useChatStore.getState().messagesBySession[sid]?.find(m => m.id === assistantMsgId);
-            const existingThinkingBlock = currentMsg?.blocks.find(b => b.kind === "thinking");
-            const finalBlocks: MessageBlock[] = [];
-            if (existingThinkingBlock) {
-              finalBlocks.push(existingThinkingBlock);
-            } else {
-              finalBlocks.push({
-                kind: "thinking",
-                id: thinkingBlockId,
-                data: {
-                  id: thinkingBlockId,
-                  content: "",
-                  status: "done",
-                  startedAt: Date.now(),
-                  endedAt: Date.now(),
-                },
-              });
-            }
-            finalBlocks.push({
-              kind: "text",
-              id: assistantBlockId,
-              content: finalReplyContent,
-              streaming: false,
-            });
+            const updatedBlocks = currentMsg?.blocks.map((b) => {
+              if (b.kind === "text" && b.id === assistantBlockId) {
+                return { ...b, content: finalReplyContent, streaming: false };
+              }
+              return b;
+            }) ?? [];
             updateMessage(assistantMsgId, {
               status: "done",
-              blocks: finalBlocks,
+              blocks: updatedBlocks,
               hasDisclaimer: true,
             });
 
@@ -1046,28 +1055,13 @@ ${forceGenerate ? "重要：已达到对话轮次上限，请立即输出 [生�
           },
           onError: () => {
             abortControllerRef.current = null;
-            finalizeMessageThinking(assistantMsgId, thinkingBlockId);
+            const currentId = currentThinkingBlockIdRef.current;
+            if (currentId) {
+              finalizeMessageThinking(assistantMsgId, currentId);
+            }
             const currentMsg = useChatStore.getState().messagesBySession[sid]?.find(m => m.id === assistantMsgId);
-            const existingThinkingBlock = currentMsg?.blocks.find(b => b.kind === "thinking");
             const existingTextBlock = currentMsg?.blocks.find(b => b.kind === "text" && b.id === assistantBlockId);
             const existingContent = existingTextBlock && existingTextBlock.kind === "text" ? existingTextBlock.content : "";
-            
-            const finalBlocks: MessageBlock[] = [];
-            if (existingThinkingBlock) {
-              finalBlocks.push(existingThinkingBlock);
-            } else {
-              finalBlocks.push({
-                kind: "thinking",
-                id: thinkingBlockId,
-                data: {
-                  id: thinkingBlockId,
-                  content: "",
-                  status: "done",
-                  startedAt: Date.now(),
-                  endedAt: Date.now(),
-                },
-              });
-            }
             
             let finalContent = existingContent;
             if (finalContent.trim()) {
@@ -1077,15 +1071,15 @@ ${forceGenerate ? "重要：已达到对话轮次上限，请立即输出 [生�
             }
             const processedContent = postprocessMedicalText(finalContent);
             
-            finalBlocks.push({
-              kind: "text",
-              id: assistantBlockId,
-              content: processedContent,
-              streaming: false,
-            });
+            const updatedBlocks = currentMsg?.blocks.map((b) => {
+              if (b.kind === "text" && b.id === assistantBlockId) {
+                return { ...b, content: processedContent, streaming: false };
+              }
+              return b;
+            }) ?? [];
             updateMessage(assistantMsgId, {
               status: "interrupted",
-              blocks: finalBlocks,
+              blocks: updatedBlocks,
               hasDisclaimer: true,
             });
             setGenerating(false);
@@ -1098,7 +1092,8 @@ ${forceGenerate ? "重要：已达到对话轮次上限，请立即输出 [生�
 
     const assistantMsgId = generateId("msg");
     const assistantBlockId = generateId("block");
-    const thinkingBlockId = generateId("block");
+    const initialThinkingBlockId = generateId("block");
+    currentThinkingBlockIdRef.current = initialThinkingBlockId;
 
     const assistantMsg: Message = {
       id: assistantMsgId,
@@ -1117,7 +1112,7 @@ ${forceGenerate ? "重要：已达到对话轮次上限，请立即输出 [生�
       hasDisclaimer: false,
     };
     addMessage(assistantMsg);
-    initMessageThinking(assistantMsgId, thinkingBlockId);
+    initMessageThinking(assistantMsgId, initialThinkingBlockId);
 
     const toolCallBlockMap = new Map<string, string>();
     let allCitations: Citation[] = [];
@@ -1144,13 +1139,21 @@ ${forceGenerate ? "重要：已达到对话轮次上限，请立即输出 [生�
       { signal: abortControllerRef.current.signal, modelPreference: selectedModelId },
       {
         onThinkingStart: () => {
-          initMessageThinking(assistantMsgId, thinkingBlockId);
+          const newBlockId = generateId("block");
+          currentThinkingBlockIdRef.current = newBlockId;
+          startMessageThinkingBlock(assistantMsgId, newBlockId);
         },
         onThinkingDelta: (delta) => {
-          appendMessageThinking(assistantMsgId, thinkingBlockId, delta);
+          const currentId = currentThinkingBlockIdRef.current;
+          if (currentId) {
+            appendMessageThinking(assistantMsgId, currentId, delta);
+          }
         },
         onThinkingDone: () => {
-          finalizeMessageThinking(assistantMsgId, thinkingBlockId);
+          const currentId = currentThinkingBlockIdRef.current;
+          if (currentId) {
+            finalizeMessageThinking(assistantMsgId, currentId);
+          }
         },
         onText: (delta) => {
           appendMessageText(assistantMsgId, assistantBlockId, delta);
@@ -1240,34 +1243,21 @@ ${forceGenerate ? "重要：已达到对话轮次上限，请立即输出 [生�
         },
         onDone: (fullText) => {
           abortControllerRef.current = null;
-          finalizeMessageThinking(assistantMsgId, thinkingBlockId);
+          const currentId = currentThinkingBlockIdRef.current;
+          if (currentId) {
+            finalizeMessageThinking(assistantMsgId, currentId);
+          }
           const finalContent = postprocessMedicalText(fullText);
           const msgNow = useChatStore.getState().messagesBySession[sid]?.find(m => m.id === assistantMsgId);
-          const finalBlocks: MessageBlock[] = [];
-          if (msgNow) {
-            for (const b of msgNow.blocks) {
-              if (b.kind === "text" && b.id === assistantBlockId) {
-                finalBlocks.push({
-                  kind: "text",
-                  id: assistantBlockId,
-                  content: finalContent,
-                  streaming: false,
-                });
-              } else {
-                finalBlocks.push(b);
-              }
+          const updatedBlocks = msgNow?.blocks.map((b) => {
+            if (b.kind === "text" && b.id === assistantBlockId) {
+              return { ...b, content: finalContent, streaming: false };
             }
-          } else {
-            finalBlocks.push({
-              kind: "text",
-              id: assistantBlockId,
-              content: finalContent,
-              streaming: false,
-            });
-          }
+            return b;
+          }) ?? [];
           updateMessage(assistantMsgId, {
             status: "done",
-            blocks: finalBlocks,
+            blocks: updatedBlocks,
             citations: allCitations.length > 0 ? allCitations : undefined,
             hasDisclaimer: true,
           });
@@ -1284,19 +1274,13 @@ ${forceGenerate ? "重要：已达到对话轮次上限，请立即输出 [生�
         },
         onError: () => {
           abortControllerRef.current = null;
-          finalizeMessageThinking(assistantMsgId, thinkingBlockId);
+          const currentId = currentThinkingBlockIdRef.current;
+          if (currentId) {
+            finalizeMessageThinking(assistantMsgId, currentId);
+          }
           const msgNow = useChatStore.getState().messagesBySession[sid]?.find(m => m.id === assistantMsgId);
-          const finalBlocks: MessageBlock[] = [];
           const existingTextBlock = msgNow?.blocks.find(b => b.kind === "text" && b.id === assistantBlockId);
           const existingContent = existingTextBlock && existingTextBlock.kind === "text" ? existingTextBlock.content : "";
-
-          if (msgNow) {
-            for (const b of msgNow.blocks) {
-              if (b.kind !== "text" || b.id !== assistantBlockId) {
-                finalBlocks.push(b);
-              }
-            }
-          }
 
           let finalContent = existingContent;
           if (finalContent.trim()) {
@@ -1304,16 +1288,17 @@ ${forceGenerate ? "重要：已达到对话轮次上限，请立即输出 [生�
           } else {
             finalContent = "*回复中断，请点击重新生成按钮重试*";
           }
+          const processedContent = postprocessMedicalText(finalContent);
 
-          finalBlocks.push({
-            kind: "text",
-            id: assistantBlockId,
-            content: postprocessMedicalText(finalContent),
-            streaming: false,
-          });
+          const updatedBlocks = msgNow?.blocks.map((b) => {
+            if (b.kind === "text" && b.id === assistantBlockId) {
+              return { ...b, content: processedContent, streaming: false };
+            }
+            return b;
+          }) ?? [];
           updateMessage(assistantMsgId, {
             status: "interrupted",
-            blocks: finalBlocks,
+            blocks: updatedBlocks,
             hasDisclaimer: true,
           });
           setGenerating(false);
@@ -2054,7 +2039,7 @@ ${phq9SuicideRisk
         </div>
       ) : (
         <div className="flex-1 min-h-0 flex flex-col">
-          {messages.length > 0 && <MessageList messages={messages} onRegenerate={handleRegenerate} />}
+          {messages.length > 0 && <MessageList messages={messages} onRegenerate={handleRegenerate} onDeleteMessage={handleDeleteMessage} onExportMessage={handleExportMessage} />}
         </div>
       )}
 
@@ -2087,6 +2072,23 @@ ${phq9SuicideRisk
           </DialogFooter>
         </DialogContent>
       </Dialog>
+
+      {/* 删除消息确认弹窗 */}
+      <DeleteConfirmDialog
+        open={deleteConfirmId !== null}
+        onOpenChange={(open) => { if (!open) setDeleteConfirmId(null); }}
+        onConfirm={confirmDelete}
+      />
+
+      {/* 导出对话对话框 */}
+      <ExportDialog
+        key={exportDialogKey}
+        open={showExportDialog}
+        onOpenChange={setShowExportDialog}
+        messages={messages}
+        defaultSelectedIds={exportDefaultSelectedIds}
+        title={currentSessionTitle || "对话记录"}
+      />
     </main>
   );
 }

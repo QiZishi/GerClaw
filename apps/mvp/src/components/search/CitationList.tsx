@@ -179,10 +179,6 @@ function CitationItem({ citation, seniorMode }: CitationItemProps) {
           target="_blank"
           rel="noopener noreferrer"
           className="inline-flex items-center gap-1 text-xs text-primary hover:underline"
-          onClick={(e) => {
-            // mock 阶段：阻止真实跳转，提示
-            e.preventDefault();
-          }}
         >
           <ExternalLink className="size-3" />
           查看原文

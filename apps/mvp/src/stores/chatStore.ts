@@ -108,6 +108,7 @@ interface ChatState {
   updateMessage: (id: string, patch: Partial<Message>) => void;
   appendMessageText: (id: string, blockId: string, delta: string) => void;
   initMessageThinking: (id: string, thinkingBlockId: string) => void;
+  startMessageThinkingBlock: (id: string, thinkingBlockId: string) => void;
   appendMessageThinking: (id: string, thinkingBlockId: string, delta: string) => void;
   finalizeMessageThinking: (id: string, thinkingBlockId: string) => void;
   initMessageToolCall: (id: string, toolBlockId: string, toolCallId: string, toolName: string) => void;
@@ -118,6 +119,7 @@ interface ChatState {
   finalizeMessageSteps: (id: string) => void;
   setMessageCitations: (id: string, citations: Message["citations"]) => void;
   removeMessage: (id: string) => void;
+  deleteMessage: (id: string) => void;
   getMessages: (sessionId: string) => Message[];
 
   // === 流式生成状态 ===
@@ -255,30 +257,80 @@ export const useChatStore = create<ChatState>()((set, get) => ({
       saveToStorage(STORAGE_KEYS.messages, truncated);
       return { messagesBySession: truncated };
     }),
+  startMessageThinkingBlock: (id, thinkingBlockId) =>
+    set((s) => {
+      const next = { ...s.messagesBySession };
+      for (const sid of Object.keys(next)) {
+        next[sid] = next[sid].map((m) => {
+          if (m.id !== id) return m;
+          const newBlock = {
+            kind: "thinking" as const,
+            id: thinkingBlockId,
+            data: {
+              id: thinkingBlockId,
+              content: "",
+              status: "thinking" as const,
+              startedAt: Date.now(),
+            },
+          };
+          let lastTextBlockIdx = -1;
+          for (let i = m.blocks.length - 1; i >= 0; i--) {
+            if (m.blocks[i].kind === "text") {
+              lastTextBlockIdx = i;
+              break;
+            }
+          }
+          let newBlocks;
+          if (lastTextBlockIdx !== -1) {
+            newBlocks = [
+              ...m.blocks.slice(0, lastTextBlockIdx),
+              newBlock,
+              ...m.blocks.slice(lastTextBlockIdx),
+            ];
+          } else {
+            newBlocks = [...m.blocks, newBlock];
+          }
+          return { ...m, blocks: newBlocks };
+        });
+      }
+      const truncated = truncateMessages(next);
+      saveToStorage(STORAGE_KEYS.messages, truncated);
+      return { messagesBySession: truncated };
+    }),
   initMessageThinking: (id, thinkingBlockId) =>
     set((s) => {
       const next = { ...s.messagesBySession };
       for (const sid of Object.keys(next)) {
         next[sid] = next[sid].map((m) => {
           if (m.id !== id) return m;
-          const hasThinking = m.blocks.some((b) => b.kind === "thinking");
-          if (hasThinking) return m;
-          return {
-            ...m,
-            blocks: [
-              {
-                kind: "thinking",
-                id: thinkingBlockId,
-                data: {
-                  id: thinkingBlockId,
-                  content: "",
-                  status: "thinking",
-                  startedAt: Date.now(),
-                },
-              },
-              ...m.blocks,
-            ],
+          const newBlock = {
+            kind: "thinking" as const,
+            id: thinkingBlockId,
+            data: {
+              id: thinkingBlockId,
+              content: "",
+              status: "thinking" as const,
+              startedAt: Date.now(),
+            },
           };
+          let lastTextBlockIdx = -1;
+          for (let i = m.blocks.length - 1; i >= 0; i--) {
+            if (m.blocks[i].kind === "text") {
+              lastTextBlockIdx = i;
+              break;
+            }
+          }
+          let newBlocks;
+          if (lastTextBlockIdx !== -1) {
+            newBlocks = [
+              ...m.blocks.slice(0, lastTextBlockIdx),
+              newBlock,
+              ...m.blocks.slice(lastTextBlockIdx),
+            ];
+          } else {
+            newBlocks = [...m.blocks, newBlock];
+          }
+          return { ...m, blocks: newBlocks };
         });
       }
       const truncated = truncateMessages(next);
@@ -498,13 +550,40 @@ export const useChatStore = create<ChatState>()((set, get) => ({
   removeMessage: (id) =>
     set((s) => {
       const next = { ...s.messagesBySession };
+      let targetSessionId: string | null = null;
       for (const sid of Object.keys(next)) {
-        next[sid] = next[sid].filter((m) => m.id !== id);
+        const msgs = next[sid];
+        const msgIndex = msgs.findIndex((m) => m.id === id);
+        if (msgIndex !== -1) {
+          targetSessionId = sid;
+          next[sid] = msgs.filter((m) => m.id !== id);
+        }
       }
       const truncated = truncateMessages(next);
       saveToStorage(STORAGE_KEYS.messages, truncated);
+
+      let updatedSessions = s.sessions;
+      if (targetSessionId) {
+        updatedSessions = s.sessions.map((sess) => {
+          if (sess.id !== targetSessionId) return sess;
+          const newCount = Math.max(0, (sess.messageCount ?? 0) - 1);
+          const newMessages = truncated[targetSessionId!] ?? [];
+          const lastMessage = newMessages[newMessages.length - 1];
+          return {
+            ...sess,
+            messageCount: newCount,
+            lastMessagePreview: lastMessage ? getTextPreview(lastMessage) : undefined,
+            updatedAt: Date.now(),
+          };
+        });
+        const sorted = sortSessions(updatedSessions);
+        saveToStorage(STORAGE_KEYS.sessions, sorted);
+        return { messagesBySession: truncated, sessions: sorted };
+      }
+
       return { messagesBySession: truncated };
     }),
+  deleteMessage: (id) => get().removeMessage(id),
   getMessages: (sessionId) => get().messagesBySession[sessionId] ?? [],
 
   // === 流式生成状态 ===

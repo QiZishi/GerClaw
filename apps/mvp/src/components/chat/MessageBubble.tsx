@@ -10,6 +10,7 @@ import {
   Pause,
   RefreshCw,
   Stethoscope,
+  Trash2,
   Volume2,
 } from "lucide-react";
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
@@ -41,6 +42,8 @@ import { exportToMarkdown } from "@/lib/export";
 interface MessageBubbleProps {
   message: Message;
   onRegenerate?: (id: string) => void;
+  onExport?: (id: string) => void;
+  onDelete?: (id: string) => void;
 }
 
 function VoiceReadButton({ text, seniorMode }: { text: string; seniorMode: boolean }) {
@@ -104,7 +107,7 @@ function extractPlainText(blocks: MessageBlock[]): string {
     .trim();
 }
 
-export function MessageBubble({ message, onRegenerate }: MessageBubbleProps) {
+export function MessageBubble({ message, onRegenerate, onExport, onDelete }: MessageBubbleProps) {
   const isUser = message.role === "user";
   const [copied, setCopied] = useState(false);
   const [appeared, setAppeared] = useState(false);
@@ -128,18 +131,22 @@ export function MessageBubble({ message, onRegenerate }: MessageBubbleProps) {
     });
   };
 
-  const handleExport = () => {
-    try {
-      const textContent = extractPlainText(message.blocks);
-      const title = textContent.slice(0, 50).replace(/[#*`_~\[\]()>|-]/g, "").trim() || "AI回复";
-      exportToMarkdown({
-        title: `GerClaw回复 - ${title}`,
-        content: textContent,
-        subtitle: "单条消息导出",
-      });
-      toast.show("消息已导出为 Markdown");
-    } catch {
-      toast.show("导出失败，请重试");
+  const handleExportClick = () => {
+    if (onExport) {
+      onExport(message.id);
+    } else {
+      try {
+        const textContent = extractPlainText(message.blocks);
+        const title = textContent.slice(0, 50).replace(/[#*`_~\[\]()>|-]/g, "").trim() || "AI回复";
+        exportToMarkdown({
+          title: `GerClaw回复 - ${title}`,
+          content: textContent,
+          subtitle: "单条消息导出",
+        });
+        toast.show("消息已导出为 Markdown");
+      } catch {
+        toast.show("导出失败，请重试");
+      }
     }
   };
 
@@ -308,12 +315,15 @@ export function MessageBubble({ message, onRegenerate }: MessageBubbleProps) {
           </div>
         )}
 
-        <div className={cn(
-          "flex items-center gap-1 transition-opacity duration-150 ease-out",
-          seniorMode
-            ? "opacity-100 gap-1.5"
-            : "opacity-0 group-hover:opacity-100 focus-within:opacity-100"
-        )}>
+        <div
+          data-message-actions
+          className={cn(
+            "flex items-center gap-1 transition-opacity duration-150 ease-out",
+            seniorMode
+              ? "opacity-100 gap-1.5"
+              : "opacity-0 group-hover:opacity-100 focus-within:opacity-100"
+          )}
+        >
           <Tooltip>
             <TooltipTrigger
               render={
@@ -362,14 +372,33 @@ export function MessageBubble({ message, onRegenerate }: MessageBubbleProps) {
                     variant="ghost"
                     size={seniorMode ? "icon" : "icon-sm"}
                     className="btn-icon"
-                    onClick={handleExport}
+                    onClick={handleExportClick}
                     aria-label="导出"
                   />
                 }
               >
                 <Download className={cn(seniorMode ? "size-4" : "size-3.5")} />
               </TooltipTrigger>
-              <TooltipContent>导出为 Markdown</TooltipContent>
+              <TooltipContent>导出</TooltipContent>
+            </Tooltip>
+          )}
+
+          {onDelete && (
+            <Tooltip>
+              <TooltipTrigger
+                render={
+                  <Button
+                    variant="ghost"
+                    size={seniorMode ? "icon" : "icon-sm"}
+                    className="btn-icon hover:text-destructive"
+                    onClick={() => onDelete(message.id)}
+                    aria-label="删除消息"
+                  />
+                }
+              >
+                <Trash2 className={cn(seniorMode ? "size-4" : "size-3.5")} />
+              </TooltipTrigger>
+              <TooltipContent>删除消息</TooltipContent>
             </Tooltip>
           )}
         </div>

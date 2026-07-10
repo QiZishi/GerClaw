@@ -6,7 +6,7 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 import { formatDuration } from "@/lib/format";
-import type { ToolCallBlock as ToolCallBlockData } from "@/types";
+import type { ToolCallBlock as ToolCallBlockData, SearchResultItem } from "@/types";
 import { useReducedMotion } from "@/hooks/useReducedMotion";
 
 interface ToolCallBlockProps {
@@ -71,12 +71,21 @@ export function ToolCallBlock({ data, onRetry }: ToolCallBlockProps) {
   const [expanded, setExpanded] = useState(false);
   const reducedMotion = useReducedMotion();
   const isRunning = data.status === "running";
+  const isDone = data.status === "done";
+  const isFailed = data.status === "failed";
   const isSearch = isWebSearch(data.toolName);
   const hasContent = (data.params && Object.keys(data.params).length > 0) || data.result !== undefined;
 
   const displayName = getToolDisplayName(data.toolName);
   const searchQuery = isSearch ? getSearchQuery(data) : "";
   const resultCount = isSearch ? getSearchResultCount(data) : 0;
+
+  const results: SearchResultItem[] | null = isSearch && isDone && data.result
+    ? (typeof data.result === "object" && "results" in (data.result as object)
+      ? (data.result as { results: SearchResultItem[] }).results
+      : null)
+    : null;
+  const hasSearchResults = results !== null && Array.isArray(results) && results.length > 0;
 
   const expandTransition = reducedMotion ? "" : "transition-[grid-template-rows] duration-200 ease-out";
   const chevronTransition = reducedMotion ? "" : "transition-transform duration-200 ease-out";
@@ -89,14 +98,19 @@ export function ToolCallBlock({ data, onRetry }: ToolCallBlockProps) {
     <Wrench className="size-4 shrink-0" />
   );
 
-  const shouldShowExpandButton = isSearch ? false : hasContent;
-  const shouldShowExpandContent = isSearch ? false : hasContent;
+  const shouldShowExpandButton = isSearch ? (isDone && results !== null) : hasContent;
+  const shouldShowExpandContent = isSearch ? (isDone && results !== null) : hasContent;
 
-  // 搜索工具：紧凑展示，不默认显示JSON详情
   if (isSearch) {
     return (
       <div className="rounded-xl border border-border/40 bg-muted/30 overflow-hidden mb-2">
-        <div className="flex w-full items-center justify-between gap-2 px-3 py-2">
+        <div
+          className={cn(
+            "flex w-full items-center justify-between gap-2 px-3 py-2",
+            shouldShowExpandButton && "cursor-pointer hover:bg-muted/50 transition-colors"
+          )}
+          onClick={() => shouldShowExpandButton && setExpanded((v) => !v)}
+        >
           <span className="flex items-center gap-2 text-sm text-muted-foreground/80 min-w-0">
             {toolIconEl}
             <span className="font-medium shrink-0">{displayName}</span>
@@ -104,11 +118,11 @@ export function ToolCallBlock({ data, onRetry }: ToolCallBlockProps) {
               <span className="truncate text-foreground/80">
                 正在搜索「{searchQuery}」...
               </span>
-            ) : data.status === "done" && searchQuery ? (
+            ) : isDone && searchQuery ? (
               <span className="truncate text-foreground/80">
-                「{searchQuery}」· 已找到 {resultCount} 个结果
+                🔍 「{searchQuery}」· {hasSearchResults ? `已找到 ${resultCount} 个结果` : "已完成"}
               </span>
-            ) : data.status === "failed" ? (
+            ) : isFailed ? (
               <span className="flex items-center gap-1 text-destructive truncate">
                 <AlertTriangle className="size-3.5 shrink-0" />
                 搜索失败{data.errorMessage ? `：${data.errorMessage}` : ""}
@@ -119,7 +133,7 @@ export function ToolCallBlock({ data, onRetry }: ToolCallBlockProps) {
           </span>
           <span className="flex items-center gap-1 shrink-0">
             <StatusBadge status={data.status} />
-            {data.status === "failed" && onRetry && (
+            {isFailed && onRetry && (
               <Button
                 size="sm"
                 variant="outline"
@@ -136,7 +150,10 @@ export function ToolCallBlock({ data, onRetry }: ToolCallBlockProps) {
             {shouldShowExpandButton && (
               <button
                 type="button"
-                onClick={() => setExpanded((v) => !v)}
+                onClick={(e) => {
+                  e.stopPropagation();
+                  setExpanded((v) => !v);
+                }}
                 className="p-1 hover:bg-muted/50 rounded transition-colors"
                 aria-expanded={expanded}
                 aria-label={expanded ? "收起详情" : "展开详情"}
@@ -159,28 +176,42 @@ export function ToolCallBlock({ data, onRetry }: ToolCallBlockProps) {
               expandTransition,
               expanded ? "grid-rows-[1fr]" : "grid-rows-[0fr]"
             )}
+            aria-hidden={!expanded}
           >
             <div className="overflow-hidden">
-              <div className="border-t border-border/30 px-3 pb-3 pt-1 space-y-2 text-sm text-muted-foreground/80">
-                {data.args && Object.keys(data.args).length > 0 && (
-                  <div>
-                    <div className="text-xs text-muted-foreground mb-1">参数</div>
-                    <pre className="bg-muted rounded p-2 overflow-x-auto font-mono text-xs text-muted-foreground/80">
-                      {JSON.stringify(data.args, null, 2)}
-                    </pre>
-                  </div>
-                )}
-                {data.result !== undefined && isRunning && (
-                  <div>
-                    <div className="text-xs text-muted-foreground mb-1">结果</div>
-                    <pre className="bg-muted rounded p-2 overflow-x-auto font-mono text-xs text-muted-foreground/80 max-h-48 overflow-y-auto">
-                      {typeof data.result === "string"
-                        ? data.result
-                        : JSON.stringify(data.result, null, 2)}
-                    </pre>
-                  </div>
-                )}
-              </div>
+              {hasSearchResults ? (
+                <div className="border-t border-border/30 max-h-80 overflow-y-auto">
+                  {results.map((item, index) => (
+                    <div
+                      key={item.id || index}
+                      className={cn(
+                        "px-3 py-2",
+                        index > 0 && "border-t border-border/30"
+                      )}
+                    >
+                      <a
+                        href={item.url}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="text-blue-600 dark:text-blue-400 hover:underline font-medium text-sm block"
+                      >
+                        {item.title}
+                      </a>
+                      <div className="text-xs text-muted-foreground/60 mt-0.5">
+                        {item.source}
+                        {item.publishedDate && ` · ${item.publishedDate}`}
+                      </div>
+                      <p className="text-xs text-muted-foreground/80 mt-1 line-clamp-2">
+                        {item.snippet}
+                      </p>
+                    </div>
+                  ))}
+                </div>
+              ) : (
+                <div className="border-t border-border/30 px-3 py-2 text-sm text-muted-foreground/80">
+                  搜索完成
+                </div>
+              )}
             </div>
           </div>
         )}
@@ -224,6 +255,7 @@ export function ToolCallBlock({ data, onRetry }: ToolCallBlockProps) {
             expandTransition,
             expanded ? "grid-rows-[1fr]" : "grid-rows-[0fr]"
           )}
+          aria-hidden={!expanded}
         >
           <div className="overflow-hidden">
             <div className="border-t border-border/30 px-3 pb-3 pt-1 space-y-2 text-sm text-muted-foreground/80">

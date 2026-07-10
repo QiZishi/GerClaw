@@ -363,7 +363,7 @@
 @keyframes blink {
   0%,
   100% {
-    opacity: 1;
+    opacity: 0.5;
   }
   50% {
     opacity: 0;
@@ -385,12 +385,13 @@
 
 .typing-cursor {
   display: inline-block;
-  width: 2px;
+  width: 1px;
   height: 1em;
   background: currentColor;
   margin-left: 2px;
   vertical-align: text-bottom;
-  animation: blink 1s step-end infinite;
+  animation: blink 1.2s ease-in-out infinite;
+  opacity: 0.5;
 }
 
 .typing-dot {
@@ -424,4 +425,9 @@
     opacity: 1;
     transform: translateY(-3px);
   }
+}
+
+/* ====== 导出截图时隐藏操作按钮 ====== */
+.exporting-screenshot [data-message-actions] {
+  display: none !important;
 }
