@@ -189,6 +189,7 @@ export function MessageBubble({ message, onRegenerate }: MessageBubbleProps) {
                         key={block.id}
                         content={block.content}
                         streaming
+                        citations={message.citations}
                       />
                     );
                   }

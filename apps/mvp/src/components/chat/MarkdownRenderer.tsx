@@ -1,9 +1,13 @@
 "use client";
 
-import { Fragment, useState, type ReactNode } from "react";
+import React, { useState, useEffect, useMemo, Fragment, type ReactNode, type ComponentPropsWithoutRef } from "react";
+import ReactMarkdown from "react-markdown";
+import remarkGfm from "remark-gfm";
+import { createHighlighter, type Highlighter } from "shiki";
 import { Check, Copy } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { CitationPopover } from "@/components/search/CitationPopover";
+import { useAppStore } from "@/stores/appStore";
 import type { Citation } from "@/types";
 
 interface MarkdownRendererProps {
@@ -12,428 +16,529 @@ interface MarkdownRendererProps {
   className?: string;
 }
 
-/**
- * 简单 Markdown 渲染（不依赖外部库）
- * 支持：标题 # ## ###、列表 -/*、代码块 ```、引用 >、加粗 **、链接 []()、引用角标 [1]
- * 不使用 dangerouslySetInnerHTML，通过正则分段+React 元素渲染，防 XSS
- */
+let highlighterPromise: Promise<Highlighter> | null = null;
+
+async function getSingletonHighlighter(): Promise<Highlighter> {
+  if (!highlighterPromise) {
+    highlighterPromise = createHighlighter({
+      themes: ["github-light", "github-dark"],
+      langs: [
+        "javascript",
+        "typescript",
+        "python",
+        "bash",
+        "html",
+        "css",
+        "json",
+        "jsx",
+        "tsx",
+        "markdown",
+        "yaml",
+        "sql",
+        "java",
+        "go",
+        "rust",
+        "php",
+        "ruby",
+        "c",
+        "cpp",
+        "csharp",
+        "swift",
+        "kotlin",
+        "plaintext",
+      ],
+    });
+  }
+  return highlighterPromise;
+}
+
+const SUPPORTED_LANGS = new Set([
+  "javascript",
+  "typescript",
+  "python",
+  "bash",
+  "html",
+  "css",
+  "json",
+  "jsx",
+  "tsx",
+  "markdown",
+  "yaml",
+  "sql",
+  "java",
+  "go",
+  "rust",
+  "php",
+  "ruby",
+  "c",
+  "cpp",
+  "csharp",
+  "swift",
+  "kotlin",
+  "shell",
+  "sh",
+  "plaintext",
+  "txt",
+  "",
+]);
+
+function normalizeLang(lang: string | undefined): string {
+  if (!lang) return "plaintext";
+  const lower = lang.toLowerCase();
+  if (lower === "shell" || lower === "sh") return "bash";
+  if (lower === "txt") return "plaintext";
+  if (SUPPORTED_LANGS.has(lower)) return lower;
+  return "plaintext";
+}
+
+function useIsDark() {
+  const [isDark, setIsDark] = useState(false);
+
+  useEffect(() => {
+    const checkDark = () => {
+      if (typeof document !== "undefined") {
+        setIsDark(document.documentElement.classList.contains("dark"));
+      }
+    };
+
+    checkDark();
+
+    const observer = new MutationObserver(checkDark);
+    if (typeof document !== "undefined") {
+      observer.observe(document.documentElement, {
+        attributes: true,
+        attributeFilter: ["class"],
+      });
+    }
+
+    return () => observer.disconnect();
+  }, []);
+
+  return isDark;
+}
+
+function CodeBlock({ lang, code }: { lang: string; code: string }) {
+  const [copied, setCopied] = useState(false);
+  const [highlightedHtml, setHighlightedHtml] = useState<string | null>(null);
+  const [highlightedCodeKey, setHighlightedCodeKey] = useState("");
+  const seniorMode = useAppStore((s) => s.seniorMode);
+  const isDark = useIsDark();
+
+  const normalizedLang = normalizeLang(lang);
+  const codeKey = `${normalizedLang}:${isDark}:${code}`;
+
+  useEffect(() => {
+    let cancelled = false;
+
+    getSingletonHighlighter().then((highlighter) => {
+      if (cancelled) return;
+      const theme = isDark ? "github-dark" : "github-light";
+      const html = highlighter.codeToHtml(code, {
+        lang: normalizedLang,
+        theme,
+      });
+      if (!cancelled) {
+        setHighlightedHtml(html);
+        setHighlightedCodeKey(codeKey);
+      }
+    });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [code, normalizedLang, isDark, codeKey]);
+
+  const handleCopy = async () => {
+    try {
+      await navigator.clipboard.writeText(code);
+      setCopied(true);
+      setTimeout(() => setCopied(false), 2000);
+    } catch {
+      // fallback
+    }
+  };
+
+  const displayLang = lang || "code";
+
+  return (
+    <div className="relative group rounded-lg border border-border bg-[#f6f8fa] dark:bg-[#0d1117] overflow-hidden my-3">
+      <div className="flex items-center justify-between px-3 py-1.5 border-b border-border bg-muted/50 dark:bg-muted/20">
+        <span className={cn(
+          "text-muted-foreground font-mono select-none",
+          seniorMode ? "text-sm" : "text-xs"
+        )}>
+          {displayLang}
+        </span>
+        <button
+          type="button"
+          onClick={handleCopy}
+          className={cn(
+            "inline-flex items-center gap-1 text-muted-foreground hover:text-foreground transition-colors rounded",
+            seniorMode ? "text-sm min-w-[44px] min-h-[44px] px-2" : "text-xs px-1.5 py-1"
+          )}
+          aria-label="复制代码"
+        >
+          {copied ? (
+            <>
+              <Check className={seniorMode ? "size-4" : "size-3.5"} />
+              {seniorMode ? "已复制" : null}
+            </>
+          ) : (
+            <>
+              <Copy className={seniorMode ? "size-4" : "size-3.5"} />
+              {seniorMode ? "复制" : null}
+            </>
+          )}
+        </button>
+      </div>
+      <div className="overflow-x-auto">
+        {highlightedHtml && highlightedCodeKey === codeKey ? (
+          <div
+            className={cn(
+              "shiki-wrapper [&>pre]:!bg-transparent [&>pre]:!m-0 [&>pre]:p-4 [&>pre]:overflow-x-auto",
+              seniorMode ? "[&_code]:text-[16px] [&>pre]:text-[16px]" : "[&_code]:text-sm [&>pre]:text-sm",
+              "[&_code]:leading-relaxed"
+            )}
+            dangerouslySetInnerHTML={{ __html: highlightedHtml }}
+          />
+        ) : (
+          <pre className={cn(
+            "p-4 font-mono overflow-x-auto text-foreground",
+            seniorMode ? "text-[16px]" : "text-sm"
+          )}>
+            <code>{code}</code>
+          </pre>
+        )}
+      </div>
+    </div>
+  );
+}
+
+function findCitationMatches(text: string): Array<{ fullMatch: string; citeId: number; index: number }> {
+  const regex = /\[(\d+)\]/g;
+  const matches: Array<{ fullMatch: string; citeId: number; index: number }> = [];
+  let match;
+  while ((match = regex.exec(text)) !== null) {
+    matches.push({
+      fullMatch: match[0],
+      citeId: parseInt(match[1], 10),
+      index: match.index,
+    });
+  }
+  return matches;
+}
+
+interface TextWithCitationsProps {
+  text: string;
+  citations?: Citation[];
+}
+
+function TextWithCitations({ text, citations }: TextWithCitationsProps): ReactNode {
+  if (!citations || citations.length === 0) {
+    return <>{text}</>;
+  }
+
+  const parts: ReactNode[] = [];
+  let lastIndex = 0;
+  let key = 0;
+
+  const matches = findCitationMatches(text);
+
+  for (const match of matches) {
+    const { fullMatch, citeId, index: startIndex } = match;
+
+    if (startIndex > lastIndex) {
+      parts.push(<Fragment key={`t-${key++}`}>{text.slice(lastIndex, startIndex)}</Fragment>);
+    }
+
+    const citation = citations.find((c) => c && c.id === citeId);
+    if (citation) {
+      parts.push(
+        <CitationPopover
+          key={`c-${key++}`}
+          citation={citation}
+          index={citeId}
+          allCitations={citations}
+        />
+      );
+    } else {
+      parts.push(
+        <sup
+          key={`s-${key++}`}
+          className="text-blue-600 dark:text-blue-400 font-semibold text-[0.7em] ml-0.5"
+        >
+          [{citeId}]
+        </sup>
+      );
+    }
+
+    lastIndex = startIndex + fullMatch.length;
+  }
+
+  if (lastIndex < text.length) {
+    parts.push(<Fragment key={`t-${key++}`}>{text.slice(lastIndex)}</Fragment>);
+  }
+
+  return <>{parts}</>;
+}
+
+function processChildrenWithCitations(children: ReactNode, citations?: Citation[]): ReactNode {
+  if (typeof children === "string") {
+    return <TextWithCitations text={children} citations={citations} />;
+  }
+  if (typeof children === "number" || typeof children === "boolean") {
+    return children;
+  }
+  if (Array.isArray(children)) {
+    return children.map((child, idx) => (
+      <Fragment key={idx}>{processChildrenWithCitations(child, citations)}</Fragment>
+    ));
+  }
+  if (children && typeof children === "object" && "props" in children) {
+    const element = children as React.ReactElement<{ children?: ReactNode }>;
+    return React.cloneElement(element, {
+      ...element.props,
+      children: processChildrenWithCitations(element.props.children, citations),
+    });
+  }
+  return children;
+}
+
+type MarkdownComponentProps = ComponentPropsWithoutRef<"div"> & {
+  citations?: Citation[];
+  seniorMode?: boolean;
+  node?: unknown;
+};
+
+function createMarkdownComponents(citations?: Citation[], seniorMode?: boolean) {
+  return {
+    h1: (props: MarkdownComponentProps) => (
+      <h1
+        className={cn(
+          "font-bold mt-5 mb-3 text-foreground",
+          seniorMode ? "text-2xl" : "text-xl"
+        )}
+      >
+        {processChildrenWithCitations(props.children, citations)}
+      </h1>
+    ),
+    h2: (props: MarkdownComponentProps) => (
+      <h2
+        className={cn(
+          "font-bold mt-4 mb-2 text-foreground",
+          seniorMode ? "text-xl" : "text-lg"
+        )}
+      >
+        {processChildrenWithCitations(props.children, citations)}
+      </h2>
+    ),
+    h3: (props: MarkdownComponentProps) => (
+      <h3
+        className={cn(
+          "font-semibold mt-3 mb-2 text-foreground",
+          seniorMode ? "text-lg" : "text-base"
+        )}
+      >
+        {processChildrenWithCitations(props.children, citations)}
+      </h3>
+    ),
+    h4: (props: MarkdownComponentProps) => (
+      <h4
+        className={cn(
+          "font-semibold mt-2 mb-1.5 text-foreground",
+          seniorMode ? "text-base" : "text-sm"
+        )}
+      >
+        {processChildrenWithCitations(props.children, citations)}
+      </h4>
+    ),
+    h5: (props: MarkdownComponentProps) => (
+      <h5 className="font-semibold mt-2 mb-1 text-sm text-foreground">
+        {processChildrenWithCitations(props.children, citations)}
+      </h5>
+    ),
+    h6: (props: MarkdownComponentProps) => (
+      <h6 className="font-semibold mt-2 mb-1 text-xs text-muted-foreground uppercase tracking-wide">
+        {processChildrenWithCitations(props.children, citations)}
+      </h6>
+    ),
+    p: (props: MarkdownComponentProps) => (
+      <p
+        className={cn(
+          "mb-3 leading-relaxed text-foreground last:mb-0",
+          seniorMode ? "text-base leading-[1.8]" : "text-sm"
+        )}
+      >
+        {processChildrenWithCitations(props.children, citations)}
+      </p>
+    ),
+    a: (props: MarkdownComponentProps & { href?: string }) => (
+      <a
+        href={props.href}
+        target="_blank"
+        rel="noopener noreferrer"
+        className="text-primary hover:underline transition-colors"
+      >
+        {processChildrenWithCitations(props.children, citations)}
+      </a>
+    ),
+    strong: (props: MarkdownComponentProps) => (
+      <strong className="font-semibold text-foreground">
+        {processChildrenWithCitations(props.children, citations)}
+      </strong>
+    ),
+    em: (props: MarkdownComponentProps) => (
+      <em className="italic">
+        {processChildrenWithCitations(props.children, citations)}
+      </em>
+    ),
+    del: (props: MarkdownComponentProps) => (
+      <del className="line-through text-muted-foreground">
+        {processChildrenWithCitations(props.children, citations)}
+      </del>
+    ),
+    code: ({ inline, className: codeClassName, children, ...props }: MarkdownComponentProps & { inline?: boolean }) => {
+      const match = /language-(\w+)/.exec(codeClassName || "");
+      const codeString = String(children).replace(/\n$/, "");
+
+      if (!inline && match) {
+        return <CodeBlock lang={match[1]} code={codeString} />;
+      }
+
+      return (
+        <code
+          className={cn(
+            "rounded bg-muted px-1.5 py-0.5 font-mono text-foreground border border-border/50",
+            seniorMode ? "text-[16px]" : "text-[0.85em]"
+          )}
+          {...props}
+        >
+          {children}
+        </code>
+      );
+    },
+    pre: ({ children }: MarkdownComponentProps) => (
+      <>{children}</>
+    ),
+    blockquote: (props: MarkdownComponentProps) => (
+      <blockquote
+        className={cn(
+          "border-l-4 border-primary/50 pl-4 py-2 my-3 bg-muted/40 rounded-r-lg",
+          "text-muted-foreground",
+          seniorMode ? "text-base" : "text-sm"
+        )}
+      >
+        {processChildrenWithCitations(props.children, citations)}
+      </blockquote>
+    ),
+    ul: (props: MarkdownComponentProps) => (
+      <ul
+        className={cn(
+          "list-disc pl-6 my-3 space-y-1.5",
+          seniorMode ? "text-base" : "text-sm"
+        )}
+      >
+        {processChildrenWithCitations(props.children, citations)}
+      </ul>
+    ),
+    ol: (props: MarkdownComponentProps) => (
+      <ol
+        className={cn(
+          "list-decimal pl-6 my-3 space-y-1.5",
+          seniorMode ? "text-base" : "text-sm"
+        )}
+      >
+        {processChildrenWithCitations(props.children, citations)}
+      </ol>
+    ),
+    li: (props: MarkdownComponentProps) => (
+      <li className="leading-relaxed pl-1">
+        {processChildrenWithCitations(props.children, citations)}
+      </li>
+    ),
+    table: (props: MarkdownComponentProps) => (
+      <div className="overflow-x-auto my-4 rounded-lg border border-border">
+        <table className="w-full border-collapse text-sm">
+          {processChildrenWithCitations(props.children, citations)}
+        </table>
+      </div>
+    ),
+    thead: (props: MarkdownComponentProps) => (
+      <thead className="bg-muted/70 dark:bg-muted/30">
+        {props.children}
+      </thead>
+    ),
+    tbody: (props: MarkdownComponentProps) => (
+      <tbody className="divide-y divide-border">
+        {props.children}
+      </tbody>
+    ),
+    tr: (props: MarkdownComponentProps) => (
+      <tr className="transition-colors hover:bg-muted/30 even:bg-muted/20">
+        {props.children}
+      </tr>
+    ),
+    th: (props: MarkdownComponentProps) => (
+      <th
+        className={cn(
+          "border-b border-border px-4 py-2.5 text-left font-semibold text-foreground",
+          seniorMode ? "text-base" : "text-sm"
+        )}
+      >
+        {processChildrenWithCitations(props.children, citations)}
+      </th>
+    ),
+    td: (props: MarkdownComponentProps) => (
+      <td
+        className={cn(
+          "px-4 py-2.5 text-foreground align-top",
+          seniorMode ? "text-base" : "text-sm"
+        )}
+      >
+        {processChildrenWithCitations(props.children, citations)}
+      </td>
+    ),
+    hr: () => (
+      <hr className="my-6 border-t border-border" />
+    ),
+    img: (props: MarkdownComponentProps & { src?: string; alt?: string }) => (
+      // eslint-disable-next-line @next/next/no-img-element -- markdown images are arbitrary external URLs
+      <img
+        src={props.src}
+        alt={props.alt || ""}
+        className="max-w-full rounded-lg border border-border my-3"
+        loading="lazy"
+      />
+    ),
+  };
+}
+
 export function MarkdownRenderer({
   content,
   citations,
   className,
 }: MarkdownRendererProps) {
-  const blocks = parseMarkdown(content);
+  const seniorMode = useAppStore((s) => s.seniorMode);
 
-  return (
-    <div className={cn("space-y-2 text-sm leading-relaxed", className)}>
-      {blocks.map((block, idx) => (
-        <BlockRenderer
-          key={idx}
-          block={block}
-          citations={citations}
-        />
-      ))}
-    </div>
+  const components = useMemo(
+    () => createMarkdownComponents(citations, seniorMode),
+    [citations, seniorMode]
   );
-}
 
-// === 解析 ===
-
-type MdBlock =
-  | { type: "h1" | "h2" | "h3"; text: string }
-  | { type: "ul" | "ol"; items: string[] }
-  | { type: "code"; lang: string; code: string }
-  | { type: "quote"; text: string }
-  | { type: "table"; header: string[]; rows: string[][] }
-  | { type: "paragraph"; text: string };
-
-function parseMarkdown(src: string): MdBlock[] {
-  const lines = src.split("\n");
-  const blocks: MdBlock[] = [];
-  let i = 0;
-  while (i < lines.length) {
-    const line = lines[i];
-
-    // 代码块
-    const codeFenceMatch = line.match(/^```(\w*)/);
-    if (codeFenceMatch) {
-      const lang = codeFenceMatch[1] ?? "";
-      const codeLines: string[] = [];
-      i++;
-      while (i < lines.length && !lines[i].startsWith("```")) {
-        codeLines.push(lines[i]);
-        i++;
-      }
-      i++; // 跳过结束 ```
-      blocks.push({ type: "code", lang, code: codeLines.join("\n") });
-      continue;
-    }
-
-    // 标题
-    const h3 = line.match(/^###\s+(.*)/);
-    if (h3) {
-      blocks.push({ type: "h3", text: h3[1] });
-      i++;
-      continue;
-    }
-    const h2 = line.match(/^##\s+(.*)/);
-    if (h2) {
-      blocks.push({ type: "h2", text: h2[1] });
-      i++;
-      continue;
-    }
-    const h1 = line.match(/^#\s+(.*)/);
-    if (h1) {
-      blocks.push({ type: "h1", text: h1[1] });
-      i++;
-      continue;
-    }
-
-    // 引用
-    const quote = line.match(/^>\s+(.*)/);
-    if (quote) {
-      const quoteLines: string[] = [quote[1]];
-      i++;
-      while (i < lines.length && /^>\s+/.test(lines[i])) {
-        quoteLines.push(lines[i].replace(/^>\s+/, ""));
-        i++;
-      }
-      blocks.push({ type: "quote", text: quoteLines.join("\n") });
-      continue;
-    }
-
-    // 表格
-    if (/\|/.test(line) && i + 1 < lines.length && /^\|?[\s-:|]+\|/.test(lines[i + 1])) {
-      const header = line.split("|").map((s) => s.trim()).filter(Boolean);
-      i += 2; // 跳过分隔行
-      const rows: string[][] = [];
-      while (i < lines.length && /\|/.test(lines[i])) {
-        rows.push(lines[i].split("|").map((s) => s.trim()).filter(Boolean));
-        i++;
-      }
-      blocks.push({ type: "table", header, rows });
-      continue;
-    }
-
-    // 无序列表
-    if (/^\s*[-*]\s+/.test(line)) {
-      const items: string[] = [];
-      while (i < lines.length && /^\s*[-*]\s+/.test(lines[i])) {
-        items.push(lines[i].replace(/^\s*[-*]\s+/, ""));
-        i++;
-      }
-      blocks.push({ type: "ul", items });
-      continue;
-    }
-
-    // 有序列表
-    if (/^\s*\d+\.\s+/.test(line)) {
-      const items: string[] = [];
-      while (i < lines.length && /^\s*\d+\.\s+/.test(lines[i])) {
-        items.push(lines[i].replace(/^\s*\d+\.\s+/, ""));
-        i++;
-      }
-      blocks.push({ type: "ol", items });
-      continue;
-    }
-
-    // 空行
-    if (line.trim() === "") {
-      i++;
-      continue;
-    }
-
-    // 段落（连续非空非语法行）
-    const paraLines: string[] = [line];
-    i++;
-    while (
-      i < lines.length &&
-      lines[i].trim() !== "" &&
-      !/^(#{1,3}\s|```|>\s|\s*[-*]\s|\s*\d+\.\s)/.test(lines[i])
-    ) {
-      paraLines.push(lines[i]);
-      i++;
-    }
-    blocks.push({ type: "paragraph", text: paraLines.join("\n") });
-  }
-  return blocks;
-}
-
-// === 渲染 ===
-
-function BlockRenderer({
-  block,
-  citations,
-}: {
-  block: MdBlock;
-  citations?: Citation[];
-}) {
-  switch (block.type) {
-    case "h1":
-      return (
-        <h1 className="text-xl font-bold mt-3 mb-1">
-          {renderInline(block.text, citations)}
-        </h1>
-      );
-    case "h2":
-      return (
-        <h2 className="text-lg font-bold mt-3 mb-1">
-          {renderInline(block.text, citations)}
-        </h2>
-      );
-    case "h3":
-      return (
-        <h3 className="text-base font-semibold mt-2 mb-1">
-          {renderInline(block.text, citations)}
-        </h3>
-      );
-    case "ul":
-      return (
-        <ul className="list-disc pl-5 space-y-1">
-          {block.items.map((item, idx) => (
-            <li key={idx}>{renderInline(item, citations)}</li>
-          ))}
-        </ul>
-      );
-    case "ol":
-      return (
-        <ol className="list-decimal pl-5 space-y-1">
-          {block.items.map((item, idx) => (
-            <li key={idx}>{renderInline(item, citations)}</li>
-          ))}
-        </ol>
-      );
-    case "code":
-      return <CodeBlock lang={block.lang} code={block.code} />;
-    case "quote":
-      return (
-        <blockquote className="border-l-4 border-border pl-3 py-1 text-muted-foreground italic">
-          {renderInline(block.text, citations)}
-        </blockquote>
-      );
-    case "table":
-      return (
-        <div className="overflow-x-auto">
-          <table className="min-w-full text-xs border border-border rounded">
-            <thead className="bg-muted">
-              <tr>
-                {block.header.map((h, idx) => (
-                  <th key={idx} className="border border-border px-2 py-1 text-left">
-                    {renderInline(h, citations)}
-                  </th>
-                ))}
-              </tr>
-            </thead>
-            <tbody>
-              {block.rows.map((row, ridx) => (
-                <tr key={ridx}>
-                  {row.map((cell, cidx) => (
-                    <td key={cidx} className="border border-border px-2 py-1">
-                      {renderInline(cell, citations)}
-                    </td>
-                  ))}
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
-      );
-    case "paragraph":
-      return (
-        <p className="whitespace-pre-wrap">
-          {renderInline(block.text, citations)}
-        </p>
-      );
-  }
-}
-
-/**
- * 渲染行内元素，支持嵌套（加粗内可以包含引用、链接等）
- * 匹配优先级：行内代码 > 链接 > 加粗 > 引用角标 > 普通文本
- * 使用分段递归处理，避免误判
- */
-function renderInline(text: string, citations?: Citation[]): ReactNode[] {
-  return renderInlineSegment(text, citations, 0);
-}
-
-type InlineToken =
-  | { type: "text"; content: string }
-  | { type: "code"; content: string }
-  | { type: "bold"; content: string }
-  | { type: "link"; text: string; url: string }
-  | { type: "citation"; id: number };
-
-function tokenizeInline(text: string): InlineToken[] {
-  const tokens: InlineToken[] = [];
-  let i = 0;
-
-  while (i < text.length) {
-    // 行内代码 `code`
-    if (text[i] === "`") {
-      const end = text.indexOf("`", i + 1);
-      if (end !== -1) {
-        tokens.push({ type: "code", content: text.slice(i + 1, end) });
-        i = end + 1;
-        continue;
-      }
-    }
-
-    // Markdown链接 [text](url) — 最高优先级（在引用角标之前）
-    if (text[i] === "[") {
-      const bracketEnd = text.indexOf("]", i + 1);
-      if (bracketEnd !== -1 && text[bracketEnd + 1] === "(") {
-        const parenEnd = text.indexOf(")", bracketEnd + 2);
-        if (parenEnd !== -1) {
-          const linkText = text.slice(i + 1, bracketEnd);
-          const linkUrl = text.slice(bracketEnd + 2, parenEnd);
-          // 只有当链接文本不是纯数字时才当作链接（纯数字+括号可能是角标被误判，但角标后不会跟括号）
-          // 实际上链接的括号模式 [x](y) 本身就足以区分于引用 [n]
-          tokens.push({ type: "link", text: linkText, url: linkUrl });
-          i = parenEnd + 1;
-          continue;
-        }
-      }
-    }
-
-    // 加粗 **text**
-    if (text[i] === "*" && text[i + 1] === "*") {
-      const end = text.indexOf("**", i + 2);
-      if (end !== -1) {
-        tokens.push({ type: "bold", content: text.slice(i + 2, end) });
-        i = end + 2;
-        continue;
-      }
-    }
-
-    // 引用角标 [n] — 纯数字，且后面不是(（已被链接匹配排除）
-    if (text[i] === "[") {
-      const bracketEnd = text.indexOf("]", i + 1);
-      if (bracketEnd !== -1) {
-        const numStr = text.slice(i + 1, bracketEnd);
-        if (/^\d+$/.test(numStr)) {
-          tokens.push({ type: "citation", id: parseInt(numStr, 10) });
-          i = bracketEnd + 1;
-          continue;
-        }
-      }
-    }
-
-    // 普通文本：积累到下一个特殊字符
-    let textEnd = i + 1;
-    while (textEnd < text.length) {
-      const ch = text[textEnd];
-      if (ch === "`" || ch === "[" || (ch === "*" && text[textEnd + 1] === "*")) {
-        break;
-      }
-      textEnd++;
-    }
-    const plainContent = text.slice(i, textEnd);
-    if (plainContent) {
-      tokens.push({ type: "text", content: plainContent });
-    }
-    i = textEnd;
-  }
-
-  return tokens;
-}
-
-function renderInlineSegment(text: string, citations: Citation[] | undefined, keyBase: number): ReactNode[] {
-  const tokens = tokenizeInline(text);
-  return tokens.map((token, idx) => {
-    const key = `${keyBase}-${idx}`;
-    switch (token.type) {
-      case "text":
-        return <Fragment key={key}>{token.content}</Fragment>;
-      case "code":
-        return (
-          <code
-            key={key}
-            className="rounded bg-muted px-1 py-0.5 text-[0.85em] font-mono"
-          >
-            {token.content}
-          </code>
-        );
-      case "bold":
-        return (
-          <strong key={key} className="font-semibold">
-            {renderInlineSegment(token.content, citations, keyBase * 100 + idx)}
-          </strong>
-        );
-      case "link":
-        return (
-          <a
-            key={key}
-            href={token.url}
-            target="_blank"
-            rel="noopener noreferrer"
-            className="text-primary hover:underline"
-          >
-            {renderInlineSegment(token.text, citations, keyBase * 100 + idx)}
-          </a>
-        );
-      case "citation": {
-        const citeId = token.id;
-        const citation = citations?.find((c) => c && c.id === citeId);
-        if (citation) {
-          return (
-            <CitationPopover
-              key={key}
-              citation={citation}
-              index={citeId}
-              allCitations={citations}
-            />
-          );
-        }
-        return (
-          <sup
-            key={key}
-            className="text-blue-600 dark:text-blue-400 font-semibold text-[0.7em] ml-0.5"
-          >
-            [{citeId}]
-          </sup>
-        );
-      }
-    }
-  });
-}
-
-/** 代码块 + 复制按钮 */
-function CodeBlock({ lang, code }: { lang: string; code: string }) {
-  const [copied, setCopied] = useState(false);
-  const handleCopy = () => {
-    navigator.clipboard?.writeText(code).then(() => {
-      setCopied(true);
-      setTimeout(() => setCopied(false), 1500);
-    });
-  };
   return (
-    <div className="relative group rounded-lg border border-border bg-muted/60 overflow-hidden">
-      <div className="flex items-center justify-between px-3 py-1 border-b border-border/60 bg-muted">
-        <span className="text-xs text-muted-foreground font-mono">
-          {lang || "code"}
-        </span>
-        <button
-          type="button"
-          onClick={handleCopy}
-          className="text-muted-foreground hover:text-foreground inline-flex items-center gap-1 text-xs"
-          aria-label="复制代码"
-        >
-          {copied ? (
-            <>
-              <Check className="size-3" />
-              已复制
-            </>
-          ) : (
-            <>
-              <Copy className="size-3" />
-              复制
-            </>
-          )}
-        </button>
-      </div>
-      <pre className="overflow-x-auto p-3 text-xs leading-relaxed">
-        <code className="font-mono">{code}</code>
-      </pre>
+    <div
+      className={cn(
+        "markdown-body",
+        seniorMode ? "text-base leading-[1.8]" : "text-sm leading-relaxed",
+        className
+      )}
+    >
+      <ReactMarkdown
+        remarkPlugins={[remarkGfm]}
+        components={components as Record<string, unknown>}
+      >
+        {content}
+      </ReactMarkdown>
     </div>
   );
 }

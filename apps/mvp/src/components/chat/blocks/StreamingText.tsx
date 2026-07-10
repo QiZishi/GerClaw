@@ -3,73 +3,81 @@
 import { useState, useEffect, useRef } from "react";
 import { Loader2 } from "lucide-react";
 import { cn } from "@/lib/utils";
+import { MarkdownRenderer } from "../MarkdownRenderer";
+import type { Citation } from "@/types";
 
 interface StreamingTextProps {
   content: string;
   streaming?: boolean;
   className?: string;
+  citations?: Citation[];
 }
 
 const BASE_DELAY = 20;
 const DELAY_VARIANCE = 5;
 
-export function StreamingText({
+function StreamingTextInner({
   content,
-  streaming = false,
   className,
-}: StreamingTextProps) {
-  const [displayedContent, setDisplayedContent] = useState("");
+  citations,
+}: Omit<StreamingTextProps, "streaming">) {
+  const [displayedLength, setDisplayedLength] = useState(0);
+  const [showCursor, setShowCursor] = useState(false);
   const timeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const contentRef = useRef("");
-  const displayedLengthRef = useRef(0);
+  const targetLengthRef = useRef(0);
+  const startedRef = useRef(false);
 
   useEffect(() => {
-    if (!streaming) {
-      if (timeoutRef.current) {
-        clearTimeout(timeoutRef.current);
-        timeoutRef.current = null;
-      }
-      contentRef.current = "";
-      displayedLengthRef.current = 0;
-      return;
-    }
+    targetLengthRef.current = content.length;
 
-    contentRef.current = content;
-
-    const typeNextChar = () => {
-      if (displayedLengthRef.current >= contentRef.current.length) {
-        timeoutRef.current = null;
-        return;
-      }
-
-      displayedLengthRef.current += 1;
-      setDisplayedContent(contentRef.current.slice(0, displayedLengthRef.current));
-
-      if (displayedLengthRef.current < contentRef.current.length) {
-        const delay = BASE_DELAY + (Math.random() * 2 - 1) * DELAY_VARIANCE;
-        timeoutRef.current = setTimeout(typeNextChar, delay);
-      } else {
-        timeoutRef.current = null;
-      }
-    };
-
-    if (!timeoutRef.current && displayedLengthRef.current < content.length) {
+    if (!startedRef.current) {
+      startedRef.current = true;
+      setShowCursor(true);
       const delay = BASE_DELAY + (Math.random() * 2 - 1) * DELAY_VARIANCE;
-      timeoutRef.current = setTimeout(typeNextChar, delay);
+      timeoutRef.current = setTimeout(function typeNext() {
+        setDisplayedLength((prev) => {
+          const next = prev + 1;
+          if (next >= targetLengthRef.current) {
+            setShowCursor(false);
+            timeoutRef.current = null;
+            return targetLengthRef.current;
+          }
+          const nextDelay = BASE_DELAY + (Math.random() * 2 - 1) * DELAY_VARIANCE;
+          timeoutRef.current = setTimeout(typeNext, nextDelay);
+          return next;
+        });
+      }, delay);
     }
-  }, [content, streaming]);
 
-  useEffect(() => {
     return () => {
       if (timeoutRef.current) {
         clearTimeout(timeoutRef.current);
+        timeoutRef.current = null;
       }
     };
-  }, []);
+  }, [content]);
 
-  if (!streaming) {
-    return <span className={cn("whitespace-pre-wrap", className)}>{content}</span>;
-  }
+  useEffect(() => {
+    if (displayedLength < content.length && !timeoutRef.current) {
+      setShowCursor(true);
+      const delay = BASE_DELAY + (Math.random() * 2 - 1) * DELAY_VARIANCE;
+      timeoutRef.current = setTimeout(function typeNext() {
+        setDisplayedLength((prev) => {
+          const next = prev + 1;
+          if (next >= targetLengthRef.current) {
+            setShowCursor(false);
+            timeoutRef.current = null;
+            return targetLengthRef.current;
+          }
+          const nextDelay = BASE_DELAY + (Math.random() * 2 - 1) * DELAY_VARIANCE;
+          timeoutRef.current = setTimeout(typeNext, nextDelay);
+          return next;
+        });
+      }, delay);
+    }
+  }, [content, displayedLength]);
+
+  const displayedContent = content.slice(0, displayedLength);
 
   if (!displayedContent) {
     return (
@@ -80,9 +88,32 @@ export function StreamingText({
   }
 
   return (
-    <span className={cn("whitespace-pre-wrap", className)}>
-      {displayedContent}
-      <span className="typing-cursor" aria-hidden />
+    <span className={cn("block relative", className)}>
+      <MarkdownRenderer content={displayedContent} citations={citations} />
+      {showCursor && <span className="typing-cursor" aria-hidden />}
     </span>
+  );
+}
+
+export function StreamingText({
+  content,
+  streaming = false,
+  className,
+  citations,
+}: StreamingTextProps) {
+  if (!streaming) {
+    return (
+      <span className={cn("block", className)}>
+        <MarkdownRenderer content={content} citations={citations} />
+      </span>
+    );
+  }
+
+  return (
+    <StreamingTextInner
+      content={content}
+      className={className}
+      citations={citations}
+    />
   );
 }
