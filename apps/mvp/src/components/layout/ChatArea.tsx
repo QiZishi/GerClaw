@@ -34,13 +34,12 @@ import { cn } from "@/lib/utils";
 import { HIGH_RISK_SYMPTOMS, EMERGENCY_ALERT } from "@/lib/constants";
 import { postprocessMedicalText } from "@/lib/security-postprocess";
 import { streamChat, buildSystemPrompt, type LLMMessage } from "@/services/llm";
-import { search } from "@/services/search/search-client";
 import { exportConversationToMarkdown } from "@/lib/export";
 import { toast } from "@/components/ui/toast";
 import { useAudioPlayer } from "@/hooks/useAudioPlayer";
 import { useAudioRecorder } from "@/hooks/useAudioRecorder";
 import { recognizeAudio } from "@/services/voice/asr";
-import type { ChatActionType, Citation, ImageAttachment, Message, MessageBlock, Scale, ScaleQuestion, SearchResultItem, SimpleStepData } from "@/types";
+import type { ChatActionType, Citation, ImageAttachment, Message, MessageBlock, Scale, ScaleQuestion, SearchResultItem } from "@/types";
 import { generateId } from "@/lib/format";
 
 /** 检测文本中是否包含高风险症状关键词（铁律5关联） */
@@ -135,31 +134,6 @@ function WaveformBars({ audioLevel, recordingDuration, seniorMode }: { audioLeve
       })}
     </div>
   );
-}
-
-const SEARCH_KEYWORDS = ["搜索", "查一下", "最新", "指南", "查一查", "搜一下", "帮我查", "最新的", "最新指南", "检索"];
-
-function detectSearchNeed(text: string): boolean {
-  return SEARCH_KEYWORDS.some((kw) => text.includes(kw));
-}
-
-function formatSearchResultsForLLM(results: SearchResultItem[]): string {
-  if (results.length === 0) return "";
-  const lines = results.map((r, i) => {
-    return `[${i + 1}] ${r.title}\n来源：${r.source}\n链接：${r.url}\n摘要：${r.snippet}`;
-  });
-  return `\n\n以下是联网搜索到的相关参考资料，请基于这些资料回答用户问题，并在回答中自然引用来源编号（如"根据资料[1]..."）：\n\n${lines.join("\n\n")}\n`;
-}
-
-function searchResultsToCitations(results: SearchResultItem[]): Citation[] {
-  return results.map((r, i) => ({
-    id: i + 1,
-    title: r.title,
-    snippet: r.snippet,
-    url: r.url,
-    source: r.source,
-    publishedDate: r.publishedDate,
-  }));
 }
 
 /** 构建高风险症状立即就医强提示消息 */
@@ -270,9 +244,6 @@ export function ChatArea() {
   const finalizeMessageThinking = useChatStore((s) => s.finalizeMessageThinking);
   const initMessageToolCall = useChatStore((s) => s.initMessageToolCall);
   const completeMessageToolCall = useChatStore((s) => s.completeMessageToolCall);
-  const failMessageToolCall = useChatStore((s) => s.failMessageToolCall);
-  const updateMessageStep = useChatStore((s) => s.updateMessageStep);
-  const finalizeMessageSteps = useChatStore((s) => s.finalizeMessageSteps);
   const removeMessage = useChatStore((s) => s.removeMessage);
   const updateSession = useChatStore((s) => s.updateSession);
   const createSession = useChatStore((s) => s.createSession);
@@ -467,7 +438,7 @@ export function ChatArea() {
 
       streamChat(
         llmMessages,
-        { signal: abortControllerRef.current.signal },
+        { signal: abortControllerRef.current.signal, tools: [] },
         {
           onThinkingStart: () => {
             initMessageThinking(assistantMsgId, thinkingBlockId);
@@ -776,6 +747,7 @@ export function ChatArea() {
         if (m.id === excludeMsgId) continue;
         if (m.role !== "user" && m.role !== "assistant") continue;
         const content = messageBlocksToLLMContent(m);
+        if (content === null) continue;
         const isEmpty = typeof content === "string" ? !content : content.length === 0;
         if (m.role === "assistant" && isEmpty) continue;
         if (isEmpty) continue;
@@ -859,7 +831,7 @@ ${forceGenerate ? "重要：已达到对话轮次上限，请立即输出 [生�
 
       streamChat(
         buildActionMessages(),
-        { signal: abortControllerRef.current.signal },
+        { signal: abortControllerRef.current.signal, tools: [] },
         {
           onThinkingStart: () => {
             initMessageThinking(assistantMsgId, thinkingBlockId);
@@ -963,7 +935,7 @@ ${forceGenerate ? "重要：已达到对话轮次上限，请立即输出 [生�
                 
                 streamChat(
                   reportMessages,
-                  { signal: abortControllerRef.current.signal },
+                  { signal: abortControllerRef.current.signal, tools: [] },
                   {
                     onText: (delta, fullText) => {
                       if (isFirstChunk) {
@@ -1112,26 +1084,6 @@ ${forceGenerate ? "重要：已达到对话轮次上限，请立即输出 [生�
     const assistantMsgId = generateId("msg");
     const assistantBlockId = generateId("block");
     const thinkingBlockId = generateId("block");
-    const searchBlockId = generateId("block");
-    const toolCallBlockId = generateId("block");
-    const stepThinkingId = generateId("step");
-    const stepSearchId = generateId("step");
-    const stepAnsweringId = generateId("step");
-    const needSearch = detectSearchNeed(text);
-
-    const buildInitialSteps = (withSearch: boolean): SimpleStepData[] => {
-      if (withSearch) {
-        return [
-          { id: stepThinkingId, label: "思考中", status: "pending", icon: "thinking" },
-          { id: stepSearchId, label: "搜索中", status: "running", icon: "search" },
-          { id: stepAnsweringId, label: "回答中", status: "pending", icon: "answering" },
-        ];
-      }
-      return [
-        { id: stepThinkingId, label: "思考中", status: "running", icon: "thinking" },
-        { id: stepAnsweringId, label: "回答中", status: "pending", icon: "answering" },
-      ];
-    };
 
     const assistantMsg: Message = {
       id: assistantMsgId,
@@ -1145,24 +1097,22 @@ ${forceGenerate ? "重要：已达到对话轮次上限，请立即输出 [生�
           streaming: true,
         },
       ],
-      steps: buildInitialSteps(needSearch),
       status: "streaming",
       createdAt: Date.now(),
       hasDisclaimer: false,
     };
     addMessage(assistantMsg);
-    if (!needSearch) {
-      initMessageThinking(assistantMsgId, thinkingBlockId);
-    }
+    initMessageThinking(assistantMsgId, thinkingBlockId);
 
-    const buildLLMMessages = (searchContext: string): LLMMessage[] => {
+    const toolCallBlockMap = new Map<string, string>();
+    const searchBlockIds = new Map<string, string>();
+    let allCitations: Citation[] = [];
+
+    const buildLLMMessages = (): LLMMessage[] => {
       const llmMessages: LLMMessage[] = [];
       let systemPrompt = buildSystemPrompt(role);
       if (hasHighRisk) {
         systemPrompt += "\n\n重要提示：用户提到了高风险症状，你已经发送了紧急就医提示，请继续温和地安抚用户并强调立即就医的重要性，不要给出其他医疗建议。";
-      }
-      if (searchContext) {
-        systemPrompt += searchContext;
       }
       llmMessages.push({ role: "system", content: systemPrompt });
 
@@ -1171,168 +1121,207 @@ ${forceGenerate ? "重要：已达到对话轮次上限，请立即输出 [生�
       return llmMessages;
     };
 
-    const startStreaming = (searchResults: SearchResultItem[]) => {
-      const searchContext = formatSearchResultsForLLM(searchResults);
-      const llmMessages = buildLLMMessages(searchContext);
-      const citations = searchResultsToCitations(searchResults);
+    const llmMessages = buildLLMMessages();
 
-      if (needSearch) {
-        updateMessageStep(assistantMsgId, stepSearchId, { status: "done" });
-        updateMessageStep(assistantMsgId, stepThinkingId, { status: "running" });
-      }
+    abortControllerRef.current = new AbortController();
 
-      const currentMsg = useChatStore.getState().messagesBySession[sid]?.find(m => m.id === assistantMsgId);
-      const existingThinkingBlock = currentMsg?.blocks.find(b => b.kind === "thinking");
-      const existingToolBlock = currentMsg?.blocks.find(b => b.kind === "tool_call" && b.id === toolCallBlockId);
-      const blocks: MessageBlock[] = [];
-      if (existingThinkingBlock) {
-        blocks.push(existingThinkingBlock);
-      } else {
-        blocks.push({
-          kind: "thinking",
-          id: thinkingBlockId,
-          data: {
-            id: thinkingBlockId,
-            content: "",
-            status: "thinking",
-            startedAt: Date.now(),
-          },
-        });
-      }
-      if (existingToolBlock) {
-        blocks.push(existingToolBlock);
-      }
-      if (searchResults.length > 0) {
-        blocks.push({
-          kind: "search_results",
-          id: searchBlockId,
-          data: searchResults,
-        });
-      }
-      blocks.push({
-        kind: "text",
-        id: assistantBlockId,
-        content: "",
-        streaming: true,
-      });
-      updateMessage(assistantMsgId, { blocks, citations: searchResults.length > 0 ? citations : undefined });
+    streamChat(
+      llmMessages,
+      { signal: abortControllerRef.current.signal },
+      {
+        onThinkingStart: () => {
+          initMessageThinking(assistantMsgId, thinkingBlockId);
+        },
+        onThinkingDelta: (delta) => {
+          appendMessageThinking(assistantMsgId, thinkingBlockId, delta);
+        },
+        onThinkingDone: () => {
+          finalizeMessageThinking(assistantMsgId, thinkingBlockId);
+        },
+        onText: (delta) => {
+          appendMessageText(assistantMsgId, assistantBlockId, delta);
+        },
+        onToolCallStart: ({ id, name }) => {
+          const toolBlockId = generateId("block");
+          toolCallBlockMap.set(id, toolBlockId);
+          initMessageToolCall(assistantMsgId, toolBlockId, id, name);
+        },
+        onToolCallDelta: () => {
+        },
+        onToolCallEnd: (toolCallId, args) => {
+          const toolBlockId = toolCallBlockMap.get(toolCallId);
+          if (!toolBlockId) return;
+          const currentMsg = useChatStore.getState().messagesBySession[sid]?.find(m => m.id === assistantMsgId);
+          if (!currentMsg) return;
+          const toolBlock = currentMsg.blocks.find(b => b.kind === "tool_call" && b.id === toolBlockId);
+          if (toolBlock && toolBlock.kind === "tool_call") {
+            updateMessage(assistantMsgId, {
+              blocks: currentMsg.blocks.map(b => {
+                if (b.kind === "tool_call" && b.id === toolBlockId) {
+                  return {
+                    ...b,
+                    data: { ...b.data, args },
+                  };
+                }
+                return b;
+              }),
+            });
+          }
+        },
+        onToolResult: (toolCallId, result) => {
+          const toolBlockId = toolCallBlockMap.get(toolCallId);
+          if (!toolBlockId) return;
 
-      abortControllerRef.current = new AbortController();
+          const currentMsg = useChatStore.getState().messagesBySession[sid]?.find(m => m.id === assistantMsgId);
+          if (!currentMsg) return;
 
-      streamChat(
-        llmMessages,
-        { signal: abortControllerRef.current.signal },
-        {
-          onThinkingStart: () => {
-            initMessageThinking(assistantMsgId, thinkingBlockId);
-          },
-          onThinkingDelta: (delta) => {
-            appendMessageThinking(assistantMsgId, thinkingBlockId, delta);
-          },
-          onThinkingDone: () => {
-            finalizeMessageThinking(assistantMsgId, thinkingBlockId);
-            updateMessageStep(assistantMsgId, stepThinkingId, { status: "done" });
-            updateMessageStep(assistantMsgId, stepAnsweringId, { status: "running" });
-          },
-          onText: (delta) => {
-            appendMessageText(assistantMsgId, assistantBlockId, delta);
-          },
-          onDone: (fullText) => {
-            abortControllerRef.current = null;
-            finalizeMessageThinking(assistantMsgId, thinkingBlockId);
-            finalizeMessageSteps(assistantMsgId);
-            const finalContent = postprocessMedicalText(fullText);
-            const msgNow = useChatStore.getState().messagesBySession[sid]?.find(m => m.id === assistantMsgId);
-            const finalBlocks: MessageBlock[] = [];
-            const tb = msgNow?.blocks.find(b => b.kind === "thinking");
-            const tcb = msgNow?.blocks.find(b => b.kind === "tool_call");
-            const sb = msgNow?.blocks.find(b => b.kind === "search_results");
-            if (tb) finalBlocks.push(tb);
-            if (tcb) finalBlocks.push(tcb);
-            if (sb) finalBlocks.push(sb);
+          const toolBlock = currentMsg.blocks.find(b => b.kind === "tool_call" && b.id === toolBlockId);
+          let args: Record<string, unknown> = {};
+          if (toolBlock && toolBlock.kind === "tool_call") {
+            args = toolBlock.data.args || {};
+          }
+
+          completeMessageToolCall(assistantMsgId, toolBlockId, args, result);
+
+          if (toolBlock && toolBlock.kind === "tool_call" && toolBlock.data.toolName === "web_search") {
+            const searchData = result as { results?: { title: string; url: string; content: string; source?: string; published_date?: string }[] };
+            const results = searchData.results || [];
+            if (results.length > 0) {
+              const searchBlockId = generateId("block");
+              searchBlockIds.set(toolCallId, searchBlockId);
+
+              const searchResults: SearchResultItem[] = results.map((r) => {
+                let source = "";
+                try {
+                  const url = new URL(r.url);
+                  source = url.hostname.replace(/^www\./, "");
+                } catch {
+                  source = r.url;
+                }
+                return {
+                  id: generateId("search"),
+                  title: r.title || "无标题",
+                  url: r.url,
+                  source: r.source || source,
+                  snippet: r.content || "",
+                  publishedDate: r.published_date,
+                };
+              });
+
+              const newCitations: Citation[] = searchResults.map((r, i) => ({
+                id: allCitations.length + i + 1,
+                title: r.title,
+                snippet: r.snippet,
+                url: r.url,
+                source: r.source,
+                publishedDate: r.publishedDate,
+              }));
+              allCitations = [...allCitations, ...newCitations];
+
+              const msgNow = useChatStore.getState().messagesBySession[sid]?.find(m => m.id === assistantMsgId);
+              if (msgNow) {
+                const textBlockIdx = msgNow.blocks.findIndex(b => b.kind === "text" && b.id === assistantBlockId);
+                const newBlocks = [...msgNow.blocks];
+                const searchBlock: MessageBlock = {
+                  kind: "search_results",
+                  id: searchBlockId,
+                  data: searchResults,
+                };
+                if (textBlockIdx !== -1) {
+                  newBlocks.splice(textBlockIdx, 0, searchBlock);
+                } else {
+                  newBlocks.push(searchBlock);
+                }
+                updateMessage(assistantMsgId, {
+                  blocks: newBlocks,
+                  citations: allCitations.length > 0 ? allCitations : undefined,
+                });
+              }
+            }
+          }
+        },
+        onDone: (fullText) => {
+          abortControllerRef.current = null;
+          finalizeMessageThinking(assistantMsgId, thinkingBlockId);
+          const finalContent = postprocessMedicalText(fullText);
+          const msgNow = useChatStore.getState().messagesBySession[sid]?.find(m => m.id === assistantMsgId);
+          const finalBlocks: MessageBlock[] = [];
+          if (msgNow) {
+            for (const b of msgNow.blocks) {
+              if (b.kind === "text" && b.id === assistantBlockId) {
+                finalBlocks.push({
+                  kind: "text",
+                  id: assistantBlockId,
+                  content: finalContent,
+                  streaming: false,
+                });
+              } else {
+                finalBlocks.push(b);
+              }
+            }
+          } else {
             finalBlocks.push({
               kind: "text",
               id: assistantBlockId,
               content: finalContent,
               streaming: false,
             });
-            updateMessage(assistantMsgId, {
-              status: "done",
-              blocks: finalBlocks,
-              citations: searchResults.length > 0 ? citations : undefined,
-              hasDisclaimer: true,
-            });
-            setGenerating(false);
+          }
+          updateMessage(assistantMsgId, {
+            status: "done",
+            blocks: finalBlocks,
+            citations: allCitations.length > 0 ? allCitations : undefined,
+            hasDisclaimer: true,
+          });
+          setGenerating(false);
 
-            if (!isRegenerate) {
-              const latestMsgs = useChatStore.getState().messagesBySession[sid] ?? [];
-              const firstUserMsg = latestMsgs.find((m) => m.role === "user");
-              if (firstUserMsg) {
-                trySetSessionTitle(sid, getTextFromMessage(firstUserMsg));
+          if (!isRegenerate) {
+            const latestMsgs = useChatStore.getState().messagesBySession[sid] ?? [];
+            const firstUserMsg = latestMsgs.find((m) => m.role === "user");
+            if (firstUserMsg) {
+              trySetSessionTitle(sid, getTextFromMessage(firstUserMsg));
+            }
+          }
+          autoReadRef.current(finalContent);
+        },
+        onError: () => {
+          abortControllerRef.current = null;
+          finalizeMessageThinking(assistantMsgId, thinkingBlockId);
+          const msgNow = useChatStore.getState().messagesBySession[sid]?.find(m => m.id === assistantMsgId);
+          const finalBlocks: MessageBlock[] = [];
+          const existingTextBlock = msgNow?.blocks.find(b => b.kind === "text" && b.id === assistantBlockId);
+          const existingContent = existingTextBlock && existingTextBlock.kind === "text" ? existingTextBlock.content : "";
+
+          if (msgNow) {
+            for (const b of msgNow.blocks) {
+              if (b.kind !== "text" || b.id !== assistantBlockId) {
+                finalBlocks.push(b);
               }
             }
-          },
-          onError: () => {
-            abortControllerRef.current = null;
-            finalizeMessageThinking(assistantMsgId, thinkingBlockId);
-            finalizeMessageSteps(assistantMsgId);
-            const msgNow = useChatStore.getState().messagesBySession[sid]?.find(m => m.id === assistantMsgId);
-            const finalBlocks: MessageBlock[] = [];
-            const tb = msgNow?.blocks.find(b => b.kind === "thinking");
-            const tcb = msgNow?.blocks.find(b => b.kind === "tool_call");
-            const sb = msgNow?.blocks.find(b => b.kind === "search_results");
-            const existingTextBlock = msgNow?.blocks.find(b => b.kind === "text" && b.id === assistantBlockId);
-            const existingContent = existingTextBlock && existingTextBlock.kind === "text" ? existingTextBlock.content : "";
-            
-            if (tb) finalBlocks.push(tb);
-            if (tcb) finalBlocks.push(tcb);
-            if (sb) finalBlocks.push(sb);
-            
-            let finalContent = existingContent;
-            if (finalContent.trim()) {
-              finalContent += "\n\n---\n*回复中断，点击下方「重新生成」按钮继续*";
-            } else {
-              finalContent = "*回复中断，请点击重新生成按钮重试*";
-            }
-            
-            finalBlocks.push({
-              kind: "text",
-              id: assistantBlockId,
-              content: postprocessMedicalText(finalContent),
-              streaming: false,
-            });
-            updateMessage(assistantMsgId, {
-              status: "interrupted",
-              blocks: finalBlocks,
-              hasDisclaimer: true,
-            });
-            setGenerating(false);
-          },
-        }
-      );
-    };
-
-    if (needSearch) {
-      initMessageToolCall(assistantMsgId, toolCallBlockId, "联网搜索", { query: text });
-      search(text)
-        .then((results) => {
-          if (results.length > 0) {
-            completeMessageToolCall(assistantMsgId, toolCallBlockId, {
-              resultCount: results.length,
-              titles: results.map(r => r.title),
-            });
-          } else {
-            completeMessageToolCall(assistantMsgId, toolCallBlockId, { resultCount: 0 });
           }
-          startStreaming(results);
-        })
-        .catch((err) => {
-          failMessageToolCall(assistantMsgId, toolCallBlockId, err instanceof Error ? err.message : "搜索失败");
-          startStreaming([]);
-        });
-    } else {
-      startStreaming([]);
-    }
+
+          let finalContent = existingContent;
+          if (finalContent.trim()) {
+            finalContent += "\n\n---\n*回复中断，点击下方「重新生成」按钮继续*";
+          } else {
+            finalContent = "*回复中断，请点击重新生成按钮重试*";
+          }
+
+          finalBlocks.push({
+            kind: "text",
+            id: assistantBlockId,
+            content: postprocessMedicalText(finalContent),
+            streaming: false,
+          });
+          updateMessage(assistantMsgId, {
+            status: "interrupted",
+            blocks: finalBlocks,
+            hasDisclaimer: true,
+          });
+          setGenerating(false);
+        },
+      }
+    );
   };
 
   const handleExampleClick = (text: string) => {
@@ -1594,7 +1583,7 @@ ${answerDetails.join("\n")}
 
       streamChat(
         cgaMessages,
-        { signal: abortControllerRef.current.signal },
+        { signal: abortControllerRef.current.signal, tools: [] },
         {
           onText: (delta, fullText) => {
             setPanelContent(fullText);

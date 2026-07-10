@@ -69,9 +69,11 @@ export interface ThinkingBlock {
 /** 工具调用块（§4.2.3 ToolCallBlock） */
 export interface ToolCallBlock {
   id: string;
+  toolCallId?: string;
   toolName: string;
   toolIcon?: string;
-  params: Record<string, unknown>;
+  params?: Record<string, unknown>;
+  args?: Record<string, unknown>;
   result?: unknown;
   status: ToolCallStatus;
   errorMessage?: string;

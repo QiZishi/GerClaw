@@ -5,20 +5,45 @@ import {
   classifyError,
 } from "../api-client";
 
+export interface LLMTool {
+  type: "function";
+  function: {
+    name: string;
+    description: string;
+    parameters: Record<string, unknown>;
+  };
+}
+
 export interface LLMMessage {
-  role: "system" | "user" | "assistant";
-  content: string | LLMContentPart[];
+  role: "system" | "user" | "assistant" | "tool";
+  content: string | LLMContentPart[] | null;
+  tool_calls?: LLMToolCall[];
+  tool_call_id?: string;
 }
 
 export type LLMContentPart =
   | { type: "text"; text: string }
   | { type: "image_url"; image_url: { url: string } };
 
+export interface LLMToolCall {
+  id: string;
+  type: "function";
+  function: {
+    name: string;
+    arguments: string;
+  };
+  index?: number;
+}
+
 export interface LLMStreamCallbacks {
   onText?: (delta: string, fullText: string) => void;
   onThinkingDelta?: (delta: string, fullThinking: string) => void;
   onThinkingStart?: () => void;
   onThinkingDone?: (fullThinking: string) => void;
+  onToolCallStart?: (toolCall: { id: string; name: string; index: number }) => void;
+  onToolCallDelta?: (toolCallId: string, delta: string) => void;
+  onToolCallEnd?: (toolCallId: string, args: Record<string, unknown>) => void;
+  onToolResult?: (toolCallId: string, result: unknown) => void;
   onDone?: (fullText: string) => void;
   onError?: (error: Error) => void;
 }
@@ -28,6 +53,7 @@ export interface StreamOptions {
   maxTokens?: number;
   signal?: AbortSignal;
   modelPreference?: "primary" | "backup1" | "backup2" | "auto";
+  tools?: LLMTool[];
 }
 
 const PATIENT_SYSTEM_PROMPT = `你是GerClaw医学诊疗智能体，专为老年朋友提供健康咨询服务。
@@ -93,6 +119,7 @@ export async function streamChat(
         temperature: options.temperature ?? 0.7,
         maxTokens: options.maxTokens,
         modelPreference: options.modelPreference ?? "auto",
+        tools: options.tools,
       }),
       signal: options.signal,
     });
@@ -155,6 +182,73 @@ export async function streamChat(
           );
         }
         if (json.type === "fallback") {
+          return true;
+        }
+
+        if (json.type === "text" && json.delta) {
+          if (thinkingStarted && !thinkingEnded && fullThinking) {
+            callbacks.onThinkingDone?.(fullThinking);
+            thinkingEnded = true;
+          }
+          const textDelta = json.delta;
+          fullText += textDelta;
+          callbacks.onText?.(textDelta, fullText);
+          return true;
+        }
+
+        if (json.type === "thinking_start") {
+          thinkingStarted = true;
+          callbacks.onThinkingStart?.();
+          return true;
+        }
+
+        if (json.type === "thinking" && json.delta) {
+          if (!thinkingStarted) {
+            thinkingStarted = true;
+            callbacks.onThinkingStart?.();
+          }
+          fullThinking += json.delta;
+          callbacks.onThinkingDelta?.(json.delta, fullThinking);
+          return true;
+        }
+
+        if (json.type === "thinking_done") {
+          if (thinkingStarted && !thinkingEnded) {
+            callbacks.onThinkingDone?.(fullThinking);
+            thinkingEnded = true;
+          }
+          return true;
+        }
+
+        if (json.type === "tool_call_start") {
+          callbacks.onToolCallStart?.({
+            id: json.id,
+            name: json.name,
+            index: json.index ?? 0,
+          });
+          return true;
+        }
+
+        if (json.type === "tool_call_delta") {
+          callbacks.onToolCallDelta?.(json.id, json.delta ?? "");
+          return true;
+        }
+
+        if (json.type === "tool_call_end") {
+          let args: Record<string, unknown> = {};
+          if (json.args) {
+            try {
+              args = typeof json.args === "string" ? JSON.parse(json.args) : json.args;
+            } catch {
+              args = {};
+            }
+          }
+          callbacks.onToolCallEnd?.(json.id, args);
+          return true;
+        }
+
+        if (json.type === "tool_result") {
+          callbacks.onToolResult?.(json.id, json.result);
           return true;
         }
 

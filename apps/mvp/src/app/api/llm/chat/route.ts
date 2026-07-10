@@ -15,10 +15,20 @@ const BACKUP2_URL = process.env.NEXT_PUBLIC_BACKUP2_URL || "";
 const BACKUP2_API_KEY = process.env.NEXT_PUBLIC_BACKUP2_API_KEY || "";
 const BACKUP2_MODEL = process.env.NEXT_PUBLIC_BACKUP2_MODEL || "";
 
+const TAVILY_API_KEY = process.env.NEXT_PUBLIC_TAVILY_API_KEY || "";
+const ANYSEARCH_API_KEY = process.env.NEXT_PUBLIC_ANYSEARCH_API_KEY || "";
+
 interface ModelConfig {
   url: string;
   apiKey: string;
   modelName: string;
+}
+
+interface ToolCallState {
+  id: string;
+  name: string;
+  index: number;
+  argsJson: string;
 }
 
 function getModels(): ModelConfig[] {
@@ -41,10 +51,335 @@ function buildChatUrl(baseUrl: string): string {
   return `${trimmed}/chat/completions`;
 }
 
+const WEB_SEARCH_TOOL = {
+  type: "function" as const,
+  function: {
+    name: "web_search",
+    description: "搜索互联网获取最新信息、医学指南、新闻动态等实时内容",
+    parameters: {
+      type: "object",
+      properties: {
+        query: {
+          type: "string",
+          description: "搜索关键词",
+        },
+      },
+      required: ["query"],
+    },
+  },
+};
+
+async function executeWebSearch(query: string): Promise<unknown> {
+  const maxResults = 5;
+
+  if (TAVILY_API_KEY) {
+    try {
+      const response = await fetch("https://api.tavily.com/search", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          api_key: TAVILY_API_KEY,
+          query,
+          max_results: maxResults,
+          include_answer: true,
+        }),
+      });
+
+      if (response.ok) {
+        const data = await response.json();
+        const results = (data.results || []).map((r: { title: string; url: string; content: string; published_date?: string }) => ({
+          title: r.title,
+          url: r.url,
+          content: r.content,
+          published_date: r.published_date,
+        }));
+        return {
+          answer: data.answer || "",
+          results,
+          source: "tavily",
+        };
+      }
+    } catch {
+      // fall through
+    }
+  }
+
+  if (ANYSEARCH_API_KEY) {
+    try {
+      const response = await fetch("https://api.anysearch.com/v1/search", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${ANYSEARCH_API_KEY}`,
+        },
+        body: JSON.stringify({
+          query,
+          max_results: maxResults,
+        }),
+      });
+
+      if (response.ok) {
+        const data = await response.json();
+        const results = (data.results || []).map((r: { title: string; url: string; content: string; published_date?: string }) => ({
+          title: r.title,
+          url: r.url,
+          content: r.content,
+          published_date: r.published_date,
+        }));
+        return {
+          answer: data.answer || "",
+          results,
+          source: "anysearch",
+        };
+      }
+    } catch {
+      // fall through
+    }
+  }
+
+  return {
+    answer: "",
+    results: [],
+    error: "搜索服务不可用",
+  };
+}
+
+async function executeTool(name: string, args: Record<string, unknown>): Promise<unknown> {
+  if (name === "web_search") {
+    const query = String(args.query || "");
+    if (!query) return { error: "搜索关键词不能为空" };
+    return executeWebSearch(query);
+  }
+  return { error: `未知工具: ${name}` };
+}
+
+async function streamWithTools(
+  model: ModelConfig,
+  messages: Record<string, unknown>[],
+  tools: Record<string, unknown>[] | undefined,
+  temperature: number,
+  maxTokens: number | undefined,
+  encoder: TextEncoder,
+  controller: ReadableStreamDefaultController,
+  abortSignal: AbortSignal
+): Promise<void> {
+  const currentMessages = [...messages];
+  const maxIterations = 5;
+
+  for (let iteration = 0; iteration < maxIterations; iteration++) {
+    const url = buildChatUrl(model.url);
+    const reqBody: Record<string, unknown> = {
+      model: model.modelName,
+      messages: currentMessages,
+      stream: true,
+      temperature,
+      enable_thinking: true,
+    };
+    if (maxTokens) {
+      reqBody.max_tokens = maxTokens;
+    }
+    if (tools && tools.length > 0) {
+      reqBody.tools = tools;
+      reqBody.tool_choice = "auto";
+    }
+
+    const response = await fetch(url, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${model.apiKey}`,
+      },
+      body: JSON.stringify(reqBody),
+      signal: abortSignal,
+    });
+
+    if (!response.ok) {
+      const errText = await response.text();
+      throw new Error(`HTTP ${response.status}: ${errText}`);
+    }
+
+    if (!response.body) {
+      throw new Error("响应体为空");
+    }
+
+    const reader = response.body.getReader();
+    const decoder = new TextDecoder();
+    let buffer = "";
+
+    const toolCalls: ToolCallState[] = [];
+    let finishReason: string | null = null;
+    let thinkingEnded = false;
+
+    try {
+      while (true) {
+        if (abortSignal.aborted) {
+          controller.close();
+          return;
+        }
+        const { done, value } = await reader.read();
+        if (done) break;
+
+        buffer += decoder.decode(value, { stream: true });
+        const lines = buffer.split("\n");
+        buffer = lines.pop() ?? "";
+
+        for (const line of lines) {
+          const trimmed = line.trim();
+          if (!trimmed || !trimmed.startsWith("data: ")) continue;
+
+          const data = trimmed.slice(6);
+          if (data === "[DONE]") continue;
+
+          try {
+            const json = JSON.parse(data);
+            const choice = json.choices?.[0];
+            if (!choice) continue;
+
+            if (choice.finish_reason) {
+              finishReason = choice.finish_reason;
+            }
+
+            const delta = choice.delta;
+            if (!delta) continue;
+
+            const thinkingDelta = delta.reasoning_content || delta.thinking;
+            if (thinkingDelta) {
+              controller.enqueue(
+                encoder.encode(`data: ${JSON.stringify({ type: "thinking", delta: thinkingDelta })}\n\n`)
+              );
+            }
+
+            if (delta.content) {
+              if (!thinkingEnded) {
+                controller.enqueue(
+                  encoder.encode(`data: ${JSON.stringify({ type: "thinking_done" })}\n\n`)
+                );
+                thinkingEnded = true;
+              }
+              controller.enqueue(
+                encoder.encode(`data: ${JSON.stringify({ type: "text", delta: delta.content })}\n\n`)
+              );
+            }
+
+            if (delta.tool_calls && Array.isArray(delta.tool_calls)) {
+              if (!thinkingEnded) {
+                controller.enqueue(
+                  encoder.encode(`data: ${JSON.stringify({ type: "thinking_done" })}\n\n`)
+                );
+                thinkingEnded = true;
+              }
+              for (const tc of delta.tool_calls) {
+                const idx = tc.index ?? 0;
+                if (!toolCalls[idx]) {
+                  toolCalls[idx] = {
+                    id: tc.id || "",
+                    name: tc.function?.name || "",
+                    index: idx,
+                    argsJson: "",
+                  };
+                  if (tc.id) {
+                    controller.enqueue(
+                      encoder.encode(
+                        `data: ${JSON.stringify({
+                          type: "tool_call_start",
+                          id: tc.id,
+                          name: tc.function?.name || "",
+                          index: idx,
+                        })}\n\n`
+                      )
+                    );
+                  }
+                }
+                if (tc.function?.name) {
+                  toolCalls[idx].name = tc.function.name;
+                }
+                if (tc.function?.arguments) {
+                  toolCalls[idx].argsJson += tc.function.arguments;
+                  controller.enqueue(
+                    encoder.encode(
+                      `data: ${JSON.stringify({
+                        type: "tool_call_delta",
+                        id: toolCalls[idx].id,
+                        delta: tc.function.arguments,
+                      })}\n\n`
+                    )
+                  );
+                }
+              }
+            }
+          } catch {
+            // ignore parse errors for individual chunks
+          }
+        }
+      }
+    } finally {
+      reader.releaseLock();
+    }
+
+    const validToolCalls = toolCalls.filter((tc) => tc && tc.id && tc.name);
+
+    if (finishReason === "tool_calls" && validToolCalls.length > 0) {
+      const assistantMsg: Record<string, unknown> = {
+        role: "assistant",
+        content: null,
+        tool_calls: validToolCalls.map((tc) => ({
+          id: tc.id,
+          type: "function",
+          function: {
+            name: tc.name,
+            arguments: tc.argsJson,
+          },
+        })),
+      };
+      currentMessages.push(assistantMsg);
+
+      for (const tc of validToolCalls) {
+        let args: Record<string, unknown> = {};
+        try {
+          args = tc.argsJson ? JSON.parse(tc.argsJson) : {};
+        } catch {
+          args = {};
+        }
+
+        controller.enqueue(
+          encoder.encode(
+            `data: ${JSON.stringify({
+              type: "tool_call_end",
+              id: tc.id,
+              args,
+            })}\n\n`
+          )
+        );
+
+        const result = await executeTool(tc.name, args);
+
+        controller.enqueue(
+          encoder.encode(
+            `data: ${JSON.stringify({
+              type: "tool_result",
+              id: tc.id,
+              result,
+            })}\n\n`
+          )
+        );
+
+        const toolResultMsg: Record<string, unknown> = {
+          role: "tool",
+          tool_call_id: tc.id,
+          content: typeof result === "string" ? result : JSON.stringify(result),
+        };
+        currentMessages.push(toolResultMsg);
+      }
+    } else {
+      return;
+    }
+  }
+}
+
 export async function POST(request: NextRequest) {
   const abortSignal = request.signal;
   const body = await request.json();
-  const { messages, temperature, maxTokens, modelPreference } = body;
+  const { messages, temperature, maxTokens, modelPreference, tools } = body;
 
   const allModels = getModels();
   if (allModels.length === 0) {
@@ -65,9 +400,9 @@ export async function POST(request: NextRequest) {
     modelsToTry = allModels;
   }
 
-  const requestHeaders: Record<string, string> = {
-    "Content-Type": "application/json",
-  };
+  const hasExplicitTools = "tools" in body;
+  const effectiveTools = hasExplicitTools ? (tools as Record<string, unknown>[] | undefined) : [WEB_SEARCH_TOOL];
+  const tempValue = typeof temperature === "number" ? temperature : 0.7;
 
   const encoder = new TextEncoder();
 
@@ -80,106 +415,7 @@ export async function POST(request: NextRequest) {
         const isLast = i === modelsToTry.length - 1;
 
         try {
-          const url = buildChatUrl(model.url);
-          const reqBody: Record<string, unknown> = {
-            model: model.modelName,
-            messages,
-            stream: true,
-            temperature: temperature ?? 0.7,
-            enable_thinking: true,
-          };
-          if (maxTokens) {
-            reqBody.max_tokens = maxTokens;
-          }
-
-          const response = await fetch(url, {
-            method: "POST",
-            headers: {
-              ...requestHeaders,
-              Authorization: `Bearer ${model.apiKey}`,
-            },
-            body: JSON.stringify(reqBody),
-            signal: abortSignal,
-          });
-
-          if (!response.ok) {
-            const errText = await response.text();
-            lastError = `HTTP ${response.status}: ${errText}`;
-            if (!isLast && response.status >= 500) {
-              controller.enqueue(
-                encoder.encode(
-                  `data: ${JSON.stringify({
-                    type: "fallback",
-                    message: `模型 ${model.modelName} 失败，正在尝试备用模型...`,
-                  })}\n\n`
-                )
-              );
-              continue;
-            }
-            if (!isLast && response.status === 429) {
-              controller.enqueue(
-                encoder.encode(
-                  `data: ${JSON.stringify({
-                    type: "fallback",
-                    message: `模型 ${model.modelName} 限流，正在尝试备用模型...`,
-                  })}\n\n`
-                )
-              );
-              continue;
-            }
-            controller.enqueue(
-              encoder.encode(
-                `data: ${JSON.stringify({
-                  type: "error",
-                  message: lastError,
-                })}\n\n`
-              )
-            );
-            controller.enqueue(encoder.encode("data: [DONE]\n\n"));
-            controller.close();
-            return;
-          }
-
-          if (!response.body) {
-            lastError = "响应体为空";
-            if (!isLast) continue;
-            controller.enqueue(
-              encoder.encode(
-                `data: ${JSON.stringify({
-                  type: "error",
-                  message: lastError,
-                })}\n\n`
-              )
-            );
-            controller.enqueue(encoder.encode("data: [DONE]\n\n"));
-            controller.close();
-            return;
-          }
-
-          const reader = response.body.getReader();
-          const decoder = new TextDecoder();
-
-          try {
-            while (true) {
-              if (abortSignal.aborted) {
-                controller.close();
-                return;
-              }
-              const { done, value } = await reader.read();
-              if (done) break;
-
-              const text = decoder.decode(value, { stream: true });
-              controller.enqueue(encoder.encode(text));
-            }
-          } catch (readError) {
-            if (abortSignal.aborted) {
-              controller.close();
-              return;
-            }
-            throw readError;
-          } finally {
-            reader.releaseLock();
-          }
+          await streamWithTools(model, messages, effectiveTools, tempValue, maxTokens, encoder, controller, abortSignal);
 
           controller.enqueue(encoder.encode("data: [DONE]\n\n"));
           controller.close();
@@ -191,7 +427,7 @@ export async function POST(request: NextRequest) {
               encoder.encode(
                 `data: ${JSON.stringify({
                   type: "fallback",
-                  message: `模型 ${model.modelName} 异常，正在尝试备用模型...`,
+                  message: `模型 ${model.modelName} 失败，正在尝试备用模型...`,
                 })}\n\n`
               )
             );

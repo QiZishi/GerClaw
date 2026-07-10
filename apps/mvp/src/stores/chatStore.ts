@@ -108,8 +108,8 @@ interface ChatState {
   initMessageThinking: (id: string, thinkingBlockId: string) => void;
   appendMessageThinking: (id: string, thinkingBlockId: string, delta: string) => void;
   finalizeMessageThinking: (id: string, thinkingBlockId: string) => void;
-  initMessageToolCall: (id: string, toolBlockId: string, toolName: string, params: Record<string, unknown>) => void;
-  completeMessageToolCall: (id: string, toolBlockId: string, result: unknown) => void;
+  initMessageToolCall: (id: string, toolBlockId: string, toolCallId: string, toolName: string) => void;
+  completeMessageToolCall: (id: string, toolBlockId: string, args: Record<string, unknown>, result: unknown) => void;
   failMessageToolCall: (id: string, toolBlockId: string, errorMessage: string) => void;
   initMessageSteps: (id: string, steps: SimpleStepData[]) => void;
   updateMessageStep: (id: string, stepId: string, patch: Partial<SimpleStepData>) => void;
@@ -330,7 +330,7 @@ export const useChatStore = create<ChatState>()((set, get) => ({
       saveToStorage(STORAGE_KEYS.messages, truncated);
       return { messagesBySession: truncated };
     }),
-  initMessageToolCall: (id, toolBlockId, toolName, params) =>
+  initMessageToolCall: (id, toolBlockId, toolCallId, toolName) =>
     set((s) => {
       const next = { ...s.messagesBySession };
       for (const sid of Object.keys(next)) {
@@ -345,8 +345,9 @@ export const useChatStore = create<ChatState>()((set, get) => ({
             id: toolBlockId,
             data: {
               id: toolBlockId,
+              toolCallId,
               toolName,
-              params,
+              args: {},
               status: "running" as const,
               startedAt: Date.now(),
             },
@@ -368,7 +369,7 @@ export const useChatStore = create<ChatState>()((set, get) => ({
       saveToStorage(STORAGE_KEYS.messages, truncated);
       return { messagesBySession: truncated };
     }),
-  completeMessageToolCall: (id, toolBlockId, result) =>
+  completeMessageToolCall: (id, toolBlockId, args, result) =>
     set((s) => {
       const now = Date.now();
       const next = { ...s.messagesBySession };
@@ -384,6 +385,7 @@ export const useChatStore = create<ChatState>()((set, get) => ({
                 ...b,
                 data: {
                   ...b.data,
+                  args,
                   status: "done" as const,
                   result,
                   endedAt: now,
