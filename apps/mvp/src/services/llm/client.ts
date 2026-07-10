@@ -4,6 +4,7 @@ import {
   generateTraceId,
   classifyError,
 } from "../api-client";
+import { mapFrontendToBackend, type FrontendModelId, type BackendModelId } from "@/config/models";
 
 export interface LLMTool {
   type: "function";
@@ -44,6 +45,7 @@ export interface LLMStreamCallbacks {
   onToolCallDelta?: (toolCallId: string, delta: string) => void;
   onToolCallEnd?: (toolCallId: string, args: Record<string, unknown>) => void;
   onToolResult?: (toolCallId: string, result: unknown) => void;
+  onFallback?: (message: string) => void;
   onDone?: (fullText: string) => void;
   onError?: (error: Error) => void;
 }
@@ -52,7 +54,7 @@ export interface StreamOptions {
   temperature?: number;
   maxTokens?: number;
   signal?: AbortSignal;
-  modelPreference?: "primary" | "backup1" | "backup2" | "auto";
+  modelPreference?: FrontendModelId | BackendModelId;
   tools?: LLMTool[];
 }
 
@@ -107,6 +109,13 @@ export async function streamChat(
 ): Promise<void> {
   const traceId = generateTraceId();
 
+  const rawModelPref = options.modelPreference ?? "auto";
+  const backendModelPref: BackendModelId = (["primary", "backup1", "backup2", "auto"] as const).includes(
+    rawModelPref as BackendModelId
+  )
+    ? (rawModelPref as BackendModelId)
+    : mapFrontendToBackend(rawModelPref as FrontendModelId);
+
   try {
     const response = await fetch("/api/llm/chat", {
       method: "POST",
@@ -118,7 +127,7 @@ export async function streamChat(
         messages,
         temperature: options.temperature ?? 0.7,
         maxTokens: options.maxTokens,
-        modelPreference: options.modelPreference ?? "auto",
+        modelPreference: backendModelPref,
         tools: options.tools,
       }),
       signal: options.signal,
@@ -182,6 +191,7 @@ export async function streamChat(
           );
         }
         if (json.type === "fallback") {
+          callbacks.onFallback?.(json.message || "正在切换备用模型...");
           return true;
         }
 

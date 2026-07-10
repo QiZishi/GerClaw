@@ -24,6 +24,7 @@ import {
   TooltipTrigger,
 } from "@/components/ui/tooltip";
 import { useAppStore } from "@/stores/appStore";
+import { useChatStore } from "@/stores/chatStore";
 import { INPUT_LIMITS, MEDICAL_DISCLAIMER, ALLOWED_IMAGE_MIME_TYPES } from "@/lib/constants";
 import { toast } from "@/components/ui/toast";
 import { cn } from "@/lib/utils";
@@ -31,6 +32,7 @@ import { useAudioRecorder } from "@/hooks/useAudioRecorder";
 import { recognizeAudio } from "@/services/voice/asr";
 import { generateId } from "@/lib/format";
 import type { ImageAttachment } from "@/types";
+import { ModelSelector } from "@/components/chat/ModelSelector";
 
 interface PendingImage {
   id: string;
@@ -237,6 +239,8 @@ export function ChatInput({ onSend, isGenerating, onStop }: ChatInputProps) {
   const setChatAction = useAppStore((s) => s.setChatAction);
   const isOnline = useAppStore((s) => s.isOnline);
   const asrAvailable = useAppStore((s) => s.asrAvailable);
+  const selectedModelId = useChatStore((s) => s.selectedModelId);
+  const setSelectedModelId = useChatStore((s) => s.setSelectedModelId);
 
   const [text, setText] = useState("");
   const [isTranscribing, setIsTranscribing] = useState(false);
@@ -618,7 +622,12 @@ export function ChatInput({ onSend, isGenerating, onStop }: ChatInputProps) {
               onPickFile={handleFileSelect}
             />
 
-            <div className="flex items-center">
+            <div className="flex items-center gap-1">
+              <ModelSelector
+                selectedId={selectedModelId}
+                onSelect={setSelectedModelId}
+                disabled={isGenerating || isTranscribing}
+              />
               {isGenerating ? (
                 <Tooltip>
                   <TooltipTrigger

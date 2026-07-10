@@ -3,16 +3,20 @@ import { NextRequest } from "next/server";
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
+function getApiKey(nonPublicKey: string, publicKey: string): string {
+  return process.env[nonPublicKey] || process.env[publicKey] || "";
+}
+
 const PRIMARY_URL = process.env.NEXT_PUBLIC_PRIMARY_URL || "";
-const PRIMARY_API_KEY = process.env.NEXT_PUBLIC_PRIMARY_API_KEY || "";
+const PRIMARY_API_KEY = getApiKey("PRIMARY_API_KEY", "NEXT_PUBLIC_PRIMARY_API_KEY");
 const PRIMARY_MODEL = process.env.NEXT_PUBLIC_PRIMARY_MODEL || "gpt-4o";
 
 const BACKUP1_URL = process.env.NEXT_PUBLIC_BACKUP1_URL || "";
-const BACKUP1_API_KEY = process.env.NEXT_PUBLIC_BACKUP1_API_KEY || "";
+const BACKUP1_API_KEY = getApiKey("BACKUP1_API_KEY", "NEXT_PUBLIC_BACKUP1_API_KEY");
 const BACKUP1_MODEL = process.env.NEXT_PUBLIC_BACKUP1_MODEL || "";
 
 const BACKUP2_URL = process.env.NEXT_PUBLIC_BACKUP2_URL || "";
-const BACKUP2_API_KEY = process.env.NEXT_PUBLIC_BACKUP2_API_KEY || "";
+const BACKUP2_API_KEY = getApiKey("BACKUP2_API_KEY", "NEXT_PUBLIC_BACKUP2_API_KEY");
 const BACKUP2_MODEL = process.env.NEXT_PUBLIC_BACKUP2_MODEL || "";
 
 const TAVILY_API_KEY = process.env.NEXT_PUBLIC_TAVILY_API_KEY || "";
