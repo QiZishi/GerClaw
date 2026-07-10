@@ -263,6 +263,12 @@ export function ChatInput({ onSend, isGenerating, onStop }: ChatInputProps) {
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
+  useEffect(() => {
+    if (textareaRef.current) {
+      textareaRef.current.style.height = "52px";
+    }
+  }, []);
+
   const readFileAsBase64 = (file: File): Promise<string> => {
     return new Promise((resolve, reject) => {
       const reader = new FileReader();
@@ -392,6 +398,7 @@ export function ChatInput({ onSend, isGenerating, onStop }: ChatInputProps) {
     });
     if (textareaRef.current) {
       textareaRef.current.style.height = "auto";
+      textareaRef.current.style.height = "52px";
     }
   };
 
@@ -406,7 +413,7 @@ export function ChatInput({ onSend, isGenerating, onStop }: ChatInputProps) {
     setText(e.target.value.slice(0, INPUT_LIMITS.maxMessageLength));
     const ta = e.target;
     ta.style.height = "auto";
-    ta.style.height = `${Math.min(ta.scrollHeight, 200)}px`;
+    ta.style.height = `${Math.max(52, Math.min(ta.scrollHeight, 200))}px`;
   };
 
   const formatDuration = (seconds: number): string => {
@@ -447,7 +454,7 @@ export function ChatInput({ onSend, isGenerating, onStop }: ChatInputProps) {
           setTimeout(() => {
             if (textareaRef.current) {
               textareaRef.current.style.height = "auto";
-              textareaRef.current.style.height = `${Math.min(textareaRef.current.scrollHeight, 200)}px`;
+              textareaRef.current.style.height = `${Math.max(52, Math.min(textareaRef.current.scrollHeight, 200))}px`;
               textareaRef.current.focus();
             }
           }, 50);
@@ -585,19 +592,20 @@ export function ChatInput({ onSend, isGenerating, onStop }: ChatInputProps) {
           onChange={handleFileChange}
         />
 
-        <div className="rounded-xl border border-border bg-muted/50 focus-within:ring-2 focus-within:ring-ring/40 transition-shadow">
+        <div className="rounded-xl border border-border bg-muted/50 focus-within:border-primary/50 focus-within:ring-2 focus-within:ring-ring/40 transition-all duration-200">
           <textarea
             ref={textareaRef}
             value={text}
             onChange={handleInput}
             onKeyDown={handleKeyDown}
             placeholder={isTranscribing ? (seniorMode ? "正在识别语音…" : "识别中…") : placeholder}
-            rows={2}
+            rows={1}
             disabled={isTranscribing}
             className={cn(
-              "w-full resize-none bg-transparent border-0 outline-none px-3 py-2 text-base leading-relaxed placeholder:text-muted-foreground max-h-[200px] disabled:opacity-60",
+              "w-full resize-none bg-transparent border-0 outline-none px-4 py-3 text-base leading-relaxed placeholder:text-muted-foreground max-h-[200px] overflow-y-auto disabled:opacity-60 transition-colors",
               seniorMode && "text-lg"
             )}
+            style={{ minHeight: "52px" }}
           />
 
           <div className="flex items-center justify-between gap-1 px-2 py-1.5 border-t border-border/60">
