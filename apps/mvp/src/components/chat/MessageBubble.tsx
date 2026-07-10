@@ -144,6 +144,9 @@ export function MessageBubble({ message, onRegenerate }: MessageBubbleProps) {
   };
 
   const plainText = !isUser ? extractPlainText(message.blocks) : "";
+  const hasActiveThinking = !isUser && message.blocks.some(
+    (b) => b.kind === "thinking" && b.data.status === "thinking"
+  );
   const messageAnimation = cn(
     "transition-all duration-200 ease-out",
     appeared ? "opacity-100 translate-y-0" : "opacity-0 translate-y-2"
@@ -196,12 +199,15 @@ export function MessageBubble({ message, onRegenerate }: MessageBubbleProps) {
               switch (block.kind) {
                 case "text":
                   if (block.streaming) {
+                    const textEmpty = !block.content;
+                    const hidePlaceholder = textEmpty && hasActiveThinking;
                     return (
                       <StreamingText
                         key={block.id}
                         content={block.content}
                         streaming
                         citations={message.citations}
+                        showPlaceholder={!hidePlaceholder}
                       />
                     );
                   }

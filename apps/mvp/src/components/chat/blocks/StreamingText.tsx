@@ -10,6 +10,7 @@ interface StreamingTextProps {
   streaming?: boolean;
   className?: string;
   citations?: Citation[];
+  showPlaceholder?: boolean;
 }
 
 const BASE_DELAY = 20;
@@ -19,6 +20,7 @@ function StreamingTextInner({
   content,
   className,
   citations,
+  showPlaceholder = true,
 }: Omit<StreamingTextProps, "streaming">) {
   const [displayedLength, setDisplayedLength] = useState(0);
   const [showCursor, setShowCursor] = useState(false);
@@ -79,10 +81,13 @@ function StreamingTextInner({
   const displayedContent = content.slice(0, displayedLength);
 
   if (!displayedContent) {
+    if (!showPlaceholder) {
+      return null;
+    }
     return (
-      <span className={cn("inline-flex items-center gap-0.5 h-5 text-muted-foreground/60", className)}>
-        <span className="typing-dot" />
-        <span className="typing-dot" />
+      <span className={cn("inline-flex items-center gap-[3px] h-5 text-muted-foreground/60", className)}>
+        <span className="typing-dot" style={{ animationDelay: "-0.32s" }} />
+        <span className="typing-dot" style={{ animationDelay: "-0.16s" }} />
         <span className="typing-dot" />
       </span>
     );
@@ -101,6 +106,7 @@ export function StreamingText({
   streaming = false,
   className,
   citations,
+  showPlaceholder = true,
 }: StreamingTextProps) {
   if (!streaming) {
     return (
@@ -115,6 +121,7 @@ export function StreamingText({
       content={content}
       className={className}
       citations={citations}
+      showPlaceholder={showPlaceholder}
     />
   );
 }
