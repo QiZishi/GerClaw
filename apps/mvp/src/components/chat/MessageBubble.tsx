@@ -29,6 +29,7 @@ import { SimpleStepIndicator } from "./blocks/SimpleStepIndicator";
 import { SubAgentTree } from "./blocks/SubAgentTree";
 import { DecisionTimeline } from "./blocks/DecisionTimeline";
 import { SearchResultCard } from "@/components/search/SearchResultCard";
+import { SourceReferences } from "@/components/search/SourceReferences";
 import { FileTag } from "@/components/document/FileTag";
 import { DocumentToolCard } from "@/components/document/DocumentToolCard";
 import { MEDICAL_DISCLAIMER } from "@/lib/constants";
@@ -279,6 +280,12 @@ export function MessageBubble({ message, onRegenerate }: MessageBubbleProps) {
             seniorMode ? "text-xs" : "text-[11px]"
           )}>
             {MEDICAL_DISCLAIMER}
+          </div>
+        )}
+
+        {!isUser && message.citations && message.citations.length > 0 && message.status === "done" && (
+          <div className="px-1 w-full">
+            <SourceReferences citations={message.citations} />
           </div>
         )}
 

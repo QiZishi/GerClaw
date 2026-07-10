@@ -30,7 +30,7 @@ export async function POST(request: NextRequest) {
         body: JSON.stringify({
           api_key: TAVILY_API_KEY,
           query,
-          max_results: maxResults || 5,
+          max_results: maxResults || 6,
           include_answer: true,
         }),
       });
@@ -65,7 +65,7 @@ export async function POST(request: NextRequest) {
         },
         body: JSON.stringify({
           query,
-          max_results: maxResults || 5,
+          max_results: maxResults || 6,
         }),
       });
 

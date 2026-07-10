@@ -6,6 +6,17 @@ const nextConfig: NextConfig = {
   // 部署时需选择支持 Node.js 运行时的平台（如 Vercel / IGA Pages with Functions）
   images: {
     unoptimized: true,
+    remotePatterns: [
+      {
+        protocol: "https",
+        hostname: "www.google.com",
+        pathname: "/s2/favicons/**",
+      },
+      {
+        protocol: "https",
+        hostname: "**",
+      },
+    ],
   },
 };
 

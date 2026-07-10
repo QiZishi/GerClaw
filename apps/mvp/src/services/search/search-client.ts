@@ -22,7 +22,7 @@ export async function search(query: string): Promise<SearchResultItem[]> {
       },
       body: JSON.stringify({
         query,
-        maxResults: 5,
+        maxResults: 6,
       }),
     });
 

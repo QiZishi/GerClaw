@@ -247,86 +247,154 @@ function BlockRenderer({
   }
 }
 
-/** 渲染行内：**加粗** [链接](url) [1]引用角标 */
+/**
+ * 渲染行内元素，支持嵌套（加粗内可以包含引用、链接等）
+ * 匹配优先级：行内代码 > 链接 > 加粗 > 引用角标 > 普通文本
+ * 使用分段递归处理，避免误判
+ */
 function renderInline(text: string, citations?: Citation[]): ReactNode[] {
-  // 先按 [1] 引用角标分割
-  const nodes: ReactNode[] = [];
-  const parts = text.split(/(\[\d+\])/g);
-  parts.forEach((part, idx) => {
-    const citeMatch = part.match(/^\[(\d+)\]$/);
-    if (citeMatch) {
-      const citeId = parseInt(citeMatch[1], 10);
-      // 防御性：citations 数组可能含 undefined 元素
-      const citation = citations?.find((c) => c && c.id === citeId);
-      if (citation) {
-        nodes.push(
-          <CitationPopover key={`cite-${idx}`} citation={citation} index={citeId} allCitations={citations} />
+  return renderInlineSegment(text, citations, 0);
+}
+
+type InlineToken =
+  | { type: "text"; content: string }
+  | { type: "code"; content: string }
+  | { type: "bold"; content: string }
+  | { type: "link"; text: string; url: string }
+  | { type: "citation"; id: number };
+
+function tokenizeInline(text: string): InlineToken[] {
+  const tokens: InlineToken[] = [];
+  let i = 0;
+
+  while (i < text.length) {
+    // 行内代码 `code`
+    if (text[i] === "`") {
+      const end = text.indexOf("`", i + 1);
+      if (end !== -1) {
+        tokens.push({ type: "code", content: text.slice(i + 1, end) });
+        i = end + 1;
+        continue;
+      }
+    }
+
+    // Markdown链接 [text](url) — 最高优先级（在引用角标之前）
+    if (text[i] === "[") {
+      const bracketEnd = text.indexOf("]", i + 1);
+      if (bracketEnd !== -1 && text[bracketEnd + 1] === "(") {
+        const parenEnd = text.indexOf(")", bracketEnd + 2);
+        if (parenEnd !== -1) {
+          const linkText = text.slice(i + 1, bracketEnd);
+          const linkUrl = text.slice(bracketEnd + 2, parenEnd);
+          // 只有当链接文本不是纯数字时才当作链接（纯数字+括号可能是角标被误判，但角标后不会跟括号）
+          // 实际上链接的括号模式 [x](y) 本身就足以区分于引用 [n]
+          tokens.push({ type: "link", text: linkText, url: linkUrl });
+          i = parenEnd + 1;
+          continue;
+        }
+      }
+    }
+
+    // 加粗 **text**
+    if (text[i] === "*" && text[i + 1] === "*") {
+      const end = text.indexOf("**", i + 2);
+      if (end !== -1) {
+        tokens.push({ type: "bold", content: text.slice(i + 2, end) });
+        i = end + 2;
+        continue;
+      }
+    }
+
+    // 引用角标 [n] — 纯数字，且后面不是(（已被链接匹配排除）
+    if (text[i] === "[") {
+      const bracketEnd = text.indexOf("]", i + 1);
+      if (bracketEnd !== -1) {
+        const numStr = text.slice(i + 1, bracketEnd);
+        if (/^\d+$/.test(numStr)) {
+          tokens.push({ type: "citation", id: parseInt(numStr, 10) });
+          i = bracketEnd + 1;
+          continue;
+        }
+      }
+    }
+
+    // 普通文本：积累到下一个特殊字符
+    let textEnd = i + 1;
+    while (textEnd < text.length) {
+      const ch = text[textEnd];
+      if (ch === "`" || ch === "[" || (ch === "*" && text[textEnd + 1] === "*")) {
+        break;
+      }
+      textEnd++;
+    }
+    const plainContent = text.slice(i, textEnd);
+    if (plainContent) {
+      tokens.push({ type: "text", content: plainContent });
+    }
+    i = textEnd;
+  }
+
+  return tokens;
+}
+
+function renderInlineSegment(text: string, citations: Citation[] | undefined, keyBase: number): ReactNode[] {
+  const tokens = tokenizeInline(text);
+  return tokens.map((token, idx) => {
+    const key = `${keyBase}-${idx}`;
+    switch (token.type) {
+      case "text":
+        return <Fragment key={key}>{token.content}</Fragment>;
+      case "code":
+        return (
+          <code
+            key={key}
+            className="rounded bg-muted px-1 py-0.5 text-[0.85em] font-mono"
+          >
+            {token.content}
+          </code>
         );
-      } else {
-        nodes.push(
-          <sup key={`cite-${idx}`} className="text-primary font-bold">
+      case "bold":
+        return (
+          <strong key={key} className="font-semibold">
+            {renderInlineSegment(token.content, citations, keyBase * 100 + idx)}
+          </strong>
+        );
+      case "link":
+        return (
+          <a
+            key={key}
+            href={token.url}
+            target="_blank"
+            rel="noopener noreferrer"
+            className="text-primary hover:underline"
+          >
+            {renderInlineSegment(token.text, citations, keyBase * 100 + idx)}
+          </a>
+        );
+      case "citation": {
+        const citeId = token.id;
+        const citation = citations?.find((c) => c && c.id === citeId);
+        if (citation) {
+          return (
+            <CitationPopover
+              key={key}
+              citation={citation}
+              index={citeId}
+              allCitations={citations}
+            />
+          );
+        }
+        return (
+          <sup
+            key={key}
+            className="text-blue-600 dark:text-blue-400 font-semibold text-[0.7em] ml-0.5"
+          >
             [{citeId}]
           </sup>
         );
       }
-      return;
     }
-    // 加粗 + 链接
-    nodes.push(...renderBoldAndLink(part, idx));
   });
-  return nodes;
-}
-
-/** 渲染 **加粗** 和 [文本](url) */
-function renderBoldAndLink(text: string, baseKey: number): ReactNode[] {
-  // 正则：**bold** 或 [text](url)
-  const regex = /(\*\*([^*]+)\*\*|\[([^\]]+)\]\(([^)]+)\))/g;
-  const result: ReactNode[] = [];
-  let lastIndex = 0;
-  let match: RegExpExecArray | null;
-  let keyCounter = 0;
-  while ((match = regex.exec(text)) !== null) {
-    if (match.index > lastIndex) {
-      result.push(
-        <Fragment key={`${baseKey}-${keyCounter++}`}>
-          {text.slice(lastIndex, match.index)}
-        </Fragment>
-      );
-    }
-    if (match[2]) {
-      // 加粗
-      result.push(
-        <strong key={`${baseKey}-${keyCounter++}`} className="font-semibold">
-          {match[2]}
-        </strong>
-      );
-    } else if (match[3] && match[4]) {
-      // 链接
-      result.push(
-        <a
-          key={`${baseKey}-${keyCounter++}`}
-          href={match[4]}
-          target="_blank"
-          rel="noopener noreferrer"
-          className="text-primary hover:underline"
-        >
-          {match[3]}
-        </a>
-      );
-    }
-    lastIndex = match.index + match[0].length;
-  }
-  if (lastIndex < text.length) {
-    result.push(
-      <Fragment key={`${baseKey}-${keyCounter++}`}>
-        {text.slice(lastIndex)}
-      </Fragment>
-    );
-  }
-  if (result.length === 0) {
-    return [<Fragment key={`${baseKey}-empty`}>{text}</Fragment>];
-  }
-  return result;
 }
 
 /** 代码块 + 复制按钮 */

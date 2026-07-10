@@ -55,13 +55,13 @@ const WEB_SEARCH_TOOL = {
   type: "function" as const,
   function: {
     name: "web_search",
-    description: "搜索互联网获取最新信息、医学指南、新闻动态等实时内容",
+    description: "搜索互联网获取最新信息、医学指南、新闻动态等实时内容。当用户询问最新医学指南、药物信息、新闻事件、实时数据时，必须使用此工具搜索。",
     parameters: {
       type: "object",
       properties: {
         query: {
           type: "string",
-          description: "搜索关键词",
+          description: "搜索关键词，尽量精确，包含关键术语",
         },
       },
       required: ["query"],
@@ -69,20 +69,67 @@ const WEB_SEARCH_TOOL = {
   },
 };
 
+const CITATION_SYSTEM_INSTRUCTION = `
+【引用规范】当你使用web_search工具获取信息后，必须严格按以下要求回答：
+1. 在回答中每个引用了搜索结果的句子或段落末尾，使用[1][2]等角标标注来源序号（序号对应搜索结果的编号）
+2. 角标紧跟在句号或逗号之前，放在标点前面，不要放在段落开头
+3. 可以在一个句子末尾引用多个来源，如[1][3]
+4. 不要编造不存在的角标编号，只能引用搜索结果中实际提供的编号
+5. 如果搜索结果不足以回答问题，请如实说明，不要编造信息
+`;
+
+function formatSearchResultsForLLM(result: unknown): string {
+  const data = result as {
+    results?: { title: string; url: string; content: string; published_date?: string }[];
+    answer?: string;
+    error?: string;
+  };
+  if (data.error) {
+    return `搜索失败：${data.error}`;
+  }
+  const results = data.results || [];
+  if (results.length === 0) {
+    return "未找到相关搜索结果。";
+  }
+  let formatted = "";
+  if (data.answer) {
+    formatted += `搜索摘要：${data.answer}\n\n`;
+  }
+  formatted += "搜索结果（请在回答中使用[1][2]等角标引用）：\n\n";
+  results.forEach((r, i) => {
+    const num = i + 1;
+    formatted += `[${num}] 标题：${r.title || "无标题"}\n`;
+    formatted += `URL：${r.url}\n`;
+    formatted += `摘要：${r.content || "无摘要"}\n`;
+    if (r.published_date) {
+      formatted += `发布时间：${r.published_date}\n`;
+    }
+    formatted += "\n";
+  });
+  return formatted.trim();
+}
+
 async function executeWebSearch(query: string): Promise<unknown> {
-  const maxResults = 5;
+  const maxResults = 6;
+
+  const medicalKeywords = /(药|医学|医疗|医院|疾病|症状|治疗|诊断|指南|处方|老年|高血压|糖尿病|冠心病|药物|保健|健康|医|症|病|痛|炎|癌|瘤|感染|手术|护理|康复|营养|运动|心理)/i;
+  const isMedicalQuery = medicalKeywords.test(query);
 
   if (TAVILY_API_KEY) {
     try {
+      const requestBody: Record<string, unknown> = {
+        api_key: TAVILY_API_KEY,
+        query,
+        max_results: maxResults,
+        include_answer: true,
+      };
+      if (isMedicalQuery) {
+        requestBody.topic = "general";
+      }
       const response = await fetch("https://api.tavily.com/search", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          api_key: TAVILY_API_KEY,
-          query,
-          max_results: maxResults,
-          include_answer: true,
-        }),
+        body: JSON.stringify(requestBody),
       });
 
       if (response.ok) {
@@ -153,6 +200,36 @@ async function executeTool(name: string, args: Record<string, unknown>): Promise
   return { error: `未知工具: ${name}` };
 }
 
+function prepareMessagesWithCitationInstruction(
+  messages: Record<string, unknown>[],
+  tools: Record<string, unknown>[] | undefined
+): Record<string, unknown>[] {
+  const hasWebSearch = tools?.some((t) => {
+    const fn = (t as { function?: { name?: string } })?.function;
+    return fn?.name === "web_search";
+  });
+  if (!hasWebSearch) return [...messages];
+
+  const result = [...messages];
+  const sysIdx = result.findIndex((m) => (m as { role?: string }).role === "system");
+  if (sysIdx !== -1) {
+    const sysMsg = result[sysIdx] as { role: string; content: string | unknown };
+    const existingContent = typeof sysMsg.content === "string" ? sysMsg.content : "";
+    if (!existingContent.includes("【引用规范】")) {
+      result[sysIdx] = {
+        ...sysMsg,
+        content: existingContent + CITATION_SYSTEM_INSTRUCTION,
+      };
+    }
+  } else {
+    result.unshift({
+      role: "system",
+      content: CITATION_SYSTEM_INSTRUCTION.trim(),
+    });
+  }
+  return result;
+}
+
 async function streamWithTools(
   model: ModelConfig,
   messages: Record<string, unknown>[],
@@ -163,7 +240,7 @@ async function streamWithTools(
   controller: ReadableStreamDefaultController,
   abortSignal: AbortSignal
 ): Promise<void> {
-  const currentMessages = [...messages];
+  const currentMessages = prepareMessagesWithCitationInstruction(messages, tools);
   const maxIterations = 5;
 
   for (let iteration = 0; iteration < maxIterations; iteration++) {
@@ -363,10 +440,16 @@ async function streamWithTools(
           )
         );
 
+        let toolContent: string;
+        if (tc.name === "web_search") {
+          toolContent = formatSearchResultsForLLM(result);
+        } else {
+          toolContent = typeof result === "string" ? result : JSON.stringify(result);
+        }
         const toolResultMsg: Record<string, unknown> = {
           role: "tool",
           tool_call_id: tc.id,
-          content: typeof result === "string" ? result : JSON.stringify(result),
+          content: toolContent,
         };
         currentMessages.push(toolResultMsg);
       }

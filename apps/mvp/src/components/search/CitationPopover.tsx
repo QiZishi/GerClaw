@@ -7,6 +7,7 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { useAppStore } from "@/stores/appStore";
+import { cn } from "@/lib/utils";
 import type { Citation } from "@/types";
 
 interface CitationPopoverProps {
@@ -21,8 +22,10 @@ interface CitationPopoverProps {
  * 引用角标弹出卡片
  * 点击 [1] 弹出引用详情（标题、摘要、链接）
  * 提供"在右侧面板查看全部"选项
+ * 样式：蓝色、小字号、上标、可点击
  */
 export function CitationPopover({ citation, index, allCitations }: CitationPopoverProps) {
+  const seniorMode = useAppStore((s) => s.seniorMode);
   const setRightPanel = useAppStore((s) => s.setRightPanel);
   const setCurrentCitations = useAppStore((s) => s.setCurrentCitations);
 
@@ -41,7 +44,14 @@ export function CitationPopover({ citation, index, allCitations }: CitationPopov
         render={
           <button
             type="button"
-            className="inline-flex items-center justify-center align-super mx-0.5 size-5 min-w-5 px-1 rounded-full bg-primary/10 text-primary text-[10px] font-bold hover:bg-primary hover:text-primary-foreground transition-colors cursor-pointer"
+            className={cn(
+              "inline-flex items-center justify-center align-super font-bold cursor-pointer transition-colors",
+              "text-blue-600 dark:text-blue-400 hover:text-blue-700 dark:hover:text-blue-300",
+              "hover:bg-blue-50 dark:hover:bg-blue-950/40 rounded",
+              seniorMode
+                ? "text-[0.75em] min-w-[1.5em] h-[1.5em] px-0.5 mx-0.5"
+                : "text-[0.7em] min-w-[1.25em] h-[1.25em] px-0.5 mx-0.5"
+            )}
             aria-label={`查看引用 ${index}`}
           >
             {index}
