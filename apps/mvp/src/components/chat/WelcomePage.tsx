@@ -1,5 +1,6 @@
 "use client";
 
+import { useState, useEffect } from "react";
 import {
   ClipboardCheck,
   FileSearch,
@@ -32,12 +33,18 @@ export function WelcomePage({
   role: propRole,
   seniorMode: propSeniorMode,
 }: WelcomePageProps) {
+  const [mounted, setMounted] = useState(false);
   const storeRole = useAppStore((s) => s.role);
   const storeSeniorMode = useAppStore((s) => s.seniorMode);
   const setRole = useAppStore((s) => s.setRole);
   
-  const role = propRole ?? storeRole;
-  const seniorMode = propSeniorMode ?? storeSeniorMode;
+  useEffect(() => {
+    // eslint-disable-next-line react-hooks/set-state-in-effect
+    setMounted(true);
+  }, []);
+
+  const role = mounted ? (propRole ?? storeRole) : "visitor";
+  const seniorMode = mounted ? (propSeniorMode ?? storeSeniorMode) : false;
   
   const isPatient = role === "patient";
   const isDoctor = role === "doctor";
@@ -55,7 +62,7 @@ export function WelcomePage({
     ? "您可以文字或语音描述健康问题，我会尽力帮助您。"
     : "可辅助您完成诊疗决策、用药评估、CGA 评估等任务。";
 
-  // 患者端快捷卡片：四大功能入口
+  // 患者端快捷卡片：两大功能入口
   const patientCards = [
     {
       icon: Pill,
@@ -68,18 +75,6 @@ export function WelcomePage({
       label: "老年综合评估",
       desc: "CGA 多维度健康评估",
       action: "cga" as const,
-    },
-    {
-      icon: FileSearch,
-      label: "用药审查",
-      desc: "检查用药是否适合老年人",
-      action: "drug-review" as const,
-    },
-    {
-      icon: UserRound,
-      label: "我的健康画像",
-      desc: "查看和管理我的健康档案",
-      action: "health-profile" as const,
     },
   ];
 
@@ -136,7 +131,7 @@ export function WelcomePage({
         "我最近血压偏高怎么办？",
         "头晕乏力是什么原因？",
         "糖尿病饮食要注意什么？",
-        "这些药可以一起吃吗？",
+        "我正在吃降压药和他汀，需要注意什么？",
       ]
     : isDoctor
     ? [

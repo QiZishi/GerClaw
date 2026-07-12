@@ -138,7 +138,15 @@ export interface ImageAttachment {
   alt?: string;
 }
 
-/** 消息内容块（一条消息可包含多个块：文本/图片/思维链/工具调用/搜索结果/文件/决策/操作按钮） */
+/** 信息收集字段 */
+export interface InfoCollectionField {
+  key: string;
+  label: string;
+  value?: string;
+  filled: boolean;
+}
+
+/** 消息内容块（一条消息可包含多个块：文本/图片/思维链/工具调用/搜索结果/文件/决策/操作按钮/信息收集卡片） */
 export type MessageBlock =
   | { kind: "text"; id: string; content: string; streaming?: boolean }
   | { kind: "image"; id: string; data: ImageAttachment }
@@ -148,6 +156,7 @@ export type MessageBlock =
   | { kind: "decision"; id: string; data: DecisionStep[] }
   | { kind: "search_results"; id: string; data: SearchResultItem[] }
   | { kind: "file"; id: string; data: FileTag }
+  | { kind: "info_collection"; id: string; data: { fields: InfoCollectionField[] } }
   | {
       kind: "action";
       id: string;

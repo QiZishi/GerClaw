@@ -24,8 +24,14 @@ export function useAudioPlayer(): UseAudioPlayerReturn {
       abortControllerRef.current = null;
     }
     if (audioRef.current) {
-      audioRef.current.pause();
-      audioRef.current.src = "";
+      const audio = audioRef.current;
+      audio.oncanplaythrough = null;
+      audio.onended = null;
+      audio.onerror = null;
+      audio.pause();
+      if (audio.src) {
+        audio.src = "";
+      }
       audioRef.current = null;
     }
     if (objectUrlRef.current) {
@@ -76,7 +82,7 @@ export function useAudioPlayer(): UseAudioPlayerReturn {
       };
 
       audio.onerror = () => {
-        console.error("Audio playback error");
+        console.warn("Audio playback error");
         setIsPlaying(false);
         setIsLoading(false);
       };

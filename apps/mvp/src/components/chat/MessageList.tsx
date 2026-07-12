@@ -9,11 +9,9 @@ import type { Message } from "@/types";
 interface MessageListProps {
   messages: Message[];
   onRegenerate?: (id: string) => void;
-  onDeleteMessage?: (id: string) => void;
-  onExportMessage?: (id: string) => void;
 }
 
-export function MessageList({ messages, onRegenerate, onDeleteMessage, onExportMessage }: MessageListProps) {
+export function MessageList({ messages, onRegenerate }: MessageListProps) {
   const bottomRef = useRef<HTMLDivElement>(null);
   const containerRef = useRef<HTMLDivElement>(null);
   const [showScrollDown, setShowScrollDown] = useState(false);
@@ -106,6 +104,8 @@ export function MessageList({ messages, onRegenerate, onDeleteMessage, onExportM
     scrollToBottom(true);
   };
 
+  const lastMessageId = messages.length > 0 ? messages[messages.length - 1]?.id : null;
+
   return (
     <div className="relative flex-1 min-h-0">
       <div
@@ -113,15 +113,17 @@ export function MessageList({ messages, onRegenerate, onDeleteMessage, onExportM
         className="h-full overflow-y-auto"
       >
         <div className="max-w-3xl mx-auto py-4">
-          {messages.map((msg) => (
-            <MessageBubble
-              key={msg.id}
-              message={msg}
-              onRegenerate={onRegenerate}
-              onDelete={onDeleteMessage}
-              onExport={onExportMessage}
-            />
-          ))}
+          {messages.map((msg) => {
+            const isLast = msg.id === lastMessageId && msg.role === 'assistant';
+            return (
+              <MessageBubble
+                key={msg.id}
+                message={msg}
+                onRegenerate={onRegenerate}
+                isLastMessage={isLast}
+              />
+            );
+          })}
           <div ref={bottomRef} />
         </div>
       </div>

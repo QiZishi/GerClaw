@@ -24,7 +24,6 @@ import {
   TooltipTrigger,
 } from "@/components/ui/tooltip";
 import { useAppStore } from "@/stores/appStore";
-import { useChatStore } from "@/stores/chatStore";
 import { INPUT_LIMITS, MEDICAL_DISCLAIMER, ALLOWED_IMAGE_MIME_TYPES } from "@/lib/constants";
 import { toast } from "@/components/ui/toast";
 import { cn } from "@/lib/utils";
@@ -32,7 +31,6 @@ import { useAudioRecorder } from "@/hooks/useAudioRecorder";
 import { recognizeAudio } from "@/services/voice/asr";
 import { generateId } from "@/lib/format";
 import type { ImageAttachment } from "@/types";
-import { ModelSelector } from "@/components/chat/ModelSelector";
 
 interface PendingImage {
   id: string;
@@ -86,6 +84,7 @@ const ALLOWED_FILE_MIME = [
 function FunctionButtonGroup({
   disabled,
   role,
+  mounted,
   onSetMainView,
   onSetChatAction,
   onPickImage,
@@ -93,11 +92,13 @@ function FunctionButtonGroup({
 }: {
   disabled: boolean;
   role: "patient" | "doctor" | "visitor";
+  mounted: boolean;
   onSetMainView: (view: "skills" | "chat") => void;
   onSetChatAction: (action: "prescription" | "cga" | "drug-review" | "health-profile" | "none") => void;
   onPickImage: () => void;
   onPickFile: () => void;
 }) {
+  const isDoctor = mounted && role === "doctor";
   return (
     <div className="flex items-center gap-0.5 flex-wrap">
       <Tooltip>
@@ -185,7 +186,7 @@ function FunctionButtonGroup({
         </TooltipTrigger>
         <TooltipContent>老年综合评估</TooltipContent>
       </Tooltip>
-      {role === "doctor" && (
+      {isDoctor && (
         <Tooltip>
           <TooltipTrigger
             render={
@@ -204,30 +205,31 @@ function FunctionButtonGroup({
           <TooltipContent>用药审查</TooltipContent>
         </Tooltip>
       )}
-      <Tooltip>
-        <TooltipTrigger
-          render={
-            <Button
-              variant="ghost"
-              size="icon"
-              className="btn-icon"
-              onClick={() => onSetChatAction("health-profile")}
-              aria-label={role === "doctor" ? "查看健康画像" : "我的健康画像"}
-              disabled={disabled}
-            />
-          }
-        >
-          <UserRound className="size-4" />
-        </TooltipTrigger>
-        <TooltipContent>
-          {role === "doctor" ? "查看健康画像" : "我的健康画像"}
-        </TooltipContent>
-      </Tooltip>
+      {isDoctor && (
+        <Tooltip>
+          <TooltipTrigger
+            render={
+              <Button
+                variant="ghost"
+                size="icon"
+                className="btn-icon"
+                onClick={() => onSetChatAction("health-profile")}
+                aria-label="查看健康画像"
+                disabled={disabled}
+              />
+            }
+          >
+            <UserRound className="size-4" />
+          </TooltipTrigger>
+          <TooltipContent>查看健康画像</TooltipContent>
+        </Tooltip>
+      )}
     </div>
   );
 }
 
 export function ChatInput({ onSend, isGenerating, onStop }: ChatInputProps) {
+  const [mounted, setMounted] = useState(false);
   const role = useAppStore((s) => s.role);
   const seniorMode = useAppStore((s) => s.seniorMode);
   const loadedSkillIds = useAppStore((s) => s.loadedSkillIds);
@@ -239,8 +241,6 @@ export function ChatInput({ onSend, isGenerating, onStop }: ChatInputProps) {
   const setChatAction = useAppStore((s) => s.setChatAction);
   const isOnline = useAppStore((s) => s.isOnline);
   const asrAvailable = useAppStore((s) => s.asrAvailable);
-  const selectedModelId = useChatStore((s) => s.selectedModelId);
-  const setSelectedModelId = useChatStore((s) => s.setSelectedModelId);
 
   const [text, setText] = useState("");
   const [isTranscribing, setIsTranscribing] = useState(false);
@@ -248,6 +248,11 @@ export function ChatInput({ onSend, isGenerating, onStop }: ChatInputProps) {
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const imageInputRef = useRef<HTMLInputElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
+
+  useEffect(() => {
+    // eslint-disable-next-line react-hooks/set-state-in-effect
+    setMounted(true);
+  }, []);
 
   const micDisabled = !isOnline || !asrAvailable || isTranscribing || isGenerating;
 
@@ -379,8 +384,9 @@ export function ChatInput({ onSend, isGenerating, onStop }: ChatInputProps) {
     });
   };
 
-  const placeholder =
-    role === "doctor"
+  const placeholder = !mounted
+    ? "描述您的健康问题…"
+    : role === "doctor"
       ? seniorMode
         ? "请描述患者病情或需要评估的内容…"
         : "请输入患者病情或评估需求…"
@@ -616,6 +622,7 @@ export function ChatInput({ onSend, isGenerating, onStop }: ChatInputProps) {
             <FunctionButtonGroup
               disabled={isTranscribing}
               role={role}
+              mounted={mounted}
               onSetMainView={setMainView}
               onSetChatAction={setChatAction}
               onPickImage={handleImageSelect}
@@ -623,11 +630,6 @@ export function ChatInput({ onSend, isGenerating, onStop }: ChatInputProps) {
             />
 
             <div className="flex items-center gap-1">
-              <ModelSelector
-                selectedId={selectedModelId}
-                onSelect={setSelectedModelId}
-                disabled={isGenerating || isTranscribing}
-              />
               {isGenerating ? (
                 <Tooltip>
                   <TooltipTrigger

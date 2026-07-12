@@ -1,0 +1,211 @@
+# 0008 UX全面重构与功能完善 - Implementation Plan
+
+## [ ] Task 1: 修复控制台错误 + 移除模型选择器 + 患者端功能裁剪
+- **Priority**: high
+- **Depends On**: None
+- **Description**:
+  - 修复hydration mismatch错误（ChatInput/WelcomePage等SSR不匹配问题，主要是role/seniorMode初始值）
+  - 修复Audio playback error（无音频源时不触发play）
+  - 移除模型选择器组件和ModelSelector导入引用
+  - 从患者/访客模式中移除"用药审查"和"我的健康画像"入口（WelcomePage+ChatInput快捷按钮）
+  - 修复搜索结果链接跳转问题（确保使用<a>标签+target="_blank"）
+  - 修改欢迎页快捷提问，替换"这些药可以一起吃吗？"为有明确上下文的问题
+  - 删除右上角全局导出按钮
+- **Acceptance Criteria Addressed**: AC-1, AC-2, AC-7, AC-14
+- **Test Requirements**:
+  - `programmatic` TR-1.1: npm run lint无错误，npm run build构建成功
+  - `programmatic` TR-1.2: 浏览器控制台无React hydration warning
+  - `human-judgement` TR-1.3: 聊天输入区无模型选择器；患者/访客模式无用药审查和健康画像按钮
+  - `human-judgement` TR-1.4: 搜索结果标题点击可在新标签页打开
+  - `human-judgement` TR-1.5: 欢迎页快捷提问均有明确健康上下文
+- **Notes**: hydration mismatch主要是因为服务端渲染时不知道客户端的role/seniorMode状态（存于localStorage），需要用useSyncExternalStore或dynamic import解决
+
+## [ ] Task 2: 重做消息操作按钮行（豆包风格）
+- **Priority**: high
+- **Depends On**: Task 1
+- **Description**:
+  - 创建MessageActionBar组件，放在AI回复bubble底部
+  - 按钮行包含：复制(Copy)、语音播放(Volume2/VolumeX)、分享(Share2)、点赞(ThumbsUp)、点踩(ThumbsDown)、重新生成(RefreshCw)、三点菜单(MoreHorizontal)
+  - 三点菜单使用DropdownMenu，包含"转为文档编辑"和"删除"两个选项
+  - 复制功能：调用navigator.clipboard.writeText，toast提示成功
+  - 语音播放：调用TTS API播放AI回复文本，播放时按钮切换为停止图标，默认不自动播放
+  - 分享按钮：打开ExportDialog（默认选中当前QA对，支持PNG额外格式）
+  - 点赞/点踩：打开反馈对话框，输入反馈内容后记录到数据飞轮
+  - 重新生成：删除最后一条AI消息，重新调用LLM
+  - 删除(三点菜单中)：打开多选删除对话框，默认选中当前QA对
+  - 转为文档编辑：将消息内容传入右侧栏DocumentPreview/Markdown编辑器
+- **Acceptance Criteria Addressed**: AC-3, AC-4
+- **Test Requirements**:
+  - `programmatic` TR-2.1: 复制后剪贴板内容与AI回复文本一致
+  - `human-judgement` TR-2.2: 所有按钮视觉上对齐豆包风格，hover效果正常
+  - `human-judgement` TR-2.3: 语音播放按钮状态切换正常（播放/停止）
+  - `human-judgement` TR-2.4: 三点菜单展开/折叠正常，菜单项可点击
+  - `human-judgement` TR-2.5: 重新生成会删除旧回复并重新请求
+
+## [ ] Task 3: 加载动画优化 + 系统提示语精简
+- **Priority**: high
+- **Depends On**: Task 1
+- **Description**:
+  - 创建DotsLoader组件（三点跳动动画），替代正文等待时的spinner
+  - ThinkingBlock的spinner降低动画速率（使用更慢的animate-spin或自定义动画，约1.5-2秒一圈）
+  - StreamingText组件：当streaming=true但content为空时显示DotsLoader而非spinner
+  - 移除之前可能残留的多个加载指示器
+  - 精简services/llm/client.ts中的system prompt：去除冗长的字数校验、格式校验指令，保留核心安全约束和思考效率指引
+  - 确保正文输出末尾光标"|"只在streaming期间显示，结束后消失（之前已有修复需确认）
+- **Acceptance Criteria Addressed**: AC-5, AC-6
+- **Test Requirements**:
+  - `human-judgement` TR-3.1: 正文等待时显示三点跳动动画（非转圈）
+  - `human-judgement` TR-3.2: 思考中spinner速率适中不刺眼
+  - `human-judgement` TR-3.3: 回复完成后末尾无闪烁光标
+  - `programmatic` TR-3.4: system prompt中去除冗余字数校验指令
+- **Notes**: 三点动画参考豆包/Doubao风格，三个点依次淡入淡出
+
+## [ ] Task 4: 功能入口固定欢迎语（不浪费token）
+- **Priority**: high
+- **Depends On**: Task 1
+- **Description**:
+  - 为每个功能入口（五大处方生成、老年综合评估CGA）定义固定欢迎语文本
+  - 点击功能按钮时，向聊天区插入一条assistant角色的固定欢迎语消息，不调用LLM API
+  - 五大处方欢迎语说明功能用途和使用方法（上传文件/描述健康状况→生成个性化处方）
+  - CGA欢迎语说明功能用途和使用方法（选择量表→作答→生成评估报告）
+  - 欢迎语中包含一个明确的操作引导按钮或提示（如"开始评估"按钮或提示用户在下方输入）
+  - 普通聊天（非功能入口）保持原有逻辑：用户输入后直接调用LLM
+  - 创建功能入口的状态管理：当前激活的功能模式（none/prescription/cga），区分普通对话和功能对话
+- **Acceptance Criteria Addressed**: AC-8
+- **Test Requirements**:
+  - `programmatic` TR-4.1: 点击功能按钮后无LLM API调用
+  - `human-judgement` TR-4.2: 欢迎语清晰说明功能作用和使用方式
+  - `human-judgement` TR-4.3: 用户在功能模式下输入后才触发对应功能流程
+
+## [ ] Task 5: CGA量表流程全面重构（Part1：预录音频+语音交互）
+- **Priority**: high
+- **Depends On**: Task 4
+- **Description**:
+  - 编写脚本生成CGA各量表题目和选项的TTS音频（调用现有TTS API，将音频blob保存到public/audio/cga/目录）
+  - 如果预生成脚本复杂，则改为首次使用时缓存到IndexedDB，或运行时TTS但优化播放逻辑
+  - 修改CGAConversation组件：默认自动播放当前题目音频
+  - 音频播放按钮：播放时显示停止图标，停止时显示播放图标；用户点击停止后后续题目不自动播放，用户点击播放后后续题目恢复自动播放
+  - 语音答题ASR识别增强：除现有选项文本/数字外，支持识别"A"/"B"/"C"/"D"/"选项A"/"a"等
+  - 选择选项后不自动跳转下一题，用户需手动点击"下一题"按钮
+  - 切换到下一题时：如果用户未关闭播放，自动播放下一题音频；如果用户已关闭播放，不自动播放
+  - 返回量表选择界面时停止所有音频播放
+  - 核查各量表题目数量是否正确（对照scales.ts中的数据与真实量表）
+- **Acceptance Criteria Addressed**: AC-9, AC-21
+- **Test Requirements**:
+  - `human-judgement` TR-5.1: CGA题目音频可正常播放和停止
+  - `programmatic` TR-5.2: 语音输入"A"可正确选中A选项
+  - `human-judgement` TR-5.3: 选择选项后停留在当前题，不自动跳下一题
+  - `human-judgement` TR-5.4: 播放/停止状态跨题目保持一致
+  - `programmatic` TR-5.5: 量表题目数量与真实量表一致
+
+## [ ] Task 6: CGA量表流程全面重构（Part2：多量表批量+完成流程+进度保持）
+- **Priority**: high
+- **Depends On**: Task 5
+- **Description**:
+  - 修改ScaleSelector：支持多选+全选按钮，已作答的量表标记为"已作答"且disabled不可勾选
+  - 开始作答后：按用户选择的量表顺序依次排列所有题目，一次性作答完所有选中量表，中途不弹出量表切换
+  - 作答完成页面（中间栏）：显示"作答完毕"文字+已完成量表名称列表（逗号分隔）+三个按钮（重新评估/继续作答其他量表/查看评估报告）
+  - 右侧栏不自动弹出
+  - "重新评估"按钮：清空当前作答结果，从第一题重新开始
+  - "继续作答其他量表"按钮：返回量表选择页面，已作答的量表disabled
+  - "查看评估报告"按钮：汇总所有已作答量表数据，调用LLM生成综合评估报告，报告显示在右侧栏（支持编辑/复制/导出PDF/DOCX/MD）
+  - 所有量表都答完时，量表选择页显示"所有量表已作答完毕"提示+生成评估报告按钮，无法再勾选任何量表
+  - 退出CGA流程确认：无报告时显示"退出后当前进度将不会保存，确认退出吗？"；有报告时显示"您已完成量表评估，是否要退出？"
+  - 进度保持：在CGA功能会话中，不退出则保留所有作答数据，每次生成报告时传入全部已作答数据
+  - 历史对话中进入CGA：显示上一次的评估报告，可选择继续作答/重新作答/查看报告
+- **Acceptance Criteria Addressed**: AC-10, AC-19, AC-20, AC-22
+- **Test Requirements**:
+  - `human-judgement` TR-6.1: 可多选量表+全选按钮正常工作
+  - `human-judgement` TR-6.2: 批量作答时按顺序展示所有题目，中途不弹出量表切换
+  - `human-judgement` TR-6.3: 作答完成后显示三个按钮，右侧栏不自动弹出
+  - `human-judgement` TR-6.4: 继续作答返回量表选择页，已作达标灰不可选
+  - `human-judgement` TR-6.5: 退出确认文案根据是否有报告正确显示
+  - `human-judgement` TR-6.6: 评估报告在右侧栏可编辑/复制/导出
+
+## [ ] Task 7: 五大处方重构（Part1：MinerU文件解析+信息收集卡片+隐私脱敏）
+- **Priority**: high
+- **Depends On**: Task 4
+- **Description**:
+  - 创建MinerU API服务层（services/mineru/client.ts），调用.env中配置的MinerU API解析上传的图片/PDF/MD/DOCX文件
+  - 创建文件上传组件（支持图片/PDF/MD/DOCX），上传后调用MinerU解析
+  - 定义五大处方所需的患者信息字段模板（参考hzj_case.json的basic_info+health_overview+medications结构，但精简为必要字段：年龄/性别/身高/体重/BMI/疾病史/用药/主要不适/检查结果等）
+  - 创建信息收集对话卡片组件（InfoCollectionCard），参照Trae Work的对话卡片样式：每轮最多4个问题，支持文本和语音输入
+  - 信息整合逻辑：解析上传文件+用户语音/文本输入→对照模板检查缺失字段→如有缺失弹出对话卡片让用户补充→最多3轮→超过3轮用已有信息生成
+  - 隐私脱敏：在将用户信息传给LLM前，对姓名（替换为"患者"）、身份证号、医保号、住院号、电话号码等PII进行正则脱敏
+  - 五大处方欢迎语（固定文本，不调用LLM）："欢迎使用老年五大处方生成功能。您可以上传病历/检查报告文件（PDF/图片/Word），或语音/文字描述健康状况，我将为您生成个性化的药物、运动、营养、心理、康复五大处方。请在下方描述您的健康情况或上传文件。"
+- **Acceptance Criteria Addressed**: AC-11, AC-12
+- **Test Requirements**:
+  - `programmatic` TR-7.1: MinerU API调用服务层代码存在，使用环境变量配置
+  - `human-judgement` TR-7.2: 对话卡片UI清晰，每轮最多4题
+  - `programmatic` TR-7.3: 脱敏函数可正确替换姓名/身份证/手机号等PII
+  - `human-judgement` TR-7.4: 文件上传按钮可用，支持多格式
+- **Notes**: MinerU API具体调用方式可能需要根据实际API响应格式调整
+
+## [ ] Task 8: 五大处方重构（Part2：本地知识库检索+JSON结构化输出+右侧栏编辑）
+- **Priority**: high
+- **Depends On**: Task 7
+- **Description**:
+  - 创建本地知识库检索服务（services/knowledge-base.ts）：扫描/Users/qizs/conclusion/gerclaw/本地知识库/md/目录下的md文件，根据用户健康问题关键词匹配相关文档片段
+  - 检索策略：先从本地知识库检索相关内容，将相关片段作为上下文注入LLM prompt；如果本地知识库找不到相关信息，则通过联网搜索补充
+  - 修改五大处方的LLM调用流程：先收集信息→脱敏→调用LLM生成健康画像→基于健康画像生成五大处方（药物/运动/营养/心理/康复）→用药审查（DDI/Beers检查）→生成JSON结构化输出
+  - JSON输出模板：参考五大处方报告模板.md，定义包含五个处方类别的JSON schema，用Zod做格式校验
+  - JSON校验通过后将其渲染为Markdown格式报告
+  - 报告渲染到右侧栏（复用/增强DocumentPreview组件），支持Markdown编辑、复制、导出（PDF/DOCX/MD）
+  - 五大处方生成过程中显示过程可视化（thinking→知识库检索卡片→搜索卡片→thinking→最终输出）
+- **Acceptance Criteria Addressed**: AC-12, AC-13
+- **Test Requirements**:
+  - `programmatic` TR-8.1: 本地知识库检索服务可返回相关文档片段
+  - `programmatic` TR-8.2: Zod schema校验五大处方JSON输出
+  - `human-judgement` TR-8.3: 右侧栏报告可编辑、复制、导出
+  - `human-judgement` TR-8.4: 五大处方生成过程有可视化步骤展示
+  - `human-judgement` TR-8.5: 处方包含药物/运动/营养/心理/康复五个类别
+
+## [ ] Task 9: 角色切换修复 + 导出统一 + 数据飞轮
+- **Priority**: medium
+- **Depends On**: Task 2
+- **Description**:
+  - 修复RoleSwitcher组件，确保患者模式↔医生模式切换正常
+  - 检查医生模式页面（DoctorHome）是否正常渲染，是否同样存在功能按钮缺失问题
+  - 统一所有导出按钮支持PDF/DOCX/MD三种格式；分享按钮额外支持PNG/JPG
+  - 创建IndexedDB数据飞轮服务（services/data-flywheel.ts）：
+    - 存储所有对话消息（含thinking blocks、tool calls、timestamps）
+    - 存储生成的报告（CGA报告、五大处方报告、用户编辑后的版本）
+    - 存储LLM trace（prompt、response、latency、model used）
+    - 存储用户反馈（点赞/点踩+反馈文本）
+    - 存储用户编辑修改记录（原始报告→编辑后报告的diff）
+  - 修改chatStore和appStore，在相应操作时写入数据飞轮
+  - 应用初始化时从IndexedDB恢复数据
+- **Acceptance Criteria Addressed**: AC-15, AC-16, AC-25
+- **Test Requirements**:
+  - `human-judgement` TR-9.1: 角色切换后页面正确显示对应功能
+  - `human-judgement` TR-9.2: 所有导出按钮提供PDF/DOCX/MD选项
+  - `programmatic` TR-9.3: 刷新页面后历史对话仍存在（IndexedDB恢复）
+  - `programmatic` TR-9.4: 数据飞轮记录对话/报告/反馈/trace
+
+## [ ] Task 10: lint + build + 全量浏览器测试 + 文档更新
+- **Priority**: high
+- **Depends On**: Task 1-9
+- **Description**:
+  - 运行npm run lint确保0错误
+  - 运行npm run build确保构建成功
+  - 启动开发服务器，通过浏览器全面测试所有功能：
+    - 模型选择器已移除
+    - 消息操作按钮全部可用
+    - 三点菜单的转为文档编辑和删除功能
+    - 三点加载动画和思考spinner速率
+    - 搜索结果链接跳转
+    - 功能入口欢迎语不调用LLM
+    - CGA多量表选择、批量作答、语音ABCD识别、不自动下一题、完成页面三按钮
+    - 五大处方文件上传、对话卡片收集、右侧栏报告
+    - 患者端无用药审查/健康画像
+    - 角色切换
+    - 导出格式
+    - 数据持久化（刷新后数据存在）
+  - 更新docs/长期规划.md记录本次改动
+  - 更新相关tasks.md和checklist.md标记完成状态
+  - git commit
+- **Acceptance Criteria Addressed**: AC-1 through AC-16
+- **Test Requirements**:
+  - `programmatic` TR-10.1: npm run lint 0 errors, npm run build成功
+  - `human-judgement` TR-10.2: 浏览器测试所有功能正常
+  - `human-judgement` TR-10.3: 控制台无前端代码错误

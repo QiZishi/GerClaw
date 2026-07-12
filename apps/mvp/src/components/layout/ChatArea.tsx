@@ -1,12 +1,20 @@
 "use client";
 
 import { useCallback, useEffect, useRef, useState } from "react";
+
+const CGA_PROGRESS_KEY = "gerclaw-cga-progress";
+
+type CGAProgressData = {
+  selectedScale?: string;
+  answers?: Record<string, number | number[]>;
+  currentIndex?: number;
+  completed?: boolean;
+};
 import {
   ArrowLeft,
   CheckCircle2,
   Loader2,
   AlertTriangle,
-  Download,
   Mic,
   Volume2,
   VolumeX,
@@ -24,9 +32,7 @@ import {
 } from "@/components/ui/dialog";
 import { ChatInput } from "@/components/chat/ChatInput";
 import { MessageList } from "@/components/chat/MessageList";
-import { ExportDialog } from "@/components/chat/ExportDialog";
 import { WelcomePage } from "@/components/chat/WelcomePage";
-import { DeleteConfirmDialog } from "@/components/chat/DeleteConfirmDialog";
 import { SkillManager } from "@/components/skills/SkillManager";
 import { ScaleSelector } from "@/components/cga/ScaleSelector";
 import { useAppStore } from "@/stores/appStore";
@@ -35,6 +41,7 @@ import { scales } from "@/data/scales";
 import { cn } from "@/lib/utils";
 import { HIGH_RISK_SYMPTOMS, EMERGENCY_ALERT } from "@/lib/constants";
 import { postprocessMedicalText } from "@/lib/security-postprocess";
+import { desensitizeForLLM } from "@/lib/security";
 import { streamChat, buildSystemPrompt, type LLMMessage } from "@/services/llm";
 import { generateId } from "@/lib/format";
 import { toast } from "@/components/ui/toast";
@@ -264,9 +271,89 @@ export function ChatArea() {
   const MAX_COLLECT_ROUNDS = 5;
   const actionInitRef = useRef<string | null>(null);
 
+  // 五大处方模式：已收集的患者基本信息（sessionId -> Record<key, {label, value}>）
+  // eslint-disable-next-line @typescript-eslint/no-unused-vars
+  const [_prescriptionCollectedInfo, setPrescriptionCollectedInfo] = useState<
+    Record<string, Record<string, { label: string; value?: string }>>
+  >({});
+
+  /** 从对话文本中提取患者基本信息（年龄、性别、主诉） */
+  const extractPatientInfoFromText = useCallback((text: string): Record<string, { label: string; value?: string }> => {
+    const result: Record<string, { label: string; value?: string }> = {};
+
+    const ageMatch = text.match(/([0-9]{1,3})\s*岁/);
+    if (ageMatch) {
+      result.age = { label: "年龄", value: `${ageMatch[1]}岁` };
+    }
+
+    const genderMatch = text.match(/(男|女|男性|女性)/);
+    if (genderMatch) {
+      const gender = genderMatch[1];
+      result.gender = {
+        label: "性别",
+        value: gender.includes("男") ? "男" : "女",
+      };
+    }
+
+    const complaintPatterns = [
+      /(?:不舒服|不适|问题是|症状是|主诉[：:是为为了]\s*)([^，。,\.\n]{2,30})/,
+      /(?:主要是|就是|因为)([^，。,\.\n]{2,30}?)(?:不舒服|不适|疼痛|难受)/,
+    ];
+    for (const pattern of complaintPatterns) {
+      const match = text.match(pattern);
+      if (match) {
+        result.chief_complaint = {
+          label: "主要不适",
+          value: match[1].trim(),
+        };
+        break;
+      }
+    }
+
+    return result;
+  }, []);
+
+  /** 向AI消息添加或更新信息收集卡片block */
+  const addOrUpdateInfoBlock = useCallback((sessionId: string, assistantMsgId: string, fields: Array<{key:string;label:string;value?:string;filled:boolean}>) => {
+    const currentMsgs = useChatStore.getState().messagesBySession[sessionId] ?? [];
+    const msg = currentMsgs.find(m => m.id === assistantMsgId);
+    if (!msg) return;
+
+    const existingBlock = msg.blocks.find(b => b.kind === "info_collection");
+    const newBlock: MessageBlock = {
+      kind: "info_collection",
+      id: existingBlock?.id ?? generateId("block"),
+      data: { fields },
+    };
+
+    let newBlocks: MessageBlock[];
+    if (existingBlock) {
+      newBlocks = msg.blocks.map(b => b.kind === "info_collection" ? newBlock : b);
+    } else {
+      const lastTextBlockIdx = msg.blocks.findIndex(b => b.kind === "text");
+      if (lastTextBlockIdx !== -1) {
+        newBlocks = [
+          ...msg.blocks.slice(0, lastTextBlockIdx + 1),
+          newBlock,
+          ...msg.blocks.slice(lastTextBlockIdx + 1),
+        ];
+      } else {
+        newBlocks = [...msg.blocks, newBlock];
+      }
+    }
+
+    updateMessage(assistantMsgId, { blocks: newBlocks });
+  }, [updateMessage]);
+
   useEffect(() => {
     autoReadRef.current = autoReadIfSeniorMode;
   }, [autoReadIfSeniorMode]);
+
+  const [mounted, setMounted] = useState(false);
+  useEffect(() => {
+    // eslint-disable-next-line react-hooks/set-state-in-effect
+    setMounted(true);
+  }, []);
 
   // CGA：当前会话已选择的评估量表（sessionId -> Scale.id）
   const [cgaSelectedScale, setCgaSelectedScale] = useState<
@@ -287,14 +374,25 @@ export function ChatArea() {
   );
   // 老年模式退出功能二次确认弹窗
   const [showExitConfirm, setShowExitConfirm] = useState(false);
-  // 删除消息确认弹窗
-  const [deleteConfirmId, setDeleteConfirmId] = useState<string | null>(null);
-  // 导出对话框
-  const [showExportDialog, setShowExportDialog] = useState(false);
-  const [exportDefaultSelectedIds, setExportDefaultSelectedIds] = useState<string[]>([]);
-  const [exportDialogKey, setExportDialogKey] = useState(0);
   // CGA语音答题状态
   const [cgaIsTranscribing, setCgaIsTranscribing] = useState(false);
+
+  const cgaAutoAdvanceRef = useRef<Record<string, boolean>>({});
+  const cgaKeyboardCtxRef = useRef<{
+    showQuiz: boolean;
+    isRecording: boolean;
+    isTranscribing: boolean;
+    question: ScaleQuestion | null;
+    answerFn: ((q: ScaleQuestion, v: number) => void) | null;
+    nextFn: (() => void) | null;
+  }>({
+    showQuiz: false,
+    isRecording: false,
+    isTranscribing: false,
+    question: null,
+    answerFn: null,
+    nextFn: null,
+  });
 
   // CGA：朗读当前题目
   const speakCGAQuestion = useCallback((question: ScaleQuestion) => {
@@ -323,6 +421,70 @@ export function ChatArea() {
     }, 300);
     return () => clearTimeout(timer);
   }, [seniorMode, currentSessionId, chatAction, cgaSelectedScale, cgaCurrentIndex, cgaCompleted, speakCGAQuestion]);
+
+  useEffect(() => {
+    if (!mounted) return;
+    try {
+      const stored = localStorage.getItem(CGA_PROGRESS_KEY);
+      if (stored) {
+        const allProgress = JSON.parse(stored) as Record<string, CGAProgressData>;
+        const selectedScaleInit: Record<string, string> = {};
+        const answersInit: Record<string, Record<string, number | number[]>> = {};
+        const currentIndexInit: Record<string, number> = {};
+        const completedInit: Record<string, boolean> = {};
+        for (const [sid, data] of Object.entries(allProgress)) {
+          if (data.selectedScale) selectedScaleInit[sid] = data.selectedScale;
+          if (data.answers) answersInit[sid] = data.answers;
+          if (data.currentIndex !== undefined) currentIndexInit[sid] = data.currentIndex;
+          if (data.completed !== undefined) completedInit[sid] = data.completed;
+        }
+        /* eslint-disable react-hooks/set-state-in-effect */
+        if (Object.keys(selectedScaleInit).length > 0) setCgaSelectedScale(selectedScaleInit);
+        if (Object.keys(answersInit).length > 0) setCgaAnswers(answersInit);
+        if (Object.keys(currentIndexInit).length > 0) setCgaCurrentIndex(currentIndexInit);
+        if (Object.keys(completedInit).length > 0) setCgaCompleted(completedInit);
+        /* eslint-enable react-hooks/set-state-in-effect */
+      }
+    } catch {
+      // localStorage not available, ignore
+    }
+  }, [mounted]);
+
+  const saveCGAProgress = useCallback(() => {
+    if (!mounted) return;
+    try {
+      const allProgress: Record<string, CGAProgressData> = {};
+      for (const sid of Object.keys(cgaSelectedScale)) {
+        allProgress[sid] = {
+          selectedScale: cgaSelectedScale[sid],
+          answers: cgaAnswers[sid],
+          currentIndex: cgaCurrentIndex[sid],
+          completed: cgaCompleted[sid],
+        };
+      }
+      localStorage.setItem(CGA_PROGRESS_KEY, JSON.stringify(allProgress));
+    } catch {
+      // localStorage not available, ignore
+    }
+  }, [mounted, cgaSelectedScale, cgaAnswers, cgaCurrentIndex, cgaCompleted]);
+
+  const clearCGAProgressForSession = useCallback((sid: string) => {
+    if (!mounted) return;
+    try {
+      const stored = localStorage.getItem(CGA_PROGRESS_KEY);
+      if (stored) {
+        const allProgress = JSON.parse(stored) as Record<string, CGAProgressData>;
+        delete allProgress[sid];
+        localStorage.setItem(CGA_PROGRESS_KEY, JSON.stringify(allProgress));
+      }
+    } catch {
+      // localStorage not available, ignore
+    }
+  }, [mounted]);
+
+  useEffect(() => {
+    saveCGAProgress();
+  }, [saveCGAProgress]);
 
   const messages: Message[] = currentSessionId
     ? messagesBySession[currentSessionId] ?? []
@@ -394,148 +556,43 @@ export function ChatArea() {
       return;
     }
 
-    const initKey = `${sid}:${chatAction}`;
-    if (actionInitRef.current === initKey) return;
-    actionInitRef.current = initKey;
-
-    // prescription 和 drug-review 使用 LLM 生成开场消息
+    // prescription 和 drug-review 使用固定欢迎语（不经过LLM）
     if (chatAction === "prescription" || chatAction === "drug-review") {
+      const initKey = `${sid}:${chatAction}`;
+      if (actionInitRef.current === initKey) return;
+      actionInitRef.current = initKey;
+      
       setGenerating(true);
       setPanelContent("");
       
-      const assistantMsgId = generateId("msg");
-      const assistantBlockId = generateId("block");
-      const initialThinkingBlockId = generateId("block");
-      currentThinkingBlockIdRef.current = initialThinkingBlockId;
-      
-      let systemPrompt = "";
-      if (chatAction === "prescription") {
-        systemPrompt = role === "doctor"
-          ? "你是GerClaw老年科医生AI助手，正在协助医生生成五大处方。请专业简洁地开场，告诉医生你将通过对话收集患者信息，一次问1-2个关键问题。"
-          : "你是GerClaw老年科AI医生助手，正在为老年患者生成五大处方（药物处方、运动处方、营养处方、心理处方、康复处方）。请通过亲切自然的对话了解患者情况，像聊天一样一次只问1-2个问题，开场请先问候并了解基本情况（年龄、性别、主要不适）。";
-      } else {
-        systemPrompt = role === "doctor"
-          ? "你是GerClaw老年科医生AI助手，正在协助医生进行用药审查。请专业简洁地开场，告诉医生你需要了解用药清单（药名/剂量/频次）、诊断、不良反应等信息。"
-          : "你是GerClaw老年科AI医生助手，正在为老年患者进行用药审查。请亲切地开场，告诉患者你需要了解正在吃的药（药名、每次吃多少、一天吃几次）、治什么病、吃药后有没有不舒服。";
-      }
-
-      const llmMessages: LLMMessage[] = [
-        { role: "system", content: systemPrompt },
-        { role: "user", content: "开始" }
-      ];
-
-      const assistantMsg: Message = {
-        id: assistantMsgId,
-        sessionId: sid!,
-        role: "assistant",
-        blocks: [
-          {
-            kind: "text",
-            id: assistantBlockId,
-            content: "",
-            streaming: true,
-          },
-        ],
-        status: "streaming",
-        createdAt: Date.now(),
-        hasDisclaimer: false,
-      };
-      addMessage(assistantMsg);
-
       setTimeout(() => {
         setCollectRounds((prev) => ({ ...prev, [sid!]: 0 }));
-      }, 0);
-
-      abortControllerRef.current = new AbortController();
-
-      initMessageThinking(assistantMsgId, initialThinkingBlockId);
-
-      const currentModelId = useChatStore.getState().selectedModelId;
-
-      streamChat(
-        llmMessages,
-        { signal: abortControllerRef.current.signal, tools: [], modelPreference: currentModelId },
-        {
-          onThinkingStart: () => {
-            const newBlockId = generateId("block");
-            currentThinkingBlockIdRef.current = newBlockId;
-            startMessageThinkingBlock(assistantMsgId, newBlockId);
-          },
-          onThinkingDelta: (delta) => {
-            const currentId = currentThinkingBlockIdRef.current;
-            if (currentId) {
-              appendMessageThinking(assistantMsgId, currentId, delta);
-            }
-          },
-          onThinkingDone: () => {
-            const currentId = currentThinkingBlockIdRef.current;
-            if (currentId) {
-              finalizeMessageThinking(assistantMsgId, currentId);
-            }
-          },
-          onText: (delta) => {
-            appendMessageText(assistantMsgId, assistantBlockId, delta);
-          },
-          onFallback: (message) => {
-            toast.show(message);
-          },
-          onDone: (fullText) => {
-            abortControllerRef.current = null;
-            const currentId = currentThinkingBlockIdRef.current;
-            if (currentId) {
-              finalizeMessageThinking(assistantMsgId, currentId);
-            }
-            const finalContent = postprocessMedicalText(fullText);
-            const currentMsg = useChatStore.getState().messagesBySession[sid!]?.find(m => m.id === assistantMsgId);
-            const updatedBlocks = currentMsg?.blocks.map((b) => {
-              if (b.kind === "text" && b.id === assistantBlockId) {
-                return { ...b, content: finalContent, streaming: false };
-              }
-              return b;
-            }) ?? [];
-            updateMessage(assistantMsgId, {
-              status: "done",
-              blocks: updatedBlocks,
-              hasDisclaimer: true,
-            });
-            setGenerating(false);
-            autoReadRef.current(finalContent);
-          },
-          onError: () => {
-            abortControllerRef.current = null;
-            const currentId = currentThinkingBlockIdRef.current;
-            if (currentId) {
-              finalizeMessageThinking(assistantMsgId, currentId);
-            }
-            const fallbackContent = getOpeningMessage(chatAction, role);
-            const currentMsg = useChatStore.getState().messagesBySession[sid!]?.find(m => m.id === assistantMsgId);
-            const existingTextBlock = currentMsg?.blocks.find(b => b.kind === "text" && b.id === assistantBlockId);
-            const existingContent = existingTextBlock && existingTextBlock.kind === "text" ? existingTextBlock.content : "";
-            
-            let finalContent = existingContent || fallbackContent;
-            if (!existingContent.trim()) {
-              finalContent = fallbackContent;
-            }
-            const processedContent = postprocessMedicalText(finalContent);
-            
-            const updatedBlocks = currentMsg?.blocks.map((b) => {
-              if (b.kind === "text" && b.id === assistantBlockId) {
-                return { ...b, content: processedContent, streaming: false };
-              }
-              return b;
-            }) ?? [];
-            updateMessage(assistantMsgId, {
-              status: existingContent.trim() ? "interrupted" : "done",
-              blocks: updatedBlocks,
-              hasDisclaimer: true,
-            });
-            setGenerating(false);
-            autoReadRef.current(processedContent);
-          },
-        }
-      );
+        const openingContent = postprocessMedicalText(getOpeningMessage(chatAction, role));
+        const aiMsg: Message = {
+          id: generateId("msg"),
+          sessionId: sid!,
+          role: "assistant",
+          blocks: [
+            {
+              kind: "text",
+              id: generateId("block"),
+              content: openingContent,
+            },
+          ],
+          status: "done",
+          createdAt: Date.now(),
+          hasDisclaimer: true,
+        };
+        addMessage(aiMsg);
+        setGenerating(false);
+        autoReadRef.current(openingContent);
+      }, 100);
       return;
     }
+
+    const initKey = `${sid}:${chatAction}`;
+    if (actionInitRef.current === initKey) return;
+    actionInitRef.current = initKey;
 
     // 其他功能暂时使用硬编码开场（保留原有逻辑）
     setGenerating(true);
@@ -559,6 +616,30 @@ export function ChatArea() {
       setGenerating(false);
     }, 300);
   }, [chatAction, currentSessionId, role, createSession, setCurrentSession, addMessage, setGenerating, cgaSelectedScale, setPanelContent, updateMessage, appendMessageText, appendPanelContent, initMessageThinking, startMessageThinkingBlock, appendMessageThinking, finalizeMessageThinking]);
+
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      const ctx = cgaKeyboardCtxRef.current;
+      if (!ctx.showQuiz || ctx.isRecording || ctx.isTranscribing) return;
+      const target = e.target as HTMLElement;
+      if (target.tagName === "INPUT" || target.tagName === "TEXTAREA" || target.isContentEditable) {
+        return;
+      }
+      const num = parseInt(e.key, 10);
+      if (num >= 1 && num <= 9 && ctx.question && ctx.question.options && ctx.answerFn && ctx.nextFn) {
+        const idx = num - 1;
+        if (idx < ctx.question.options.length) {
+          const opt = ctx.question.options[idx];
+          ctx.answerFn(ctx.question, opt.value);
+          setTimeout(() => {
+            ctx.nextFn?.();
+          }, 300);
+        }
+      }
+    };
+    window.addEventListener("keydown", handleKeyDown);
+    return () => window.removeEventListener("keydown", handleKeyDown);
+  }, []);
 
   // 技能管理视图
   if (mainView === "skills") {
@@ -648,24 +729,6 @@ export function ChatArea() {
     doSend(currentSessionId, userText, true, userImages.length > 0 ? userImages : undefined);
   };
 
-  /** 删除消息 */
-  const handleDeleteMessage = (messageId: string) => {
-    const currentMsgs = currentSessionId ? messagesBySession[currentSessionId] ?? [] : [];
-    const streamingMsg = currentMsgs.find((m) => m.status === "streaming");
-    if (streamingMsg && streamingMsg.id === messageId && abortControllerRef.current) {
-      handleStop();
-    }
-    setDeleteConfirmId(messageId);
-  };
-
-  const confirmDelete = () => {
-    if (deleteConfirmId) {
-      removeMessage(deleteConfirmId);
-      toast.show("消息已删除");
-    }
-    setDeleteConfirmId(null);
-  };
-
   const handleSend = (text: string, images?: ImageAttachment[]) => {
     if (!currentSessionId) {
       const sid = createSession(role);
@@ -674,26 +737,6 @@ export function ChatArea() {
       return;
     }
     doSend(currentSessionId, text, false, images);
-  };
-
-  const handleExportConversation = () => {
-    if (!currentSessionId || messages.length === 0) return;
-    setExportDefaultSelectedIds(messages.map((m) => m.id));
-    setExportDialogKey((k) => k + 1);
-    setShowExportDialog(true);
-  };
-
-  const handleExportMessage = (messageId: string) => {
-    if (!currentSessionId || messages.length === 0) return;
-    const idx = messages.findIndex((m) => m.id === messageId);
-    if (idx === -1) return;
-    const selectedIds: string[] = [messageId];
-    if (idx > 0 && messages[idx].role === "assistant" && messages[idx - 1].role === "user") {
-      selectedIds.unshift(messages[idx - 1].id);
-    }
-    setExportDefaultSelectedIds(selectedIds);
-    setExportDialogKey((k) => k + 1);
-    setShowExportDialog(true);
   };
 
   const doSend = (sid: string, text: string, isRegenerate = false, images?: ImageAttachment[]) => {
@@ -716,6 +759,7 @@ export function ChatArea() {
       role: "user",
       blocks: userBlocks,
       status: "done",
+      // eslint-disable-next-line react-hooks/purity
       createdAt: Date.now(),
     };
     if (!isRegenerate) {
@@ -742,7 +786,7 @@ export function ChatArea() {
       const imageParts: { type: "image_url"; image_url: { url: string } }[] = [];
       for (const block of msg.blocks) {
         if (block.kind === "text") {
-          textParts.push(block.content);
+          textParts.push(desensitizeForLLM(block.content));
         } else if (block.kind === "image") {
           const { mimeType, base64 } = block.data;
           imageParts.push({
@@ -801,6 +845,7 @@ export function ChatArea() {
           },
         ],
         status: "streaming",
+        // eslint-disable-next-line react-hooks/purity
         createdAt: Date.now(),
         hasDisclaimer: false,
       };
@@ -910,6 +955,26 @@ ${forceGenerate ? "重要：已达到对话轮次上限，请立即输出 [生�
               blocks: updatedBlocks,
               hasDisclaimer: true,
             });
+
+            if (chatAction === "prescription") {
+              const allMsgs = getLatestMessages();
+              const allText = allMsgs
+                .filter(m => m.role === "user" || m.role === "assistant")
+                .map(m => m.blocks.filter(b => b.kind === "text").map(b => (b as {content: string}).content).join("\n"))
+                .join("\n");
+
+              const newInfo = extractPatientInfoFromText(allText);
+              setPrescriptionCollectedInfo(prev => {
+                const updated = { ...prev[sid], ...newInfo };
+                const fields: Array<{key:string;label:string;value?:string;filled:boolean}> = [
+                  { key: "age", label: "年龄", value: updated.age?.value, filled: !!updated.age },
+                  { key: "gender", label: "性别", value: updated.gender?.value, filled: !!updated.gender },
+                  { key: "chief_complaint", label: "主要不适", value: updated.chief_complaint?.value, filled: !!updated.chief_complaint },
+                ];
+                addOrUpdateInfoBlock(sid, assistantMsgId, fields);
+                return { ...prev, [sid]: updated };
+              });
+            }
 
             autoReadRef.current(finalReplyContent);
 
@@ -1108,6 +1173,7 @@ ${forceGenerate ? "重要：已达到对话轮次上限，请立即输出 [生�
         },
       ],
       status: "streaming",
+      // eslint-disable-next-line react-hooks/purity
       createdAt: Date.now(),
       hasDisclaimer: false,
     };
@@ -1326,6 +1392,7 @@ ${forceGenerate ? "重要：已达到对话轮次上限，请立即输出 [生�
   /** CGA：用户选择量表后，记录选择并初始化答题状态 */
   const handleSelectScale = (scale: Scale) => {
     if (!currentSessionId) return;
+    cgaAutoAdvanceRef.current = {};
     setCgaSelectedScale((prev) => ({
       ...prev,
       [currentSessionId]: scale.id,
@@ -1347,6 +1414,7 @@ ${forceGenerate ? "重要：已达到对话轮次上限，请立即输出 [生�
   const doExitAction = () => {
     setShowExitConfirm(false);
     if (currentSessionId) {
+      clearCGAProgressForSession(currentSessionId);
       setCgaSelectedScale((prev) => {
         if (!prev[currentSessionId]) return prev;
         const next = { ...prev };
@@ -1382,10 +1450,22 @@ ${forceGenerate ? "重要：已达到对话轮次上限，请立即输出 [生�
     setChatAction("none");
   };
 
+  /** CGA：重新评估当前量表（重置答题状态，从第一题开始） */
+  const handleRestartCurrentScale = () => {
+    if (!currentSessionId) return;
+    stopTTS();
+    cgaAutoAdvanceRef.current = {};
+    setCgaAnswers((prev) => ({ ...prev, [currentSessionId]: {} }));
+    setCgaCurrentIndex((prev) => ({ ...prev, [currentSessionId]: 0 }));
+    setCgaCompleted((prev) => ({ ...prev, [currentSessionId]: false }));
+  };
+
   /** CGA：重新选择量表（返回选量表界面，重置答题） */
   const handleReselectScale = () => {
     if (!currentSessionId) return;
     actionInitRef.current = null;
+    clearCGAProgressForSession(currentSessionId);
+    cgaAutoAdvanceRef.current = {};
     setCgaSelectedScale((prev) => {
       const next = { ...prev };
       delete next[currentSessionId];
@@ -1408,10 +1488,11 @@ ${forceGenerate ? "重要：已达到对话轮次上限，请立即输出 [生�
     });
   };
 
-  /** CGA：选择某个选项后，记录答案（不自动跳转，需手动点"下一题"） */
+  /** CGA：选择某个选项后，记录答案；老年模式下自动延迟跳转下一题 */
   const handleAnswerQuestion = (question: ScaleQuestion, value: number) => {
     if (!currentSessionId) return;
     stopTTS();
+    const hadAnswer = !!(cgaAnswers[currentSessionId]?.[question.id] !== undefined);
     setCgaAnswers((prev) => ({
       ...prev,
       [currentSessionId]: {
@@ -1419,6 +1500,17 @@ ${forceGenerate ? "重要：已达到对话轮次上限，请立即输出 [生�
         [question.id]: value,
       },
     }));
+    if (seniorMode && !hadAnswer && selectedScaleObj) {
+      const currentIdx = cgaCurrentIndex[currentSessionId] ?? 0;
+      const isLastQuestion = currentIdx >= selectedScaleObj.questions.length - 1;
+      const autoKey = `${currentSessionId}:${question.id}`;
+      if (!isLastQuestion && !cgaAutoAdvanceRef.current[autoKey]) {
+        cgaAutoAdvanceRef.current[autoKey] = true;
+        setTimeout(() => {
+          handleNextQuestion();
+        }, 600);
+      }
+    }
   };
 
   /** CGA：跳到上一题 */
@@ -1652,6 +1744,16 @@ ${phq9SuicideRisk
     ? cgaAnswers[currentSessionId] ?? {}
     : {};
 
+  // eslint-disable-next-line react-hooks/refs
+  cgaKeyboardCtxRef.current = {
+    showQuiz: showCgaQuiz,
+    isRecording: isCGARecording,
+    isTranscribing: cgaIsTranscribing,
+    question: currentQuestion,
+    answerFn: handleAnswerQuestion,
+    nextFn: handleNextQuestion,
+  };
+
   const actionTitles: Record<string, string> = {
     prescription: "五大处方生成",
     cga: "老年综合评估",
@@ -1704,16 +1806,6 @@ ${phq9SuicideRisk
               >
                 {currentSessionTitle || "新对话"}
               </span>
-              <Button
-                variant="ghost"
-                size="sm"
-                className="gap-1 text-xs"
-                onClick={handleExportConversation}
-                aria-label="导出对话"
-              >
-                <Download className="size-3.5" />
-                <span>导出</span>
-              </Button>
             </>
           )}
         </header>
@@ -2013,7 +2105,27 @@ ${phq9SuicideRisk
             <p className={cn("text-muted-foreground mb-6", seniorMode ? "text-lg" : "text-base")}>
               {selectedScaleObj.fullName} 已完成，评估结果已生成。
             </p>
-            <div className="flex items-center justify-center gap-3">
+            <div className="flex flex-wrap items-center justify-center gap-3">
+              <button
+                type="button"
+                onClick={doExitAction}
+                className={cn(
+                  "rounded-md border border-border hover:bg-muted",
+                  seniorMode ? "min-h-12 px-6 text-base py-3" : "px-4 py-2 text-sm"
+                )}
+              >
+                返回对话
+              </button>
+              <button
+                type="button"
+                onClick={handleRestartCurrentScale}
+                className={cn(
+                  "rounded-md border border-border hover:bg-muted",
+                  seniorMode ? "min-h-12 px-6 text-base py-3" : "px-4 py-2 text-sm"
+                )}
+              >
+                重新评估
+              </button>
               <button
                 type="button"
                 onClick={handleReselectScale}
@@ -2022,7 +2134,7 @@ ${phq9SuicideRisk
                   seniorMode ? "min-h-12 px-6 text-base py-3" : "px-4 py-2 text-sm"
                 )}
               >
-                重新评估
+                继续评估其他量表
               </button>
               <button
                 type="button"
@@ -2039,7 +2151,7 @@ ${phq9SuicideRisk
         </div>
       ) : (
         <div className="flex-1 min-h-0 flex flex-col">
-          {messages.length > 0 && <MessageList messages={messages} onRegenerate={handleRegenerate} onDeleteMessage={handleDeleteMessage} onExportMessage={handleExportMessage} />}
+          {messages.length > 0 && <MessageList messages={messages} onRegenerate={handleRegenerate} />}
         </div>
       )}
 
@@ -2072,23 +2184,6 @@ ${phq9SuicideRisk
           </DialogFooter>
         </DialogContent>
       </Dialog>
-
-      {/* 删除消息确认弹窗 */}
-      <DeleteConfirmDialog
-        open={deleteConfirmId !== null}
-        onOpenChange={(open) => { if (!open) setDeleteConfirmId(null); }}
-        onConfirm={confirmDelete}
-      />
-
-      {/* 导出对话对话框 */}
-      <ExportDialog
-        key={exportDialogKey}
-        open={showExportDialog}
-        onOpenChange={setShowExportDialog}
-        messages={messages}
-        defaultSelectedIds={exportDefaultSelectedIds}
-        title={currentSessionTitle || "对话记录"}
-      />
     </main>
   );
 }
