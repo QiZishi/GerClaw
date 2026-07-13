@@ -205,31 +205,29 @@ export function ExportButton({
     return (
       <div className={cn("relative", className)}>
         <DropdownMenu>
-          <DropdownMenuTrigger
-            render={
-              <Button
-                variant="outline"
-                size="sm"
-                className="gap-1.5"
-                aria-label="导出"
-                disabled={exportingFormat !== null}
-              />
-            }
-          >
-            {exported ? (
-              <Check className="size-3.5 text-green-600" />
-            ) : exportingFormat ? (
-              <Loader2 className="size-3.5 animate-spin" />
-            ) : (
-              <Download className="size-3.5" />
-            )}
-            <span>
-              {exported
-                ? "已导出"
-                : exportingFormat
-                ? "导出中..."
-                : "导出"}
-            </span>
+          <DropdownMenuTrigger>
+            <Button
+              variant="outline"
+              size="sm"
+              className="gap-1.5"
+              aria-label="导出"
+              disabled={exportingFormat !== null}
+            >
+              {exported ? (
+                <Check className="size-3.5 text-green-600" />
+              ) : exportingFormat ? (
+                <Loader2 className="size-3.5 animate-spin" />
+              ) : (
+                <Download className="size-3.5" />
+              )}
+              <span>
+                {exported
+                  ? "已导出"
+                  : exportingFormat
+                  ? "导出中..."
+                  : "导出"}
+              </span>
+            </Button>
           </DropdownMenuTrigger>
           <DropdownMenuContent align="end" sideOffset={4}>
             {FORMAT_OPTIONS.map((opt) => (
