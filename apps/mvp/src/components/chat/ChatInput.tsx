@@ -31,6 +31,14 @@ import { useAudioRecorder } from "@/hooks/useAudioRecorder";
 import { recognizeAudio } from "@/services/voice/asr";
 import { parseFile } from "@/services/document/mineru";
 import { generateId } from "@/lib/format";
+import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+  DialogFooter,
+  DialogClose,
+} from "@/components/ui/dialog";
 import type { ImageAttachment } from "@/types";
 
 interface PendingImage {
@@ -250,6 +258,9 @@ export function ChatInput({ onSend, isGenerating, onStop, onFileParsed }: ChatIn
   const [text, setText] = useState("");
   const [isTranscribing, setIsTranscribing] = useState(false);
   const [pendingImages, setPendingImages] = useState<PendingImage[]>([]);
+  const [uploadedDocCount, setUploadedDocCount] = useState(0);
+  const [showLimitDialog, setShowLimitDialog] = useState(false);
+  const [limitDialogMessage, setLimitDialogMessage] = useState("");
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const imageInputRef = useRef<HTMLInputElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -331,6 +342,13 @@ export function ChatInput({ onSend, isGenerating, onStop, onFileParsed }: ChatIn
       }
     }
 
+    if (uploadedDocCount + documentFiles.length > INPUT_LIMITS.maxFileCount) {
+      setLimitDialogMessage(`已达到最大文件上传数量（${INPUT_LIMITS.maxFileCount}个），请先删除部分文件后再上传。`);
+      setShowLimitDialog(true);
+      e.target.value = "";
+      return;
+    }
+
     if (imageFiles.length > 0) {
       const remaining = INPUT_LIMITS.maxImageCount - pendingImages.length;
       const toProcess = imageFiles.slice(0, remaining);
@@ -376,6 +394,7 @@ export function ChatInput({ onSend, isGenerating, onStop, onFileParsed }: ChatIn
           const result = await parseFile(file);
           if (result.markdown && result.markdown.trim()) {
             onFileParsed(file.name, result.markdown);
+            setUploadedDocCount((prev) => prev + 1);
             toast.show(`${file.name} 解析完成`);
           } else {
             toast.show(`${file.name} 解析内容为空`);
@@ -395,7 +414,8 @@ export function ChatInput({ onSend, isGenerating, onStop, onFileParsed }: ChatIn
 
     const remaining = INPUT_LIMITS.maxImageCount - pendingImages.length;
     if (remaining <= 0) {
-      toast.show(`最多上传 ${INPUT_LIMITS.maxImageCount} 张图片`);
+      setLimitDialogMessage(`已达到最大图片上传数量（${INPUT_LIMITS.maxImageCount}张），请先删除部分图片后再上传。`);
+      setShowLimitDialog(true);
       e.target.value = "";
       return;
     }
@@ -749,6 +769,20 @@ export function ChatInput({ onSend, isGenerating, onStop, onFileParsed }: ChatIn
           {MEDICAL_DISCLAIMER}
         </div>
       </div>
+
+      <Dialog open={showLimitDialog} onOpenChange={setShowLimitDialog}>
+        <DialogContent className="sm:max-w-[425px]">
+          <DialogHeader>
+            <DialogTitle>提示</DialogTitle>
+          </DialogHeader>
+          <p className="text-sm text-muted-foreground">
+            {limitDialogMessage}
+          </p>
+          <DialogFooter>
+            <DialogClose render={<Button variant="outline">我知道了</Button>} />
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }

@@ -9,3 +9,11 @@ docs/references/agentscope-examples/
 docs/references/agentscope参考/
 docs/references/问卷量表/
 docs/references/hzj_case.json
+
+# 工具和配置文件夹
+.trae/
+.github/
+.iga/
+
+# 临时任务文件
+新任务.md

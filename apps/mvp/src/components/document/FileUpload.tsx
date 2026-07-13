@@ -4,6 +4,14 @@ import { useCallback, useRef, useState } from "react";
 import { FileUp, Upload, X } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { ScrollArea } from "@/components/ui/scroll-area";
+import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+  DialogFooter,
+  DialogClose,
+} from "@/components/ui/dialog";
 import { useAppStore } from "@/stores/appStore";
 import { INPUT_LIMITS } from "@/lib/constants";
 import { formatFileSize, generateId } from "@/lib/format";
@@ -42,6 +50,7 @@ export function FileUpload({ className, onFileParsed }: FileUploadProps) {
   const rawFilesRef = useRef<Map<string, File>>(new Map());
   const [dragging, setDragging] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [showLimitDialog, setShowLimitDialog] = useState(false);
 
   const showError = (msg: string) => {
     setError(msg);
@@ -118,7 +127,7 @@ export function FileUpload({ className, onFileParsed }: FileUploadProps) {
       const current = files.length;
       const remaining = INPUT_LIMITS.maxFileCount - current;
       if (remaining <= 0) {
-        showError(`最多上传 ${INPUT_LIMITS.maxFileCount} 个文件`);
+        setShowLimitDialog(true);
         return;
       }
       Array.from(fileList).slice(0, remaining).forEach((raw) => {
@@ -297,6 +306,20 @@ export function FileUpload({ className, onFileParsed }: FileUploadProps) {
           )}
         </div>
       </ScrollArea>
+
+      <Dialog open={showLimitDialog} onOpenChange={setShowLimitDialog}>
+        <DialogContent className="sm:max-w-[425px]">
+          <DialogHeader>
+            <DialogTitle>提示</DialogTitle>
+          </DialogHeader>
+          <p className="text-sm text-muted-foreground">
+            已达到最大文件上传数量（{INPUT_LIMITS.maxFileCount}个），请先删除部分文件后再上传。
+          </p>
+          <DialogFooter>
+            <DialogClose render={<Button variant="outline">我知道了</Button>} />
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }

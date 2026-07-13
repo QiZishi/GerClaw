@@ -144,6 +144,9 @@ export function MessageBubble({
   const [copied, setCopied] = useState(false);
   const [appeared, setAppeared] = useState(false);
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
+  const [showFeedbackDialog, setShowFeedbackDialog] = useState(false);
+  const [feedbackType, setFeedbackType] = useState<"up" | "down" | null>(null);
+  const [feedbackText, setFeedbackText] = useState("");
   const seniorMode = useAppStore((s) => s.seniorMode);
   const setRightPanel = useAppStore((s) => s.setRightPanel);
   const setPanelContent = useAppStore((s) => s.setPanelContent);
@@ -171,12 +174,19 @@ export function MessageBubble({
   };
 
   const handleFeedbackClick = (type: "up" | "down") => {
-    if (feedback === type) {
-      setMessageFeedback(message.id, null);
-    } else {
-      setMessageFeedback(message.id, type);
+    setFeedbackType(type);
+    setFeedbackText("");
+    setShowFeedbackDialog(true);
+  };
+
+  const handleFeedbackClose = () => {
+    if (feedbackType) {
+      setMessageFeedback(message.id, feedbackType);
       toast.show("感谢反馈");
     }
+    setShowFeedbackDialog(false);
+    setFeedbackText("");
+    setFeedbackType(null);
   };
 
   const handleEditInDoc = () => {
@@ -573,6 +583,35 @@ export function MessageBubble({
             <Button variant="destructive" onClick={confirmDelete}>
               确认删除
             </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog
+        open={showFeedbackDialog}
+        onOpenChange={(open) => {
+          if (!open) handleFeedbackClose();
+        }}
+      >
+        <DialogContent className="sm:max-w-[425px]">
+          <DialogHeader>
+            <DialogTitle>
+              {feedbackType === "up" ? "点赞反馈" : "点踩反馈"}
+            </DialogTitle>
+          </DialogHeader>
+          <textarea
+            value={feedbackText}
+            onChange={(e) => setFeedbackText(e.target.value)}
+            placeholder="请输入您的评价（可选）"
+            className={cn(
+              "w-full rounded-md border border-border bg-background px-3 py-2 text-sm ring-offset-background placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 resize-none",
+              seniorMode && "text-base"
+            )}
+            rows={4}
+          />
+          <DialogFooter className="gap-2">
+            <DialogClose render={<Button variant="outline">取消</Button>} />
+            <Button onClick={handleFeedbackClose}>提交反馈</Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>

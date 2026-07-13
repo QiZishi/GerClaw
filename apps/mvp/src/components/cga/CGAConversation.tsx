@@ -259,7 +259,7 @@ export function CGAConversation({
     if (!current) return;
     stopAudio();
     setIsAudioLoading(true);
-    const audioSrc = `/audio/scales/${current.scaleId}_${current.question.id}.mp3`;
+    const audioSrc = `/audio/scales/${current.scaleId}_${current.question.id}.wav`;
     const audio = new Audio(audioSrc);
     audioRef.current = audio;
 
