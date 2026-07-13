@@ -1,8 +1,9 @@
 "use client";
 
-import { useDeferredValue, useCallback, type ChangeEvent, type KeyboardEvent } from "react";
+import { useDeferredValue, useCallback, useState, type ChangeEvent, type KeyboardEvent } from "react";
 import { cn } from "@/lib/utils";
 import { MarkdownRenderer } from "@/components/chat/MarkdownRenderer";
+import { Button } from "@/components/ui/button";
 
 interface MarkdownEditorProps {
   value: string;
@@ -18,6 +19,7 @@ export function MarkdownEditor({
   readOnly = false,
 }: MarkdownEditorProps) {
   const deferredValue = useDeferredValue(value);
+  const [isEditing, setIsEditing] = useState(false);
 
   const handleChange = useCallback(
     (e: ChangeEvent<HTMLTextAreaElement>) => {
@@ -44,33 +46,49 @@ export function MarkdownEditor({
   );
 
   return (
-    <div className={cn("flex flex-col md:flex-row h-full w-full", className)}>
-      <div className="flex flex-col flex-1 min-h-0 md:min-w-0 border-b md:border-b-0 md:border-r border-border bg-muted/20">
-        <div className="px-3 py-2 text-xs font-medium text-muted-foreground border-b border-border shrink-0 bg-muted/30">
-          Markdown
+    <div className={cn("flex flex-col h-full w-full", className)}>
+      <div className="flex items-center justify-between px-3 py-2 border-b border-border shrink-0 bg-muted/30">
+        <div className="flex items-center gap-2">
+          <Button
+            variant={!isEditing ? "secondary" : "ghost"}
+            size="sm"
+            onClick={() => setIsEditing(false)}
+            disabled={readOnly}
+            className="h-7 px-3 text-xs"
+          >
+            预览
+          </Button>
+          <Button
+            variant={isEditing ? "secondary" : "ghost"}
+            size="sm"
+            onClick={() => setIsEditing(true)}
+            disabled={readOnly}
+            className="h-7 px-3 text-xs"
+          >
+            编辑
+          </Button>
         </div>
-        <textarea
-          value={value}
-          onChange={handleChange}
-          onKeyDown={handleKeyDown}
-          readOnly={readOnly}
-          className={cn(
-            "flex-1 min-h-0 w-full resize-none bg-transparent p-4 font-mono text-sm leading-relaxed text-foreground outline-none",
-            "placeholder:text-muted-foreground",
-            readOnly && "cursor-default opacity-80"
-          )}
-          placeholder="开始输入 Markdown..."
-          spellCheck={false}
-        />
       </div>
 
-      <div className="flex flex-col flex-1 min-h-0 md:min-w-0 bg-white">
-        <div className="px-3 py-2 text-xs font-medium text-muted-foreground border-b border-border shrink-0 bg-muted/10">
-          预览
-        </div>
-        <div id="panel-export-content" className="flex-1 min-h-0 overflow-y-auto p-4 bg-white">
-          <MarkdownRenderer content={deferredValue} />
-        </div>
+      <div className="flex-1 min-h-0 flex flex-col">
+        {isEditing && !readOnly ? (
+          <textarea
+            value={value}
+            onChange={handleChange}
+            onKeyDown={handleKeyDown}
+            className={cn(
+              "flex-1 min-h-0 w-full resize-none bg-transparent p-4 font-mono text-sm leading-relaxed text-foreground outline-none",
+              "placeholder:text-muted-foreground"
+            )}
+            placeholder="开始输入 Markdown..."
+            spellCheck={false}
+            autoFocus
+          />
+        ) : (
+          <div id="panel-export-content" className="flex-1 min-h-0 overflow-y-auto p-4 bg-white">
+            <MarkdownRenderer content={deferredValue} />
+          </div>
+        )}
       </div>
     </div>
   );

@@ -21,9 +21,9 @@ import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
 import { toast } from "@/components/ui/toast";
 import type { Message } from "@/types";
-import { exportToPng, exportToPdf, exportToDocx } from "@/lib/export";
+import { exportToPng, exportToJpg, exportToPdf, exportToDocx } from "@/lib/export";
 
-type ExportFormat = "png" | "pdf" | "docx" | "md";
+type ExportFormat = "png" | "jpg" | "pdf" | "docx" | "md";
 
 interface ExportDialogProps {
   open: boolean;
@@ -34,10 +34,11 @@ interface ExportDialogProps {
 }
 
 const FORMAT_OPTIONS: { value: ExportFormat; label: string; icon: React.ReactNode }[] = [
+  { value: "md", label: "Markdown", icon: <File className="size-4" /> },
   { value: "png", label: "PNG", icon: <FileImage className="size-4" /> },
+  { value: "jpg", label: "JPG", icon: <FileImage className="size-4" /> },
   { value: "pdf", label: "PDF", icon: <FileText className="size-4" /> },
   { value: "docx", label: "DOCX", icon: <FileType className="size-4" /> },
-  { value: "md", label: "Markdown", icon: <File className="size-4" /> },
 ];
 
 function getMessagePreview(msg: Message): string {
@@ -125,6 +126,18 @@ export function ExportDialog({
             try {
               await exportToPng(exportContainerRef.current, title);
               toast.show("已导出为 PNG 图片");
+            } finally {
+              exportContainerRef.current.style.display = "none";
+            }
+          }
+          break;
+        }
+        case "jpg": {
+          if (exportContainerRef.current) {
+            exportContainerRef.current.style.display = "block";
+            try {
+              await exportToJpg(exportContainerRef.current, title);
+              toast.show("已导出为 JPG 图片");
             } finally {
               exportContainerRef.current.style.display = "none";
             }

@@ -1,13 +1,29 @@
 "use client";
 
 import { useState } from "react";
-import { Brain, ChevronDown, Loader2 } from "lucide-react";
+import { Brain, ChevronDown } from "lucide-react";
 import { cn } from "@/lib/utils";
 import type { ThinkingBlock as ThinkingBlockData } from "@/types";
 import { useReducedMotion } from "@/hooks/useReducedMotion";
 
 interface ThinkingBlockProps {
   data: ThinkingBlockData;
+}
+
+function ThinkingDots() {
+  const reducedMotion = useReducedMotion();
+  
+  if (reducedMotion) {
+    return <span className="text-base leading-none">...</span>;
+  }
+  
+  return (
+    <span className="inline-flex items-center gap-1">
+      <span className="thinking-bounce-dot thinking-bounce-dot-1" />
+      <span className="thinking-bounce-dot thinking-bounce-dot-2" />
+      <span className="thinking-bounce-dot thinking-bounce-dot-3" />
+    </span>
+  );
 }
 
 export function ThinkingBlock({ data }: ThinkingBlockProps) {
@@ -19,7 +35,7 @@ export function ThinkingBlock({ data }: ThinkingBlockProps) {
   if (isThinking && !hasContent) {
     return (
       <div className="flex items-center gap-2 py-1 text-sm text-muted-foreground/60">
-        <Loader2 className={cn("size-4 thinking-spinner", reducedMotion ? "" : "animate-spin")} />
+        <ThinkingDots />
         <span>思考中</span>
       </div>
     );
@@ -34,11 +50,12 @@ export function ThinkingBlock({ data }: ThinkingBlockProps) {
         aria-expanded={expanded}
       >
         <span className="flex items-center gap-2 text-sm text-muted-foreground/80">
-          {isThinking ? (
-            <Loader2 className={cn("size-4 shrink-0 thinking-spinner", reducedMotion ? "" : "animate-spin")} />
-          ) : (
-            <Brain className="size-4 shrink-0" />
-          )}
+          <Brain 
+            className={cn(
+              "size-4 shrink-0",
+              isThinking && !reducedMotion && "animate-pulse"
+            )} 
+          />
           <span className="font-medium">
             {isThinking ? "思考中" : expanded ? "收起思考" : "已思考"}
           </span>

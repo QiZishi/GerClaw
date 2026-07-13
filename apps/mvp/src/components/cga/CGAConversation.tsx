@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, useEffect, useCallback, useRef, useMemo } from "react";
-import { ChevronLeft, ChevronRight, Check, Volume2, VolumeX, Mic, Loader2, X, CheckCircle2, RotateCcw, ListTodo, BarChart3 } from "lucide-react";
+import { ChevronLeft, ChevronRight, Check, Volume2, Pause, Mic, Loader2, X, CheckCircle2, RotateCcw, ListTodo, BarChart3 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Progress } from "@/components/ui/progress";
 import { useAppStore } from "@/stores/appStore";
@@ -217,6 +217,7 @@ export function CGAConversation({
   const [cgaAudioEnabled, setCgaAudioEnabled] = useState(getInitialAudioEnabled);
   const [isAudioPlaying, setIsAudioPlaying] = useState(false);
   const [isAudioLoading, setIsAudioLoading] = useState(false);
+  const [isAudioPaused, setIsAudioPaused] = useState(false);
   const [showSuicideRiskAlert, setShowSuicideRiskAlert] = useState(false);
   const [suicideAlertDismissed, setSuicideAlertDismissed] = useState(false);
 
@@ -253,12 +254,33 @@ export function CGAConversation({
     }
     setIsAudioPlaying(false);
     setIsAudioLoading(false);
+    setIsAudioPaused(false);
   }, []);
+
+  const pauseAudio = useCallback(() => {
+    if (audioRef.current && isAudioPlaying) {
+      audioRef.current.pause();
+      setIsAudioPlaying(false);
+      setIsAudioPaused(true);
+    }
+  }, [isAudioPlaying]);
+
+  const resumeAudio = useCallback(() => {
+    if (audioRef.current && isAudioPaused) {
+      audioRef.current.play().catch(() => {
+        setIsAudioPlaying(false);
+        setIsAudioPaused(false);
+      });
+      setIsAudioPlaying(true);
+      setIsAudioPaused(false);
+    }
+  }, [isAudioPaused]);
 
   const playAudio = useCallback(() => {
     if (!current) return;
     stopAudio();
     setIsAudioLoading(true);
+    setIsAudioPaused(false);
     const audioSrc = `/audio/scales/${current.scaleId}_${current.question.id}.wav`;
     const audio = new Audio(audioSrc);
     audioRef.current = audio;
@@ -269,28 +291,39 @@ export function CGAConversation({
       audio.play().catch(() => {
         setIsAudioPlaying(false);
         setIsAudioLoading(false);
+        setIsAudioPaused(false);
       });
     };
 
     audio.onended = () => {
       setIsAudioPlaying(false);
       setIsAudioLoading(false);
+      setIsAudioPaused(false);
     };
 
     audio.onerror = () => {
       setIsAudioPlaying(false);
       setIsAudioLoading(false);
+      setIsAudioPaused(false);
     };
 
     audio.load();
   }, [current, stopAudio]);
 
   const toggleAudio = useCallback(() => {
+    if (isAudioLoading) return;
     if (isAudioPlaying) {
-      stopAudio();
+      pauseAudio();
       setCgaAudioEnabled(false);
       try {
         localStorage.setItem('cga-audio-enabled', 'false');
+      } catch {
+      }
+    } else if (isAudioPaused) {
+      resumeAudio();
+      setCgaAudioEnabled(true);
+      try {
+        localStorage.setItem('cga-audio-enabled', 'true');
       } catch {
       }
     } else {
@@ -301,21 +334,7 @@ export function CGAConversation({
       }
       playAudio();
     }
-  }, [isAudioPlaying, playAudio, stopAudio]);
-
-  const toggleAudioEnabled = useCallback(() => {
-    const newVal = !cgaAudioEnabled;
-    setCgaAudioEnabled(newVal);
-    try {
-      localStorage.setItem('cga-audio-enabled', String(newVal));
-    } catch {
-    }
-    if (!newVal) {
-      stopAudio();
-    } else {
-      playAudio();
-    }
-  }, [cgaAudioEnabled, playAudio, stopAudio]);
+  }, [isAudioLoading, isAudioPlaying, isAudioPaused, pauseAudio, resumeAudio, playAudio]);
 
   useEffect(() => {
     const timer = setTimeout(() => {
@@ -586,24 +605,6 @@ export function CGAConversation({
           </div>
         </div>
         <div className="flex items-center gap-2">
-          <button
-            type="button"
-            onClick={toggleAudioEnabled}
-            className={cn(
-              "flex items-center justify-center shrink-0 rounded-full transition-colors",
-              iconBtnSize,
-              cgaAudioEnabled
-                ? "bg-primary text-primary-foreground"
-                : "bg-muted text-muted-foreground"
-            )}
-            aria-label={cgaAudioEnabled ? "关闭音频" : "开启音频"}
-          >
-            {cgaAudioEnabled ? (
-              <Volume2 className={cn(seniorMode ? "size-5" : "size-4")} />
-            ) : (
-              <VolumeX className={cn(seniorMode ? "size-5" : "size-4")} />
-            )}
-          </button>
           {onExit && (
             <Button
               variant="ghost"
@@ -658,13 +659,12 @@ export function CGAConversation({
                   ? "bg-muted text-muted-foreground"
                   : "bg-muted hover:bg-muted/80 text-foreground"
             )}
-            aria-label={isAudioPlaying ? "暂停朗读" : "朗读题目"}
-            disabled={!cgaAudioEnabled}
+            aria-label={isAudioPlaying ? "暂停朗读" : isAudioPaused ? "继续朗读" : "朗读题目"}
           >
             {isAudioLoading ? (
               <Loader2 className={cn("animate-spin", seniorMode ? "size-5" : "size-4")} />
             ) : isAudioPlaying ? (
-              <VolumeX className={cn(seniorMode ? "size-5" : "size-4")} />
+              <Pause className={cn(seniorMode ? "size-5" : "size-4")} />
             ) : (
               <Volume2 className={cn(seniorMode ? "size-5" : "size-4")} />
             )}

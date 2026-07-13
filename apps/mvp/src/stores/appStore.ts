@@ -142,13 +142,17 @@ export const useAppStore = create<AppState>()(
         }),
       closeRightPanel: () =>
         set({ rightPanelOpen: false, rightPanelType: null }),
-      setRightPanelWidth: (width) =>
+      setRightPanelWidth: (width) => {
+        const maxWidth = typeof window !== "undefined"
+          ? Math.min(LAYOUT.rightPanel.max, Math.floor(window.innerWidth * 0.8))
+          : LAYOUT.rightPanel.max;
         set({
           rightPanelWidth: Math.max(
             LAYOUT.rightPanel.min,
-            Math.min(LAYOUT.rightPanel.max, width)
+            Math.min(maxWidth, width)
           ),
-        }),
+        });
+      },
 
       // === 当前会话 ===
       currentSessionId: null,

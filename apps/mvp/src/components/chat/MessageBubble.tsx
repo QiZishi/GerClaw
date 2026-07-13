@@ -17,7 +17,6 @@ import {
   Trash2,
   Volume2,
   VolumeX,
-  AlertTriangle,
 } from "lucide-react";
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
 import { Button } from "@/components/ui/button";
@@ -143,7 +142,6 @@ export function MessageBubble({
   const isUser = message.role === "user";
   const [copied, setCopied] = useState(false);
   const [appeared, setAppeared] = useState(false);
-  const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
   const [showFeedbackDialog, setShowFeedbackDialog] = useState(false);
   const [feedbackType, setFeedbackType] = useState<"up" | "down" | null>(null);
   const [feedbackText, setFeedbackText] = useState("");
@@ -197,11 +195,6 @@ export function MessageBubble({
   };
 
   const handleDelete = () => {
-    setShowDeleteConfirm(true);
-  };
-
-  const confirmDelete = () => {
-    setShowDeleteConfirm(false);
     onDelete?.(message.id);
   };
 
@@ -209,7 +202,7 @@ export function MessageBubble({
     onShare?.(message.id);
   };
 
-  const plainText = !isUser ? extractPlainText(message.blocks) : "";
+  const plainText = extractPlainText(message.blocks);
   const hasActiveThinking = !isUser && message.blocks.some(
     (b) => b.kind === "thinking" && b.data.status === "thinking"
   );
@@ -428,7 +421,7 @@ export function MessageBubble({
           </div>
         )}
 
-        {!isUser && message.status === "done" && (
+        {message.status === "done" && (
           <div className="relative">
             <div
               data-message-actions
@@ -441,41 +434,45 @@ export function MessageBubble({
                   : "opacity-0 group-hover:opacity-100 focus-within:opacity-100"
               )}
             >
-              <Tooltip>
-                <TooltipTrigger
-                  render={
-                    <Button
-                      variant="ghost"
-                      size={btnSize}
-                      className={cn(feedback === 'up' && "text-primary bg-primary/10")}
-                      onClick={() => handleFeedbackClick('up')}
-                      aria-label="赞"
-                    />
-                  }
-                >
-                  <ThumbsUp className={iconSize} fill={feedback === 'up' ? 'currentColor' : 'none'} />
-                </TooltipTrigger>
-                <TooltipContent>赞</TooltipContent>
-              </Tooltip>
+              {!isUser ? (
+                <>
+                  <Tooltip>
+                    <TooltipTrigger
+                      render={
+                        <Button
+                          variant="ghost"
+                          size={btnSize}
+                          className={cn(feedback === 'up' && "text-primary bg-primary/10")}
+                          onClick={() => handleFeedbackClick('up')}
+                          aria-label="赞"
+                        />
+                      }
+                    >
+                      <ThumbsUp className={iconSize} fill={feedback === 'up' ? 'currentColor' : 'none'} />
+                    </TooltipTrigger>
+                    <TooltipContent>赞</TooltipContent>
+                  </Tooltip>
 
-              <Tooltip>
-                <TooltipTrigger
-                  render={
-                    <Button
-                      variant="ghost"
-                      size={btnSize}
-                      className={cn(feedback === 'down' && "text-primary bg-primary/10")}
-                      onClick={() => handleFeedbackClick('down')}
-                      aria-label="踩"
-                    />
-                  }
-                >
-                  <ThumbsDown className={iconSize} fill={feedback === 'down' ? 'currentColor' : 'none'} />
-                </TooltipTrigger>
-                <TooltipContent>踩</TooltipContent>
-              </Tooltip>
+                  <Tooltip>
+                    <TooltipTrigger
+                      render={
+                        <Button
+                          variant="ghost"
+                          size={btnSize}
+                          className={cn(feedback === 'down' && "text-primary bg-primary/10")}
+                          onClick={() => handleFeedbackClick('down')}
+                          aria-label="踩"
+                        />
+                      }
+                    >
+                      <ThumbsDown className={iconSize} fill={feedback === 'down' ? 'currentColor' : 'none'} />
+                    </TooltipTrigger>
+                    <TooltipContent>踩</TooltipContent>
+                  </Tooltip>
 
-              <div className="h-3 w-px bg-border/50 mx-0.5" />
+                  <div className="h-3 w-px bg-border/50 mx-0.5" />
+                </>
+              ) : null}
 
               <Tooltip>
                 <TooltipTrigger
@@ -497,7 +494,7 @@ export function MessageBubble({
                 <TooltipContent>{copied ? "已复制" : "复制"}</TooltipContent>
               </Tooltip>
 
-              {showRegenerate && (
+              {!isUser && showRegenerate && (
                 <Tooltip>
                   <TooltipTrigger
                     render={
@@ -515,7 +512,7 @@ export function MessageBubble({
                 </Tooltip>
               )}
 
-              {plainText && (
+              {!isUser && plainText && (
                 <VoiceReadButton text={plainText} seniorMode={seniorMode} />
               )}
 
@@ -535,57 +532,55 @@ export function MessageBubble({
                 <TooltipContent>分享/导出</TooltipContent>
               </Tooltip>
 
-              <DropdownMenu>
-                <DropdownMenuTrigger
-                  render={
-                    <Button
-                      variant="ghost"
-                      size={btnSize}
-                      aria-label="更多"
-                    />
-                  }
-                >
-                  <MoreHorizontal className={iconSize} />
-                </DropdownMenuTrigger>
-                <DropdownMenuContent align="end" sideOffset={4}>
-                  <DropdownMenuItem onClick={handleEditInDoc}>
-                    <FileEdit className="size-4" />
-                    转为文档编辑
-                  </DropdownMenuItem>
-                  <DropdownMenuSeparator />
-                  <DropdownMenuItem
-                    variant="destructive"
-                    onClick={handleDelete}
+              {!isUser ? (
+                <DropdownMenu>
+                  <DropdownMenuTrigger
+                    render={
+                      <Button
+                        variant="ghost"
+                        size={btnSize}
+                        aria-label="更多"
+                      />
+                    }
                   >
-                    <Trash2 className="size-4" />
-                    删除
-                  </DropdownMenuItem>
-                </DropdownMenuContent>
-              </DropdownMenu>
+                    <MoreHorizontal className={iconSize} />
+                  </DropdownMenuTrigger>
+                  <DropdownMenuContent align="end" sideOffset={4}>
+                    <DropdownMenuItem onClick={handleEditInDoc}>
+                      <FileEdit className="size-4" />
+                      转为文档编辑
+                    </DropdownMenuItem>
+                    <DropdownMenuSeparator />
+                    <DropdownMenuItem
+                      variant="destructive"
+                      onClick={handleDelete}
+                    >
+                      <Trash2 className="size-4" />
+                      删除
+                    </DropdownMenuItem>
+                  </DropdownMenuContent>
+                </DropdownMenu>
+              ) : (
+                <Tooltip>
+                  <TooltipTrigger
+                    render={
+                      <Button
+                        variant="ghost"
+                        size={btnSize}
+                        onClick={handleDelete}
+                        aria-label="删除"
+                      />
+                    }
+                  >
+                    <Trash2 className={iconSize} />
+                  </TooltipTrigger>
+                  <TooltipContent>删除</TooltipContent>
+                </Tooltip>
+              )}
             </div>
           </div>
         )}
       </div>
-
-      <Dialog open={showDeleteConfirm} onOpenChange={setShowDeleteConfirm}>
-        <DialogContent className="max-w-sm">
-          <DialogHeader>
-            <DialogTitle className="flex items-center gap-2">
-              <AlertTriangle className="size-5 text-amber-500" />
-              确认删除？
-            </DialogTitle>
-          </DialogHeader>
-          <p className={cn("text-muted-foreground", seniorMode ? "text-base" : "text-sm")}>
-            删除后该条消息将无法恢复，确定要删除吗？
-          </p>
-          <DialogFooter className="gap-2">
-            <DialogClose render={<Button variant="outline">取消</Button>} />
-            <Button variant="destructive" onClick={confirmDelete}>
-              确认删除
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
 
       <Dialog
         open={showFeedbackDialog}

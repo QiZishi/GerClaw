@@ -221,4 +221,4 @@ export interface PrescriptionReport {
   [key: string]: unknown;
 }
 
-export type ExportFormat = "markdown" | "docx" | "pdf";
+export type ExportFormat = "markdown" | "png" | "jpg" | "pdf" | "docx";

@@ -2,6 +2,7 @@
 
 import { useMemo, useState } from "react";
 import {
+  Mic,
   Plus,
   Search,
   Sparkles,
@@ -118,24 +119,29 @@ export function SkillManager() {
   };
 
   const handleCreate = () => {
-    const name = draft.name.trim();
-    if (!name) {
-      showToast("请输入技能名称");
+    const content = draft.content.trim();
+    if (!content) {
+      showToast("请描述您想要的技能");
       return;
+    }
+    let name = draft.name.trim();
+    if (!name) {
+      name = content.slice(0, 15);
     }
     if (skills.some((s) => s.name === name)) {
-      showToast("技能名称已存在");
+      showToast("技能名称已存在，请修改名称");
       return;
     }
+    const description = content.slice(0, 50);
     const newSkill: Skill = {
       id: `skill_custom_${generateId()}`,
       name,
-      description: draft.description.trim() || "用户自定义技能",
+      description,
       category: "自定义",
       enabled: true,
       source: "custom",
       tags: ["自定义"],
-      content: draft.content.trim() || undefined,
+      content,
     };
     setSkills((prev) => [...prev, newSkill]);
     setDraft({ name: "", description: "", content: "" });
@@ -247,62 +253,106 @@ export function SkillManager() {
 
       {/* 创建自定义技能 Dialog */}
       <Dialog open={createOpen} onOpenChange={setCreateOpen}>
-        <DialogContent className="sm:max-w-md">
+        <DialogContent
+          className={cn(
+            "sm:max-w-lg",
+            seniorMode && "sm:max-w-xl"
+          )}
+        >
           <DialogHeader>
-            <DialogTitle>创建自定义技能</DialogTitle>
-            <DialogDescription>
-              自定义技能将作为指令注入对话，仅保存在内存中（刷新后丢失）。
+            <DialogTitle
+              className={cn(seniorMode && "text-xl")}
+            >
+              创建自定义技能
+            </DialogTitle>
+            <DialogDescription
+              className={cn(seniorMode && "text-base")}
+            >
+              用自然语言描述您想要的技能，系统会自动生成技能名称和描述。仅保存在内存中（刷新后丢失）。
             </DialogDescription>
           </DialogHeader>
-          <div className="space-y-3">
-            <div className="space-y-1.5">
-              <Label htmlFor="skill-name">技能名称</Label>
+          <div className="space-y-4">
+            <div className="space-y-2">
+              <Label
+                htmlFor="skill-name"
+                className={cn(seniorMode && "text-base")}
+              >
+                技能名称（可选）
+              </Label>
               <Input
                 id="skill-name"
                 value={draft.name}
                 onChange={(e) =>
                   setDraft((d) => ({ ...d, name: e.target.value }))
                 }
-                placeholder="例如：糖尿病足护理"
+                placeholder="不填则自动从描述中提取"
                 maxLength={30}
+                className={cn(seniorMode && "h-12 text-lg")}
               />
             </div>
-            <div className="space-y-1.5">
-              <Label htmlFor="skill-desc">技能描述</Label>
-              <Input
-                id="skill-desc"
-                value={draft.description}
-                onChange={(e) =>
-                  setDraft((d) => ({ ...d, description: e.target.value }))
-                }
-                placeholder="一句话描述技能用途"
-                maxLength={80}
-              />
-            </div>
-            <div className="space-y-1.5">
-              <Label htmlFor="skill-content">技能内容（Markdown）</Label>
+            <div className="space-y-2">
+              <div className="flex items-center justify-between">
+                <Label
+                  htmlFor="skill-content"
+                  className={cn(seniorMode && "text-base")}
+                >
+                  技能描述 <span className="text-destructive">*</span>
+                </Label>
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  className={cn(
+                    "gap-1.5",
+                    seniorMode && "h-12 text-base px-4"
+                  )}
+                  onClick={() => showToast("语音输入功能即将上线")}
+                >
+                  <Mic className={cn("size-4", seniorMode && "size-5")} />
+                  语音输入
+                </Button>
+              </div>
               <textarea
                 id="skill-content"
                 value={draft.content}
                 onChange={(e) =>
                   setDraft((d) => ({ ...d, content: e.target.value }))
                 }
-                placeholder={"# 角色设定\n你是一名…\n\n# 任务流程\n1. …"}
-                rows={6}
-                className="font-mono text-xs w-full rounded-lg border border-input bg-transparent px-2.5 py-1 outline-none transition-colors placeholder:text-muted-foreground focus-visible:border-ring focus-visible:ring-3 focus-visible:ring-ring/50"
+                placeholder={
+                  "请用自然语言描述您想要的技能，例如：'我需要一个能帮我给老年高血压患者提供用药提醒和饮食建议的技能，包括每日血压监测提醒、低盐饮食推荐、常见药物注意事项等内容...'"
+                }
+                className={cn(
+                  "w-full rounded-lg border border-input bg-transparent px-3 py-2 outline-none transition-colors placeholder:text-muted-foreground focus-visible:border-ring focus-visible:ring-2 focus-visible:ring-ring/50 resize-y",
+                  "text-base leading-relaxed",
+                  seniorMode && "text-lg px-4 py-3"
+                )}
+                style={{ minHeight: "200px" }}
                 maxLength={2000}
               />
-              <p className="text-[10px] text-muted-foreground text-right">
+              <p
+                className={cn(
+                  "text-xs text-muted-foreground text-right",
+                  seniorMode && "text-sm"
+                )}
+              >
                 {draft.content.length}/2000
               </p>
             </div>
           </div>
-          <DialogFooter>
-            <Button variant="outline" onClick={() => setCreateOpen(false)}>
+          <DialogFooter className={cn("gap-2", seniorMode && "gap-3")}>
+            <Button
+              variant="outline"
+              onClick={() => setCreateOpen(false)}
+              className={cn(seniorMode && "h-12 text-base px-6")}
+            >
               取消
             </Button>
-            <Button variant="default" onClick={handleCreate}>
-              创建
+            <Button
+              variant="default"
+              onClick={handleCreate}
+              className={cn(seniorMode && "h-12 text-base px-6")}
+            >
+              创建技能
             </Button>
           </DialogFooter>
         </DialogContent>
