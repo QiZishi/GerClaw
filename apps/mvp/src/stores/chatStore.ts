@@ -120,6 +120,7 @@ interface ChatState {
   setMessageCitations: (id: string, citations: Message["citations"]) => void;
   removeMessage: (id: string) => void;
   deleteMessage: (id: string) => void;
+  setMessageFeedback: (id: string, feedback: "up" | "down" | null, feedbackText?: string) => void;
   getMessages: (sessionId: string) => Message[];
 
   // === 流式生成状态 ===
@@ -584,6 +585,18 @@ export const useChatStore = create<ChatState>()((set, get) => ({
       return { messagesBySession: truncated };
     }),
   deleteMessage: (id) => get().removeMessage(id),
+  setMessageFeedback: (id, feedback, feedbackText) =>
+    set((s) => {
+      const next = { ...s.messagesBySession };
+      for (const sid of Object.keys(next)) {
+        next[sid] = next[sid].map((m) =>
+          m.id === id ? { ...m, feedback, feedbackText } : m
+        );
+      }
+      const truncated = truncateMessages(next);
+      saveToStorage(STORAGE_KEYS.messages, truncated);
+      return { messagesBySession: truncated };
+    }),
   getMessages: (sessionId) => get().messagesBySession[sessionId] ?? [],
 
   // === 流式生成状态 ===

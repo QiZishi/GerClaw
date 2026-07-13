@@ -420,17 +420,23 @@ function createMarkdownComponents(citations?: Citation[], seniorMode?: boolean) 
     pre: ({ children }: MarkdownComponentProps) => (
       <>{children}</>
     ),
-    blockquote: (props: MarkdownComponentProps) => (
-      <blockquote
-        className={cn(
-          "border-l-4 border-primary/50 pl-4 py-2 my-3 bg-muted/40 rounded-r-lg",
-          "text-muted-foreground",
-          seniorMode ? "text-base" : "text-sm"
-        )}
-      >
-        {processChildrenWithCitations(props.children, citations)}
-      </blockquote>
-    ),
+    blockquote: (props: MarkdownComponentProps) => {
+      const childrenText = String(props.children || "");
+      const isSuicideWarning = childrenText.includes("自杀/自伤风险预警") || childrenText.includes("自杀风险预警");
+      return (
+        <blockquote
+          className={cn(
+            "border-l-4 pl-4 py-3 my-4 rounded-r-lg",
+            isSuicideWarning
+              ? "border-red-600 bg-red-600 text-white font-medium"
+              : "border-primary/50 bg-muted/40 text-muted-foreground",
+            seniorMode ? "text-base" : "text-sm"
+          )}
+        >
+          {processChildrenWithCitations(props.children, citations)}
+        </blockquote>
+      );
+    },
     ul: (props: MarkdownComponentProps) => (
       <ul
         className={cn(

@@ -9,11 +9,11 @@ import { INPUT_LIMITS } from "@/lib/constants";
 import { formatFileSize, generateId } from "@/lib/format";
 import { cn } from "@/lib/utils";
 import { FileTag } from "./FileTag";
+import { parseFile } from "@/services/document/mineru";
 import type { FileTag as FileTagData, FileStatus } from "@/types";
 
 interface FileUploadProps {
   className?: string;
-  /** 文件解析完成回调（用于外层面板切换到预览） */
   onFileParsed?: (file: FileTagData) => void;
 }
 
@@ -24,23 +24,22 @@ const ACCEPTED_TYPES = [
   "text/plain",
   "image/png",
   "image/jpeg",
+  "image/gif",
+  "image/webp",
 ];
 
-const ACCEPTED_EXT = [".pdf", ".docx", ".md", ".txt", ".png", ".jpg", ".jpeg"];
+const ACCEPTED_EXT = [".pdf", ".docx", ".md", ".txt", ".png", ".jpg", ".jpeg", ".gif", ".webp"];
 
-/**
- * §4.2.3 文件上传组件
- * 拖拽/点击上传，mock 模拟上传→解析→完成三阶段
- * 仅修改 appStore.uploadedFileIds（不调用真实接口）
- */
 export function FileUpload({ className, onFileParsed }: FileUploadProps) {
   const seniorMode = useAppStore((s) => s.seniorMode);
-  const uploadedFileIds = useAppStore((s) => s.uploadedFileIds);
   const addUploadedFile = useAppStore((s) => s.addUploadedFile);
   const removeUploadedFile = useAppStore((s) => s.removeUploadedFile);
+  const addParsedFile = useAppStore((s) => s.addParsedFile);
+  const removeParsedFile = useAppStore((s) => s.removeParsedFile);
 
   const inputRef = useRef<HTMLInputElement>(null);
   const [files, setFiles] = useState<FileTagData[]>([]);
+  const rawFilesRef = useRef<Map<string, File>>(new Map());
   const [dragging, setDragging] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -49,49 +48,68 @@ export function FileUpload({ className, onFileParsed }: FileUploadProps) {
     setTimeout(() => setError(null), 3000);
   };
 
-  const simulateParse = useCallback(
-    (file: FileTagData) => {
-      // 上传阶段：500ms
+  const performParse = useCallback(
+    async (fileData: FileTagData) => {
+      const rawFile = rawFilesRef.current.get(fileData.id);
+      if (!rawFile) {
+        setFiles((prev) =>
+          prev.map((f) =>
+            f.id === fileData.id
+              ? { ...f, status: "failed" as FileStatus, errorMessage: "文件对象丢失" }
+              : f
+          )
+        );
+        return;
+      }
+
       setFiles((prev) =>
         prev.map((f) =>
-          f.id === file.id
+          f.id === fileData.id
             ? { ...f, status: "uploading" as FileStatus, progress: 30 }
             : f
         )
       );
-      setTimeout(() => {
+
+      await new Promise((resolve) => setTimeout(resolve, 300));
+
+      setFiles((prev) =>
+        prev.map((f) =>
+          f.id === fileData.id
+            ? { ...f, status: "parsing" as FileStatus, progress: 70 }
+            : f
+        )
+      );
+
+      try {
+        const result = await parseFile(rawFile);
+        const completedFile: FileTagData = {
+          ...fileData,
+          status: "done" as FileStatus,
+          progress: 100,
+          parsedMarkdown: result.markdown,
+        };
+        setFiles((prev) =>
+          prev.map((f) => (f.id === fileData.id ? completedFile : f))
+        );
+        addParsedFile(completedFile);
+        onFileParsed?.(completedFile);
+      } catch (err) {
+        const errorMsg = err instanceof Error ? err.message : "解析失败";
         setFiles((prev) =>
           prev.map((f) =>
-            f.id === file.id
-              ? { ...f, status: "parsing" as FileStatus, progress: 70 }
+            f.id === fileData.id
+              ? {
+                  ...f,
+                  status: "failed" as FileStatus,
+                  errorMessage: errorMsg,
+                  progress: 0,
+                }
               : f
           )
         );
-        // 解析阶段：800ms
-        setTimeout(() => {
-          const mockContent = generateMockParsedMarkdown(file.fileName);
-          setFiles((prev) =>
-            prev.map((f) =>
-              f.id === file.id
-                ? {
-                    ...f,
-                    status: "done" as FileStatus,
-                    progress: 100,
-                    parsedMarkdown: mockContent,
-                  }
-                : f
-            )
-          );
-          onFileParsed?.({
-            ...file,
-            status: "done",
-            progress: 100,
-            parsedMarkdown: mockContent,
-          });
-        }, 800);
-      }, 500);
+      }
     },
-    [onFileParsed]
+    [addParsedFile, onFileParsed]
   );
 
   const handleFiles = useCallback(
@@ -104,7 +122,6 @@ export function FileUpload({ className, onFileParsed }: FileUploadProps) {
         return;
       }
       Array.from(fileList).slice(0, remaining).forEach((raw) => {
-        // 类型校验
         const ext = `.${raw.name.split(".").pop()?.toLowerCase()}`;
         const typeOk =
           ACCEPTED_TYPES.includes(raw.type) || ACCEPTED_EXT.includes(ext);
@@ -112,7 +129,6 @@ export function FileUpload({ className, onFileParsed }: FileUploadProps) {
           showError(`不支持的文件类型：${raw.name}`);
           return;
         }
-        // 大小校验
         if (raw.size > INPUT_LIMITS.maxFileSize) {
           showError(
             `文件过大：${raw.name}（${formatFileSize(raw.size)}），上限 ${formatFileSize(
@@ -130,12 +146,13 @@ export function FileUpload({ className, onFileParsed }: FileUploadProps) {
           status: "uploading",
           progress: 0,
         };
+        rawFilesRef.current.set(id, raw);
         setFiles((prev) => [...prev, newFile]);
         addUploadedFile(id);
-        simulateParse(newFile);
+        performParse(newFile);
       });
     },
-    [files.length, addUploadedFile, simulateParse]
+    [files.length, addUploadedFile, performParse]
   );
 
   const handleDrop = useCallback(
@@ -150,6 +167,8 @@ export function FileUpload({ className, onFileParsed }: FileUploadProps) {
   const handleRemove = (id: string) => {
     setFiles((prev) => prev.filter((f) => f.id !== id));
     removeUploadedFile(id);
+    removeParsedFile(id);
+    rawFilesRef.current.delete(id);
   };
 
   const handleRetry = (id: string) => {
@@ -160,12 +179,11 @@ export function FileUpload({ className, onFileParsed }: FileUploadProps) {
         f.id === id ? { ...f, status: "uploading", progress: 0, errorMessage: undefined } : f
       )
     );
-    simulateParse(file);
+    performParse(file);
   };
 
   return (
     <div className={cn("flex flex-col h-full", className)}>
-      {/* 拖拽区 */}
       <div
         onDragOver={(e) => {
           e.preventDefault();
@@ -209,7 +227,7 @@ export function FileUpload({ className, onFileParsed }: FileUploadProps) {
             点击或拖拽文件到此处
           </div>
           <div className="text-xs text-muted-foreground mt-1">
-            支持 PDF / DOCX / MD / TXT / PNG / JPG
+            支持 PDF / DOCX / MD / TXT / PNG / JPG / GIF / WEBP
           </div>
           <div className="text-[11px] text-muted-foreground mt-0.5">
             单文件 ≤ {formatFileSize(INPUT_LIMITS.maxFileSize)}，最多 {INPUT_LIMITS.maxFileCount} 个
@@ -229,7 +247,6 @@ export function FileUpload({ className, onFileParsed }: FileUploadProps) {
         />
       </div>
 
-      {/* 错误提示 */}
       {error && (
         <div
           role="alert"
@@ -239,7 +256,6 @@ export function FileUpload({ className, onFileParsed }: FileUploadProps) {
         </div>
       )}
 
-      {/* 文件列表 */}
       {files.length > 0 && (
         <div className="px-3 pb-1 flex items-center justify-between">
           <span className="text-xs text-muted-foreground">
@@ -250,7 +266,11 @@ export function FileUpload({ className, onFileParsed }: FileUploadProps) {
             size="xs"
             className="gap-1 text-xs"
             onClick={() => {
-              files.forEach((f) => removeUploadedFile(f.id));
+              files.forEach((f) => {
+                removeUploadedFile(f.id);
+                removeParsedFile(f.id);
+                rawFilesRef.current.delete(f.id);
+              });
               setFiles([]);
             }}
           >
@@ -277,40 +297,6 @@ export function FileUpload({ className, onFileParsed }: FileUploadProps) {
           )}
         </div>
       </ScrollArea>
-
-      {/* 已加载到输入框提示 */}
-      {uploadedFileIds.length > 0 && (
-        <div className="border-t border-border px-3 py-2 text-[11px] text-muted-foreground">
-          已有 {uploadedFileIds.length} 个文件附加到输入框
-        </div>
-      )}
     </div>
   );
-}
-
-/** 生成 mock 解析后的 Markdown 内容 */
-function generateMockParsedMarkdown(fileName: string): string {
-  return [
-    `# ${fileName}`,
-    "",
-    "## 文档解析结果（Mock）",
-    "",
-    "> 该内容为前端 mock 阶段生成的占位解析结果，二阶段将接入真实文档解析服务。",
-    "",
-    "### 摘要",
-    "",
-    "- 文档类型：医疗相关文档",
-    "- 关键信息：包含患者基本信息、症状描述、用药记录等",
-    "- 建议结合上下文进一步分析",
-    "",
-    "### 关键段落",
-    "",
-    "1. **主诉**：患者近期出现血压波动，伴头晕乏力",
-    "2. **现病史**：高血压病史 10 年，近 1 月控制欠佳",
-    "3. **用药**：氨氯地平 5mg qd、二甲双胍 0.5g bid",
-    "",
-    "```",
-    "注：医疗免责声明——本内容由 AI 生成，仅供参考，身体不适请及时就医。",
-    "```",
-  ].join("\n");
 }

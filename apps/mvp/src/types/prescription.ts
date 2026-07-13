@@ -1,18 +1,16 @@
 /**
  * 五大处方类型定义
- * 对齐 gerclaw设计要求.md §6 五大处方模块
- * 模板路径：/Users/qizs/conclusion/gerclaw/输入输出/五大处方报告模板.md
  */
 
-/** 处方类别 */
 export type PrescriptionType =
-  | "drug" // 药物处方
-  | "exercise" // 运动处方
-  | "nutrition" // 营养处方
-  | "psychology" // 心理处方
-  | "rehabilitation"; // 康复处方
+  | "exercise"
+  | "nutrition"
+  | "psychology"
+  | "medication"
+  | "smokingAlcohol"
+  | "drug"
+  | "rehabilitation";
 
-/** 循证来源 */
 export interface EvidenceSource {
   title: string;
   url?: string;
@@ -20,91 +18,207 @@ export interface EvidenceSource {
   publishedDate?: string;
 }
 
-/** 处方条目（单条建议） */
-export interface PrescriptionItem {
-  name: string;
-  detail: string;
-  dosage?: string; // 药物剂量
-  frequency?: string; // 频次
-  duration?: string; // 疗程
-  precautions?: string[]; // 注意事项
-  evidence?: EvidenceSource[]; // 循证来源
-}
-
-/** 单类处方 */
-export interface PrescriptionSection {
-  type: PrescriptionType;
-  title: string;
-  summary: string;
-  items: PrescriptionItem[];
-  evidence: EvidenceSource[];
-}
-
-/** 患者信息摘要 */
-export interface PatientSummary {
+export interface BasicInfo {
   name?: string;
   age?: number;
   gender?: "male" | "female";
+  height?: number;
+  weight?: number;
+  bmi?: number;
+  education?: string;
+  maritalStatus?: string;
+  smoking?: boolean;
+  alcohol?: boolean;
+}
+
+export interface HealthOverview {
+  diseases?: Record<string, boolean | string>;
+  mentalPsychology?: Record<string, unknown>;
+  adl?: Record<string, unknown>;
+  frailty?: Record<string, unknown>;
+  sarcopenia?: Record<string, unknown>;
+  mobility?: Record<string, unknown>;
+  visionHearing?: Record<string, unknown>;
+  fallRisk?: Record<string, unknown>;
+  nutrition?: Record<string, unknown>;
+  pain?: Record<string, unknown>;
+  social?: Record<string, unknown>;
+}
+
+export interface Medication {
+  name: string;
+  specification?: string;
+  usage?: string;
+}
+
+export interface ExamReport {
+  [key: string]: unknown;
+}
+
+export interface MedicalRecord {
   chiefComplaint?: string;
-  history?: string[];
-  allergies?: string[];
-  currentMedications?: string[];
-  vitals?: Record<string, string>;
+  presentIllness?: string;
+  pastHistory?: string;
+  surgeryHistory?: string;
+  allergyHistory?: string;
+  physicalExam?: string;
+  diagnoses?: string[];
+  dischargeAdvice?: string;
 }
 
-/** 健康诊断 */
-export interface HealthDiagnosis {
+export interface PrescriptionInput {
+  basicInfo: BasicInfo;
+  healthOverview?: HealthOverview;
+  medications?: {
+    inpatient?: Medication[];
+    discharge?: Medication[];
+  };
+  examReports?: ExamReport;
+  medicalRecords?: MedicalRecord;
+  lifestyle?: {
+    exercise?: string;
+    diet?: string;
+    sleep?: string;
+  };
+  rawText?: string;
+}
+
+export interface HealthProfile {
   summary: string;
-  problems: string[];
-  suspectedDiagnoses: string[]; // 注意：禁止确定性诊断，仅"疑似"
-  riskFactors: string[];
+  mainIssues: string[];
+  riskAssessment: string;
 }
 
-/** 五大处方报告（结构化 JSON，对齐 §6.1 模板规范） */
-export interface PrescriptionReport {
-  id: string;
-  sessionId: string;
-  createdAt: number;
-  patient: PatientSummary;
-  diagnosis: HealthDiagnosis;
-  sections: PrescriptionSection[];
-  citations: EvidenceSource[];
+export interface ExercisePrescription {
+  recommendation: string;
+  intensity: string;
+  frequency: string;
+  precautions: string[];
+}
+
+export interface NutritionPrescription {
+  recommendation: string;
+  dietaryPrinciples: string[];
+  sampleMeal: string;
+  precautions: string[];
+}
+
+export interface PsychologyPrescription {
+  assessment: string;
+  interventions: string[];
+  referralSuggestion: string;
+}
+
+export interface MedicationPrescription {
+  currentMeds: string[];
+  interactions: string[];
+  highRiskWarnings?: string[];
+  suggestions: string[];
+  precautions: string[];
+}
+
+export interface SmokingAlcoholPrescription {
+  smokingStatus: string;
+  alcoholStatus: string;
+  advice: string[];
+}
+
+export interface PrescriptionOutput {
+  healthProfile: HealthProfile;
+  exercisePrescription: ExercisePrescription;
+  nutritionPrescription: NutritionPrescription;
+  psychologyPrescription: PsychologyPrescription;
+  medicationPrescription: MedicationPrescription;
+  smokingAlcoholPrescription: SmokingAlcoholPrescription;
   disclaimer: string;
 }
 
-/** 处方生成阶段 */
 export type PrescriptionStage =
   | "idle"
+  | "welcome"
   | "collecting"
-  | "completing"
+  | "health_profile"
   | "generating"
   | "validating"
   | "done"
   | "failed";
 
-/** 信息收集字段定义 */
-export interface PrescriptionField {
-  key: string;
+export interface CollectionQuestion {
+  id: string;
   label: string;
-  type: "text" | "number" | "select" | "textarea" | "date";
-  required: boolean;
-  options?: string[];
   placeholder?: string;
-  value?: unknown;
-  filled?: boolean;
+  type: "text" | "textarea";
+  required?: boolean;
 }
 
-/** 处方生成状态（用于右侧面板向导） */
+export interface CollectionCardData {
+  round: number;
+  maxRounds: number;
+  questions: CollectionQuestion[];
+  answers: Record<string, string>;
+}
+
 export interface PrescriptionState {
   stage: PrescriptionStage;
-  collectedFields: PrescriptionField[];
-  totalFields: number;
-  filledFields: number;
-  currentReport?: PrescriptionReport;
+  collectedInfo: PrescriptionInput;
+  collectionRound: number;
+  maxCollectionRounds: number;
+  currentQuestions: CollectionQuestion[];
+  healthProfileMarkdown?: string;
+  finalMarkdown?: string;
+  jsonOutput?: PrescriptionOutput;
   errorMessage?: string;
-  /** 信息补全对话轮次（上限10轮） */
-  completingTurns: number;
 }
 
-/** 导出格式 */
-export type ExportFormat = "markdown" | "pdf" | "docx";
+// 旧版处方组件兼容类型
+export interface PatientSummary {
+  age?: number;
+  gender?: "male" | "female";
+  chiefComplaint?: string;
+  history?: string | string[];
+  currentMedications?: string | string[];
+  allergies?: string | string[];
+  lifestyle?: string | string[];
+  vitals?: Record<string, unknown>;
+  [key: string]: unknown;
+}
+
+export interface PrescriptionItem {
+  name: string;
+  detail: string;
+  dosage?: string;
+  frequency?: string;
+  duration?: string;
+  precautions?: string | string[];
+  evidence?: Array<{ title: string; url?: string }>;
+  [key: string]: unknown;
+}
+
+export interface PrescriptionSection {
+  type: string;
+  title: string;
+  summary: string;
+  items: PrescriptionItem[];
+  evidence?: Array<{ title: string; url?: string }>;
+  [key: string]: unknown;
+}
+
+export interface PrescriptionReport {
+  id: string;
+  sessionId: string;
+  createdAt: number;
+  patient: PatientSummary;
+  diagnosis: {
+    summary: string;
+    problems: string[];
+    suspectedDiagnoses: string[];
+    riskFactors: string[];
+    [key: string]: unknown;
+  };
+  sections: PrescriptionSection[];
+  citations: Array<{ title: string; url?: string }>;
+  disclaimer: string;
+  [key: string]: unknown;
+}
+
+export type ExportFormat = "markdown" | "docx" | "pdf";

@@ -9,9 +9,20 @@ import type { Message } from "@/types";
 interface MessageListProps {
   messages: Message[];
   onRegenerate?: (id: string) => void;
+  onCopy?: (id: string) => void;
+  onShare?: (id: string) => void;
+  onDelete?: (id: string) => void;
+  onEdit?: (id: string) => void;
 }
 
-export function MessageList({ messages, onRegenerate }: MessageListProps) {
+export function MessageList({
+  messages,
+  onRegenerate,
+  onCopy,
+  onShare,
+  onDelete,
+  onEdit,
+}: MessageListProps) {
   const bottomRef = useRef<HTMLDivElement>(null);
   const containerRef = useRef<HTMLDivElement>(null);
   const [showScrollDown, setShowScrollDown] = useState(false);
@@ -120,6 +131,10 @@ export function MessageList({ messages, onRegenerate }: MessageListProps) {
                 key={msg.id}
                 message={msg}
                 onRegenerate={onRegenerate}
+                onCopy={onCopy}
+                onShare={onShare}
+                onDelete={onDelete}
+                onEdit={onEdit}
                 isLastMessage={isLast}
               />
             );

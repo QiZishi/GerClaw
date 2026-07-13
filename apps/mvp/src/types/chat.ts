@@ -146,7 +146,32 @@ export interface InfoCollectionField {
   filled: boolean;
 }
 
-/** 消息内容块（一条消息可包含多个块：文本/图片/思维链/工具调用/搜索结果/文件/决策/操作按钮/信息收集卡片） */
+/** 问题卡片中的单个问题 */
+export interface QuestionItem {
+  id: string;
+  label: string;
+  placeholder?: string;
+  type: "text" | "textarea";
+  required?: boolean;
+}
+
+/** 问题卡片数据（Trae Work风格对话卡片） */
+export interface QuestionCardData {
+  round: number;
+  maxRounds: number;
+  questions: QuestionItem[];
+  answers: Record<string, string>;
+  submitted?: boolean;
+}
+
+/** 阶段指示卡片 */
+export interface StageIndicatorData {
+  stage: "collecting" | "health_profile" | "generating";
+  title: string;
+  description?: string;
+}
+
+/** 消息内容块（一条消息可包含多个块：文本/图片/思维链/工具调用/搜索结果/文件/决策/操作按钮/信息收集卡片/问题卡片/阶段指示） */
 export type MessageBlock =
   | { kind: "text"; id: string; content: string; streaming?: boolean }
   | { kind: "image"; id: string; data: ImageAttachment }
@@ -157,6 +182,8 @@ export type MessageBlock =
   | { kind: "search_results"; id: string; data: SearchResultItem[] }
   | { kind: "file"; id: string; data: FileTag }
   | { kind: "info_collection"; id: string; data: { fields: InfoCollectionField[] } }
+  | { kind: "question_card"; id: string; data: QuestionCardData }
+  | { kind: "stage_indicator"; id: string; data: StageIndicatorData }
   | {
       kind: "action";
       id: string;
@@ -185,6 +212,10 @@ export interface Message {
   uploadedFiles?: string[];
   /** 是否含免责声明 */
   hasDisclaimer?: boolean;
+  /** 用户反馈 */
+  feedback?: "up" | "down" | null;
+  /** 反馈文字 */
+  feedbackText?: string;
 }
 
 /** 会话 */
@@ -235,5 +266,6 @@ export type RightPanelType =
   | "citations"
   | "health-profile"
   | "drug-review"
+  | "doc-editor"
   | "settings"
   | null;

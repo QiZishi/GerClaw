@@ -21,7 +21,6 @@ import type {
   PatientSummary,
   PrescriptionReport as PrescriptionReportData,
   PrescriptionSection,
-  PrescriptionType,
 } from "@/types";
 import { Disclaimer } from "./Disclaimer";
 import { EmergencyAlert } from "./EmergencyAlert";
@@ -31,12 +30,14 @@ interface PrescriptionReportProps {
   report: PrescriptionReportData;
 }
 
-const SECTION_ICONS: Record<PrescriptionType, typeof Pill> = {
+const SECTION_ICONS: Record<string, typeof Pill> = {
   drug: Pill,
   exercise: HeartPulse,
   nutrition: Salad,
   psychology: Sparkles,
   rehabilitation: ClipboardList,
+  medication: Pill,
+  smokingAlcohol: ClipboardList,
 };
 
 /**
@@ -140,6 +141,9 @@ export function PrescriptionReport({ report }: PrescriptionReportProps) {
 
 /** 患者摘要视图 */
 function PatientSummaryView({ patient }: { patient: PatientSummary }) {
+  const asString = (v: string | string[] | undefined): string | undefined =>
+    Array.isArray(v) ? v.join("、") : v;
+
   const fields: { label: string; value?: string }[] = [
     {
       label: "基本信息",
@@ -148,13 +152,13 @@ function PatientSummaryView({ patient }: { patient: PatientSummary }) {
     { label: "主诉", value: patient.chiefComplaint },
     {
       label: "病史",
-      value: patient.history?.join("、"),
+      value: asString(patient.history),
     },
     {
       label: "当前用药",
-      value: patient.currentMedications?.join("；"),
+      value: asString(patient.currentMedications)?.replace(/、/g, "；"),
     },
-    { label: "过敏史", value: patient.allergies?.join("、") ?? "无" },
+    { label: "过敏史", value: asString(patient.allergies) ?? "无" },
   ];
 
   return (
@@ -177,7 +181,7 @@ function PatientSummaryView({ patient }: { patient: PatientSummary }) {
           <div className="flex flex-wrap gap-2">
             {Object.entries(patient.vitals).map(([k, v]) => (
               <Badge key={k} variant="outline" className="text-xs">
-                {k}: {v}
+                {k}: {String(v)}
               </Badge>
             ))}
           </div>
@@ -297,11 +301,11 @@ function SectionView({ section }: { section: PrescriptionSection }) {
                 </span>
               )}
             </div>
-            {item.precautions && item.precautions.length > 0 && (
+            {item.precautions && (
               <div className="mt-2 text-[11px]">
                 <span className="text-muted-foreground">注意事项：</span>
                 <span className="text-amber-700 dark:text-amber-300">
-                  {item.precautions.join("；")}
+                  {Array.isArray(item.precautions) ? item.precautions.join("；") : item.precautions}
                 </span>
               </div>
             )}
@@ -322,7 +326,7 @@ function SectionView({ section }: { section: PrescriptionSection }) {
           </div>
         ))}
       </div>
-      {section.evidence.length > 0 && (
+      {section.evidence && section.evidence.length > 0 && (
         <div className="text-[10px] text-muted-foreground pt-1">
           循证来源：{section.evidence.map((e) => e.title).join("；")}
         </div>

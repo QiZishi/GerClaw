@@ -1,21 +1,19 @@
 "use client";
 
 import { useCallback, useEffect, useRef, useState, type MouseEvent } from "react";
-import { X } from "lucide-react";
+import { X, Copy } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Separator } from "@/components/ui/separator";
 import { useAppStore } from "@/stores/appStore";
 import { cn } from "@/lib/utils";
-import { MarkdownRenderer } from "@/components/chat/MarkdownRenderer";
+import { MarkdownEditor } from "@/components/editor/MarkdownEditor";
 import { PrescriptionEntry } from "@/components/prescription/PrescriptionEntry";
-import { ScaleSelector } from "@/components/cga/ScaleSelector";
-import { CGAReport } from "@/components/cga/CGAReport";
 import { FileUpload } from "@/components/document/FileUpload";
 import { DocumentPreview } from "@/components/document/DocumentPreview";
 import { CitationList } from "@/components/search/CitationList";
 import { ExportButton } from "@/components/prescription/ExportButton";
-import { scales } from "@/data/scales";
-import type { FileTag as FileTagData, RightPanelType, CGAReport as CGAReportData } from "@/types";
+import { toast } from "@/components/ui/toast";
+import type { FileTag as FileTagData, RightPanelType } from "@/types";
 import { useReducedMotion } from "@/hooks/useReducedMotion";
 
 // 注：技能管理（skills）已迁移至中间栏显示，不再占用右侧面板
@@ -28,20 +26,10 @@ const PANEL_TITLES: Record<NonNullable<RightPanelType>, string> = {
   "health-profile": "健康画像",
   "drug-review": "用药审查报告",
   settings: "设置",
+  "doc-editor": "文档编辑",
 };
 
-const EXPORTABLE_PANELS: RightPanelType[] = ["prescription", "cga", "drug-review"];
-
-const emptyCGAReport: CGAReportData = {
-  id: "",
-  sessionId: "",
-  createdAt: 0,
-  scaleResults: [],
-  summary: "",
-  recommendations: [],
-  riskLevel: "low",
-  disclaimer: "内容由 AI 生成，仅供参考。身体不适请及时就医。",
-};
+const EXPORTABLE_PANELS: RightPanelType[] = ["prescription", "cga", "drug-review", "doc-editor"];
 
 /**
  * §3.5 右侧动态面板
@@ -55,6 +43,7 @@ export function RightPanel() {
   const closeRightPanel = useAppStore((s) => s.closeRightPanel);
   const setRightPanelWidth = useAppStore((s) => s.setRightPanelWidth);
   const panelContent = useAppStore((s) => s.panelContent);
+  const setPanelContent = useAppStore((s) => s.setPanelContent);
   const reducedMotion = useReducedMotion();
 
   const [mounted, setMounted] = useState(false);
@@ -106,6 +95,16 @@ export function RightPanel() {
       window.removeEventListener("mouseup", handleMouseUp);
     };
   }, [setRightPanelWidth]);
+
+  const handleCopy = useCallback(async () => {
+    if (!panelContent) return;
+    try {
+      await navigator.clipboard.writeText(panelContent);
+      toast.show("已复制");
+    } catch {
+      toast.show("复制失败");
+    }
+  }, [panelContent]);
 
   if (!mounted || !rightPanelType) {
     return null;
@@ -160,6 +159,18 @@ export function RightPanel() {
         <header className="flex items-center justify-between gap-2 px-4 h-12 shrink-0 border-b border-border">
           <span className="font-medium text-sm">{title}</span>
           <div className="flex items-center gap-1">
+            {panelContent && (
+              <Button
+                variant="ghost"
+                size="icon-sm"
+                className="btn-icon"
+                onClick={handleCopy}
+                aria-label="复制内容"
+                title="复制 Markdown 源码"
+              >
+                <Copy className="size-4" />
+              </Button>
+            )}
             {EXPORTABLE_PANELS.includes(rightPanelType) && panelContent && (
               <ExportButton
                 title={title}
@@ -181,15 +192,12 @@ export function RightPanel() {
 
         <Separator />
 
-        {/* 内容（可二次编辑：所有结果文字支持 contentEditable）*/}
-        <div
-          className="flex-1 min-h-0 overflow-y-auto p-4"
-          contentEditable
-          suppressContentEditableWarning
-          aria-label="结果内容（可编辑）"
-          title="可直接编辑文字内容"
-        >
-          <PanelContent type={rightPanelType} panelContent={panelContent} />
+        <div className="flex-1 min-h-0 flex flex-col">
+          <PanelContent
+            type={rightPanelType}
+            panelContent={panelContent}
+            onContentChange={setPanelContent}
+          />
         </div>
       </aside>
     </>
@@ -197,54 +205,102 @@ export function RightPanel() {
 }
 
 /** 根据 type 渲染对应面板内容 */
-function PanelContent({ type, panelContent }: { type: NonNullable<RightPanelType>; panelContent: string }) {
+function PanelContent({
+  type,
+  panelContent,
+  onContentChange,
+}: {
+  type: NonNullable<RightPanelType>;
+  panelContent: string;
+  onContentChange: (content: string) => void;
+}) {
   switch (type) {
     case "skills":
-      // 技能管理已迁移到中间栏，右侧面板不再处理此类型
       return (
-        <div className="flex flex-col items-center justify-center gap-2 h-full text-center p-4 text-sm text-muted-foreground">
+        <div className="flex-1 min-h-0 overflow-y-auto p-4 flex flex-col items-center justify-center gap-2 text-center text-sm text-muted-foreground">
           技能管理已迁移至中间栏，请点击侧边栏的技能管理按钮。
         </div>
       );
 
     case "prescription":
       if (panelContent) {
-        return <MarkdownRenderer content={panelContent} />;
-      }
-      return <PrescriptionEntry initialStage="done" />;
-
-    case "cga": {
-      if (panelContent) {
-        return <MarkdownRenderer content={panelContent} />;
+        return (
+          <MarkdownEditor
+            value={panelContent}
+            onChange={onContentChange}
+            className="flex-1 min-h-0"
+          />
+        );
       }
       return (
-        <div className="flex flex-col h-full -m-4">
-          <ScaleSelector scales={scales} />
-          <Separator />
-          <div className="flex-1 min-h-0 overflow-y-auto p-4">
-            <CGAReport report={emptyCGAReport} />
-          </div>
+        <div className="flex-1 min-h-0 flex flex-col">
+          <PrescriptionEntry initialStage="done" />
         </div>
+      );
+
+    case "cga": {
+      return (
+        <MarkdownEditor
+          value={panelContent}
+          onChange={onContentChange}
+          className="flex-1 min-h-0"
+          readOnly={!panelContent}
+        />
       );
     }
 
     case "file-preview":
-      return <FilePreviewPanel />;
+      return (
+        <div className="flex-1 min-h-0 flex flex-col">
+          <FilePreviewPanel />
+        </div>
+      );
 
     case "citations":
-      return <CitationList />;
+      return (
+        <div className="flex-1 min-h-0 flex flex-col">
+          <CitationList />
+        </div>
+      );
 
     case "health-profile":
-      return <HealthProfilePanel />;
+      return (
+        <div className="flex-1 min-h-0 flex flex-col">
+          <HealthProfilePanel />
+        </div>
+      );
 
     case "drug-review":
       if (panelContent) {
-        return <MarkdownRenderer content={panelContent} />;
+        return (
+          <MarkdownEditor
+            value={panelContent}
+            onChange={onContentChange}
+            className="flex-1 min-h-0"
+          />
+        );
       }
-      return <DrugReviewPanel />;
+      return (
+        <div className="flex-1 min-h-0 overflow-y-auto p-4">
+          <DrugReviewPanel />
+        </div>
+      );
 
     case "settings":
-      return <SettingsPlaceholder />;
+      return (
+        <div className="flex-1 min-h-0 overflow-y-auto">
+          <SettingsPlaceholder />
+        </div>
+      );
+
+    case "doc-editor":
+      return (
+        <MarkdownEditor
+          value={panelContent}
+          onChange={onContentChange}
+          className="flex-1 min-h-0"
+        />
+      );
   }
 }
 

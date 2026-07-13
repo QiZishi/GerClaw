@@ -59,7 +59,7 @@ const WEB_SEARCH_TOOL = {
   type: "function" as const,
   function: {
     name: "web_search",
-    description: "搜索互联网获取最新信息。仅在以下情况必须使用此工具：(1)询问最新发布的医学指南/共识/研究进展；(2)查询具体药品说明书、不良反应、最新获批适应症；(3)查询新闻事件、实时数据、医院/医生信息。对于基础医学常识、定义、正常范围、标准治疗方案、经典医学知识等你已知晓的内容，直接回答，不要搜索。",
+    description: "搜索互联网获取最新信息。仅在以下情况必须使用此工具：(1)询问最新发布的医学指南/共识/研究进展；(2)查询具体药品说明书、不良反应、最新获批适应症；(3)查询新闻事件、实时数据、医院/医生信息。对于基础医学常识、定义、正常范围、标准治疗方案、经典医学知识等你已知晓的内容，直接回答，不要搜索。注意：生成五大处方时，请优先使用local_knowledge_search检索本地知识库，本地知识库内容不足时再使用本工具。",
     parameters: {
       type: "object",
       properties: {
@@ -73,13 +73,38 @@ const WEB_SEARCH_TOOL = {
   },
 };
 
+// eslint-disable-next-line @typescript-eslint/no-unused-vars
+const LOCAL_KNOWLEDGE_SEARCH_TOOL = {
+  type: "function" as const,
+  function: {
+    name: "local_knowledge_search",
+    description: "检索本地医学知识库获取循证医学依据。知识库包含冠心病、压疮、吞咽障碍、听力障碍、便秘、失能、尿失禁、抑郁、焦虑、疼痛、睡眠障碍、肌少症、营养不良、衰弱等老年常见疾病的指南和专家共识。生成五大处方（药物/运动/营养/心理/康复）或回答上述疾病相关问题时，必须优先使用此工具获取本地权威依据，不要直接编造。",
+    parameters: {
+      type: "object",
+      properties: {
+        query: {
+          type: "string",
+          description: "检索关键词或问题，尽量精确，包含疾病名称、药物名称、治疗方案等关键术语",
+        },
+        category: {
+          type: "string",
+          description: "可选分类过滤，如：冠心病、压疮、吞咽障碍、听力障碍、便秘、失能、尿失禁、抑郁、焦虑、疼痛、睡眠障碍、肌少症、营养不良、衰弱",
+        },
+      },
+      required: ["query"],
+    },
+  },
+};
+
 const CITATION_SYSTEM_INSTRUCTION = `
-【引用规范】当你使用web_search工具获取信息后，必须严格按以下要求回答：
-1. 在回答中每个引用了搜索结果的句子或段落末尾，使用[1][2]等角标标注来源序号（序号对应搜索结果的编号）
-2. 角标紧跟在句号或逗号之前，放在标点前面，不要放在段落开头
-3. 可以在一个句子末尾引用多个来源，如[1][3]
-4. 不要编造不存在的角标编号，只能引用搜索结果中实际提供的编号
-5. 如果搜索结果不足以回答问题，请如实说明，不要编造信息
+【引用规范】当你使用工具获取信息后，必须严格按以下要求回答：
+1. 当使用local_knowledge_search工具获取本地知识库内容时，每个引用了知识库的句子或段落末尾，使用[KB1][KB2]等角标标注本地来源序号，格式为[KB+编号]
+2. 当使用web_search工具获取互联网信息时，每个引用了搜索结果的句子或段落末尾，使用[1][2]等角标标注来源序号（序号对应搜索结果的编号）
+3. 角标紧跟在句号或逗号之前，放在标点前面，不要放在段落开头
+4. 可以在一个句子末尾引用多个来源，如[KB1][2]
+5. 不要编造不存在的角标编号，只能引用工具返回结果中实际提供的编号
+6. 如果检索结果不足以回答问题，请如实说明，不要编造信息
+7. 优先引用本地知识库结果，本地结果不足时再引用联网搜索结果
 `;
 
 function formatSearchResultsForLLM(result: unknown): string {
@@ -111,6 +136,41 @@ function formatSearchResultsForLLM(result: unknown): string {
     formatted += "\n";
   });
   return formatted.trim();
+}
+
+function formatLocalKnowledgeResultsForLLM(result: unknown): string {
+  const data = result as {
+    chunks?: Array<{ title: string; category: string; content: string }>;
+    error?: string;
+    total?: number;
+  };
+  if (data.error) {
+    return `本地知识库检索失败：${data.error}`;
+  }
+  const chunks = data.chunks || [];
+  if (chunks.length === 0) {
+    return "本地知识库未找到相关内容。";
+  }
+  let formatted = "";
+  formatted += "本地知识库检索结果（请在回答中使用[KB1][KB2]等角标引用）：\n\n";
+  chunks.forEach((chunk, i) => {
+    const num = i + 1;
+    formatted += `[KB${num}] 标题：${chunk.title}\n`;
+    formatted += `分类：${chunk.category}\n`;
+    formatted += `内容：${chunk.content}\n\n`;
+  });
+  return formatted.trim();
+}
+
+async function executeLocalKnowledgeSearch(_query: string, _category?: string): Promise<unknown> {
+  void _query;
+  void _category;
+  return {
+    chunks: [],
+    total: 0,
+    source: "local_knowledge",
+    message: "本地知识库功能正在维护中，请使用联网搜索",
+  };
 }
 
 async function executeWebSearch(query: string): Promise<unknown> {
@@ -201,6 +261,12 @@ async function executeTool(name: string, args: Record<string, unknown>): Promise
     if (!query) return { error: "搜索关键词不能为空" };
     return executeWebSearch(query);
   }
+  if (name === "local_knowledge_search") {
+    const query = String(args.query || "");
+    const category = args.category ? String(args.category) : undefined;
+    if (!query) return { error: "检索关键词不能为空", chunks: [] };
+    return executeLocalKnowledgeSearch(query, category);
+  }
   return { error: `未知工具: ${name}` };
 }
 
@@ -208,11 +274,11 @@ function prepareMessagesWithCitationInstruction(
   messages: Record<string, unknown>[],
   tools: Record<string, unknown>[] | undefined
 ): Record<string, unknown>[] {
-  const hasWebSearch = tools?.some((t) => {
+  const hasAnyTool = tools?.some((t) => {
     const fn = (t as { function?: { name?: string } })?.function;
-    return fn?.name === "web_search";
+    return fn?.name === "web_search" || fn?.name === "local_knowledge_search";
   });
-  if (!hasWebSearch) return [...messages];
+  if (!hasAnyTool) return [...messages];
 
   const result = [...messages];
   const sysIdx = result.findIndex((m) => (m as { role?: string }).role === "system");
@@ -447,6 +513,8 @@ async function streamWithTools(
         let toolContent: string;
         if (tc.name === "web_search") {
           toolContent = formatSearchResultsForLLM(result);
+        } else if (tc.name === "local_knowledge_search") {
+          toolContent = formatLocalKnowledgeResultsForLLM(result);
         } else {
           toolContent = typeof result === "string" ? result : JSON.stringify(result);
         }

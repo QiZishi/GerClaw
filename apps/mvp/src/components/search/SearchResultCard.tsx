@@ -2,7 +2,6 @@
 
 import { ExternalLink, Globe } from "lucide-react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { useAppStore } from "@/stores/appStore";
 import type { SearchResultItem } from "@/types";
 
 interface SearchResultCardProps {
@@ -17,12 +16,6 @@ interface SearchResultCardProps {
  * 点击链接可在右侧面板预览
  */
 export function SearchResultCard({ item, index }: SearchResultCardProps) {
-  const setRightPanel = useAppStore((s) => s.setRightPanel);
-
-  const handleOpenPreview = () => {
-    setRightPanel("file-preview");
-  };
-
   return (
     <Card className="bg-muted/40 border-border/60">
       <CardHeader className="pb-2">
@@ -40,11 +33,6 @@ export function SearchResultCard({ item, index }: SearchResultCardProps) {
                 target="_blank"
                 rel="noopener noreferrer"
                 className="hover:text-primary hover:underline"
-                onClick={(e) => {
-                  // 桌面端：默认新标签页打开；同时触发预览
-                  e.preventDefault();
-                  handleOpenPreview();
-                }}
               >
                 {item.title}
               </a>

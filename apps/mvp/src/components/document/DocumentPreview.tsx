@@ -156,14 +156,10 @@ export function DocumentPreview({ file, className }: DocumentPreviewProps) {
       {/* 底部信息条 */}
       <div className="border-t border-border px-3 py-2 flex items-center justify-between text-[11px] text-muted-foreground">
         <span>解析时间：{formatDateTime(parsedAt)}</span>
-        <a
-          href="#"
-          onClick={(e) => e.preventDefault()}
-          className="inline-flex items-center gap-1 hover:text-foreground"
-        >
+        <span className="inline-flex items-center gap-1 text-muted-foreground/50">
           <ExternalLink className="size-3" />
-          原文（mock）
-        </a>
+          原文（暂不可用）
+        </span>
       </div>
     </div>
   );

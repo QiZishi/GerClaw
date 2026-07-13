@@ -5,7 +5,7 @@
  */
 import { create } from "zustand";
 import { persist } from "zustand/middleware";
-import type { ChatActionType, Citation, RightPanelType, Role, Theme } from "@/types";
+import type { ChatActionType, Citation, FileTag, RightPanelType, Role, Theme } from "@/types";
 import { LAYOUT } from "@/lib/constants";
 import { STORAGE_KEYS } from "@/lib/storage";
 
@@ -64,10 +64,14 @@ interface AppState {
   // === 输入框上下文（标签区域）===
   loadedSkillIds: string[];
   uploadedFileIds: string[];
+  parsedFiles: Record<string, FileTag>;
   addLoadedSkill: (id: string) => void;
   removeLoadedSkill: (id: string) => void;
   addUploadedFile: (id: string) => void;
   removeUploadedFile: (id: string) => void;
+  addParsedFile: (file: FileTag) => void;
+  removeParsedFile: (id: string) => void;
+  clearParsedFiles: () => void;
   clearInputContext: () => void;
 
   // === 网络状态 ===
@@ -102,12 +106,19 @@ export const useAppStore = create<AppState>()(
       setRole: (role) =>
         set({
           role,
-          // 切换到医生端时关闭老年模式；切换到患者端时默认开启；访客模式关闭
           seniorMode: role === "patient" ? true : false,
+          currentSessionId: null,
+          mainView: "chat",
+          chatAction: "none",
+          rightPanelOpen: false,
+          rightPanelType: null,
+          panelContent: "",
+          streamingInterrupted: false,
+          interruptedMessageId: null,
         }),
 
       // === 老年模式 ===
-      seniorMode: false, // 访客模式默认关闭
+      seniorMode: false,
       setSeniorMode: (seniorMode) => set({ seniorMode }),
       toggleSeniorMode: () =>
         set({ seniorMode: !get().seniorMode }),
@@ -163,6 +174,7 @@ export const useAppStore = create<AppState>()(
       // === 输入框上下文 ===
       loadedSkillIds: [],
       uploadedFileIds: [],
+      parsedFiles: {},
       addLoadedSkill: (id) =>
         set((s) => ({
           loadedSkillIds: s.loadedSkillIds.includes(id)
@@ -183,8 +195,19 @@ export const useAppStore = create<AppState>()(
         set((s) => ({
           uploadedFileIds: s.uploadedFileIds.filter((f) => f !== id),
         })),
+      addParsedFile: (file) =>
+        set((s) => ({
+          parsedFiles: { ...s.parsedFiles, [file.id]: file },
+        })),
+      removeParsedFile: (id) =>
+        set((s) => {
+          const newParsedFiles = { ...s.parsedFiles };
+          delete newParsedFiles[id];
+          return { parsedFiles: newParsedFiles };
+        }),
+      clearParsedFiles: () => set({ parsedFiles: {} }),
       clearInputContext: () =>
-        set({ loadedSkillIds: [], uploadedFileIds: [] }),
+        set({ loadedSkillIds: [], uploadedFileIds: [], parsedFiles: {} }),
 
       // === 网络状态 ===
       isOnline: true,

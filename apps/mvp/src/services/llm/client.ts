@@ -160,7 +160,7 @@ export async function streamChat(
     let fullText = "";
     let fullThinking = "";
     let buffer = "";
-    let thinkingStarted = true;
+    let thinkingStarted = false;
     let thinkingEnded = false;
 
     const finishCurrentThinking = () => {

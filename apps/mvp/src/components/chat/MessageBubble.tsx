@@ -6,14 +6,18 @@ import {
   Check,
   Copy,
   ExternalLink,
+  FileEdit,
   Loader2,
-  Pause,
+  MoreHorizontal,
   RefreshCw,
   Share2,
   Stethoscope,
   ThumbsDown,
   ThumbsUp,
+  Trash2,
   Volume2,
+  VolumeX,
+  AlertTriangle,
 } from "lucide-react";
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
 import { Button } from "@/components/ui/button";
@@ -22,7 +26,23 @@ import {
   TooltipContent,
   TooltipTrigger,
 } from "@/components/ui/tooltip";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+  DropdownMenuSeparator,
+} from "@/components/ui/dropdown-menu";
+import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+  DialogFooter,
+  DialogClose,
+} from "@/components/ui/dialog";
 import { useAppStore } from "@/stores/appStore";
+import { useChatStore } from "@/stores/chatStore";
 import { cn } from "@/lib/utils";
 import { MarkdownRenderer } from "./MarkdownRenderer";
 import { StreamingText } from "./blocks/StreamingText";
@@ -39,12 +59,15 @@ import { MEDICAL_DISCLAIMER } from "@/lib/constants";
 import type { Message, MessageBlock, RightPanelType } from "@/types";
 import { toast } from "@/components/ui/toast";
 import { useAudioPlayer } from "@/hooks/useAudioPlayer";
-import { exportToMarkdown } from "@/lib/export";
-import { InfoCollectionCard } from "./InfoCollectionCard";
+import { InfoCollectionCard, StageIndicator } from "./InfoCollectionCard";
 
 interface MessageBubbleProps {
   message: Message;
   onRegenerate?: (id: string) => void;
+  onCopy?: (id: string) => void;
+  onShare?: (id: string) => void;
+  onDelete?: (id: string) => void;
+  onEdit?: (id: string) => void;
   isLastMessage?: boolean;
 }
 
@@ -69,7 +92,7 @@ function VoiceReadButton({ text, seniorMode }: { text: string; seniorMode: boole
     icon = <Loader2 className={cn("animate-spin", seniorMode ? "size-4" : "size-3.5")} />;
     label = "加载中";
   } else if (isPlaying) {
-    icon = <Pause className={cn(seniorMode ? "size-4" : "size-3.5")} />;
+    icon = <VolumeX className={cn(seniorMode ? "size-4" : "size-3.5")} />;
     label = "停止播放";
   } else {
     icon = <Volume2 className={cn(seniorMode ? "size-4" : "size-3.5")} />;
@@ -108,13 +131,25 @@ function extractPlainText(blocks: MessageBlock[]): string {
     .trim();
 }
 
-export function MessageBubble({ message, onRegenerate, isLastMessage }: MessageBubbleProps) {
+export function MessageBubble({
+  message,
+  onRegenerate,
+  onCopy,
+  onShare,
+  onDelete,
+  onEdit,
+  isLastMessage,
+}: MessageBubbleProps) {
   const isUser = message.role === "user";
   const [copied, setCopied] = useState(false);
-  const [feedback, setFeedback] = useState<'up' | 'down' | null>(null);
   const [appeared, setAppeared] = useState(false);
+  const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
   const seniorMode = useAppStore((s) => s.seniorMode);
   const setRightPanel = useAppStore((s) => s.setRightPanel);
+  const setPanelContent = useAppStore((s) => s.setPanelContent);
+  const setMessageFeedback = useChatStore((s) => s.setMessageFeedback);
+
+  const feedback = message.feedback ?? null;
 
   useEffect(() => {
     const timer = setTimeout(() => setAppeared(true), 10);
@@ -129,41 +164,39 @@ export function MessageBubble({ message, onRegenerate, isLastMessage }: MessageB
     const textContent = extractPlainText(message.blocks);
     navigator.clipboard?.writeText(textContent).then(() => {
       setCopied(true);
-      setTimeout(() => setCopied(false), 1500);
+      setTimeout(() => setCopied(false), 2000);
+      toast.show("已复制");
     });
+    onCopy?.(message.id);
   };
 
-  const handleFeedbackUp = () => {
-    if (feedback === 'up') {
-      setFeedback(null);
+  const handleFeedbackClick = (type: "up" | "down") => {
+    if (feedback === type) {
+      setMessageFeedback(message.id, null);
     } else {
-      setFeedback('up');
+      setMessageFeedback(message.id, type);
       toast.show("感谢反馈");
     }
   };
 
-  const handleFeedbackDown = () => {
-    if (feedback === 'down') {
-      setFeedback(null);
-    } else {
-      setFeedback('down');
-      toast.show("感谢反馈");
-    }
+  const handleEditInDoc = () => {
+    const textContent = extractPlainText(message.blocks);
+    setPanelContent(textContent);
+    setRightPanel("doc-editor");
+    onEdit?.(message.id);
+  };
+
+  const handleDelete = () => {
+    setShowDeleteConfirm(true);
+  };
+
+  const confirmDelete = () => {
+    setShowDeleteConfirm(false);
+    onDelete?.(message.id);
   };
 
   const handleShare = () => {
-    try {
-      const textContent = extractPlainText(message.blocks);
-      const title = textContent.slice(0, 50).replace(/[#*`_~\[\]()>|-]/g, "").trim() || "AI回复";
-      exportToMarkdown({
-        title: `GerClaw回复 - ${title}`,
-        content: textContent,
-        subtitle: "单条消息导出",
-      });
-      toast.show("消息已导出为 Markdown");
-    } catch {
-      toast.show("导出失败，请重试");
-    }
+    onShare?.(message.id);
   };
 
   const plainText = !isUser ? extractPlainText(message.blocks) : "";
@@ -303,6 +336,48 @@ export function MessageBubble({ message, onRegenerate, isLastMessage }: MessageB
                       />
                     </div>
                   );
+                case "stage_indicator":
+                  return (
+                    <div key={block.id} className="mt-1 first:mt-0 w-full">
+                      <StageIndicator
+                        title={block.data.title}
+                        description={block.data.description}
+                      />
+                    </div>
+                  );
+                case "question_card":
+                  if (block.data.submitted) {
+                    return (
+                      <div key={block.id} className="mt-1 first:mt-0 w-full">
+                        <div className="rounded-2xl border border-border/60 bg-gradient-to-br from-blue-50/80 to-indigo-50/50 dark:from-blue-950/20 dark:to-indigo-950/10 p-4 shadow-sm">
+                          <div className="flex items-center gap-2 mb-3">
+                            <span className="text-lg">📋</span>
+                            <span className={cn("font-semibold text-foreground", seniorMode ? "text-lg" : "text-base")}>信息补充</span>
+                            <span className={cn("text-muted-foreground bg-muted/60 px-2 py-0.5 rounded-full", seniorMode ? "text-sm" : "text-xs")}>
+                              第{block.data.round}轮
+                            </span>
+                          </div>
+                          <div className="space-y-2">
+                            {block.data.questions.map((q) => {
+                              const answer = block.data.answers[q.id] || "";
+                              return (
+                                <div key={q.id} className="space-y-0.5">
+                                  <div className={cn("font-medium text-foreground flex items-center gap-2", seniorMode ? "text-base" : "text-sm")}>
+                                    <Check className="size-4 text-green-500 shrink-0" />
+                                    {q.label}
+                                  </div>
+                                  <p className={cn("text-foreground/80 pl-6", seniorMode ? "text-sm" : "text-xs")}>
+                                    {answer}
+                                  </p>
+                                </div>
+                              );
+                            })}
+                          </div>
+                        </div>
+                      </div>
+                    );
+                  }
+                  return null;
                 case "action":
                   return (
                     <div
@@ -343,97 +418,97 @@ export function MessageBubble({ message, onRegenerate, isLastMessage }: MessageB
           </div>
         )}
 
-        {message.status === "done" && (
-          <div data-message-actions className={cn(
-            "flex items-center gap-0.5 transition-opacity duration-150",
-            "rounded-full bg-muted/40 border border-border/40 px-1 py-0.5",
-            seniorMode
-              ? "opacity-100"
-              : "opacity-0 group-hover:opacity-100 focus-within:opacity-100"
-          )}>
-            {!isUser && (
-              <>
-                <Tooltip>
-                  <TooltipTrigger
-                    render={
-                      <Button
-                        variant="ghost"
-                        size={btnSize}
-                        className={cn(feedback === 'up' && "text-primary bg-primary/10")}
-                        onClick={handleFeedbackUp}
-                        aria-label="赞"
-                      />
-                    }
-                  >
-                    <ThumbsUp className={iconSize} fill={feedback === 'up' ? 'currentColor' : 'none'} />
-                  </TooltipTrigger>
-                  <TooltipContent>赞</TooltipContent>
-                </Tooltip>
-
-                <Tooltip>
-                  <TooltipTrigger
-                    render={
-                      <Button
-                        variant="ghost"
-                        size={btnSize}
-                        className={cn(feedback === 'down' && "text-primary bg-primary/10")}
-                        onClick={handleFeedbackDown}
-                        aria-label="踩"
-                      />
-                    }
-                  >
-                    <ThumbsDown className={iconSize} fill={feedback === 'down' ? 'currentColor' : 'none'} />
-                  </TooltipTrigger>
-                  <TooltipContent>踩</TooltipContent>
-                </Tooltip>
-
-                <div className="h-3 w-px bg-border/50 mx-0.5" />
-              </>
-            )}
-
-            <Tooltip>
-              <TooltipTrigger
-                render={
-                  <Button
-                    variant="ghost"
-                    size={btnSize}
-                    onClick={handleCopy}
-                    aria-label="复制"
-                  />
-                }
-              >
-                {copied ? (
-                  <Check className={cn(iconSize, "text-green-500")} />
-                ) : (
-                  <Copy className={iconSize} />
-                )}
-              </TooltipTrigger>
-              <TooltipContent>{copied ? "已复制" : "复制"}</TooltipContent>
-            </Tooltip>
-
-            {showRegenerate && (
+        {!isUser && message.status === "done" && (
+          <div className="relative">
+            <div
+              data-message-actions
+              data-html2canvas-ignore
+              className={cn(
+                "flex items-center gap-0.5 transition-opacity duration-150",
+                "rounded-full bg-muted/40 border border-border/40 px-1 py-0.5",
+                seniorMode
+                  ? "opacity-100"
+                  : "opacity-0 group-hover:opacity-100 focus-within:opacity-100"
+              )}
+            >
               <Tooltip>
                 <TooltipTrigger
                   render={
                     <Button
                       variant="ghost"
                       size={btnSize}
-                      onClick={() => onRegenerate!(message.id)}
-                      aria-label="重新生成"
+                      className={cn(feedback === 'up' && "text-primary bg-primary/10")}
+                      onClick={() => handleFeedbackClick('up')}
+                      aria-label="赞"
                     />
                   }
                 >
-                  <RefreshCw className={iconSize} />
+                  <ThumbsUp className={iconSize} fill={feedback === 'up' ? 'currentColor' : 'none'} />
                 </TooltipTrigger>
-                <TooltipContent>重新生成</TooltipContent>
+                <TooltipContent>赞</TooltipContent>
               </Tooltip>
-            )}
 
-            {!isUser && plainText && (
-              <VoiceReadButton text={plainText} seniorMode={seniorMode} />
-            )}
+              <Tooltip>
+                <TooltipTrigger
+                  render={
+                    <Button
+                      variant="ghost"
+                      size={btnSize}
+                      className={cn(feedback === 'down' && "text-primary bg-primary/10")}
+                      onClick={() => handleFeedbackClick('down')}
+                      aria-label="踩"
+                    />
+                  }
+                >
+                  <ThumbsDown className={iconSize} fill={feedback === 'down' ? 'currentColor' : 'none'} />
+                </TooltipTrigger>
+                <TooltipContent>踩</TooltipContent>
+              </Tooltip>
 
-            {!isUser && (
+              <div className="h-3 w-px bg-border/50 mx-0.5" />
+
+              <Tooltip>
+                <TooltipTrigger
+                  render={
+                    <Button
+                      variant="ghost"
+                      size={btnSize}
+                      onClick={handleCopy}
+                      aria-label="复制"
+                    />
+                  }
+                >
+                  {copied ? (
+                    <Check className={cn(iconSize, "text-green-500")} />
+                  ) : (
+                    <Copy className={iconSize} />
+                  )}
+                </TooltipTrigger>
+                <TooltipContent>{copied ? "已复制" : "复制"}</TooltipContent>
+              </Tooltip>
+
+              {showRegenerate && (
+                <Tooltip>
+                  <TooltipTrigger
+                    render={
+                      <Button
+                        variant="ghost"
+                        size={btnSize}
+                        onClick={() => onRegenerate!(message.id)}
+                        aria-label="重新生成"
+                      />
+                    }
+                  >
+                    <RefreshCw className={iconSize} />
+                  </TooltipTrigger>
+                  <TooltipContent>重新生成</TooltipContent>
+                </Tooltip>
+              )}
+
+              {plainText && (
+                <VoiceReadButton text={plainText} seniorMode={seniorMode} />
+              )}
+
               <Tooltip>
                 <TooltipTrigger
                   render={
@@ -447,12 +522,60 @@ export function MessageBubble({ message, onRegenerate, isLastMessage }: MessageB
                 >
                   <Share2 className={iconSize} />
                 </TooltipTrigger>
-                <TooltipContent>导出</TooltipContent>
+                <TooltipContent>分享/导出</TooltipContent>
               </Tooltip>
-            )}
+
+              <DropdownMenu>
+                <DropdownMenuTrigger
+                  render={
+                    <Button
+                      variant="ghost"
+                      size={btnSize}
+                      aria-label="更多"
+                    />
+                  }
+                >
+                  <MoreHorizontal className={iconSize} />
+                </DropdownMenuTrigger>
+                <DropdownMenuContent align="end" sideOffset={4}>
+                  <DropdownMenuItem onClick={handleEditInDoc}>
+                    <FileEdit className="size-4" />
+                    转为文档编辑
+                  </DropdownMenuItem>
+                  <DropdownMenuSeparator />
+                  <DropdownMenuItem
+                    variant="destructive"
+                    onClick={handleDelete}
+                  >
+                    <Trash2 className="size-4" />
+                    删除
+                  </DropdownMenuItem>
+                </DropdownMenuContent>
+              </DropdownMenu>
+            </div>
           </div>
         )}
       </div>
+
+      <Dialog open={showDeleteConfirm} onOpenChange={setShowDeleteConfirm}>
+        <DialogContent className="max-w-sm">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <AlertTriangle className="size-5 text-amber-500" />
+              确认删除？
+            </DialogTitle>
+          </DialogHeader>
+          <p className={cn("text-muted-foreground", seniorMode ? "text-base" : "text-sm")}>
+            删除后该条消息将无法恢复，确定要删除吗？
+          </p>
+          <DialogFooter className="gap-2">
+            <DialogClose render={<Button variant="outline">取消</Button>} />
+            <Button variant="destructive" onClick={confirmDelete}>
+              确认删除
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }

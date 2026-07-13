@@ -29,6 +29,7 @@ import { toast } from "@/components/ui/toast";
 import { cn } from "@/lib/utils";
 import { useAudioRecorder } from "@/hooks/useAudioRecorder";
 import { recognizeAudio } from "@/services/voice/asr";
+import { parseFile } from "@/services/document/mineru";
 import { generateId } from "@/lib/format";
 import type { ImageAttachment } from "@/types";
 
@@ -44,6 +45,7 @@ interface ChatInputProps {
   onSend?: (text: string, images?: ImageAttachment[]) => void;
   isGenerating?: boolean;
   onStop?: () => void;
+  onFileParsed?: (fileName: string, markdown: string) => void;
 }
 
 function WaveformBars({ audioLevel, recordingDuration }: { audioLevel: number; recordingDuration: number }) {
@@ -73,12 +75,16 @@ function WaveformBars({ audioLevel, recordingDuration }: { audioLevel: number; r
   );
 }
 
-const ALLOWED_FILE_EXT = [".pdf", ".docx", ".md", ".txt"];
+const ALLOWED_FILE_EXT = [".pdf", ".docx", ".md", ".txt", ".png", ".jpg", ".jpeg", ".gif", ".webp"];
 const ALLOWED_FILE_MIME = [
   "application/pdf",
   "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
   "text/markdown",
   "text/plain",
+  "image/png",
+  "image/jpeg",
+  "image/gif",
+  "image/webp",
 ];
 
 function FunctionButtonGroup({
@@ -133,7 +139,7 @@ function FunctionButtonGroup({
         >
           <Paperclip className="size-4" />
         </TooltipTrigger>
-        <TooltipContent>上传文件（PDF/DOCX/MD/TXT，待MinerU接入）</TooltipContent>
+        <TooltipContent>上传文件（PDF/DOCX/MD/图片）</TooltipContent>
       </Tooltip>
       <Tooltip>
         <TooltipTrigger
@@ -228,17 +234,16 @@ function FunctionButtonGroup({
   );
 }
 
-export function ChatInput({ onSend, isGenerating, onStop }: ChatInputProps) {
+export function ChatInput({ onSend, isGenerating, onStop, onFileParsed }: ChatInputProps) {
   const [mounted, setMounted] = useState(false);
   const role = useAppStore((s) => s.role);
   const seniorMode = useAppStore((s) => s.seniorMode);
   const loadedSkillIds = useAppStore((s) => s.loadedSkillIds);
-  const uploadedFileIds = useAppStore((s) => s.uploadedFileIds);
-  const addUploadedFile = useAppStore((s) => s.addUploadedFile);
   const removeLoadedSkill = useAppStore((s) => s.removeLoadedSkill);
-  const removeUploadedFile = useAppStore((s) => s.removeUploadedFile);
   const setMainView = useAppStore((s) => s.setMainView);
   const setChatAction = useAppStore((s) => s.setChatAction);
+  const chatAction = useAppStore((s) => s.chatAction);
+  const setRightPanel = useAppStore((s) => s.setRightPanel);
   const isOnline = useAppStore((s) => s.isOnline);
   const asrAvailable = useAppStore((s) => s.asrAvailable);
 
@@ -296,40 +301,91 @@ export function ChatInput({ onSend, isGenerating, onStop }: ChatInputProps) {
   };
 
   const handleFileSelect = () => {
+    if (chatAction === "prescription" || chatAction === "drug-review") {
+      setRightPanel("file-preview");
+      return;
+    }
     fileInputRef.current?.click();
   };
 
-  const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+  const handleFileChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const files = e.target.files;
     if (!files || files.length === 0) return;
 
-    const remaining = INPUT_LIMITS.maxFileCount - uploadedFileIds.length;
-    if (remaining <= 0) {
-      toast.show(`最多上传 ${INPUT_LIMITS.maxFileCount} 个文件`);
+    if (chatAction === "prescription" || chatAction === "drug-review") {
+      setRightPanel("file-preview");
       e.target.value = "";
       return;
     }
 
-    let addedCount = 0;
-    for (let i = 0; i < Math.min(files.length, remaining); i++) {
+    const isImage = (file: File) => ALLOWED_IMAGE_MIME_TYPES.includes(file.type as (typeof ALLOWED_IMAGE_MIME_TYPES)[number]);
+    const documentFiles: File[] = [];
+    const imageFiles: File[] = [];
+
+    for (let i = 0; i < files.length; i++) {
       const file = files[i];
-      const ext = `.${file.name.split(".").pop()?.toLowerCase()}`;
-      const typeOk = ALLOWED_FILE_MIME.includes(file.type) || ALLOWED_FILE_EXT.includes(ext);
-      if (!typeOk) {
-        toast.show(`不支持的文件类型：${file.name}，请上传 PDF/DOCX/MD/TXT`);
-        continue;
+      if (isImage(file)) {
+        imageFiles.push(file);
+      } else {
+        documentFiles.push(file);
       }
-      if (file.size > INPUT_LIMITS.maxFileSize) {
-        toast.show(`文件 ${file.name} 超过 10MB 限制`);
-        continue;
-      }
-      addUploadedFile(file.name);
-      addedCount++;
     }
 
-    if (addedCount > 0) {
-      toast.show(`已添加 ${addedCount} 个文件（文档解析待MinerU接入）`);
+    if (imageFiles.length > 0) {
+      const remaining = INPUT_LIMITS.maxImageCount - pendingImages.length;
+      const toProcess = imageFiles.slice(0, remaining);
+      const newImages: PendingImage[] = [];
+      for (const file of toProcess) {
+        if (file.size > INPUT_LIMITS.maxImageSize) {
+          toast.show(`图片 ${file.name} 超过 5MB 限制`);
+          continue;
+        }
+        try {
+          const base64 = await readFileAsBase64(file);
+          const previewUrl = URL.createObjectURL(file);
+          newImages.push({
+            id: generateId("img"),
+            mimeType: file.type,
+            base64,
+            previewUrl,
+            alt: file.name,
+          });
+        } catch {
+          toast.show(`读取图片 ${file.name} 失败`);
+        }
+      }
+      if (newImages.length > 0) {
+        setPendingImages((prev) => [...prev, ...newImages]);
+      }
     }
+
+    if (documentFiles.length > 0 && onFileParsed) {
+      for (const file of documentFiles) {
+        const ext = `.${file.name.split(".").pop()?.toLowerCase()}`;
+        const typeOk = ALLOWED_FILE_MIME.includes(file.type) || ALLOWED_FILE_EXT.includes(ext);
+        if (!typeOk) {
+          toast.show(`不支持的文件类型：${file.name}，请上传 PDF/DOCX/MD/图片`);
+          continue;
+        }
+        if (file.size > INPUT_LIMITS.maxFileSize) {
+          toast.show(`文件 ${file.name} 超过 10MB 限制`);
+          continue;
+        }
+        toast.show(`正在解析文件：${file.name}...`);
+        try {
+          const result = await parseFile(file);
+          if (result.markdown && result.markdown.trim()) {
+            onFileParsed(file.name, result.markdown);
+            toast.show(`${file.name} 解析完成`);
+          } else {
+            toast.show(`${file.name} 解析内容为空`);
+          }
+        } catch (err) {
+          toast.show(`解析 ${file.name} 失败：${err instanceof Error ? err.message : "未知错误"}`);
+        }
+      }
+    }
+
     e.target.value = "";
   };
 
@@ -526,7 +582,7 @@ export function ChatInput({ onSend, isGenerating, onStop }: ChatInputProps) {
   return (
     <div className="border-t border-border bg-background px-4 py-3">
       <div className="max-w-3xl mx-auto">
-        {(loadedSkillIds.length > 0 || uploadedFileIds.length > 0 || pendingImages.length > 0) && (
+        {(loadedSkillIds.length > 0 || pendingImages.length > 0) && (
           <div className="flex flex-wrap gap-2 mb-2">
             {pendingImages.map((img) => (
               <div key={img.id} className="relative group">
@@ -560,23 +616,6 @@ export function ChatInput({ onSend, isGenerating, onStop }: ChatInputProps) {
                   onClick={() => removeLoadedSkill(id)}
                   className="hover:bg-primary/20 rounded-full p-0.5"
                   aria-label="移除技能"
-                >
-                  <X className="size-3" />
-                </button>
-              </span>
-            ))}
-            {uploadedFileIds.map((id) => (
-              <span
-                key={id}
-                className="inline-flex items-center gap-1 rounded-full bg-muted text-foreground text-xs px-2 py-1"
-              >
-                <Paperclip className="size-3" />
-                {id}
-                <button
-                  type="button"
-                  onClick={() => removeUploadedFile(id)}
-                  className="hover:bg-muted-foreground/20 rounded-full p-0.5"
-                  aria-label="移除文件"
                 >
                   <X className="size-3" />
                 </button>

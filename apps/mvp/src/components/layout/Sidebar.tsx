@@ -330,31 +330,33 @@ export function Sidebar({ onNavigate }: SidebarProps) {
             <DropdownMenuSeparator />
 
             {/* 角色选择 */}
-            <DropdownMenuLabel className="text-xs font-normal text-muted-foreground">选择模式</DropdownMenuLabel>
-            <DropdownMenuItem
-              className={cn("cursor-pointer gap-2", isVisitor && "bg-accent")}
-              onClick={() => setRole("visitor")}
-            >
-              <Users className="size-4 text-gray-500" />
-              <span>访客模式</span>
-              {isVisitor && <Check className="size-4 ml-auto" />}
-            </DropdownMenuItem>
-            <DropdownMenuItem
-              className={cn("cursor-pointer gap-2", isPatient && "bg-accent")}
-              onClick={() => setRole("patient")}
-            >
-              <User className="size-4 text-primary" />
-              <span>患者模式</span>
-              {isPatient && <Check className="size-4 ml-auto" />}
-            </DropdownMenuItem>
-            <DropdownMenuItem
-              className={cn("cursor-pointer gap-2", isDoctor && "bg-accent")}
-              onClick={() => setRole("doctor")}
-            >
-              <Stethoscope className="size-4 text-blue-600" />
-              <span>医生模式</span>
-              {isDoctor && <Check className="size-4 ml-auto" />}
-            </DropdownMenuItem>
+            <DropdownMenuGroup>
+              <DropdownMenuLabel className="text-xs font-normal text-muted-foreground">选择模式</DropdownMenuLabel>
+              <DropdownMenuItem
+                className={cn("cursor-pointer gap-2", isVisitor && "bg-accent")}
+                onClick={() => setRole("visitor")}
+              >
+                <Users className="size-4 text-gray-500" />
+                <span>访客模式</span>
+                {isVisitor && <Check className="size-4 ml-auto" />}
+              </DropdownMenuItem>
+              <DropdownMenuItem
+                className={cn("cursor-pointer gap-2", isPatient && "bg-accent")}
+                onClick={() => setRole("patient")}
+              >
+                <User className="size-4 text-primary" />
+                <span>患者模式</span>
+                {isPatient && <Check className="size-4 ml-auto" />}
+              </DropdownMenuItem>
+              <DropdownMenuItem
+                className={cn("cursor-pointer gap-2", isDoctor && "bg-accent")}
+                onClick={() => setRole("doctor")}
+              >
+                <Stethoscope className="size-4 text-blue-600" />
+                <span>医生模式</span>
+                {isDoctor && <Check className="size-4 ml-auto" />}
+              </DropdownMenuItem>
+            </DropdownMenuGroup>
 
             <DropdownMenuSeparator />
 
@@ -389,14 +391,16 @@ export function Sidebar({ onNavigate }: SidebarProps) {
             </DropdownMenuItem>
 
             <DropdownMenuSeparator />
-            <DropdownMenuItem className="cursor-pointer">
-              <Settings className="size-4" />
-              设置
-            </DropdownMenuItem>
-            <DropdownMenuItem className="cursor-pointer">
-              <HelpCircle className="size-4" />
-              帮助
-            </DropdownMenuItem>
+            <DropdownMenuGroup>
+              <DropdownMenuItem className="cursor-pointer">
+                <Settings className="size-4" />
+                设置
+              </DropdownMenuItem>
+              <DropdownMenuItem className="cursor-pointer">
+                <HelpCircle className="size-4" />
+                帮助
+              </DropdownMenuItem>
+            </DropdownMenuGroup>
             <DropdownMenuSeparator />
             <DropdownMenuItem className="cursor-pointer">
               <LogOut className="size-4" />

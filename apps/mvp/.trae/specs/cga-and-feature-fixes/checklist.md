@@ -1,0 +1,30 @@
+- [ ] Checkpoint 1: CGA多选量表页正常显示，支持多选+全选，已完成量表禁用
+- [ ] Checkpoint 2: CGA答题第一题自动播放预录音频，停止后后续不自动播放，播放恢复自动模式
+- [ ] Checkpoint 3: CGA选项点击高亮不自动跳转，需手动点"下一题"
+- [ ] Checkpoint 4: CGA键盘数字键1-4可选择选项
+- [ ] Checkpoint 5: CGA答完显示"作答完毕"+量表名+三个按钮（重新评估/继续作答/查看报告）
+- [ ] Checkpoint 6: CGA点击"继续作答其他量表"返回选择页，已完成量表显示"已作答"badge
+- [ ] Checkpoint 7: CGA点击"查看评估报告"右侧栏打开报告
+- [ ] Checkpoint 8: CGA所有量表答完显示"所有量表已作答完毕"+"生成评估报告"按钮
+- [ ] Checkpoint 9: CGA返回选择页时音频停止播放
+- [ ] Checkpoint 10: 搜索结果标题为可点击链接，新标签页打开
+- [ ] Checkpoint 11: SourceReferences"查看原文"新标签页打开
+- [ ] Checkpoint 12: 每条AI消息底部有操作按钮：赞/踩/复制/语音/导出/三点菜单，最后一条有重新生成
+- [ ] Checkpoint 13: 复制按钮点击复制文本到剪贴板，显示"已复制"toast
+- [ ] Checkpoint 14: 语音播放按钮默认不自动播放，点击播放/停止
+- [ ] Checkpoint 15: 导出按钮弹出ExportDialog，支持多选和PDF/DOCX/Markdown
+- [ ] Checkpoint 16: 点赞/点踩显示"感谢反馈"toast
+- [ ] Checkpoint 17: 三点菜单包含"转为文档编辑"和"删除"
+- [ ] Checkpoint 18: "转为文档编辑"发送内容到右侧Markdown编辑器
+- [ ] Checkpoint 19: "删除"弹出确认框，确认后删除消息
+- [ ] Checkpoint 20: 五大处方点击立即显示固定欢迎语，不调用LLM
+- [ ] Checkpoint 21: 文件上传maxFileCount=10
+- [ ] Checkpoint 22: 医生模式显示用药审查和健康画像按钮，患者模式不显示
+- [ ] Checkpoint 23: 所有医疗内容带免责声明
+- [ ] Checkpoint 24: 普通聊天不自动播放TTS
+- [ ] Checkpoint 25: 访客→患者老年模式聊天正常，切换医生模式不白屏
+- [ ] Checkpoint 26: ThinkingBlock spinner 1.5s一圈，输入区域三点脉冲1.2s循环
+- [ ] Checkpoint 27: 停止按钮静态无脉冲
+- [ ] Checkpoint 28: 流式输出实时渲染无人工延迟
+- [ ] Checkpoint 29: npm run lint 0错误0警告
+- [ ] Checkpoint 30: npm run build成功

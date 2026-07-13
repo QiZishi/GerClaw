@@ -1,21 +1,26 @@
 "use client";
 
-import { useState, useEffect, useCallback } from "react";
-import { ChevronLeft, ChevronRight, Check, Volume2, VolumeX, Mic, Loader2, X } from "lucide-react";
+import { useState, useEffect, useCallback, useRef, useMemo } from "react";
+import { ChevronLeft, ChevronRight, Check, Volume2, VolumeX, Mic, Loader2, X, CheckCircle2, RotateCcw, ListTodo, BarChart3 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Progress } from "@/components/ui/progress";
 import { useAppStore } from "@/stores/appStore";
 import { cn } from "@/lib/utils";
-import { useAudioPlayer } from "@/hooks/useAudioPlayer";
 import { useAudioRecorder } from "@/hooks/useAudioRecorder";
 import { recognizeAudio } from "@/services/voice/asr";
 import { toast } from "@/components/ui/toast";
+import { SuicideRiskAlert } from "@/components/prescription/SuicideRiskAlert";
 import type { Scale, ScaleResult, ScaleOption } from "@/types";
 
 interface CGAConversationProps {
-  scale: Scale;
-  onComplete?: (result: ScaleResult) => void;
+  scales: Scale[];
+  initialAnswers?: Record<string, number | string>;
+  initialIndex?: number;
+  onComplete?: (results: ScaleResult[]) => void;
+  onContinue?: () => void;
+  onGenerateReport?: () => void;
   onExit?: () => void;
+  onSaveProgress?: (data: { currentQuestionIndex: number; answers: Record<string, number | string> }) => void;
 }
 
 const POSITIVE_KEYWORDS = ["是", "是的", "对", "有", "嗯", "好", "没错", "正确", "对的", "嗯对", "有的"];
@@ -29,6 +34,12 @@ const NUMBER_MAP: Record<string, number> = {
   "6": 6, "六": 6, "第六个": 6, "第六": 6,
   "7": 7, "七": 7, "第七个": 7, "第七": 7,
   "8": 8, "八": 8, "第八个": 8, "第八": 8,
+};
+const LETTER_MAP: Record<string, number> = {
+  "a": 1, "A": 1, "诶": 1, "欸": 1, "ei": 1, "诶选项": 1, "选项a": 1, "选项A": 1, "选项诶": 1,
+  "b": 2, "B": 2, "必": 2, "bi": 2, "选项b": 2, "选项B": 2, "选项必": 2,
+  "c": 3, "C": 3, "西": 3, "xi": 3, "选项c": 3, "选项C": 3, "选项西": 3,
+  "d": 4, "D": 4, "地": 4, "di": 4, "选项d": 4, "选项D": 4, "选项地": 4,
 };
 
 function formatDuration(seconds: number): string {
@@ -94,6 +105,13 @@ function matchAnswerByVoice(text: string, options: ScaleOption[]): ScaleOption |
     }
   }
 
+  for (const [letterStr, numVal] of Object.entries(LETTER_MAP)) {
+    if (normalized.includes(letterStr) && numVal <= options.length) {
+      const idx = numVal - 1;
+      if (idx >= 0 && idx < options.length) return options[idx];
+    }
+  }
+
   for (const opt of options) {
     const label = opt.label.replace(/[。，！？\s]/g, "");
     if (label && (normalized.includes(label) || label.includes(normalized))) {
@@ -113,14 +131,100 @@ function matchAnswerByVoice(text: string, options: ScaleOption[]): ScaleOption |
   return null;
 }
 
-export function CGAConversation({ scale, onComplete, onExit }: CGAConversationProps) {
+interface FlatQuestion {
+  scaleId: string;
+  scale: Scale;
+  questionIndex: number;
+  question: Scale["questions"][0];
+}
+
+function flattenQuestions(scales: Scale[]): FlatQuestion[] {
+  const result: FlatQuestion[] = [];
+  for (const scale of scales) {
+    for (let i = 0; i < scale.questions.length; i++) {
+      result.push({
+        scaleId: scale.id,
+        scale,
+        questionIndex: i,
+        question: scale.questions[i],
+      });
+    }
+  }
+  return result;
+}
+
+function calculateResults(
+  scales: Scale[],
+  allQuestions: FlatQuestion[],
+  answers: Record<string, number | string>
+): ScaleResult[] {
+  const results: ScaleResult[] = [];
+  for (const scale of scales) {
+    const scaleQuestions = allQuestions.filter((q) => q.scaleId === scale.id);
+    let totalScore = 0;
+    const scaleAnswers: Record<string, number | string> = {};
+    for (const { question } of scaleQuestions) {
+      const val = answers[question.id];
+      scaleAnswers[question.id] = val ?? 0;
+      const n = typeof val === "number" ? val : Number(val);
+      totalScore += Number.isFinite(n) ? n : 0;
+    }
+    const maxScore = scale.questions.reduce((s, q) => s + (q.maxValue ?? 0), 0);
+    const matched = [...scale.grading.thresholds]
+      .sort((a, b) => a.max - b.max)
+      .find((t) => totalScore <= t.max);
+    results.push({
+      scaleId: scale.id,
+      scaleName: scale.fullName,
+      totalScore,
+      maxScore,
+      level: matched?.level ?? "未知",
+      interpretation: matched?.interpretation ?? "",
+      answers: scaleAnswers,
+      completedAt: Date.now(),
+    });
+  }
+  return results;
+}
+
+export function CGAConversation({
+  scales,
+  initialAnswers,
+  initialIndex,
+  onComplete,
+  onContinue,
+  onGenerateReport,
+  onExit,
+  onSaveProgress,
+}: CGAConversationProps) {
+  function getInitialAudioEnabled(): boolean {
+    try {
+      if (typeof window === 'undefined') return true;
+      const stored = localStorage.getItem('cga-audio-enabled');
+      return stored === null ? true : stored === 'true';
+    } catch {
+      return true;
+    }
+  }
+
   const seniorMode = useAppStore((s) => s.seniorMode);
-  const [idx, setIdx] = useState(0);
-  const [answers, setAnswers] = useState<Record<string, number | string>>({});
+  const [idx, setIdx] = useState(initialIndex ?? 0);
+  const [answers, setAnswers] = useState<Record<string, number | string>>(initialAnswers ?? {});
+  const [isCompleted, setIsCompleted] = useState(false);
+  const [results, setResults] = useState<ScaleResult[]>([]);
   const [isTranscribing, setIsTranscribing] = useState(false);
   const [hasSpokenCompletion, setHasSpokenCompletion] = useState(false);
+  const [cgaAudioEnabled, setCgaAudioEnabled] = useState(getInitialAudioEnabled);
+  const [isAudioPlaying, setIsAudioPlaying] = useState(false);
+  const [isAudioLoading, setIsAudioLoading] = useState(false);
+  const [showSuicideRiskAlert, setShowSuicideRiskAlert] = useState(false);
+  const [suicideAlertDismissed, setSuicideAlertDismissed] = useState(false);
 
-  const { isPlaying, isLoading: ttsLoading, play, stop } = useAudioPlayer();
+  const audioRef = useRef<HTMLAudioElement | null>(null);
+  const allQuestions = useMemo(() => flattenQuestions(scales), [scales]);
+  const total = allQuestions.length;
+  const current = allQuestions[idx];
+
   const {
     isRecording,
     recordingDuration,
@@ -130,54 +234,126 @@ export function CGAConversation({ scale, onComplete, onExit }: CGAConversationPr
     cancelRecording,
   } = useAudioRecorder();
 
-  const total = scale.questions.length;
-  const current = scale.questions[idx];
-  const progress = ((idx + 1) / total) * 100;
+  const progress = total > 0 ? ((idx + 1) / total) * 100 : 0;
   const isLast = idx === total - 1;
-  const answered = current ? answers[current.id] !== undefined : false;
-
-  const speakQuestion = useCallback((questionIndex: number) => {
-    const q = scale.questions[questionIndex];
-    if (!q) return;
-    let text = `第${questionIndex + 1}题：${q.text}。`;
-    if (q.options && q.options.length > 0) {
-      text += "选项：";
-      q.options.forEach((opt, i) => {
-        text += `${i + 1}、${opt.label}。`;
-      });
-    }
-    play(text);
-  }, [scale.questions, play]);
+  const answered = current ? answers[current.question.id] !== undefined : false;
+  const currentScale = current?.scale;
+  const currentScaleName = currentScale?.fullName ?? "";
 
   useEffect(() => {
-    if (seniorMode && current) {
-      const timer = setTimeout(() => {
-        speakQuestion(idx);
-      }, 300);
-      return () => clearTimeout(timer);
+    if (onSaveProgress && !isCompleted) {
+      onSaveProgress({ currentQuestionIndex: idx, answers });
     }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [idx, seniorMode, current?.id, speakQuestion]);
+  }, [idx, answers, isCompleted, onSaveProgress]);
+
+  const stopAudio = useCallback(() => {
+    if (audioRef.current) {
+      audioRef.current.pause();
+      audioRef.current.currentTime = 0;
+    }
+    setIsAudioPlaying(false);
+    setIsAudioLoading(false);
+  }, []);
+
+  const playAudio = useCallback(() => {
+    if (!current) return;
+    stopAudio();
+    setIsAudioLoading(true);
+    const audioSrc = `/audio/scales/${current.scaleId}_${current.question.id}.mp3`;
+    const audio = new Audio(audioSrc);
+    audioRef.current = audio;
+
+    audio.oncanplaythrough = () => {
+      setIsAudioLoading(false);
+      setIsAudioPlaying(true);
+      audio.play().catch(() => {
+        setIsAudioPlaying(false);
+        setIsAudioLoading(false);
+      });
+    };
+
+    audio.onended = () => {
+      setIsAudioPlaying(false);
+      setIsAudioLoading(false);
+    };
+
+    audio.onerror = () => {
+      setIsAudioPlaying(false);
+      setIsAudioLoading(false);
+    };
+
+    audio.load();
+  }, [current, stopAudio]);
+
+  const toggleAudio = useCallback(() => {
+    if (isAudioPlaying) {
+      stopAudio();
+      setCgaAudioEnabled(false);
+      try {
+        localStorage.setItem('cga-audio-enabled', 'false');
+      } catch {
+      }
+    } else {
+      setCgaAudioEnabled(true);
+      try {
+        localStorage.setItem('cga-audio-enabled', 'true');
+      } catch {
+      }
+      playAudio();
+    }
+  }, [isAudioPlaying, playAudio, stopAudio]);
+
+  const toggleAudioEnabled = useCallback(() => {
+    const newVal = !cgaAudioEnabled;
+    setCgaAudioEnabled(newVal);
+    try {
+      localStorage.setItem('cga-audio-enabled', String(newVal));
+    } catch {
+    }
+    if (!newVal) {
+      stopAudio();
+    } else {
+      playAudio();
+    }
+  }, [cgaAudioEnabled, playAudio, stopAudio]);
+
+  useEffect(() => {
+    const timer = setTimeout(() => {
+      stopAudio();
+      if (cgaAudioEnabled && current && !isCompleted) {
+        playAudio();
+      }
+    }, 100);
+    return () => clearTimeout(timer);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [idx, cgaAudioEnabled, current?.question.id, isCompleted]);
 
   useEffect(() => {
     return () => {
-      stop();
+      stopAudio();
     };
-  }, [stop]);
+  }, [stopAudio]);
 
   const handleSelect = (value: number | string) => {
     if (!current) return;
-    setAnswers((a) => ({ ...a, [current.id]: value }));
-    stop();
+    setAnswers((a) => ({ ...a, [current.question.id]: value }));
+
+    if (current.question.id === "phq9_9") {
+      const numVal = typeof value === "number" ? value : Number(value);
+      if (numVal > 0) {
+        setShowSuicideRiskAlert(true);
+        setSuicideAlertDismissed(false);
+      }
+    }
   };
 
   const handlePrev = () => {
-    stop();
+    stopAudio();
     setIdx((i) => Math.max(0, i - 1));
   };
 
   const handleNext = () => {
-    stop();
+    stopAudio();
     if (isLast) {
       handleSubmit();
     } else {
@@ -186,38 +362,27 @@ export function CGAConversation({ scale, onComplete, onExit }: CGAConversationPr
   };
 
   const handleSubmit = () => {
-    stop();
-    const totalScore = Object.entries(answers).reduce((sum, [, v]) => {
-      const n = typeof v === "number" ? v : Number(v);
-      return sum + (Number.isFinite(n) ? n : 0);
-    }, 0);
-    const maxScore = scale.questions.reduce(
-      (s, q) => s + (q.maxValue ?? 0),
-      0
-    );
-    const matched = [...scale.grading.thresholds]
-      .sort((a, b) => a.max - b.max)
-      .find((t) => totalScore <= t.max);
-    const result: ScaleResult = {
-      scaleId: scale.id,
-      scaleName: scale.fullName,
-      totalScore,
-      maxScore,
-      level: matched?.level ?? "未知",
-      interpretation: matched?.interpretation ?? "",
-      answers,
-      completedAt: Date.now(),
-    };
+    stopAudio();
+    const calculatedResults = calculateResults(scales, allQuestions, answers);
+    setResults(calculatedResults);
+    setIsCompleted(true);
     if (seniorMode && !hasSpokenCompletion) {
       setHasSpokenCompletion(true);
-      play("评估已完成，请在右侧查看结果。");
     }
-    onComplete?.(result);
+    onComplete?.(calculatedResults);
+  };
+
+  const handleRestart = () => {
+    setAnswers({});
+    setIdx(0);
+    setIsCompleted(false);
+    setResults([]);
+    setHasSpokenCompletion(false);
   };
 
   const handleMicStart = async () => {
     if (isTranscribing || isRecording) return;
-    stop();
+    stopAudio();
     try {
       await startRecording();
     } catch (err) {
@@ -240,16 +405,16 @@ export function CGAConversation({ scale, onComplete, onExit }: CGAConversationPr
       setIsTranscribing(true);
       try {
         const recognizedText = await recognizeAudio(blob);
-        if (recognizedText && current?.options) {
-          const matched = matchAnswerByVoice(recognizedText, current.options);
+        if (recognizedText && current?.question.options) {
+          const matched = matchAnswerByVoice(recognizedText, current.question.options);
           if (matched) {
-            setAnswers((a) => ({ ...a, [current.id]: matched.value }));
+            setAnswers((a) => ({ ...a, [current.question.id]: matched.value }));
             toast.show(`已选择：${matched.label}`);
-            setTimeout(() => {
-              if (!isLast) {
-                setIdx((i) => Math.min(total - 1, i + 1));
-              }
-            }, 800);
+
+            if (current.question.id === "phq9_9" && matched.value > 0) {
+              setShowSuicideRiskAlert(true);
+              setSuicideAlertDismissed(false);
+            }
           } else {
             toast.show(`识别结果："${recognizedText}"，请手动选择选项`);
           }
@@ -267,12 +432,77 @@ export function CGAConversation({ scale, onComplete, onExit }: CGAConversationPr
     }
   };
 
-  if (!current) {
-    return <div className="text-sm text-muted-foreground">该量表无题目</div>;
-  }
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (isRecording || isTranscribing || isCompleted) return;
+      const target = e.target as HTMLElement;
+      if (target.tagName === "INPUT" || target.tagName === "TEXTAREA" || target.isContentEditable) {
+        return;
+      }
+      if (!current?.question.options) return;
+      const num = parseInt(e.key, 10);
+      if (num >= 1 && num <= 9) {
+        const optIdx = num - 1;
+        if (optIdx < current.question.options.length) {
+          handleSelect(current.question.options[optIdx].value);
+        }
+      }
+    };
+    window.addEventListener("keydown", handleKeyDown);
+    return () => window.removeEventListener("keydown", handleKeyDown);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [current, isRecording, isTranscribing, isCompleted]);
 
   const btnSize = seniorMode ? "h-12 px-5 text-base" : "h-9 px-3 text-sm";
   const iconBtnSize = seniorMode ? "size-12" : "size-10";
+
+  if (isCompleted) {
+    const completedScaleNames = results.map((r) => r.scaleName);
+    return (
+      <div className="flex flex-col items-center justify-center py-12 text-center">
+        <div className="flex justify-center mb-6">
+          <div className="flex items-center justify-center size-20 rounded-full bg-green-100 dark:bg-green-900/30 text-green-600 dark:text-green-400">
+            <CheckCircle2 className={cn(seniorMode ? "size-12" : "size-10")} strokeWidth={2} />
+          </div>
+        </div>
+        <h2 className={cn("font-semibold mb-3", seniorMode ? "text-2xl" : "text-xl")}>
+          作答完毕
+        </h2>
+        <p className={cn("text-muted-foreground mb-8 max-w-md", seniorMode ? "text-lg" : "text-base")}>
+          {completedScaleNames.join("、")}已作答完成
+        </p>
+        <div className="grid grid-cols-3 gap-3 w-full max-w-2xl">
+          <Button
+            variant="secondary"
+            onClick={handleRestart}
+            className={cn("flex flex-col items-center gap-2 h-auto py-4", seniorMode ? "text-base min-h-[72px]" : "text-sm")}
+          >
+            <RotateCcw className={cn(seniorMode ? "size-6" : "size-5")} />
+            重新评估
+          </Button>
+          <Button
+            variant="secondary"
+            onClick={onContinue}
+            className={cn("flex flex-col items-center gap-2 h-auto py-4", seniorMode ? "text-base min-h-[72px]" : "text-sm")}
+          >
+            <ListTodo className={cn(seniorMode ? "size-6" : "size-5")} />
+            继续作答其他量表
+          </Button>
+          <Button
+            onClick={onGenerateReport}
+            className={cn("flex flex-col items-center gap-2 h-auto py-4", seniorMode ? "text-base min-h-[72px]" : "text-sm")}
+          >
+            <BarChart3 className={cn(seniorMode ? "size-6" : "size-5")} />
+            查看评估报告
+          </Button>
+        </div>
+      </div>
+    );
+  }
+
+  if (!current) {
+    return <div className="text-sm text-muted-foreground">该量表无题目</div>;
+  }
 
   if (isRecording) {
     return (
@@ -280,7 +510,7 @@ export function CGAConversation({ scale, onComplete, onExit }: CGAConversationPr
         <div className="flex items-center justify-between gap-2">
           <div className="min-w-0">
             <div className={cn("font-medium truncate", seniorMode ? "text-base" : "text-sm")}>
-              {scale.fullName}
+              {currentScaleName}
             </div>
             <div className="text-[11px] text-muted-foreground">
               第 {idx + 1} / {total} 题 — 语音答题中
@@ -340,26 +570,52 @@ export function CGAConversation({ scale, onComplete, onExit }: CGAConversationPr
 
   return (
     <div className="flex flex-col gap-3">
+      <audio ref={audioRef} style={{ display: "none" }} />
+
+      {showSuicideRiskAlert && !suicideAlertDismissed && (
+        <SuicideRiskAlert onDismiss={() => setSuicideAlertDismissed(true)} />
+      )}
+      
       <div className="flex items-center justify-between gap-2">
         <div className="min-w-0">
           <div className={cn("font-medium truncate", seniorMode ? "text-base" : "text-sm")}>
-            {scale.fullName}
+            {currentScaleName}
           </div>
           <div className="text-[11px] text-muted-foreground">
             第 {idx + 1} / {total} 题
           </div>
         </div>
-        {onExit && (
-          <Button
-            variant="ghost"
-            size="sm"
-            onClick={onExit}
-            className="shrink-0"
-            aria-label="退出答题"
+        <div className="flex items-center gap-2">
+          <button
+            type="button"
+            onClick={toggleAudioEnabled}
+            className={cn(
+              "flex items-center justify-center shrink-0 rounded-full transition-colors",
+              iconBtnSize,
+              cgaAudioEnabled
+                ? "bg-primary text-primary-foreground"
+                : "bg-muted text-muted-foreground"
+            )}
+            aria-label={cgaAudioEnabled ? "关闭音频" : "开启音频"}
           >
-            退出
-          </Button>
-        )}
+            {cgaAudioEnabled ? (
+              <Volume2 className={cn(seniorMode ? "size-5" : "size-4")} />
+            ) : (
+              <VolumeX className={cn(seniorMode ? "size-5" : "size-4")} />
+            )}
+          </button>
+          {onExit && (
+            <Button
+              variant="ghost"
+              size="sm"
+              onClick={onExit}
+              className="shrink-0"
+              aria-label="退出答题"
+            >
+              退出
+            </Button>
+          )}
+        </div>
       </div>
 
       <Progress value={progress} />
@@ -374,7 +630,7 @@ export function CGAConversation({ scale, onComplete, onExit }: CGAConversationPr
           <div className="flex-1">
             <div className="text-xs text-muted-foreground mb-1">
               题 {idx + 1}
-              {current.required && <span className="text-destructive ml-1">*</span>}
+              {current.question.required && <span className="text-destructive ml-1">*</span>}
             </div>
             <div
               className={cn(
@@ -382,31 +638,32 @@ export function CGAConversation({ scale, onComplete, onExit }: CGAConversationPr
                 seniorMode ? "text-lg" : "text-sm"
               )}
             >
-              {current.text}
+              {current.question.text}
             </div>
-            {current.hint && (
+            {current.question.hint && (
               <div className="mt-1.5 text-[11px] text-amber-700 dark:text-amber-300">
-                提示：{current.hint}
+                提示：{current.question.hint}
               </div>
             )}
           </div>
           <button
             type="button"
-            onClick={isPlaying || ttsLoading ? stop : () => speakQuestion(idx)}
+            onClick={toggleAudio}
             className={cn(
               "flex items-center justify-center shrink-0 rounded-full transition-colors",
               iconBtnSize,
-              isPlaying
+              isAudioPlaying
                 ? "bg-primary text-primary-foreground"
-                : ttsLoading
+                : isAudioLoading
                   ? "bg-muted text-muted-foreground"
                   : "bg-muted hover:bg-muted/80 text-foreground"
             )}
-            aria-label={isPlaying ? "停止朗读" : "朗读题目"}
+            aria-label={isAudioPlaying ? "暂停朗读" : "朗读题目"}
+            disabled={!cgaAudioEnabled}
           >
-            {ttsLoading ? (
+            {isAudioLoading ? (
               <Loader2 className={cn("animate-spin", seniorMode ? "size-5" : "size-4")} />
-            ) : isPlaying ? (
+            ) : isAudioPlaying ? (
               <VolumeX className={cn(seniorMode ? "size-5" : "size-4")} />
             ) : (
               <Volume2 className={cn(seniorMode ? "size-5" : "size-4")} />
@@ -416,8 +673,8 @@ export function CGAConversation({ scale, onComplete, onExit }: CGAConversationPr
       </div>
 
       <div className="grid grid-cols-1 gap-1.5">
-        {current.options?.map((opt) => {
-          const selected = answers[current.id] === opt.value;
+        {current.question.options?.map((opt) => {
+          const selected = answers[current.question.id] === opt.value;
           return (
             <button
               key={opt.value}

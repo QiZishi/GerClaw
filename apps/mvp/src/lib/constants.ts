@@ -34,8 +34,8 @@ export const ANIMATION_DURATION = {
   fast: 150, // ms
   normal: 200,
   slow: 300,
-  spin: 1000, // 旋转动画 1s
-  pulse: 2000, // 脉冲动画 2s
+  spin: 1500, // 旋转动画 1.5s
+  pulse: 1200, // 脉冲动画 1.2s
 } as const;
 
 /** §13.7 适老化参数 */
@@ -101,10 +101,10 @@ export const RETRY = {
 /** 输入限制 */
 export const INPUT_LIMITS = {
   maxMessageLength: 4000, // 单次输入字符数
-  maxFileCount: 5,
+  maxFileCount: 10,
   maxFileSize: 10 * 1024 * 1024, // 10MB
   maxAudioDuration: 60, // 秒
-  maxImageCount: 5,
+  maxImageCount: 10,
   maxImageSize: 5 * 1024 * 1024, // 5MB
 } as const;
 
