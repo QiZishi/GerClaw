@@ -74,6 +74,7 @@ ALLOWED_AUDIT_KEYS = frozenset(
         "provider",
         "protocol",
         "request_class",
+        "request_fingerprint",
         "result_code",
         "retry_count",
         "safety_flags",

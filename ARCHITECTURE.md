@@ -48,15 +48,17 @@ FastAPI后端
 │   ├── 全科医生智能体
 │   ├── 老年专科医生智能体（复核）
 │   ├── 用药审查智能体（规则引擎+LLM）
-│   └── CGA评估智能体（状态机骨架+LLM柔性层）
+│   ├── CGA评估智能体（状态机骨架+LLM柔性层）
+│   └── Agentic RAG middleware（search_knowledge工具）
 ├── Repository层 (repositories/)
 │   ├── PostgreSQL (用户/会话/健康档案)
 │   ├── Redis (缓存/限流/会话)
-│   └── Qdrant (RAG向量检索)
+│   └── Qdrant (BGE-M3 dense + 中英文 lexical sparse + RRF)
 └── Providers层
     ├── LLM Provider (GPT-4o/qwen/claude)
     ├── Voice Provider (Mimo ASR/TTS)
     ├── Search Provider (AnySearch/Tavily)
+    ├── RAG Provider (SiliconFlow embedding/rerank)
     └── MinerU Provider (文档解析)
 ```
 
@@ -207,6 +209,7 @@ types → config → providers → repositories → services → agents → rout
 | 联网搜索结果 | 加隔离标记（BEGIN/END SEARCH RESULT包裹），剥离指令性文字，来源角标可追溯 |
 | 技能内容(skill.md) | 加载前安全检查，禁止包含修改系统角色的指令 |
 | 外部API响应 | Zod schema校验、超时处理、错误捕获、主备切换 |
+| 本地医学知识库 | 仅允许根目录内 UTF-8 Markdown；大小、相对路径、HTML 指令载体、embedding 维度、Qdrant payload 和 citation 均在后端边界校验 |
 | 环境变量 | 启动时Zod校验，缺失关键变量直接失败不启动 |
 
 ## 7. Agent-Legible Invariants
@@ -233,3 +236,4 @@ types → config → providers → repositories → services → agents → rout
 | ADR-004 | 用药审查100%确定性规则引擎（DDI/Beers/剂量检查） | 用药安全是医疗安全底线，LLM存在幻觉风险不能用于药物相互作用判断；规则引擎结果100%可复现可审计 | 纯用LLM做用药审查→幻觉风险不可接受；规则+LLM各做一半→边界不清难以审计 | 2026-07-04 |
 | ADR-005 | CGA评估/五大处方采用"状态机骨架+LLM柔性层"混合架构 | 量表计分、处方结构、评估流程需要确定性保证；自然语言对话引导、健康建议生成需要LLM柔性处理；两者结合兼顾安全和体验 | 纯状态机表单→老年用户体验差不会填表；纯LLM自由对话→计分和结构无法保证准确性 | 2026-07-04 |
 | ADR-006 | 两阶段 Mock 策略（UI 阶段允许 mock，实现阶段禁止 mock） | 第一个计划需构建完整可交互 UI 壳子，真实 API 调用会阻塞 UI 开发；第二个计划起逐模块接入真实 API，必须用真实数据验证 | 全程禁止 Mock→UI 开发被 API 调试阻塞；全程允许 Mock→功能实现阶段无法验证真实能力 | 2026-07-05 |
+| ADR-007 | AgentScope agentic middleware + GerClaw hybrid KnowledgeBase adapter | 保留 AgentScope 2.0.4 的工具决策与权限边界，同时补齐其内置 Qdrant store 缺少的 sparse RRF、外部 rerank、引用元数据和全量增量索引能力 | 仅用内置 dense store→不满足设计要求；自研完整 agent loop→重复造轮子且偏离 AgentScope 优先级 | 2026-07-15 |

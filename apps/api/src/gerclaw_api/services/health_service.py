@@ -13,6 +13,7 @@ from redis.asyncio import Redis
 
 from gerclaw_api.config import Settings
 from gerclaw_api.database.session import Database
+from gerclaw_api.modules.rag.protocols import RAGModule
 
 
 class DependencyHealthService:
@@ -25,11 +26,13 @@ class DependencyHealthService:
         database: Database,
         redis_client: Redis,
         qdrant_client: AsyncQdrantClient,
+        rag_module: RAGModule,
     ) -> None:
         self._settings = settings
         self._database = database
         self._redis = redis_client
         self._qdrant = qdrant_client
+        self._rag = rag_module
         self._cache: tuple[float, dict[str, Any]] | None = None
         self._lock = asyncio.Lock()
 
@@ -54,6 +57,7 @@ class DependencyHealthService:
                 self._probe("redis", self._ping_redis),
                 self._probe("qdrant", self._ping_qdrant),
                 self._probe("knowledge_base", self._check_knowledge_base),
+                self._probe("rag_index", self._check_rag_index),
                 self._probe("agentscope", self._check_agentscope),
             )
             checks = {name: state for name, state in results}
@@ -96,6 +100,16 @@ class DependencyHealthService:
         if installed != self._settings.agentscope_required_version:
             raise RuntimeError("AgentScope runtime version mismatch")
         return {"version": installed}
+
+    async def _check_rag_index(self) -> dict[str, Any]:
+        status = await self._rag.status()
+        return {
+            "ok": status.ready,
+            "source_documents": status.source_documents,
+            "indexed_documents": status.indexed_documents,
+            "indexed_chunks": status.indexed_chunks,
+            "retrieval_mode": status.retrieval_mode,
+        }
 
     @staticmethod
     def _count_markdown_files(path: Path) -> int:

@@ -8,8 +8,10 @@ import os
 import httpx
 import pytest
 from agentscope.message import UserMsg
+from pydantic import SecretStr
 
 from gerclaw_api.config import Settings
+from gerclaw_api.modules.rag.providers import SiliconFlowEmbeddingModel, SiliconFlowReranker
 from gerclaw_api.services.model_factory import build_agentscope_model
 
 pytestmark = pytest.mark.external
@@ -121,36 +123,40 @@ async def test_real_siliconflow_embedding_and_rerank() -> None:
         )
     ):
         pytest.skip("SiliconFlow embedding/rerank configuration is not provided")
-    headers = {
-        "Authorization": f"Bearer {settings.siliconflow_api_key.get_secret_value()}",
-        "Content-Type": "application/json",
-    }
-    base_url = str(settings.siliconflow_url).rstrip("/")
-    async with httpx.AsyncClient(timeout=settings.external_request_timeout_seconds) as client:
-        embedding = await client.post(
-            f"{base_url}/embeddings",
-            headers=headers,
-            json={"model": settings.embedding_model, "input": "老年综合评估"},
+    secret = SecretStr(settings.siliconflow_api_key.get_secret_value())
+    embedding = SiliconFlowEmbeddingModel(
+        base_url=str(settings.siliconflow_url),
+        api_key=secret,
+        model=settings.embedding_model,
+        dimensions=settings.rag_embedding_dimensions,
+        batch_size=64,
+        concurrency=1,
+        timeout_seconds=settings.external_request_timeout_seconds,
+    )
+    reranker = SiliconFlowReranker(
+        base_url=str(settings.siliconflow_url),
+        api_key=secret,
+        model=settings.rerank_model,
+        timeout_seconds=settings.external_request_timeout_seconds,
+    )
+    try:
+        texts = [f"老年综合评估真实批次验证 {index}" for index in range(64)]
+        embedded = await embedding(texts)
+        assert len(embedded.embeddings) == 64
+        assert all(
+            len(vector) == settings.rag_embedding_dimensions for vector in embedded.embeddings
         )
-        embedding.raise_for_status()
-        vector = embedding.json()["data"][0]["embedding"]
-        assert len(vector) > 100
 
-        rerank = await client.post(
-            f"{base_url}/rerank",
-            headers=headers,
-            json={
-                "model": settings.rerank_model,
-                "query": "老年用药风险",
-                "documents": ["药物相互作用审查", "天气预报"],
-                "return_documents": True,
-                "top_n": 2,
-            },
+        results = await reranker.rerank(
+            "老年用药风险",
+            ["药物相互作用审查", "天气预报"],
+            top_n=2,
         )
-        rerank.raise_for_status()
-        results = rerank.json()["results"]
         assert len(results) == 2
-        assert results[0]["index"] == 0
+        assert results[0].index == 0
+    finally:
+        await embedding.aclose()
+        await reranker.aclose()
 
 
 @pytest.mark.asyncio

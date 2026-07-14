@@ -12,6 +12,7 @@ from qdrant_client import AsyncQdrantClient
 from redis.asyncio import Redis
 
 from gerclaw_api.api.routes.health import router as health_router
+from gerclaw_api.api.routes.rag import router as rag_router
 from gerclaw_api.api.routes.traces import router as traces_router
 from gerclaw_api.config import Settings, get_settings
 from gerclaw_api.database.session import Database
@@ -21,6 +22,11 @@ from gerclaw_api.middleware import (
     RequestBodyLimitMiddleware,
     RequestContextMiddleware,
     SecurityHeadersMiddleware,
+)
+from gerclaw_api.modules.rag import (
+    RAGUnavailableError,
+    build_agentic_rag_middleware,
+    create_rag_runtime,
 )
 from gerclaw_api.services.health_service import DependencyHealthService
 from gerclaw_api.services.rate_limit import RateLimiter, RateLimitExceeded, RateLimitUnavailable
@@ -58,9 +64,12 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             url=str(resolved.qdrant_url).rstrip("/"),
             api_key=qdrant_api_key or None,
         )
+        rag_runtime = create_rag_runtime(resolved, qdrant_client)
         app.state.database = database
         app.state.redis = redis_client
         app.state.qdrant = qdrant_client
+        app.state.rag_runtime = rag_runtime
+        app.state.agentic_rag_middleware = build_agentic_rag_middleware(rag_runtime.module)
         app.state.rate_limiter = RateLimiter(
             redis_client,
             limit=resolved.rate_limit_requests,
@@ -71,10 +80,12 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             database=database,
             redis_client=redis_client,
             qdrant_client=qdrant_client,
+            rag_module=rag_runtime.module,
         )
         try:
             yield
         finally:
+            await rag_runtime.aclose()
             await qdrant_client.close()
             await redis_client.aclose()
             await database.dispose()
@@ -99,6 +110,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     app.add_middleware(RequestContextMiddleware)
     app.include_router(health_router)
     app.include_router(traces_router, prefix=resolved.api_prefix)
+    app.include_router(rag_router, prefix=resolved.api_prefix)
 
     @app.exception_handler(TraceNotFoundError)
     async def trace_not_found(_request: Request, error: TraceNotFoundError) -> JSONResponse:
@@ -135,6 +147,13 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     ) -> JSONResponse:
         return JSONResponse(
             {"error": {"code": "RATE_LIMIT_UNAVAILABLE", "message": str(error)}},
+            status_code=503,
+        )
+
+    @app.exception_handler(RAGUnavailableError)
+    async def rag_unavailable(_request: Request, error: RAGUnavailableError) -> JSONResponse:
+        return JSONResponse(
+            {"error": {"code": "RAG_UNAVAILABLE", "message": str(error)}},
             status_code=503,
         )
 

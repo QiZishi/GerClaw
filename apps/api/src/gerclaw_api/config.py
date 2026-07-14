@@ -116,6 +116,26 @@ class Settings(BaseSettings):
     qdrant_url: AnyHttpUrl
     qdrant_api_key: SecretStr | None = None
     knowledge_base_path: Path
+    knowledge_base_host_path: Path | None = None
+    rag_collection_name: str = Field(
+        default="gerclaw_local_medical_v1",
+        min_length=3,
+        max_length=128,
+        pattern=r"^[a-z][a-z0-9_-]+$",
+    )
+    rag_embedding_dimensions: int = Field(default=1_024, ge=128, le=4_096)
+    rag_embedding_batch_size: int = Field(default=64, ge=1, le=128)
+    rag_embedding_concurrency: int = Field(default=1, ge=1, le=32)
+    rag_embedding_tokens_per_minute: int = Field(default=450_000, ge=10_000, le=10_000_000)
+    rag_chunk_min_tokens: int = Field(default=256, ge=64, le=512)
+    rag_chunk_target_tokens: int = Field(default=384, ge=128, le=512)
+    rag_chunk_max_tokens: int = Field(default=512, ge=256, le=1_024)
+    rag_chunk_overlap_tokens: int = Field(default=64, ge=0, le=256)
+    rag_max_document_bytes: int = Field(default=8 * 1024 * 1024, ge=64 * 1024, le=25 * 1024 * 1024)
+    rag_upsert_batch_size: int = Field(default=64, ge=1, le=256)
+    rag_retrieval_candidates: int = Field(default=30, ge=5, le=100)
+    rag_rerank_candidates: int = Field(default=20, ge=5, le=100)
+    rag_min_rerank_score: float = Field(default=0.05, ge=0, le=1)
 
     cors_origins: list[AnyHttpUrl] = Field(min_length=1)
     agentscope_required_version: str = Field(default="2.0.4", pattern=r"^\d+\.\d+\.\d+$")
@@ -357,6 +377,25 @@ class Settings(BaseSettings):
     @model_validator(mode="after")
     def validate_production_safety(self) -> Settings:
         """Reject unsafe production-only configuration combinations."""
+
+        configured_kb_path = self.knowledge_base_path.expanduser()
+        if configured_kb_path.is_dir():
+            self.knowledge_base_path = configured_kb_path.resolve()
+        elif self.knowledge_base_host_path is not None:
+            host_path = self.knowledge_base_host_path.expanduser()
+            if not host_path.is_absolute():
+                env_file = Path(_project_env_file())
+                host_path = env_file.parent / host_path
+            self.knowledge_base_path = host_path.resolve()
+
+        if self.rag_chunk_overlap_tokens >= self.rag_chunk_target_tokens:
+            raise ValueError("RAG chunk overlap must be smaller than the target chunk size")
+        if self.rag_chunk_min_tokens > self.rag_chunk_target_tokens:
+            raise ValueError("RAG minimum chunk size cannot exceed the target chunk size")
+        if self.rag_chunk_target_tokens > self.rag_chunk_max_tokens:
+            raise ValueError("RAG target chunk size cannot exceed the hard maximum")
+        if self.rag_rerank_candidates > self.rag_retrieval_candidates:
+            raise ValueError("RAG rerank candidates cannot exceed retrieval candidates")
 
         if self.app_env == "production":
             if not {"auth_jwt_secret", "data_encryption_key"}.issubset(self.model_fields_set):

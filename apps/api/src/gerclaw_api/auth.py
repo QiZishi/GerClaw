@@ -139,3 +139,11 @@ async def require_metrics_read(
     """Require operational metrics access."""
 
     return _authorize(identity, "metrics:read")
+
+
+async def require_rag_read(
+    identity: Annotated[AuthContext, Depends(authenticate)],
+) -> AuthContext:
+    """Require access to local medical evidence retrieval."""
+
+    return _authorize(identity, "rag:read")

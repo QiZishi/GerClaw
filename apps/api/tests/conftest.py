@@ -29,6 +29,10 @@ def make_settings(**overrides: object) -> Settings:
         "qdrant_url": "http://127.0.0.1:6333",
         "qdrant_api_key": "local-qdrant-only",
         "knowledge_base_path": Path(__file__).parent,
+        "siliconflow_url": "http://127.0.0.1:9/v1",
+        "siliconflow_api_key": "tests-only-siliconflow-key",
+        "embedding_model": "BAAI/bge-m3",
+        "rerank_model": "BAAI/bge-reranker-v2-m3",
         "cors_origins": ["http://localhost:3000"],
         "readiness_cache_seconds": 0,
         "auth_jwt_secret": TEST_JWT_SECRET,
@@ -56,6 +60,17 @@ def integration_settings() -> Settings:
         raise pytest.UsageError(
             "GERCLAW_TEST_KNOWLEDGE_BASE_PATH must explicitly name the real test corpus"
         )
+    real_services = Settings()
+    if any(
+        value is None
+        for value in (
+            real_services.siliconflow_url,
+            real_services.siliconflow_api_key,
+            real_services.embedding_model,
+            real_services.rerank_model,
+        )
+    ):
+        raise pytest.UsageError("root .env must configure the real RAG model services")
     return make_settings(
         database_url=database_url,
         redis_url=os.getenv(
@@ -64,6 +79,10 @@ def integration_settings() -> Settings:
         qdrant_url=os.getenv("GERCLAW_TEST_QDRANT_URL", "http://127.0.0.1:6333"),
         qdrant_api_key=os.getenv("GERCLAW_TEST_QDRANT_API_KEY", "local-qdrant-only"),
         knowledge_base_path=Path(knowledge_base_path),
+        siliconflow_url=real_services.siliconflow_url,
+        siliconflow_api_key=real_services.siliconflow_api_key.get_secret_value(),
+        embedding_model=real_services.embedding_model,
+        rerank_model=real_services.rerank_model,
     )
 
 
@@ -88,7 +107,13 @@ async def integration_client(
             integration_settings,
             actor_id="usr_patient_integration0001",
             tenant_id="tenant_public0001",
-            scopes={"trace:read", "trace:write", "feedback:write", "metrics:read"},
+            scopes={
+                "trace:read",
+                "trace:write",
+                "feedback:write",
+                "metrics:read",
+                "rag:read",
+            },
         )
         async with AsyncClient(
             transport=ASGITransport(app=app),

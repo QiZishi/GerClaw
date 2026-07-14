@@ -10,9 +10,185 @@ from sqlalchemy import func, select, text
 
 from gerclaw_api.auth import create_access_token
 from gerclaw_api.database.models import BadCase, ExecutionTrace, TraceEvent, UserFeedback
+from gerclaw_api.modules.rag.locking import PostgresAdvisoryRAGIndexLock
 from gerclaw_api.services.rate_limit import RateLimiter
 
 TRACE_ID = "trace_integration_0001"
+
+
+class _FailingRAGModule:
+    async def retrieve(self, *_args: object, **_kwargs: object) -> list[object]:
+        raise RuntimeError("injected provider failure")
+
+
+@pytest.mark.integration
+@pytest.mark.asyncio
+async def test_postgres_advisory_lock_serializes_independent_rag_index_workers(
+    integration_client: tuple[AsyncClient, object],
+) -> None:
+    """Two independent connections must never mutate the RAG collection concurrently."""
+
+    _client, app = integration_client
+    database_url = app.state.settings.database_url
+    first_lock = PostgresAdvisoryRAGIndexLock(database_url)
+    second_lock = PostgresAdvisoryRAGIndexLock(database_url)
+    first_acquired = asyncio.Event()
+    release_first = asyncio.Event()
+    second_started = asyncio.Event()
+    second_acquired = asyncio.Event()
+
+    async def first_worker() -> None:
+        async with first_lock.hold():
+            first_acquired.set()
+            await release_first.wait()
+
+    async def second_worker() -> None:
+        second_started.set()
+        async with second_lock.hold():
+            second_acquired.set()
+
+    first_task = asyncio.create_task(first_worker())
+    await asyncio.wait_for(first_acquired.wait(), timeout=3)
+    second_task = asyncio.create_task(second_worker())
+    await asyncio.wait_for(second_started.wait(), timeout=1)
+    try:
+        with pytest.raises(TimeoutError):
+            await asyncio.wait_for(second_acquired.wait(), timeout=0.1)
+    finally:
+        release_first.set()
+    await asyncio.wait_for(asyncio.gather(first_task, second_task), timeout=3)
+    assert second_acquired.is_set()
+
+
+@pytest.mark.integration
+@pytest.mark.asyncio
+async def test_postgres_lock_session_loss_cancels_the_active_rag_writer(
+    integration_client: tuple[AsyncClient, object],
+) -> None:
+    """A live writer must fail-stop when PostgreSQL releases its dead lock session."""
+
+    _client, app = integration_client
+    index_lock = PostgresAdvisoryRAGIndexLock(app.state.settings.database_url)
+    body_entered = asyncio.Event()
+    never_complete = asyncio.Event()
+    writer_cancelled = asyncio.Event()
+
+    async def writer() -> None:
+        try:
+            async with index_lock.hold():
+                body_entered.set()
+                await never_complete.wait()
+        except asyncio.CancelledError:
+            writer_cancelled.set()
+            raise
+
+    writer_task = asyncio.create_task(writer())
+    await asyncio.wait_for(body_entered.wait(), timeout=3)
+    async with app.state.database.engine.connect() as connection:
+        lock_pid = await connection.scalar(
+            text(
+                "SELECT pid FROM pg_locks "
+                "WHERE locktype='advisory' AND granted AND pid <> pg_backend_pid() "
+                "ORDER BY pid DESC LIMIT 1"
+            )
+        )
+        assert isinstance(lock_pid, int)
+        assert (
+            await connection.scalar(text("SELECT pg_terminate_backend(:pid)"), {"pid": lock_pid})
+            is True
+        )
+        await connection.commit()
+
+    await asyncio.wait_for(writer_cancelled.wait(), timeout=2)
+    result = (await asyncio.gather(writer_task, return_exceptions=True))[0]
+    assert isinstance(result, asyncio.CancelledError)
+
+    # The terminated session released the advisory lock and a replacement worker can proceed.
+    async with PostgresAdvisoryRAGIndexLock(app.state.settings.database_url).hold():
+        pass
+
+
+@pytest.mark.integration
+@pytest.mark.asyncio
+async def test_real_agentic_rag_api_trace_and_agentscope_tool(
+    integration_client: tuple[AsyncClient, object],
+) -> None:
+    client, app = integration_client
+
+    status = await client.get("/api/v1/rag/status")
+    assert status.status_code == 200, status.text
+    assert status.json()["ready"] is True
+    assert status.json()["source_documents"] >= 400
+    assert status.json()["source_documents"] == status.json()["indexed_documents"]
+
+    response = await client.post(
+        "/api/v1/rag/retrieve",
+        headers={"X-Trace-ID": "trace_rag_integration_0001"},
+        json={"query": "老年患者多重用药的风险评估与审查要点", "top_k": 3},
+    )
+    assert response.status_code == 200, response.text
+    payload = response.json()
+    assert payload["trace_id"] == "trace_rag_integration_0001"
+    assert 1 <= len(payload["results"]) <= 3
+    assert "不构成诊断" in payload["medical_disclaimer"]
+    assert all(not item["source"].startswith("/") for item in payload["results"])
+    assert all(item["metadata"]["chunk_id"] for item in payload["results"])
+
+    trace = await client.get(f"/api/v1/traces/{payload['trace_id']}")
+    assert trace.status_code == 200, trace.text
+    assert trace.json()["status"] == "completed"
+    assert trace.json()["events"][0]["event_type"] == "rag.retrieve"
+    assert trace.json()["events"][0]["payload"]["document_count"] >= 1
+
+    replay = await client.post(
+        "/api/v1/rag/retrieve",
+        headers={"X-Trace-ID": "trace_rag_integration_0001"},
+        json={"query": "老年患者多重用药的风险评估与审查要点", "top_k": 3},
+    )
+    assert replay.status_code == 200, replay.text
+    replayed_trace = await client.get("/api/v1/traces/trace_rag_integration_0001")
+    assert len(replayed_trace.json()["events"]) == 1
+
+    tools = await app.state.agentic_rag_middleware.list_tools()
+    assert [tool.name for tool in tools] == ["search_knowledge"]
+    tool_result = await tools[0].call(query="老年综合评估包括哪些核心内容")
+    assert tool_result.is_last is True
+    assert any(
+        "medical-knowledge-evidence" in getattr(block, "text", "") for block in tool_result.content
+    )
+
+
+@pytest.mark.integration
+@pytest.mark.asyncio
+async def test_rag_dependency_failure_persists_failed_trace_and_bad_case(
+    integration_client: tuple[AsyncClient, object],
+) -> None:
+    client, app = integration_client
+    runtime = app.state.rag_runtime
+    working_module = runtime.module
+    runtime.module = _FailingRAGModule()
+    try:
+        response = await client.post(
+            "/api/v1/rag/retrieve",
+            headers={"X-Trace-ID": "trace_rag_failure_0001"},
+            json={"query": "故障注入时不得伪造医学证据", "top_k": 3},
+        )
+    finally:
+        runtime.module = working_module
+
+    assert response.status_code == 503
+    assert response.json()["error"]["code"] == "RAG_UNAVAILABLE"
+    trace = await client.get("/api/v1/traces/trace_rag_failure_0001")
+    assert trace.status_code == 200
+    assert trace.json()["status"] == "failed"
+    assert trace.json()["events"][0]["status"] == "failed"
+    async with app.state.database.session() as session:
+        bad_cases = await session.scalar(
+            select(func.count())
+            .select_from(BadCase)
+            .where(BadCase.trace_id == "trace_rag_failure_0001")
+        )
+        assert bad_cases == 1
 
 
 @pytest.mark.integration

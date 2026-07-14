@@ -1,6 +1,10 @@
 ARG PYTHON_IMAGE=python:3.12-slim
 FROM ${PYTHON_IMAGE} AS runtime
 
+# Keep custom or cached base images reproducible even if they declare a non-root user.
+# The final runtime is explicitly dropped back to the unprivileged gerclaw account.
+USER root
+
 ENV PYTHONDONTWRITEBYTECODE=1 \
     PYTHONUNBUFFERED=1 \
     PATH="/app/.venv/bin:$PATH"

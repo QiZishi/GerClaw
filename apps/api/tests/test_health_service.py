@@ -7,6 +7,7 @@ from pathlib import Path
 
 import pytest
 
+from gerclaw_api.modules.rag.protocols import RAGStatus
 from gerclaw_api.services.health_service import DependencyHealthService
 from tests.conftest import make_settings
 
@@ -31,6 +32,19 @@ class HealthyQdrant:
         return object()
 
 
+class HealthyRAG:
+    async def status(self) -> RAGStatus:
+        return RAGStatus(
+            ready=True,
+            collection="test_rag",
+            source_documents=2,
+            indexed_documents=2,
+            indexed_chunks=4,
+            embedding_model="BAAI/bge-m3",
+            rerank_model="BAAI/bge-reranker-v2-m3",
+        )
+
+
 @pytest.mark.asyncio
 async def test_readiness_reports_configured_corpus_and_runtime_versions(tmp_path: Path) -> None:
     (tmp_path / "one.md").write_text("one", encoding="utf-8")
@@ -40,6 +54,7 @@ async def test_readiness_reports_configured_corpus_and_runtime_versions(tmp_path
         database=HealthyDatabase(),  # type: ignore[arg-type]
         redis_client=HealthyRedis(),  # type: ignore[arg-type]
         qdrant_client=HealthyQdrant(),  # type: ignore[arg-type]
+        rag_module=HealthyRAG(),  # type: ignore[arg-type]
     )
 
     first = await service.check()
@@ -49,6 +64,7 @@ async def test_readiness_reports_configured_corpus_and_runtime_versions(tmp_path
     assert first["status"] == "ready"
     assert first["checks"]["agentscope"]["version"] == version("agentscope")
     assert first["checks"]["knowledge_base"]["markdown_documents"] == 2
+    assert first["checks"]["rag_index"]["indexed_documents"] == 2
 
 
 @pytest.mark.asyncio
@@ -58,6 +74,7 @@ async def test_readiness_aggregates_dependency_failure_without_leaking_url() -> 
         database=FailingDatabase(),  # type: ignore[arg-type]
         redis_client=HealthyRedis(),  # type: ignore[arg-type]
         qdrant_client=HealthyQdrant(),  # type: ignore[arg-type]
+        rag_module=HealthyRAG(),  # type: ignore[arg-type]
     )
 
     report = await service.check()
