@@ -16,6 +16,7 @@
 3. 短期记忆直接读取现有加密 `messages` 表；长期画像按用户跨会话共享。记忆检索必须先以 Qdrant 召回引用，再回 PostgreSQL tenant/user scoped 解密并校验版本，防止越权、悬空或 stale vector 被注入 prompt。
 4. 画像抽取只读取用户自述，不从 assistant 回复反向写入事实；使用根 `.env` 的三模型 failover 执行严格结构化抽取。每条事实必须携带用户原文中的精确 `evidence_span`；无法逐字验证的模型候选直接丢弃，低置信度、否定或纠正信息只进入 pending/inactive，不作为已确认医疗事实注入。
 5. 过敏、用药、慢病、生命体征、评估、重大事件和社会支持使用固定 schema、稳定 dedupe key、来源与时间戳；停药/失效信息保留历史而非物理删除。
+   普通事实以 category/entity HMAC key 去重；事件按发生时间或 source Trace/evidence hash 分代。当前事实原地投影的每次变更前，必须在同一事务写入完整加密 revision snapshot。
 6. 使用 AgentScope `ContextConfig` 和 `Agent.compress_context()` 生成医疗定制摘要，始终保留过敏、当前用药、红旗事件与最近对话；摘要写入 session 加密 `context_summary`，下一 turn 继续使用。
 7. assistant、completed Trace、画像/事实更新和 `memory.update` 审计事件共享 0016 的 request-scoped 事务；任何模型抽取、向量索引或一致性校验失败都不得生成伪完成终态。Qdrant 失败或数据库回滚时执行有界补偿并由 stale-version 校验兜底。
 8. 提供当前用户健康画像读取和事实确认/纠正接口，使用独立 `memory:read`/`memory:write` scope；所有写入使用乐观版本与 tenant/actor ownership 校验。
@@ -47,10 +48,11 @@
 
 ## 5. 执行证据
 
-- 默认测试 `149 passed, 21 skipped`，覆盖率 80.10%；真实 PostgreSQL/Redis/Qdrant 回归 `164 passed, 6 deselected`，覆盖率 87.72%。
-- 根 `.env` 外部套件 `6 passed`：三套真实 LLM、Mimo ASR/TTS、SiliconFlow embedding/rerank、Tavily、完整 Agentic RAG Chat 均成功；新会话自动召回 `memories=2`，无 mock 成功路径。
-- PostgreSQL 全新测试库完成 Alembic `upgrade → downgrade → upgrade` 至 `d7f403a12017 (head)`；Docker 镜像构建、迁移、`/health/ready` 通过。
+- 默认测试 `238 passed, 21 skipped`，覆盖率 80.99%；真实 PostgreSQL/Redis/Qdrant 回归 `253 passed, 6 deselected`，覆盖率 88.26%。
+- 根 `.env` 的 6 项外部用例均取得真实通过结果：全套一次为 `5 passed, 1 failed`，失败发生在新会话已召回 `memories=2` 后的供应商可见输出断流，系统按设计返回 `CHAT_MODEL_STREAM_INTERRUPTED`；该跨会话真实用例随后隔离重跑 `1 passed`。三套真实 LLM、Mimo ASR/TTS、SiliconFlow embedding/rerank、Tavily 和完整 Agentic RAG Chat 均未使用 mock 成功路径。
+- PostgreSQL 全新测试库完成 Alembic `upgrade → downgrade → upgrade` 至 `e41b8c2a2017 (head)`；`memory_fact_revisions.snapshot` 原始列为 `enc:v1:` 密文，停药/拒绝前的旧状态、剂量和 source Trace 可恢复；Docker 镜像构建、迁移、`/health/ready` 通过。
 - readiness 强制复验可在 Memory collection 被外部删除后重建；单进程锁与多副本竞争后复验保证初始化幂等；开发 collection 为 0 points、无 PHI payload，隔离的测试 collection 在 fixture 结束后不存在。
+- Docker Hub OAuth 连续两次网络超时后，使用同一官方 Python 3.12 slim 镜像的 `public.ecr.aws/docker/library/python:3.12-slim` mirror 完成无缓存依赖安装与镜像构建；新镜像执行 migration 后 API、PostgreSQL、Redis、Qdrant 均 healthy，`/health/ready` 返回 436 文档、39,837 chunks、Memory 0 PHI points。
 - 真实复验发现供应商持续流式心跳可绕过 HTTP read timeout；现以配置的 30 秒为每个候选模型完整 stream deadline。超时前无公开输出则顺序 failover，已有公开输出则 fail closed，测试覆盖两条路径。
 - MVP `npm run lint` 与 `npm run build` 均通过；本变更未修改前端行为。
 

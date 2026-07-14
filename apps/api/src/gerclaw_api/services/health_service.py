@@ -40,21 +40,30 @@ class DependencyHealthService:
         self._lock = asyncio.Lock()
 
     async def check(self) -> dict[str, Any]:
-        """Return a bounded, cached readiness report without leaking connection data."""
+        """Cache broad probes while force-checking Memory on every readiness request."""
 
-        now = time.monotonic()
-        if (
-            self._cache is not None
-            and now - self._cache[0] < self._settings.readiness_cache_seconds
-        ):
-            return self._cache[1]
         async with self._lock:
             now = time.monotonic()
             if (
                 self._cache is not None
                 and now - self._cache[0] < self._settings.readiness_cache_seconds
             ):
-                return self._cache[1]
+                memory_name, memory_state = await self._probe(
+                    "memory_index", self._check_memory_index
+                )
+                cached_checks = self._cache[1]["checks"]
+                checks = {
+                    name: dict(state)
+                    for name, state in cached_checks.items()
+                    if isinstance(state, dict)
+                }
+                checks[memory_name] = memory_state
+                return {
+                    "status": (
+                        "ready" if all(state["ok"] for state in checks.values()) else "not_ready"
+                    ),
+                    "checks": checks,
+                }
             results = await asyncio.gather(
                 self._probe("postgres", self._database.ping),
                 self._probe("redis", self._ping_redis),

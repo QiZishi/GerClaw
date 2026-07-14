@@ -77,7 +77,7 @@ async def test_readiness_reports_configured_corpus_and_runtime_versions(tmp_path
     first = await service.check()
     second = await service.check()
 
-    assert first is second
+    assert first is not second
     assert first["status"] == "ready"
     assert first["checks"]["agentscope"]["version"] == version("agentscope")
     assert first["checks"]["knowledge_base"]["markdown_documents"] == 2
@@ -88,8 +88,8 @@ async def test_readiness_reports_configured_corpus_and_runtime_versions(tmp_path
         "vector_points": 3,
         "payload_contains_phi": False,
     }
-    assert memory.ensure_calls == 1
-    assert memory.force_checks == [True]
+    assert memory.ensure_calls == 2
+    assert memory.force_checks == [True, True]
 
 
 @pytest.mark.asyncio

@@ -19,7 +19,13 @@ from agentscope.model import (
 from agentscope.tool import ToolChoice
 from qdrant_client import AsyncQdrantClient
 
-from gerclaw_api.database.models import ConversationSession, HealthProfile, MemoryFact, Message
+from gerclaw_api.database.models import (
+    ConversationSession,
+    HealthProfile,
+    MemoryFact,
+    MemoryFactRevision,
+    Message,
+)
 from gerclaw_api.modules.memory.agentscope_adapter import (
     AgentScopeMemoryAdapterError,
     GerClawMem0Client,
@@ -60,6 +66,8 @@ def _candidate(
     action: str = "upsert",
     evidence: str | None = None,
     statement: str | None = None,
+    occurred_at: datetime | None = None,
+    details: MemoryFactDetails | None = None,
 ) -> ExtractedMemoryFact:
     return ExtractedMemoryFact(
         category=category,
@@ -69,7 +77,8 @@ def _candidate(
         evidence_span=evidence or f"对{entity}过敏",
         action=action,
         confidence=confidence,
-        details=MemoryFactDetails(reaction="皮疹" if category == "allergy" else None),
+        occurred_at=occurred_at,
+        details=details or MemoryFactDetails(reaction="皮疹" if category == "allergy" else None),
     )
 
 
@@ -129,21 +138,31 @@ async def test_real_extractor_enforces_redaction_evidence_deduplication_and_stat
         _candidate("青霉素").model_dump(mode="json"),
         _candidate("青霉素", statement="重复事实").model_dump(mode="json"),
         _candidate("头孢", evidence="不存在的证据").model_dump(mode="json"),
-        _candidate("阿司匹林", confidence=0.4, evidence="服用阿司匹林").model_dump(mode="json"),
+        _candidate(
+            "阿司匹林",
+            category="medication",
+            confidence=0.4,
+            evidence="服用阿司匹林",
+        ).model_dump(mode="json"),
         _candidate("磺胺", evidence="没有磺胺过敏").model_dump(mode="json"),
-        _candidate("布洛芬", action="deactivate", evidence="停用布洛芬").model_dump(mode="json"),
+        _candidate(
+            "布洛芬",
+            category="medication",
+            action="deactivate",
+            evidence="停用布洛芬",
+        ).model_dump(mode="json"),
     ]
     model = _StructuredModel({"facts": facts})
     extractor = RealMemoryExtractor(cast(Any, model), min_confidence=0.8, max_facts=12)
 
     result = await extractor.extract(
-        "手机号13812345678; 对青霉素过敏; 服用阿司匹林; 没有磺胺过敏; 停用布洛芬"
+        "手机号13812345678; 我对青霉素过敏; 目前服用阿司匹林; 我没有磺胺过敏; 我已停用布洛芬"
     )
 
     assert [(item.entity, status) for item, status in result] == [
         ("青霉素", "confirmed"),
         ("阿司匹林", "pending"),
-        ("磺胺", "pending"),
+        ("磺胺", "inactive"),
         ("布洛芬", "inactive"),
     ]
     model_input = "\n".join(message.get_text_content() or "" for message in model.messages)
@@ -164,6 +183,671 @@ async def test_real_extractor_enforces_redaction_evidence_deduplication_and_stat
             min_confidence=0.8,
             max_facts=2,
         ).extract("对青霉素过敏")
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    ("user_text", "candidate", "expected_status"),
+    [
+        (
+            "我否认青霉素过敏",
+            _candidate("青霉素", evidence="否认青霉素过敏"),
+            "inactive",
+        ),
+        (
+            "我未服用阿司匹林",
+            _candidate(
+                "阿司匹林",
+                category="medication",
+                evidence="未服用阿司匹林",
+                statement="用户自述服用阿司匹林",
+            ),
+            "inactive",
+        ),
+        (
+            "我没有青霉素过敏",
+            _candidate("青霉素", evidence="青霉素过敏"),
+            "inactive",
+        ),
+        (
+            "我对青霉素没有过敏反应",
+            _candidate("青霉素", evidence="我对青霉素没有过敏反应"),
+            "inactive",
+        ),
+        (
+            "我对青霉素无过敏反应",
+            _candidate("青霉素", evidence="我对青霉素无过敏反应"),
+            "inactive",
+        ),
+        (
+            "我未服用阿司匹林",
+            _candidate(
+                "阿司匹林",
+                category="medication",
+                evidence="服用阿司匹林",
+                statement="用户自述服用阿司匹林",
+            ),
+            "inactive",
+        ),
+        (
+            "青霉素过敏史阴性",
+            _candidate("青霉素", evidence="青霉素过敏史阴性"),
+            "inactive",
+        ),
+        (
+            "我没有高血压，正在服用阿司匹林",  # noqa: RUF001
+            _candidate(
+                "阿司匹林",
+                category="medication",
+                evidence="服用阿司匹林",
+                statement="用户自述服用阿司匹林",
+            ),
+            "confirmed",
+        ),
+        (
+            "阿司匹林应该怎么服用？",  # noqa: RUF001
+            _candidate(
+                "阿司匹林",
+                category="medication",
+                evidence="阿司匹林应该怎么服用？",  # noqa: RUF001
+                statement="用户自述服用阿司匹林",
+            ),
+            None,
+        ),
+        (
+            "我可能有高血压",
+            _candidate(
+                "高血压",
+                category="condition",
+                evidence="我可能有高血压",
+                statement="用户自述患有高血压",
+            ),
+            "pending",
+        ),
+        (
+            "我父亲有高血压",
+            _candidate(
+                "高血压",
+                category="condition",
+                evidence="我父亲有高血压",
+                statement="用户自述患有高血压",
+            ),
+            None,
+        ),
+        (
+            "我计划服用阿司匹林",
+            _candidate(
+                "阿司匹林",
+                category="medication",
+                evidence="我计划服用阿司匹林",
+                statement="用户自述服用阿司匹林",
+            ),
+            None,
+        ),
+        (
+            "我无青霉素过敏史",
+            _candidate("青霉素", evidence="青霉素过敏史"),
+            "inactive",
+        ),
+        (
+            "我从没对青霉素过敏",
+            _candidate("青霉素", evidence="青霉素过敏"),
+            "inactive",
+        ),
+        (
+            "我可能没有青霉素过敏",
+            _candidate("青霉素", evidence="我可能没有青霉素过敏"),
+            "pending",
+        ),
+        (
+            "我好像已经不服用阿司匹林",
+            _candidate(
+                "阿司匹林",
+                category="medication",
+                evidence="我好像已经不服用阿司匹林",
+            ),
+            "pending",
+        ),
+        (
+            "我不得不服用阿司匹林",
+            _candidate("阿司匹林", category="medication", evidence="我不得不服用阿司匹林"),
+            "confirmed",
+        ),
+        (
+            "我不能不服用阿司匹林",
+            _candidate("阿司匹林", category="medication", evidence="我不能不服用阿司匹林"),
+            "confirmed",
+        ),
+        (
+            "我不能停用阿司匹林",
+            _candidate(
+                "阿司匹林",
+                category="medication",
+                action="deactivate",
+                evidence="我不能停用阿司匹林",
+            ),
+            "confirmed",
+        ),
+        (
+            "我没有完全停用阿司匹林",
+            _candidate(
+                "阿司匹林",
+                category="medication",
+                action="deactivate",
+                evidence="我没有完全停用阿司匹林",
+            ),
+            "confirmed",
+        ),
+        (
+            "我并未停用阿司匹林",
+            _candidate(
+                "阿司匹林",
+                category="medication",
+                action="deactivate",
+                evidence="我并未停用阿司匹林",
+            ),
+            "confirmed",
+        ),
+        (
+            "我并没有停用阿司匹林",
+            _candidate(
+                "阿司匹林",
+                category="medication",
+                action="deactivate",
+                evidence="我并没有停用阿司匹林",
+            ),
+            "confirmed",
+        ),
+        (
+            "我尚未停用阿司匹林",
+            _candidate(
+                "阿司匹林",
+                category="medication",
+                action="deactivate",
+                evidence="我尚未停用阿司匹林",
+            ),
+            "confirmed",
+        ),
+        (
+            "我不仅服用阿司匹林",
+            _candidate("阿司匹林", category="medication", evidence="我不仅服用阿司匹林"),
+            "confirmed",
+        ),
+        (
+            "我不但服用阿司匹林",
+            _candidate("阿司匹林", category="medication", evidence="我不但服用阿司匹林"),
+            "confirmed",
+        ),
+        (
+            "我不是每天服用阿司匹林",
+            _candidate("阿司匹林", category="medication", evidence="我不是每天服用阿司匹林"),
+            "confirmed",
+        ),
+        (
+            "我不定期服用阿司匹林",
+            _candidate("阿司匹林", category="medication", evidence="我不定期服用阿司匹林"),
+            "confirmed",
+        ),
+        (
+            "我不是只有高血压",
+            _candidate("高血压", category="condition", evidence="我不是只有高血压"),
+            None,
+        ),
+        (
+            "我不是最近才确诊高血压",
+            _candidate("高血压", category="condition", evidence="我不是最近才确诊高血压"),
+            None,
+        ),
+        (
+            "我不只是对青霉素过敏",
+            _candidate("青霉素", evidence="我不只是对青霉素过敏"),
+            None,
+        ),
+        (
+            "我不是仅对青霉素过敏",
+            _candidate("青霉素", evidence="我不是仅对青霉素过敏"),
+            None,
+        ),
+        (
+            "我不是对青霉素不过敏",
+            _candidate("青霉素", action="deactivate", evidence="我不是对青霉素不过敏"),
+            None,
+        ),
+        (
+            "我正在服用阿托伐他汀",
+            _candidate(
+                "阿托伐他汀",
+                category="medication",
+                evidence="我正在服用阿托伐他汀",
+                statement="用户自述服用阿托伐他汀",
+            ),
+            "confirmed",
+        ),
+        (
+            "我还有高血压",
+            _candidate("高血压", category="condition", evidence="我还有高血压"),
+            "confirmed",
+        ),
+        (
+            "我也有高血压",
+            _candidate("高血压", category="condition", evidence="我也有高血压"),
+            "confirmed",
+        ),
+        (
+            "我自己患有高血压",
+            _candidate("高血压", category="condition", evidence="我自己患有高血压"),
+            "confirmed",
+        ),
+        (
+            "我最近在服用阿司匹林",
+            _candidate("阿司匹林", category="medication", evidence="我最近在服用阿司匹林"),
+            "confirmed",
+        ),
+        (
+            "我目前还在服用阿司匹林",
+            _candidate(
+                "阿司匹林",
+                category="medication",
+                evidence="我目前还在服用阿司匹林",
+            ),
+            "confirmed",
+        ),
+        (
+            "我常年服用阿司匹林",
+            _candidate("阿司匹林", category="medication", evidence="我常年服用阿司匹林"),
+            "confirmed",
+        ),
+        (
+            "我每日都服用阿司匹林",
+            _candidate("阿司匹林", category="medication", evidence="我每日都服用阿司匹林"),
+            "confirmed",
+        ),
+        (
+            "我也对青霉素过敏",
+            _candidate("青霉素", evidence="我也对青霉素过敏"),
+            "confirmed",
+        ),
+        (
+            "这是我的明确健康资料：我对青霉素过敏",  # noqa: RUF001
+            _candidate("青霉素", evidence="青霉素过敏"),
+            "confirmed",
+        ),
+        (
+            "我确诊过高血压",
+            _candidate("高血压", category="condition", evidence="我确诊过高血压"),
+            "confirmed",
+        ),
+        (
+            "我查出过高血压",
+            _candidate("高血压", category="condition", evidence="我查出过高血压"),
+            "confirmed",
+        ),
+        (
+            "我被查出高血压",
+            _candidate("高血压", category="condition", evidence="我被查出高血压"),
+            "confirmed",
+        ),
+        (
+            "我和老伴都有高血压",
+            _candidate("高血压", category="condition", evidence="我和老伴都有高血压"),
+            "confirmed",
+        ),
+        (
+            "医生说高血压要控制",
+            _candidate(
+                "高血压",
+                category="condition",
+                evidence="医生说高血压要控制",
+                statement="用户自述患有高血压",
+            ),
+            None,
+        ),
+        (
+            "我想了解高血压有哪些风险",
+            _candidate(
+                "高血压",
+                category="condition",
+                evidence="我想了解高血压有哪些风险",
+                statement="用户自述患有高血压",
+            ),
+            None,
+        ),
+        (
+            "我无糖尿病史",
+            _candidate("糖尿病", category="condition", evidence="糖尿病"),
+            "inactive",
+        ),
+        (
+            "我不患高血压",
+            _candidate("高血压", category="condition", evidence="高血压"),
+            "inactive",
+        ),
+        (
+            "我未确诊高血压",
+            _candidate("高血压", category="condition", evidence="高血压"),
+            "inactive",
+        ),
+        (
+            "我对高血压还未确诊",
+            _candidate("高血压", category="condition", evidence="我对高血压还未确诊"),
+            "inactive",
+        ),
+        (
+            "我对高血压没有确诊",
+            _candidate("高血压", category="condition", evidence="我对高血压没有确诊"),
+            "inactive",
+        ),
+        (
+            "我对高血压尚未确诊",
+            _candidate("高血压", category="condition", evidence="我对高血压尚未确诊"),
+            "pending",
+        ),
+        (
+            "我无高血压",
+            _candidate("高血压", category="condition", evidence="高血压"),
+            "inactive",
+        ),
+        (
+            "我没得高血压",
+            _candidate("高血压", category="condition", evidence="高血压"),
+            "inactive",
+        ),
+        (
+            "我想服用阿司匹林",
+            _candidate("阿司匹林", category="medication", evidence="我想服用阿司匹林"),
+            None,
+        ),
+        (
+            "我不要吃阿司匹林",
+            _candidate("阿司匹林", category="medication", evidence="我不要吃阿司匹林"),
+            None,
+        ),
+        (
+            "我爷爷有高血压",
+            _candidate("高血压", category="condition", evidence="我爷爷有高血压"),
+            None,
+        ),
+        (
+            "父亲目前服用阿司匹林",
+            _candidate("阿司匹林", category="medication", evidence="父亲目前服用阿司匹林"),
+            None,
+        ),
+        (
+            "张三正在服用阿司匹林",
+            _candidate("阿司匹林", category="medication", evidence="张三正在服用阿司匹林"),
+            None,
+        ),
+        (
+            "我知道邻居有高血压",
+            _candidate("高血压", category="condition", evidence="我知道邻居有高血压"),
+            None,
+        ),
+        (
+            "我照顾的老人有高血压",
+            _candidate("高血压", category="condition", evidence="我照顾的老人有高血压"),
+            None,
+        ),
+        (
+            "我们医院的张三有高血压",
+            _candidate("高血压", category="condition", evidence="我们医院的张三有高血压"),
+            None,
+        ),
+        (
+            "我确认张三有高血压",
+            _candidate("高血压", category="condition", evidence="我确认张三有高血压"),
+            None,
+        ),
+        (
+            "我未跌倒",
+            _candidate("跌倒", category="event", evidence="我未跌倒"),
+            "inactive",
+        ),
+        (
+            "我无跌倒史",
+            _candidate("跌倒", category="event", evidence="我无跌倒史"),
+            "inactive",
+        ),
+        (
+            "我未做过手术",
+            _candidate("手术", category="event", evidence="我未做过手术"),
+            "inactive",
+        ),
+        (
+            "我不吸烟",
+            _candidate("吸烟", category="social", evidence="我不吸烟"),
+            "inactive",
+        ),
+        (
+            "我从不喝酒",
+            _candidate("喝酒", category="social", evidence="我从不喝酒"),
+            "inactive",
+        ),
+        (
+            "我不需要助行器",
+            _candidate("助行器", category="social", evidence="我不需要助行器"),
+            "inactive",
+        ),
+        (
+            "我不是每天吸烟",
+            _candidate("吸烟", category="social", evidence="我不是每天吸烟"),
+            "confirmed",
+        ),
+        (
+            "我不常吸烟",
+            _candidate("吸烟", category="social", evidence="我不常吸烟"),
+            "confirmed",
+        ),
+        (
+            "我不仅吸烟还喝酒",
+            _candidate("吸烟", category="social", evidence="我不仅吸烟还喝酒"),
+            "confirmed",
+        ),
+        (
+            "我不是青霉素过敏而是头孢过敏",
+            _candidate("头孢", evidence="我不是青霉素过敏而是头孢过敏"),
+            "confirmed",
+        ),
+        (
+            "我没有高血压但有糖尿病",
+            _candidate(
+                "糖尿病",
+                category="condition",
+                evidence="我没有高血压但有糖尿病",
+            ),
+            "confirmed",
+        ),
+        (
+            "我未服用阿司匹林但正在服用他汀",
+            _candidate(
+                "他汀",
+                category="medication",
+                evidence="我未服用阿司匹林但正在服用他汀",
+            ),
+            "confirmed",
+        ),
+        (
+            "我以前未服用阿司匹林，现在正在服用阿司匹林",  # noqa: RUF001
+            _candidate(
+                "阿司匹林",
+                category="medication",
+                evidence="现在正在服用阿司匹林",
+            ),
+            "confirmed",
+        ),
+        (
+            "我以前没有青霉素过敏，但现在出现青霉素过敏",  # noqa: RUF001
+            _candidate("青霉素", evidence="现在出现青霉素过敏"),
+            "confirmed",
+        ),
+    ],
+)
+async def test_real_extractor_never_confirms_deterministic_negation(
+    user_text: str,
+    candidate: ExtractedMemoryFact,
+    expected_status: str | None,
+) -> None:
+    extractor = RealMemoryExtractor(
+        cast(Any, _StructuredModel({"facts": [candidate.model_dump(mode="json")]})),
+        min_confidence=0.8,
+        max_facts=2,
+    )
+
+    result = await extractor.extract(user_text)
+
+    if expected_status is None:
+        assert result == []
+    else:
+        assert [(fact.entity, status) for fact, status in result] == [
+            (candidate.entity, expected_status)
+        ]
+
+
+@pytest.mark.asyncio
+async def test_real_extractor_reaches_all_core_profile_categories() -> None:
+    candidates = [
+        _candidate(
+            "年龄",
+            category="basic_info",
+            evidence="我的年龄是70岁",
+            details=MemoryFactDetails(value="70", unit="岁"),
+        ),
+        _candidate(
+            "血压",
+            category="vital_sign",
+            evidence="我的血压是130/80mmHg",
+            details=MemoryFactDetails(value="130/80", unit="mmHg"),
+        ),
+        _candidate(
+            "跌倒风险",
+            category="assessment",
+            evidence="我的跌倒风险评分是5分",
+            details=MemoryFactDetails(value="5", unit="分"),
+        ),
+        _candidate(
+            "髋关节手术",
+            category="event",
+            evidence="我去年做过髋关节手术",
+            details=MemoryFactDetails(source_status="historical"),
+        ),
+        _candidate("独居", category="social", evidence="我是独居"),
+        _candidate("每天走3000步", category="goal", evidence="我的目标是每天走3000步"),
+    ]
+    source = (
+        "我的年龄是70岁; 我的血压是130/80mmHg; 我的跌倒风险评分是5分; "
+        "我去年做过髋关节手术; 我是独居; 我的目标是每天走3000步"
+    )
+    extractor = RealMemoryExtractor(
+        cast(
+            Any,
+            _StructuredModel(
+                {"facts": [candidate.model_dump(mode="json") for candidate in candidates]}
+            ),
+        ),
+        min_confidence=0.8,
+        max_facts=12,
+    )
+    repository = _Repository(user_id=uuid.uuid4(), session_id=uuid.uuid4())
+    module = _module(repository, cast(Any, extractor), _VectorStore())
+
+    await module.extract_and_update_profile(
+        "usr_memory_unit0001",
+        [MemoryMessage(role="user", content=[{"type": "text", "text": source}])],
+    )
+
+    assert repository.profile is not None
+    profile = repository.profile.profile
+    assert set(module.last_update.categories) == {
+        "basic_info",
+        "vital_sign",
+        "assessment",
+        "event",
+        "social",
+        "goal",
+    }
+    assert len(cast(dict[str, object], profile["basic_info"])) == 1
+    assert len(cast(list[object], profile["vital_signs"])) == 1
+    assert len(cast(dict[str, object], profile["assessments"])) == 1
+    assert len(cast(list[object], profile["events"])) == 1
+    assert len(cast(list[object], profile["social_context"])) == 1
+    assert len(cast(list[object], profile["goals"])) == 1
+    rendered, _version, _refs = await module.core_profile_context()
+    assert "70岁" in rendered
+
+
+@pytest.mark.asyncio
+async def test_real_extractor_binds_entity_details_and_time_to_evidence() -> None:
+    wrong_entity = ExtractedMemoryFact(
+        category="allergy",
+        memory_type="stable",
+        entity="头孢",
+        statement="用户自述对头孢过敏并发生过敏性休克",
+        evidence_span="我对青霉素过敏",
+        confidence=0.99,
+        details=MemoryFactDetails(reaction="过敏性休克", severity="severe"),
+        occurred_at=datetime(2024, 1, 2, tzinfo=UTC),
+    )
+    correct_entity_with_inventions = wrong_entity.model_copy(update={"entity": "青霉素"})
+    model = _StructuredModel(
+        {
+            "facts": [
+                wrong_entity.model_dump(mode="json"),
+                correct_entity_with_inventions.model_dump(mode="json"),
+            ]
+        }
+    )
+    extractor = RealMemoryExtractor(cast(Any, model), min_confidence=0.8, max_facts=4)
+
+    result = await extractor.extract("我对青霉素过敏")
+
+    assert len(result) == 1
+    candidate, status = result[0]
+    assert (candidate.entity, status) == ("青霉素", "confirmed")
+    assert candidate.details.reaction is None
+    assert candidate.details.severity is None
+    assert candidate.occurred_at is None
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    ("user_text", "candidates", "expected_status"),
+    [
+        (
+            "我有高血压，刚才说错了，我没有高血压",  # noqa: RUF001
+            [
+                _candidate("高血压", category="condition", evidence="我有高血压"),
+                _candidate("高血压", category="condition", evidence="我没有高血压"),
+            ],
+            "inactive",
+        ),
+        (
+            "我以前没有高血压，但现在确诊为高血压",  # noqa: RUF001
+            [
+                _candidate("高血压", category="condition", evidence="我以前没有高血压"),
+                _candidate("高血压", category="condition", evidence="现在确诊为高血压"),
+            ],
+            "confirmed",
+        ),
+    ],
+)
+async def test_real_extractor_uses_latest_valid_correction_for_same_fact(
+    user_text: str,
+    candidates: list[ExtractedMemoryFact],
+    expected_status: str,
+) -> None:
+    extractor = RealMemoryExtractor(
+        cast(
+            Any,
+            _StructuredModel(
+                {"facts": [candidate.model_dump(mode="json") for candidate in candidates]}
+            ),
+        ),
+        min_confidence=0.8,
+        max_facts=4,
+    )
+
+    result = await extractor.extract(user_text)
+
+    assert [(fact.entity, status) for fact, status in result] == [("高血压", expected_status)]
 
 
 def test_profile_projection_includes_only_confirmed_and_bounded_pending() -> None:
@@ -285,6 +969,8 @@ async def test_qdrant_memory_store_has_phi_free_payload_and_strict_namespaces() 
         point_ids=[memory_point_id(record.id, 4)],
     )
     assert [item.revision for item in current_result] == [4]
+    await store.delete_points([memory_point_id(record.id, 4)])
+    assert await store.count() == 1
     await store.delete([record.id])
     assert await store.count() == 0
     with pytest.raises(ValueError):
@@ -450,6 +1136,7 @@ class _VectorStore:
     def __init__(self) -> None:
         self.records: list[MemoryVectorRecord] = []
         self.candidates: list[MemoryVectorCandidate] = []
+        self.deleted_point_ids: list[uuid.UUID] = []
 
     async def upsert(
         self,
@@ -462,6 +1149,15 @@ class _VectorStore:
 
     async def search(self, _vector: list[float], **_kwargs: object) -> list[MemoryVectorCandidate]:
         return self.candidates
+
+    async def delete_points(self, point_ids: list[uuid.UUID] | tuple[uuid.UUID, ...]) -> None:
+        self.deleted_point_ids.extend(point_ids)
+        deleted = set(point_ids)
+        self.records = [
+            record
+            for record in self.records
+            if memory_point_id(record.id, record.revision) not in deleted
+        ]
 
 
 class _Repository:
@@ -479,6 +1175,7 @@ class _Repository:
         )
         self.profile: HealthProfile | None = None
         self.facts: list[MemoryFact] = []
+        self.revisions: list[MemoryFactRevision] = []
         self.messages: list[Message] = []
         self.commits = 0
         self.rollbacks = 0
@@ -544,6 +1241,10 @@ class _Repository:
         fact.updated_at = now
         self.facts.append(fact)
 
+    async def add_fact_revision(self, revision: MemoryFactRevision) -> None:
+        revision.created_at = _now()
+        self.revisions.append(revision)
+
     async def flush(self) -> None:
         now = _now()
         for fact in self.facts:
@@ -562,6 +1263,7 @@ def _module(
     vector_store: _VectorStore,
     *,
     compressor: _Compressor | None = None,
+    trace_id: str = "trace_memory_unit0001",
 ) -> ProductionMemoryModule:
     return ProductionMemoryModule(
         repository=cast(Any, repository),
@@ -574,7 +1276,7 @@ def _module(
         actor_id="usr_memory_unit0001",
         user_id=cast(uuid.UUID, repository.session.user_id),
         session_id=repository.session.id,
-        trace_id="trace_memory_unit0001",
+        trace_id=trace_id,
         retrieval_top_k=5,
         retrieval_candidates=20,
     )
@@ -613,6 +1315,7 @@ async def test_production_memory_updates_profile_retrieves_revision_and_is_idemp
     assert module.last_update.profile_version == 0
 
     confirmed = next(fact for fact in repository.facts if fact.status == "confirmed")
+    assert confirmed.statement == "用户自述: 对青霉素过敏"
     vector_store.candidates = [
         MemoryVectorCandidate(
             fact_id=confirmed.id,
@@ -638,6 +1341,316 @@ async def test_production_memory_updates_profile_retrieves_revision_and_is_idemp
         await module.get_long_term("other_actor", query="过敏")
     with pytest.raises(ValueError):
         await module.get_long_term("usr_memory_unit0001", query="x" * 4_001)
+
+
+@pytest.mark.asyncio
+async def test_distinct_dated_events_keep_separate_idempotent_fact_keys() -> None:
+    repository = _Repository(user_id=uuid.uuid4(), session_id=uuid.uuid4())
+    vector_store = _VectorStore()
+    first = _module(
+        repository,
+        _Extractor(
+            [
+                (
+                    _candidate(
+                        "跌倒",
+                        category="event",
+                        evidence="2024年1月2日我发生跌倒",
+                        occurred_at=datetime(2024, 1, 2, tzinfo=UTC),
+                    ),
+                    "confirmed",
+                )
+            ]
+        ),
+        vector_store,
+        trace_id="trace_event_2024",
+    )
+    second = _module(
+        repository,
+        _Extractor(
+            [
+                (
+                    _candidate(
+                        "跌倒",
+                        category="event",
+                        evidence="2025年1月2日我发生跌倒",
+                        occurred_at=datetime(2025, 1, 2, tzinfo=UTC),
+                    ),
+                    "confirmed",
+                )
+            ]
+        ),
+        vector_store,
+        trace_id="trace_event_2025",
+    )
+
+    message = MemoryMessage(role="user", content=[{"type": "text", "text": "跌倒事件"}])
+    await first.extract_and_update_profile("usr_memory_unit0001", [message])
+    await first.commit()
+    await second.extract_and_update_profile("usr_memory_unit0001", [message])
+    await second.commit()
+    await first.extract_and_update_profile("usr_memory_unit0001", [message])
+
+    assert len(repository.facts) == 2
+    assert len({fact.fact_key for fact in repository.facts}) == 2
+    assert {fact.occurred_at for fact in repository.facts} == {
+        datetime(2024, 1, 2, tzinfo=UTC),
+        datetime(2025, 1, 2, tzinfo=UTC),
+    }
+    assert first.last_update.changed_fact_ids == []
+    assert repository.profile is not None
+    assert len(cast(list[object], repository.profile.profile["events"])) == 2
+
+
+@pytest.mark.asyncio
+async def test_fact_mutation_preserves_encrypted_revision_audit_projection() -> None:
+    repository = _Repository(user_id=uuid.uuid4(), session_id=uuid.uuid4())
+    vector_store = _VectorStore()
+    first = _module(
+        repository,
+        _Extractor(
+            [
+                (
+                    _candidate(
+                        "阿司匹林",
+                        category="medication",
+                        evidence="我每日服用阿司匹林100mg",
+                        details=MemoryFactDetails(
+                            dose="100mg", frequency="每日", source_status="active"
+                        ),
+                    ),
+                    "confirmed",
+                )
+            ]
+        ),
+        vector_store,
+        trace_id="trace_medication_active",
+    )
+    await first.extract_and_update_profile(
+        "usr_memory_unit0001",
+        [MemoryMessage(role="user", content=[{"type": "text", "text": "服药"}])],
+    )
+    await first.commit()
+    second = _module(
+        repository,
+        _Extractor(
+            [
+                (
+                    _candidate(
+                        "阿司匹林",
+                        category="medication",
+                        action="deactivate",
+                        evidence="我已停用阿司匹林",
+                        details=MemoryFactDetails(source_status="stopped"),
+                    ),
+                    "inactive",
+                )
+            ]
+        ),
+        vector_store,
+        trace_id="trace_medication_stopped",
+    )
+
+    await second.extract_and_update_profile(
+        "usr_memory_unit0001",
+        [MemoryMessage(role="user", content=[{"type": "text", "text": "停药"}])],
+    )
+
+    fact = repository.facts[0]
+    assert (fact.status, fact.revision, fact.source_trace_id) == (
+        "inactive",
+        2,
+        "trace_medication_stopped",
+    )
+    assert len(repository.revisions) == 1
+    history = repository.revisions[0]
+    assert (history.fact_id, history.revision) == (fact.id, 1)
+    assert history.snapshot["status"] == "confirmed"
+    assert history.snapshot["source_trace_id"] == "trace_medication_active"
+    assert cast(dict[str, object], history.snapshot["details"])["dose"] == "100mg"
+
+
+@pytest.mark.asyncio
+async def test_negative_fact_is_inactive_and_cannot_be_confirmed_or_injected() -> None:
+    user_id = uuid.uuid4()
+    repository = _Repository(user_id=user_id, session_id=uuid.uuid4())
+    candidate = _candidate("青霉素", evidence="青霉素过敏")
+    extractor = RealMemoryExtractor(
+        cast(
+            Any,
+            _StructuredModel({"facts": [candidate.model_dump(mode="json")]}),
+        ),
+        min_confidence=0.8,
+        max_facts=2,
+    )
+    vector_store = _VectorStore()
+    module = _module(repository, cast(Any, extractor), vector_store)
+
+    await module.extract_and_update_profile(
+        "usr_memory_unit0001",
+        [MemoryMessage(role="user", content=[{"type": "text", "text": "我没有青霉素过敏"}])],
+    )
+
+    assert len(repository.facts) == 1
+    negative = repository.facts[0]
+    assert negative.status == "inactive"
+    assert negative.details["polarity"] == "negative"
+    assert vector_store.records == []
+    assert repository.profile is not None
+    assert cast(list[object], repository.profile.profile["allergies"]) == []
+    with pytest.raises(MemoryConflictError, match="does not accept"):
+        await module.decide_fact(
+            negative.id,
+            MemoryFactDecisionRequest(expected_revision=1, decision="confirm"),
+        )
+    rendered, _version, _refs = await module.core_profile_context()
+    assert "青霉素" not in rendered
+    assert vector_store.records == []
+
+
+@pytest.mark.asyncio
+async def test_memory_commit_failure_compensates_only_current_fenced_vector_points() -> None:
+    repository = _Repository(user_id=uuid.uuid4(), session_id=uuid.uuid4())
+    vector_store = _VectorStore()
+    module = _module(
+        repository,
+        _Extractor([(_candidate("青霉素"), "confirmed")]),
+        vector_store,
+    )
+
+    await module.extract_and_update_profile(
+        "usr_memory_unit0001",
+        [MemoryMessage(role="user", content=[{"type": "text", "text": "我对青霉素过敏"}])],
+    )
+    fact = repository.facts[0]
+    expected_point = memory_point_id(fact.id, fact.revision)
+    assert len(vector_store.records) == 1
+
+    async def failing_commit() -> None:
+        raise RuntimeError("database commit failed")
+
+    repository.commit = failing_commit  # type: ignore[method-assign]
+    with pytest.raises(RuntimeError, match="database commit failed"):
+        await module.commit()
+    await module.compensate_uncommitted_vectors()
+
+    assert vector_store.deleted_point_ids == [expected_point]
+    assert vector_store.records == []
+
+
+@pytest.mark.asyncio
+async def test_uncertain_updates_never_downgrade_an_existing_confirmed_fact() -> None:
+    repository = _Repository(user_id=uuid.uuid4(), session_id=uuid.uuid4())
+    extractor = _Extractor([(_candidate("青霉素"), "confirmed")])
+    vector_store = _VectorStore()
+    module = _module(repository, extractor, vector_store)
+
+    await module.extract_and_update_profile(
+        "usr_memory_unit0001",
+        [MemoryMessage(role="user", content=[{"type": "text", "text": "我对青霉素过敏"}])],
+    )
+    await module.commit()
+    fact = repository.facts[0]
+    original = (fact.revision, fact.vector_revision, fact.statement, dict(fact.details))
+
+    extractor.facts = [
+        (
+            _candidate(
+                "青霉素",
+                action="deactivate",
+                evidence="我可能没有青霉素过敏",
+            ),
+            "pending",
+        )
+    ]
+    await module.extract_and_update_profile(
+        "usr_memory_unit0001",
+        [
+            MemoryMessage(
+                role="user",
+                content=[{"type": "text", "text": "我可能没有青霉素过敏"}],
+            )
+        ],
+    )
+    extractor.facts = [(_candidate("青霉素", evidence="我可能有青霉素过敏"), "pending")]
+    await module.extract_and_update_profile(
+        "usr_memory_unit0001",
+        [MemoryMessage(role="user", content=[{"type": "text", "text": "我可能有青霉素过敏"}])],
+    )
+
+    assert (fact.status, fact.revision, fact.vector_revision) == (
+        "confirmed",
+        original[0],
+        original[1],
+    )
+    assert (fact.statement, fact.details) == (original[2], original[3])
+    assert len(vector_store.records) == 1
+    assert repository.profile is not None
+    assert len(cast(list[object], repository.profile.profile["allergies"])) == 1
+    assert module.last_update.changed_fact_ids == []
+
+
+@pytest.mark.asyncio
+async def test_continued_use_never_retires_an_existing_confirmed_medication() -> None:
+    repository = _Repository(user_id=uuid.uuid4(), session_id=uuid.uuid4())
+    vector_store = _VectorStore()
+    first = _module(
+        repository,
+        _Extractor(
+            [
+                (
+                    _candidate(
+                        "阿司匹林",
+                        category="medication",
+                        evidence="我服用阿司匹林",
+                        statement="用户自述服用阿司匹林",
+                    ),
+                    "confirmed",
+                )
+            ]
+        ),
+        vector_store,
+    )
+    await first.extract_and_update_profile(
+        "usr_memory_unit0001",
+        [MemoryMessage(role="user", content=[{"type": "text", "text": "我服用阿司匹林"}])],
+    )
+    await first.commit()
+
+    candidate = _candidate(
+        "阿司匹林",
+        category="medication",
+        action="deactivate",
+        evidence="我没有完全停用阿司匹林",
+    )
+    extractor = RealMemoryExtractor(
+        cast(
+            Any,
+            _StructuredModel({"facts": [candidate.model_dump(mode="json")]}),
+        ),
+        min_confidence=0.8,
+        max_facts=2,
+    )
+    second = _module(repository, cast(Any, extractor), vector_store)
+    await second.extract_and_update_profile(
+        "usr_memory_unit0001",
+        [
+            MemoryMessage(
+                role="user",
+                content=[{"type": "text", "text": "我没有完全停用阿司匹林"}],
+            )
+        ],
+    )
+
+    medication = repository.facts[0]
+    assert (medication.status, medication.revision, medication.vector_revision) == (
+        "confirmed",
+        2,
+        2,
+    )
+    assert repository.profile is not None
+    assert len(cast(list[object], repository.profile.profile["medications"])) == 1
+    assert second.last_update.confirmed_count == 1
 
 
 @pytest.mark.asyncio
@@ -688,7 +1701,14 @@ async def test_memory_short_term_compression_decision_and_adapter_fail_closed() 
     )
     assert decision.fact.status == "confirmed"
     assert decision.fact.revision == 2
+    assert len(repository.revisions) == 1
+    assert repository.revisions[0].snapshot["status"] == "pending"
     assert vector_store.records[-1].revision == 2
+    with pytest.raises(MemoryConflictError, match="does not accept"):
+        await module.decide_fact(
+            pending.id,
+            MemoryFactDecisionRequest(expected_revision=2, decision="confirm"),
+        )
     with pytest.raises(MemoryConflictError):
         await module.decide_fact(
             pending.id,
@@ -734,10 +1754,36 @@ async def test_memory_short_term_compression_decision_and_adapter_fail_closed() 
     write = await adapter.add([], user_id="usr_memory_unit0001")
     assert write["results"][0]["id"] == "no-op"
     assert await adapter.add([], user_id="usr_memory_unit0001") == write
+
+    invalid_search = GerClawMem0Client(
+        module,
+        actor_id="usr_memory_unit0001",
+        source_user_message="无新增资料",
+    )
     with pytest.raises(AgentScopeMemoryAdapterError):
-        await adapter.search("过敏", filters={"user_id": "other"}, top_k=5)
+        await invalid_search.search("过敏", filters={"user_id": "other"}, top_k=5)
     with pytest.raises(AgentScopeMemoryAdapterError):
-        await adapter.add([], user_id="other")
+        invalid_search.raise_if_failed()
+
+    invalid_limit = GerClawMem0Client(
+        module,
+        actor_id="usr_memory_unit0001",
+        source_user_message="无新增资料",
+    )
+    with pytest.raises(AgentScopeMemoryAdapterError):
+        await invalid_limit.search("过敏", filters={"user_id": "usr_memory_unit0001"}, top_k=21)
+    with pytest.raises(AgentScopeMemoryAdapterError):
+        invalid_limit.raise_if_failed()
+
+    invalid_write = GerClawMem0Client(
+        module,
+        actor_id="usr_memory_unit0001",
+        source_user_message="无新增资料",
+    )
+    with pytest.raises(AgentScopeMemoryAdapterError):
+        await invalid_write.add([], user_id="other")
+    with pytest.raises(AgentScopeMemoryAdapterError):
+        invalid_write.raise_if_failed()
 
 
 @pytest.mark.asyncio

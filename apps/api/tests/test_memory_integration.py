@@ -91,7 +91,7 @@ async def test_memory_profile_is_encrypted_actor_scoped_and_phi_free_in_qdrant(
     assert profile.status_code == 200, profile.text
     payload = profile.json()
     assert payload["version"] == 2
-    assert payload["facts"][0]["statement"] == "用户自述对青霉素过敏"
+    assert payload["facts"][0]["statement"] == "用户自述: 对青霉素过敏"
     assert payload["profile"]["allergies"][0]["details"]["evidence_span"] == "对青霉素过敏"
 
     async with app.state.database.engine.connect() as connection:
@@ -141,6 +141,20 @@ async def test_memory_profile_is_encrypted_actor_scoped_and_phi_free_in_qdrant(
     assert rejected.status_code == 200, rejected.text
     assert rejected.json()["fact"]["status"] == "inactive"
     assert rejected.json()["fact"]["revision"] == 2
+
+    async with app.state.database.engine.connect() as connection:
+        raw_revision = (
+            await connection.execute(
+                text(
+                    "SELECT revision, snapshot FROM memory_fact_revisions "
+                    "WHERE tenant_id=:tenant AND fact_id=:fact_id"
+                ),
+                {"tenant": TENANT, "fact_id": fact_id},
+            )
+        ).one()
+    assert raw_revision.revision == 1
+    assert raw_revision.snapshot.startswith("enc:v1:")
+    assert "青霉素" not in raw_revision.snapshot
 
     other_token = create_access_token(
         app.state.settings,

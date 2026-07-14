@@ -74,6 +74,8 @@ class _MemoryFacade:
         self.short_term_sessions: list[str] = []
         self.sources: list[str] = []
         self.last_update = MemoryUpdateResult(profile_version=1)
+        self.compensation_count = 0
+        self.committed_count = 0
 
     async def get_short_term(self, session_id: str, max_turns: int) -> list[MemoryMessage]:
         del max_turns
@@ -97,6 +99,13 @@ class _MemoryFacade:
         self, _actor_id: str, conversation: list[MemoryMessage]
     ) -> None:
         self.sources.extend(message.text() for message in conversation)
+
+    async def compensate_uncommitted_vectors(self) -> bool:
+        self.compensation_count += 1
+        return True
+
+    def mark_vectors_committed(self) -> None:
+        self.committed_count += 1
 
 
 def _memory_factory(memory: _MemoryFacade | None = None) -> Any:
@@ -388,6 +397,8 @@ async def test_owned_turn_streams_only_after_durable_success(unit_settings: Sett
     assert conversation.rollback_count == 0
     assert memory.short_term_sessions == [str(session_id)]
     assert memory.sources == ["您好!"]
+    assert memory.committed_count == 1
+    assert memory.compensation_count == 0
     assert response.text.endswith("内容由 AI 生成，仅供参考。身体不适请及时就医。")
     assert traces.trace.status == TraceStatus.COMPLETED.value
     trace_event_types = [event.event_type.value for event in traces.events]
@@ -434,6 +445,7 @@ async def test_terminal_trace_failure_rolls_back_assistant_before_recording_fail
         fail_completed_finish=True,
     )
     conversation = _ConversationFacade(session_id)
+    memory = _MemoryFacade()
     service = ChatService(
         settings=unit_settings,
         conversation=cast(Any, conversation),
@@ -441,7 +453,7 @@ async def test_terminal_trace_failure_rolls_back_assistant_before_recording_fail
         lease=cast(Any, _OwnedLease()),
         model=cast(Any, _TextModel()),
         rag_module=cast(Any, _NoopRAG()),
-        memory_factory=_memory_factory(),
+        memory_factory=_memory_factory(memory),
     )
     events: list[object] = []
 
@@ -463,6 +475,8 @@ async def test_terminal_trace_failure_rolls_back_assistant_before_recording_fail
 
     assert conversation.response is None
     assert conversation.rollback_count == 2
+    assert memory.compensation_count == 1
+    assert memory.committed_count == 0
     assert traces.trace.status == TraceStatus.FAILED.value
     assert traces.finishes[-1].status is TraceStatus.FAILED
     assert all(cast(Any, event).event_type != "done" for event in events)

@@ -80,12 +80,12 @@ POST /api/v1/chat
   → Redis owner + PostgreSQL token 复验
   → session 行锁 + Redis owner 双重终态校验
   → 用户原文证据约束的 Memory 抽取与画像更新
-  → 加密 assistant/message/profile/facts + memory.update + completed Trace 原子事务
+  → 加密 assistant/message/profile/facts/revision history + memory.update + completed Trace 原子事务
     / SYSTEM_ERROR + failed Trace + Bad Case 原子事务
   → SSE done（仅持久化提交后）
 ```
 
-共享的是无状态 provider client；`AgentState`、RAG/Memory middleware、事件缓冲和模型尝试审计均按 turn 隔离。PostgreSQL 加密列是会话与健康事实源；Qdrant 只保存 HMAC namespace 下的 revisioned reference vector，AgentScope 热状态和 mem0 默认存储均不承担跨请求持久化。
+共享的是无状态 provider client；`AgentState`、RAG/Memory middleware、事件缓冲和模型尝试审计均按 turn 隔离。PostgreSQL 加密列是会话与健康事实源；`memory_facts` 保存当前投影，`memory_fact_revisions` 保存每次变更前的不可变密文快照。Qdrant 只保存 HMAC namespace 下的 revisioned reference vector，AgentScope 热状态和 mem0 默认存储均不承担跨请求持久化。
 
 ## 3. 推荐技术栈
 
@@ -266,4 +266,4 @@ types → config → providers → repositories → services → agents → rout
 | ADR-008 | 每 turn 隔离 AgentScope State + PostgreSQL 加密事实源 + Redis session lease | 避免跨请求共享可变 Agent/RAG 状态；支持多副本会话串行化、断线取消、幂等消息和 completed Trace 重放 | 进程内长期 Agent 对象→跨租户污染且无法横向扩展；只靠数据库锁→长模型流占用连接且租约失联难以 fail-stop | 2026-07-15 |
 | ADR-009 | 三模型仅在未产生可见/工具输出前 failover | 保证 primary→backup1→backup2 可用性，同时避免流中断后重放造成重复或相互矛盾的医疗正文 | 任意时刻切模型→用户可能收到两套冲突建议；完全不切换→单 provider 故障直接中断 | 2026-07-15 |
 | ADR-010 | Redis owner lease + PostgreSQL 单调 fencing token/Trace 绑定 + terminal 原子事务 | Redis 负责长模型调用期间低成本互斥；新 owner 通过 session 行发布更高 token 与当前 Trace，成功和失败终态均在 lease 内以 session 行锁加 Redis compare-and-renew 双重校验；assistant/成功 Trace 一次提交，SYSTEM_ERROR/失败 Trace/Bad Case 一次提交，避免租约丢失或提交故障形成矛盾终态 | 仅 owner-token→丢锁检测存在窗口；长事务数据库锁→占用连接；多次独立 commit→消息、Trace 与 Bad Case 状态可分裂 | 2026-07-15 |
-| ADR-011 | AgentScope Mem0Middleware 生命周期 + 加密 PostgreSQL Memory authority + PHI-free Qdrant reference vectors | 保留 AgentScope 自动/工具式记忆控制，同时满足医疗 evidence、用户确认、tenant 隔离、加密和 Trace 原子性；revision-fenced point ID 与 PostgreSQL allowlist 排除 stale/rollback vector | mem0 默认 SQLite/Qdrant 明文→隐私与事务不满足；纯 PG 关键词检索→跨会话语义召回不足；自研 agent loop→重复框架能力 | 2026-07-15 |
+| ADR-011 | AgentScope Mem0Middleware 生命周期 + 加密 PostgreSQL Memory authority/revision audit + PHI-free Qdrant reference vectors | 保留 AgentScope 自动/工具式记忆控制，同时满足医疗 evidence、用户确认、tenant 隔离、加密和 Trace 原子性；当前事实投影与变更前密文快照分离，重大事件按发生时间或 source Trace/evidence hash 保持可追溯；revision-fenced point ID 与 PostgreSQL allowlist 排除 stale/rollback vector | mem0 默认 SQLite/Qdrant 明文→隐私与事务不满足；原地覆盖且无历史→停药/剂量/事件来源不可审计；纯 PG 关键词检索→跨会话语义召回不足；自研 agent loop→重复框架能力 | 2026-07-15 |

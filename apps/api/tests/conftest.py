@@ -131,7 +131,8 @@ async def integration_client(
             await connection.execute(
                 text(
                     "TRUNCATE bad_cases, user_feedback, trace_events, messages, "
-                    "memory_facts, health_profiles, sessions, users, execution_traces "
+                    "memory_fact_revisions, memory_facts, health_profiles, sessions, users, "
+                    "execution_traces "
                     "RESTART IDENTITY CASCADE"
                 )
             )

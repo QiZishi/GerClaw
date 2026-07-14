@@ -197,6 +197,17 @@ class QdrantMemoryStore:
             wait=True,
         )
 
+    async def delete_points(self, point_ids: Sequence[uuid.UUID]) -> None:
+        """Delete only exact fenced revisions created by the current unit of work."""
+
+        if not point_ids or not await self._client.collection_exists(self.collection):
+            return
+        await self._client.delete(
+            collection_name=self.collection,
+            points_selector=models.PointIdsList(points=list(dict.fromkeys(point_ids))),
+            wait=True,
+        )
+
     async def search(
         self,
         vector: list[float],

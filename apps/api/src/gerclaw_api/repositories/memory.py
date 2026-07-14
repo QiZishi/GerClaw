@@ -14,6 +14,7 @@ from gerclaw_api.database.models import (
     ConversationSession,
     HealthProfile,
     MemoryFact,
+    MemoryFactRevision,
     Message,
     User,
 )
@@ -71,6 +72,8 @@ class MemoryRepository(Protocol):
     ) -> list[MemoryFact]: ...
 
     async def add_fact(self, fact: MemoryFact) -> None: ...
+
+    async def add_fact_revision(self, revision: MemoryFactRevision) -> None: ...
 
     async def flush(self) -> None: ...
 
@@ -224,6 +227,9 @@ class SqlAlchemyMemoryRepository:
     async def add_fact(self, fact: MemoryFact) -> None:
         self._session.add(fact)
         await self._session.flush()
+
+    async def add_fact_revision(self, revision: MemoryFactRevision) -> None:
+        self._session.add(revision)
 
     async def flush(self) -> None:
         await self._session.flush()

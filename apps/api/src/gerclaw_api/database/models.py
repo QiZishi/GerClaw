@@ -185,6 +185,36 @@ class MemoryFact(TimestampMixin, Base):
     confirmed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
 
 
+class MemoryFactRevision(Base):
+    """Immutable encrypted snapshot of a Memory fact before each mutation."""
+
+    __tablename__ = "memory_fact_revisions"
+    __table_args__ = (
+        UniqueConstraint("fact_id", "revision", name="uq_memory_fact_revisions_fact_revision"),
+        CheckConstraint("revision > 0", name="positive_revision"),
+        Index(
+            "ix_memory_fact_revisions_tenant_user_created",
+            "tenant_id",
+            "user_id",
+            "created_at",
+        ),
+    )
+
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    tenant_id: Mapped[str] = mapped_column(String(64), nullable=False, index=True)
+    user_id: Mapped[uuid.UUID] = mapped_column(
+        ForeignKey("users.id", ondelete="CASCADE"), nullable=False
+    )
+    fact_id: Mapped[uuid.UUID] = mapped_column(
+        ForeignKey("memory_facts.id", ondelete="CASCADE"), nullable=False
+    )
+    revision: Mapped[int] = mapped_column(Integer, nullable=False)
+    snapshot: Mapped[dict[str, Any]] = mapped_column(EncryptedJSON(), nullable=False)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), nullable=False
+    )
+
+
 class ExecutionTrace(Base):
     """Top-level audit record for one complete system execution."""
 

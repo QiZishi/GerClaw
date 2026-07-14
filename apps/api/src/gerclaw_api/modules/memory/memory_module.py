@@ -4,15 +4,16 @@ from __future__ import annotations
 
 import hashlib
 import hmac
+import logging
 import unicodedata
 import uuid
 from datetime import UTC, datetime
 
 from pydantic import TypeAdapter, ValidationError
 
-from gerclaw_api.database.models import MemoryFact, Message
+from gerclaw_api.database.models import MemoryFact, MemoryFactRevision, Message
 from gerclaw_api.modules.memory.compressor import AgentScopeContextCompressor
-from gerclaw_api.modules.memory.extractor import RealMemoryExtractor
+from gerclaw_api.modules.memory.extractor import RealMemoryExtractor, evidence_has_negation
 from gerclaw_api.modules.memory.models import (
     HealthProfileRead,
     MemoryFactDecisionRead,
@@ -40,6 +41,7 @@ from gerclaw_api.repositories.memory import (
 from gerclaw_api.security import JsonValue
 
 _PROFILE = TypeAdapter(dict[str, JsonValue])
+_LOGGER = logging.getLogger("gerclaw.memory")
 
 
 class MemoryDataError(RuntimeError):
@@ -50,13 +52,56 @@ class MemoryUnavailableError(RuntimeError):
     """Safe signal for a required model, vector, or persistence failure."""
 
 
-def _fact_key(secret: bytes, *, category: str, entity: str) -> str:
+def _fact_key(
+    secret: bytes,
+    *,
+    category: str,
+    entity: str,
+    event_identity: str | None = None,
+) -> str:
     normalized = unicodedata.normalize("NFKC", entity).strip().casefold()
+    identity = f":{event_identity}" if event_identity is not None else ""
     return hmac.new(
         secret,
-        f"memory:fact:{category}:{normalized}".encode(),
+        f"memory:fact:{category}:{normalized}{identity}".encode(),
         hashlib.sha256,
     ).hexdigest()
+
+
+def _event_identity(
+    *, occurred_at: datetime | None, trace_id: str, evidence_span: str
+) -> str | None:
+    """Keep distinct events while making a replay of one source idempotent."""
+
+    if occurred_at is not None:
+        normalized = occurred_at
+        if normalized.tzinfo is None:
+            normalized = normalized.replace(tzinfo=UTC)
+        return f"occurred:{normalized.astimezone(UTC).isoformat()}"
+    evidence_hash = hashlib.sha256(
+        unicodedata.normalize("NFKC", evidence_span).strip().encode()
+    ).hexdigest()
+    return f"source:{trace_id}:{evidence_hash}"
+
+
+def _revision_snapshot(fact: MemoryFact) -> dict[str, JsonValue]:
+    """Serialize the complete pre-update projection for encrypted audit storage."""
+
+    return {
+        "source_session_id": str(fact.source_session_id) if fact.source_session_id else None,
+        "source_trace_id": fact.source_trace_id,
+        "category": fact.category,
+        "memory_type": fact.memory_type,
+        "status": fact.status,
+        "statement": fact.statement,
+        "details": _PROFILE.validate_python(fact.details),
+        "confidence": fact.confidence,
+        "revision": fact.revision,
+        "vector_revision": fact.vector_revision,
+        "occurred_at": fact.occurred_at.isoformat() if fact.occurred_at else None,
+        "confirmed_at": fact.confirmed_at.isoformat() if fact.confirmed_at else None,
+        "updated_at": fact.updated_at.isoformat() if fact.updated_at else None,
+    }
 
 
 def _fact_view(fact: MemoryFact, *, relevance_score: float | None = None) -> MemoryFactView:
@@ -115,6 +160,7 @@ class ProductionMemoryModule:
         self._retrieval_top_k = retrieval_top_k
         self._retrieval_candidates = retrieval_candidates
         self._cached_queries: dict[str, UserProfile] = {}
+        self._uncommitted_vector_point_ids: set[uuid.UUID] = set()
         self.last_update = MemoryUpdateResult(profile_version=0)
 
     async def get_short_term(self, session_id: str, max_turns: int = 20) -> list[MemoryMessage]:
@@ -272,10 +318,20 @@ class ProductionMemoryModule:
         changed: list[MemoryFact] = []
         now = datetime.now(UTC)
         for candidate, status in candidates:
+            event_identity = (
+                _event_identity(
+                    occurred_at=candidate.occurred_at,
+                    trace_id=self._trace_id,
+                    evidence_span=candidate.evidence_span,
+                )
+                if candidate.category == "event" or candidate.memory_type == "event"
+                else None
+            )
             fact_key = _fact_key(
                 self._namespace_secret,
                 category=candidate.category,
                 entity=candidate.entity,
+                event_identity=event_identity,
             )
             existing = await self._repository.get_fact_by_key_for_update(
                 tenant_id=self._tenant_id,
@@ -287,12 +343,13 @@ class ProductionMemoryModule:
                 {
                     "entity": candidate.entity,
                     "evidence_span": candidate.evidence_span,
+                    "polarity": "negative" if candidate.action == "deactivate" else "positive",
                     "source": "user_self_report",
                 }
             )
-            statement = candidate.statement.strip()
-            if not statement.startswith("用户自述"):
-                statement = f"用户自述: {statement}"
+            # The model's free-form statement is never persisted: only the
+            # extractor-validated exact user evidence can become durable text.
+            statement = f"用户自述: {candidate.evidence_span.strip()}"
             if existing is None:
                 fact = MemoryFact(
                     id=uuid.uuid4(),
@@ -315,6 +372,12 @@ class ProductionMemoryModule:
                 await self._repository.add_fact(fact)
                 changed.append(fact)
                 continue
+            # Uncertainty must never erase an already confirmed high-risk fact.
+            # Without a separate candidate table, preserve the authoritative row
+            # and wait for either an explicit inactive correction or a user API
+            # rejection before changing the active profile.
+            if existing.status == "confirmed" and status == "pending":
+                continue
             unchanged = (
                 existing.status == status
                 and existing.statement == statement
@@ -325,6 +388,16 @@ class ProductionMemoryModule:
             )
             if unchanged:
                 continue
+            await self._repository.add_fact_revision(
+                MemoryFactRevision(
+                    id=uuid.uuid4(),
+                    tenant_id=self._tenant_id,
+                    user_id=self._user_id,
+                    fact_id=existing.id,
+                    revision=existing.revision,
+                    snapshot=_revision_snapshot(existing),
+                )
+            )
             existing.source_session_id = self._session_id
             existing.source_trace_id = self._trace_id
             existing.memory_type = candidate.memory_type
@@ -358,6 +431,9 @@ class ProductionMemoryModule:
                 self._namespace_secret,
                 tenant_id=self._tenant_id,
                 user_id=self._user_id,
+            )
+            self._uncommitted_vector_point_ids.update(
+                memory_point_id(fact.id, fact.revision) for fact in confirmed
             )
             await self._vector_store.upsert(
                 vector_records,
@@ -462,6 +538,36 @@ class ProductionMemoryModule:
             raise MemoryNotFoundError("memory fact not found")
         if fact.revision != decision.expected_revision:
             raise MemoryConflictError("memory fact revision is stale")
+        if fact.status == "inactive" or (
+            fact.status == "confirmed" and decision.decision == "confirm"
+        ):
+            raise MemoryConflictError("memory fact does not accept this decision")
+        try:
+            stored_details = _PROFILE.validate_python(fact.details)
+        except ValidationError as error:
+            raise MemoryDataError("stored memory fact is invalid") from error
+        evidence = stored_details.get("evidence_span")
+        entity = stored_details.get("entity")
+        negative_evidence = stored_details.get("polarity") == "negative" or (
+            isinstance(evidence, str)
+            and evidence_has_negation(
+                evidence,
+                category=fact.category,
+                entity=entity if isinstance(entity, str) else None,
+            )
+        )
+        if decision.decision == "confirm" and negative_evidence:
+            raise MemoryConflictError("negative memory fact cannot become active")
+        await self._repository.add_fact_revision(
+            MemoryFactRevision(
+                id=uuid.uuid4(),
+                tenant_id=self._tenant_id,
+                user_id=self._user_id,
+                fact_id=fact.id,
+                revision=fact.revision,
+                snapshot=_revision_snapshot(fact),
+            )
+        )
         fact.status = "confirmed" if decision.decision == "confirm" else "inactive"
         fact.revision += 1
         if fact.status == "confirmed":
@@ -479,6 +585,7 @@ class ProductionMemoryModule:
                 tenant_id=self._tenant_id,
                 user_id=self._user_id,
             )
+            self._uncommitted_vector_point_ids.add(memory_point_id(fact.id, fact.revision))
             await self._vector_store.upsert(
                 [record],
                 embedding.embeddings,
@@ -500,12 +607,42 @@ class ProductionMemoryModule:
     async def commit(self) -> None:
         """Commit standalone profile API changes."""
 
-        await self._repository.commit()
+        try:
+            await self._repository.commit()
+        except BaseException:
+            await self.compensate_uncommitted_vectors()
+            raise
+        self.mark_vectors_committed()
 
     async def rollback(self) -> None:
         """Rollback standalone profile API or terminal chat changes."""
 
-        await self._repository.rollback()
+        try:
+            await self._repository.rollback()
+        finally:
+            await self.compensate_uncommitted_vectors()
+
+    def mark_vectors_committed(self) -> None:
+        """Release the cleanup snapshot only after PostgreSQL commit succeeds."""
+
+        self._uncommitted_vector_point_ids.clear()
+
+    async def compensate_uncommitted_vectors(self) -> bool:
+        """Best-effort exact cleanup; PG revision fencing remains the read-side fallback."""
+
+        point_ids = tuple(self._uncommitted_vector_point_ids)
+        if not point_ids:
+            return True
+        try:
+            await self._vector_store.delete_points(point_ids)
+        except Exception:
+            _LOGGER.warning(
+                "memory_vector_compensation_failed",
+                extra={"attributes": {"point_count": len(point_ids)}},
+            )
+            return False
+        self._uncommitted_vector_point_ids.difference_update(point_ids)
+        return True
 
     def _validate_actor(self, actor_id: str) -> None:
         if actor_id != self._actor_id:

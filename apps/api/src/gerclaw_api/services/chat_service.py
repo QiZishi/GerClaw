@@ -364,13 +364,13 @@ class ChatService:
                     commit=False,
                 )
 
-        response = await harness.process_message(
-            payload.message,
-            str(payload.session_id),
-            context,
-            projected,
-        )
         try:
+            response = await harness.process_message(
+                payload.message,
+                str(payload.session_id),
+                context,
+                projected,
+            )
             # Conversation and Trace repositories share this request's
             # AsyncSession. Stage the assistant plus success events, then let the
             # terminal Trace transition commit the whole success unit atomically.
@@ -413,8 +413,12 @@ class ChatService:
             # Never leave a replayable assistant paired with a non-completed
             # Trace. The outer failure path records the durable failure after the
             # shared transaction has been cleared.
-            await self._conversation.rollback()
+            try:
+                await self._conversation.rollback()
+            finally:
+                await memory.compensate_uncommitted_vectors()
             raise
+        memory.mark_vectors_committed()
         done = ChatDoneData(
             full_text=response.text,
             references=response.citations,

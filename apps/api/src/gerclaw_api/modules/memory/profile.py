@@ -83,6 +83,7 @@ def render_core_profile(profile: dict[str, JsonValue], *, max_characters: int = 
     """Render confirmed core memory as untrusted facts, never as instructions."""
 
     labels = (
+        ("basic_info", "基本资料"),
         ("allergies", "过敏史"),
         ("medications", "当前及近期用药"),
         ("conditions", "用户自述慢病/病史"),
@@ -90,6 +91,7 @@ def render_core_profile(profile: dict[str, JsonValue], *, max_characters: int = 
         ("assessments", "评估结果"),
         ("events", "重大事件"),
         ("social_context", "社会支持"),
+        ("preferences", "照护偏好"),
         ("goals", "健康目标"),
     )
     sections: list[str] = []

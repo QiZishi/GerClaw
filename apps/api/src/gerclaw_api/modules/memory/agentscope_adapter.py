@@ -47,10 +47,10 @@ class GerClawMem0Client:
         """Return relevance-filtered encrypted-PG facts in mem0's response shape."""
 
         del threshold
-        self._validate_filters(filters)
-        if not 1 <= top_k <= 20:
-            raise AgentScopeMemoryAdapterError("memory search limit is invalid")
         try:
+            self._validate_filters(filters)
+            if not 1 <= top_k <= 20:
+                raise ValueError("memory search limit is invalid")
             profile = await self._module.get_long_term(self._actor_id, query=query)
         except Exception as error:
             self._error = error
@@ -73,11 +73,11 @@ class GerClawMem0Client:
         """Extract only the actual user source, never agent-proposed tool text."""
 
         del messages, agent_id, infer
-        if user_id != self._actor_id:
-            raise AgentScopeMemoryAdapterError("memory write principal is invalid")
-        if self._write_done:
-            return self._result()
         try:
+            if user_id != self._actor_id:
+                raise ValueError("memory write principal is invalid")
+            if self._write_done:
+                return self._result()
             await self._module.extract_and_update_profile(self._actor_id, [self._source])
         except Exception as error:
             self._error = error
