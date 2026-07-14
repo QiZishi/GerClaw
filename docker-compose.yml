@@ -1,0 +1,117 @@
+name: gerclaw
+
+x-api-environment: &api-environment
+  GERCLAW_APP_ENV: ${GERCLAW_APP_ENV:-development}
+  GERCLAW_LOG_LEVEL: ${GERCLAW_LOG_LEVEL:-INFO}
+  GERCLAW_DATABASE_URL: postgresql+asyncpg://${POSTGRES_USER:-gerclaw}:${POSTGRES_PASSWORD:-local-postgres-only}@postgres:5432/${POSTGRES_DB:-gerclaw}
+  GERCLAW_DATABASE_POOL_SIZE: ${GERCLAW_DATABASE_POOL_SIZE:-20}
+  GERCLAW_DATABASE_MAX_OVERFLOW: ${GERCLAW_DATABASE_MAX_OVERFLOW:-20}
+  GERCLAW_DATABASE_POOL_TIMEOUT_SECONDS: ${GERCLAW_DATABASE_POOL_TIMEOUT_SECONDS:-10}
+  GERCLAW_REDIS_URL: redis://:${REDIS_PASSWORD:-local-redis-only}@redis:6379/0
+  GERCLAW_REDIS_MAX_CONNECTIONS: ${GERCLAW_REDIS_MAX_CONNECTIONS:-100}
+  GERCLAW_QDRANT_URL: http://qdrant:6333
+  GERCLAW_QDRANT_API_KEY: ${GERCLAW_QDRANT_API_KEY:-local-qdrant-only}
+  GERCLAW_KNOWLEDGE_BASE_PATH: /knowledge-base
+  GERCLAW_CORS_ORIGINS: ${GERCLAW_CORS_ORIGINS:-["http://localhost:3000"]}
+  GERCLAW_AGENTSCOPE_REQUIRED_VERSION: ${GERCLAW_AGENTSCOPE_REQUIRED_VERSION:-2.0.4}
+  GERCLAW_LOCAL_SECRET_DIR: /app/workspaces/secrets
+
+x-api-base: &api-base
+  build:
+    context: ./apps/api
+    args:
+      PYTHON_IMAGE: ${PYTHON_IMAGE:-python:3.12-slim}
+  env_file:
+    - path: ./.env
+      required: false
+  environment: *api-environment
+  volumes:
+    - "${GERCLAW_KNOWLEDGE_BASE_HOST_PATH:-../本地知识库/md}:/knowledge-base:ro"
+    - runtime_secrets:/app/workspaces
+  networks:
+    - edge
+    - data
+
+services:
+  migrate:
+    <<: *api-base
+    depends_on:
+      postgres:
+        condition: service_healthy
+    command: ["alembic", "upgrade", "head"]
+    restart: "no"
+
+  api:
+    <<: *api-base
+    ports:
+      - "127.0.0.1:${API_PORT:-8000}:8000"
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+      redis:
+        condition: service_healthy
+      qdrant:
+        condition: service_started
+    command: ["uvicorn", "gerclaw_api.main:app", "--host", "0.0.0.0", "--port", "8000"]
+    restart: unless-stopped
+
+  postgres:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-gerclaw}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-local-postgres-only}
+      POSTGRES_DB: ${POSTGRES_DB:-gerclaw}
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U $${POSTGRES_USER} -d $${POSTGRES_DB}"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+    networks:
+      - data
+    restart: unless-stopped
+
+  redis:
+    image: redis:7-alpine
+    environment:
+      REDIS_PASSWORD: ${REDIS_PASSWORD:-local-redis-only}
+    command:
+      - redis-server
+      - --appendonly
+      - "yes"
+      - --appendfsync
+      - everysec
+      - --requirepass
+      - ${REDIS_PASSWORD:-local-redis-only}
+    volumes:
+      - redis_data:/data
+    healthcheck:
+      test: ["CMD-SHELL", "redis-cli -a $${REDIS_PASSWORD} --no-auth-warning ping | grep PONG"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+    networks:
+      - data
+    restart: unless-stopped
+
+  qdrant:
+    image: qdrant/qdrant:v1.18.2
+    environment:
+      QDRANT__SERVICE__API_KEY: ${GERCLAW_QDRANT_API_KEY:-local-qdrant-only}
+    volumes:
+      - qdrant_data:/qdrant/storage
+    networks:
+      - data
+    restart: unless-stopped
+
+networks:
+  edge:
+  data:
+    internal: true
+
+volumes:
+  postgres_data:
+  redis_data:
+  qdrant_data:
+  runtime_secrets:

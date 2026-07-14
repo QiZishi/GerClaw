@@ -1,0 +1,98 @@
+"""Shared test settings and real-dependency fixtures."""
+
+from __future__ import annotations
+
+import os
+from collections.abc import AsyncIterator
+from pathlib import Path
+
+import pytest
+from httpx import ASGITransport, AsyncClient
+from sqlalchemy import text
+from sqlalchemy.engine import make_url
+
+from gerclaw_api.application import create_app
+from gerclaw_api.auth import create_access_token
+from gerclaw_api.config import Settings
+
+TEST_JWT_SECRET = "tests-only-jwt-secret-that-is-longer-than-32-characters"
+TEST_DATA_KEY = "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA="
+
+
+def make_settings(**overrides: object) -> Settings:
+    """Build deterministic settings without consulting process defaults."""
+
+    values: dict[str, object] = {
+        "app_env": "test",
+        "database_url": "postgresql+asyncpg://gerclaw:change-me@127.0.0.1:5432/gerclaw",
+        "redis_url": "redis://:local-redis-only@127.0.0.1:6379/15",
+        "qdrant_url": "http://127.0.0.1:6333",
+        "qdrant_api_key": "local-qdrant-only",
+        "knowledge_base_path": Path(__file__).parent,
+        "cors_origins": ["http://localhost:3000"],
+        "readiness_cache_seconds": 0,
+        "auth_jwt_secret": TEST_JWT_SECRET,
+        "data_encryption_key": TEST_DATA_KEY,
+        "data_encryption_key_id": "test-v1",
+    }
+    values.update(overrides)
+    return Settings.model_validate(values)
+
+
+@pytest.fixture
+def integration_settings() -> Settings:
+    """Return settings for explicitly enabled real-dependency tests."""
+
+    if os.getenv("GERCLAW_RUN_INTEGRATION") != "1":
+        pytest.skip("set GERCLAW_RUN_INTEGRATION=1 to run real dependency tests")
+    database_url = os.getenv(
+        "GERCLAW_TEST_DATABASE_URL",
+        "postgresql+asyncpg://gerclaw:local-postgres-only@127.0.0.1:5432/gerclaw_test",
+    )
+    if not (make_url(database_url).database or "").endswith("_test"):
+        raise pytest.UsageError("GERCLAW_TEST_DATABASE_URL must name a dedicated *_test database")
+    knowledge_base_path = os.getenv("GERCLAW_TEST_KNOWLEDGE_BASE_PATH")
+    if knowledge_base_path is None:
+        raise pytest.UsageError(
+            "GERCLAW_TEST_KNOWLEDGE_BASE_PATH must explicitly name the real test corpus"
+        )
+    return make_settings(
+        database_url=database_url,
+        redis_url=os.getenv(
+            "GERCLAW_TEST_REDIS_URL", "redis://:local-redis-only@127.0.0.1:6379/15"
+        ),
+        qdrant_url=os.getenv("GERCLAW_TEST_QDRANT_URL", "http://127.0.0.1:6333"),
+        qdrant_api_key=os.getenv("GERCLAW_TEST_QDRANT_API_KEY", "local-qdrant-only"),
+        knowledge_base_path=Path(knowledge_base_path),
+    )
+
+
+@pytest.fixture
+async def integration_client(
+    integration_settings: Settings,
+) -> AsyncIterator[tuple[AsyncClient, object]]:
+    """Start the full application and truncate mutable tables around each test."""
+
+    app = create_app(integration_settings)
+    async with app.router.lifespan_context(app):
+        await app.state.redis.flushdb()
+        async with app.state.database.engine.begin() as connection:
+            await connection.execute(
+                text(
+                    "TRUNCATE bad_cases, user_feedback, trace_events, messages, "
+                    "health_profiles, sessions, users, execution_traces "
+                    "RESTART IDENTITY CASCADE"
+                )
+            )
+        token = create_access_token(
+            integration_settings,
+            actor_id="usr_patient_integration0001",
+            tenant_id="tenant_public0001",
+            scopes={"trace:read", "trace:write", "feedback:write", "metrics:read"},
+        )
+        async with AsyncClient(
+            transport=ASGITransport(app=app),
+            base_url="http://testserver",
+            headers={"Authorization": f"Bearer {token}"},
+        ) as client:
+            yield client, app

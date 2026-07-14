@@ -2606,7 +2606,7 @@ response = client.crawl(url="", extract_depth="advanced")
 ```javascript
 // To install: npm i @tavily/core
 const { tavily } = require('@tavily/core');
-const client = tavily({ apiKey: "REDACTED_TAVILY_KEY" });
+const client = tavily({ apiKey: "${TAVILY_API_KEY}" });
 // 搜索
 client.search("", {
     searchDepth: "advanced"
@@ -2625,7 +2625,7 @@ client.crawl("", {
 ```curl
 curl -X POST https://api.tavily.com/search \
 -H 'Content-Type: application/json' \
--H 'Authorization: Bearer REDACTED_TAVILY_KEY' \
+-H 'Authorization: Bearer ${TAVILY_API_KEY}' \
 -d '{
     "query": "",
     "search_depth": "advanced"
@@ -2635,7 +2635,7 @@ curl -X POST https://api.tavily.com/search \
 ```curl
 curl -X POST https://api.tavily.com/extract \
 -H 'Content-Type: application/json' \
--H 'Authorization: Bearer REDACTED_TAVILY_KEY' \
+-H 'Authorization: Bearer ${TAVILY_API_KEY}' \
 -d '{
     "urls": [
         ""
@@ -2646,7 +2646,7 @@ curl -X POST https://api.tavily.com/extract \
 ```curl
 curl -X POST https://api.tavily.com/crawl \
 -H 'Content-Type: application/json' \
--H 'Authorization: Bearer REDACTED_TAVILY_KEY' \
+-H 'Authorization: Bearer ${TAVILY_API_KEY}' \
 -d '{
     "url": "",
     "extract_depth": "advanced"

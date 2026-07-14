@@ -1,6 +1,15 @@
 node_modules/
 .next/
 out/
+.venv/
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.coverage
+htmlcov/
+.uv-cache/
 .env*
 !.env.example
 *.log

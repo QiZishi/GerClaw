@@ -1,0 +1,85 @@
+[project]
+name = "gerclaw-api"
+version = "0.1.0"
+description = "GerClaw enterprise medical agent API"
+readme = "README.md"
+requires-python = ">=3.12,<3.14"
+dependencies = [
+  "agentscope[rag,service,storage]==2.0.4",
+  "alembic>=1.16.4,<2",
+  "asyncpg>=0.30.0,<1",
+  "cryptography>=46.0.0,<50",
+  "fastapi>=0.116.1,<1",
+  "prometheus-client>=0.22.1,<1",
+  "pydantic-settings>=2.10.1,<3",
+  "pyjwt>=2.10.1,<3",
+  "qdrant-client>=1.15.1,<2",
+  "redis>=6.2.0,<7",
+  "sqlalchemy[asyncio]>=2.0.41,<3",
+  "uvicorn[standard]>=0.35.0,<1",
+]
+
+[dependency-groups]
+dev = [
+  "httpx>=0.28.1,<1",
+  "mypy>=1.17.1,<2",
+  "pytest>=8.4.1,<9",
+  "pytest-asyncio>=1.1.0,<2",
+  "pytest-cov>=6.2.1,<7",
+  "ruff>=0.12.8,<1",
+]
+
+[project.scripts]
+gerclaw-api = "gerclaw_api.main:run"
+
+[build-system]
+requires = ["hatchling>=1.27"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/gerclaw_api"]
+
+[tool.pytest.ini_options]
+addopts = [
+  "--strict-config",
+  "--strict-markers",
+  "--cov=gerclaw_api",
+  "--cov-report=term-missing",
+  "--cov-fail-under=80",
+]
+asyncio_mode = "auto"
+testpaths = ["tests"]
+markers = [
+  "integration: requires real PostgreSQL, Redis, and Qdrant services",
+  "external: incurs real external model or tool service calls",
+]
+
+[tool.coverage.run]
+branch = true
+source = ["gerclaw_api"]
+omit = ["src/gerclaw_api/main.py"]
+
+[tool.coverage.report]
+exclude_lines = [
+  "if TYPE_CHECKING:",
+  "if __name__ == .__main__.:",
+  "raise NotImplementedError",
+  '\.\.\.',
+]
+
+[tool.ruff]
+line-length = 100
+target-version = "py312"
+
+[tool.ruff.lint]
+select = ["ASYNC", "B", "E", "F", "I", "RUF", "SIM", "UP"]
+
+[tool.ruff.lint.per-file-ignores]
+"migrations/versions/*.py" = ["E501"]
+
+[tool.mypy]
+python_version = "3.12"
+strict = true
+plugins = ["pydantic.mypy"]
+packages = ["gerclaw_api"]
+warn_unused_configs = true
