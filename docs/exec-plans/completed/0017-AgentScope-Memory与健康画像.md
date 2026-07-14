@@ -44,7 +44,7 @@
 - [x] Chat 成功提交与 memory update/Trace 一致；失败、断线、重放、并发会话和 Qdrant/模型故障不产生重复、半提交或错误已确认画像。
 - [x] 根 `.env` 的真实三模型和 SiliconFlow embedding 完成跨会话记忆端到端测试，无 mock 成功路径。
 - [x] Ruff format/check、mypy、Bandit、pip-audit、Alembic 全新库双向迁移、全量 pytest、Docker build/health、MVP lint/build 全部通过。
-- [ ] 独立审阅者复现安全、并发、隐私和真实调用关键链路并给出 PASS 后提交和归档。
+- [x] 独立审阅者复现安全、并发、隐私和真实调用关键链路并给出 PASS 后提交和归档。
 
 ## 5. 执行证据
 
@@ -55,6 +55,7 @@
 - Docker Hub OAuth 连续两次网络超时后，使用同一官方 Python 3.12 slim 镜像的 `public.ecr.aws/docker/library/python:3.12-slim` mirror 完成无缓存依赖安装与镜像构建；新镜像执行 migration 后 API、PostgreSQL、Redis、Qdrant 均 healthy，`/health/ready` 返回 436 文档、39,837 chunks、Memory 0 PHI points。
 - 真实复验发现供应商持续流式心跳可绕过 HTTP read timeout；现以配置的 30 秒为每个候选模型完整 stream deadline。超时前无公开输出则顺序 failover，已有公开输出则 fail closed，测试覆盖两条路径。
 - MVP `npm run lint` 与 `npm run build` 均通过；本变更未修改前端行为。
+- 2026-07-15 06:55 独立审阅者对 `45d12f3` committed tree 给出 PASS：复验证据范围、否定/冲突、tenant/actor 隔离、加密 revision audit、Qdrant 无 PHI payload 与 exact rollback compensation；本地复跑 `239 passed, 21 skipped`、coverage 81.20%，Ruff/format/mypy 通过，readiness 为 ready。
 
 ## 6. 明确不在本变更集内
 
