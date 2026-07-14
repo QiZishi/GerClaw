@@ -159,8 +159,17 @@ async def test_trace_lifecycle_is_idempotent_and_promotes_failure() -> None:
     )
     failed = await service.finish_trace(TENANT, TRACE_ID, finish_request)
     assert await service.finish_trace(TENANT, TRACE_ID, finish_request) is failed
+    completed_replay = await service.start_trace(
+        start_request,
+        "request_unit_after_finish",
+        trace_id=TRACE_ID,
+        tenant_id=TENANT,
+        actor_id=ACTOR,
+    )
 
     assert replay is trace
+    assert completed_replay is trace
+    assert trace.start_fingerprint is not None
     assert trace.attributes == {"channel": "web"}
     assert event.sequence == 1
     assert failed.error_summary == "联系 [PHONE]"
@@ -175,6 +184,30 @@ async def test_trace_lifecycle_is_idempotent_and_promotes_failure() -> None:
             TRACE_ID,
             event_request.model_copy(update={"event_id": "event_unit_0002"}),
         )
+
+
+@pytest.mark.asyncio
+async def test_trace_start_status_distinguishes_creator_from_replay() -> None:
+    repository = FakeTraceRepository()
+    service = TraceService(repository)
+    created = await service.start_trace_with_status(
+        _start_request(),
+        "request_unit_creator",
+        trace_id=TRACE_ID,
+        tenant_id=TENANT,
+        actor_id=ACTOR,
+    )
+    replayed = await service.start_trace_with_status(
+        _start_request(),
+        "request_unit_replay",
+        trace_id=TRACE_ID,
+        tenant_id=TENANT,
+        actor_id=ACTOR,
+    )
+
+    assert created.created is True
+    assert replayed.created is False
+    assert replayed.trace is created.trace
 
 
 @pytest.mark.asyncio
@@ -247,3 +280,33 @@ async def test_missing_invalid_and_resource_limited_transitions_fail() -> None:
     page, cursor = await service.list_events(TENANT, trace.trace_id, after_sequence=0, limit=1)
     assert len(page) == 1
     assert cursor is None
+
+
+@pytest.mark.asyncio
+async def test_success_events_can_be_flushed_as_one_uncommitted_unit() -> None:
+    repository = FakeTraceRepository()
+    service = TraceService(repository)
+    await _start(service)
+    commits_after_start = repository.commits
+    await service.append_event(
+        TENANT,
+        TRACE_ID,
+        TraceEventCreate(
+            event_id="event_atomic_0001",
+            event_type="agent.finish",
+            status="succeeded",
+            payload={"success": True},
+        ),
+        commit=False,
+    )
+    await service.finish_trace(
+        TENANT,
+        TRACE_ID,
+        TraceFinishRequest(
+            idempotency_key="finish_atomic_0001",
+            status=TraceStatus.COMPLETED,
+        ),
+        commit=False,
+    )
+    assert repository.commits == commits_after_start
+    assert repository.traces[(TENANT, TRACE_ID)].status == TraceStatus.COMPLETED.value

@@ -77,6 +77,15 @@ select = ["ASYNC", "B", "E", "F", "I", "RUF", "SIM", "UP"]
 
 [tool.ruff.lint.per-file-ignores]
 "migrations/versions/*.py" = ["E501"]
+"src/gerclaw_api/api/routes/chat.py" = ["RUF001"]
+"src/gerclaw_api/modules/agent_harness/harness.py" = ["RUF001"]
+"src/gerclaw_api/modules/agent_harness/safety.py" = ["RUF001"]
+"tests/test_agent_harness.py" = ["RUF001"]
+"tests/test_agent_harness_safety.py" = ["RUF001"]
+"tests/test_chat_integration.py" = ["RUF001"]
+"tests/test_chat_service.py" = ["RUF001"]
+"tests/test_conversation_service.py" = ["RUF001"]
+"tests/test_real_external_services.py" = ["RUF001"]
 
 [tool.mypy]
 python_version = "3.12"

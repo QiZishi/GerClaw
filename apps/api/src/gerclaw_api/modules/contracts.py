@@ -11,7 +11,14 @@ from pydantic import BaseModel, ConfigDict, Field, model_validator
 from gerclaw_api.security import JsonValue
 
 STRICT = ConfigDict(extra="forbid")
-_UNSAFE_DIAGNOSIS = re.compile(r"(?:已经|可以|明确)?确诊|(?:一定|肯定)(?:是|患有)")
+_UNSAFE_DIAGNOSIS = re.compile(
+    r"(?:明确(?:临床)?诊断|诊断结论|诊断)(?:为|是)"
+    r"|(?<!明)(?:已经|已|明确|可以)?确诊(?:为|是)?"
+    r"|(?:您|患者|病人)(?:已经|已)?(?:患有|得了|就是得了)"
+    r"|(?:一定|肯定|必然)(?:是|患有|属于)"
+    r"|这是(?!辅助|一条|建议|提示|参考|说明|可能|需要|为了|对)"
+    r"|就是(?!说|建议|提示|参考|说明|可能|需要)"
+)
 
 
 class ExecutionContext(BaseModel):
@@ -68,7 +75,7 @@ class SafetyDecision(BaseModel):
 
     reviewed: Literal[True]
     disclaimer_applied: Literal[True]
-    deterministic_diagnosis_blocked: Literal[True]
+    deterministic_diagnosis_blocked: bool
     high_risk_escalation_checked: Literal[True]
     notices: list[str] = Field(min_length=1, max_length=10)
 
@@ -78,7 +85,7 @@ class AgentResponse(BaseModel):
 
     model_config = STRICT
 
-    text: str = Field(min_length=1, max_length=20_000)
+    text: str = Field(min_length=1, max_length=50_000)
     citations: list[Citation] = Field(default_factory=list, max_length=50)
     safety: SafetyDecision
     medical_content: bool

@@ -53,3 +53,7 @@ def configure_logging(level: str) -> None:
         logger.handlers.clear()
         logger.propagate = True
     logging.getLogger("uvicorn.access").disabled = True
+    # Provider SDK INFO records commonly include full tenant-specific endpoints.
+    # Keep safe GerClaw audit metadata while suppressing third-party request details.
+    for logger_name in ("anthropic", "dashscope", "httpcore", "httpx", "openai"):
+        logging.getLogger(logger_name).setLevel(logging.WARNING)

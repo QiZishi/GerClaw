@@ -91,6 +91,11 @@ class Settings(BaseSettings):
     rate_limit_requests: int = Field(default=100, ge=1, le=10_000)
     rate_limit_window_seconds: int = Field(default=60, ge=1, le=3_600)
     max_events_per_trace: int = Field(default=10_000, ge=100, le=100_000)
+    agent_max_react_iterations: int = Field(default=10, ge=1, le=20)
+    agent_history_messages: int = Field(default=40, ge=2, le=200)
+    agent_evidence_top_k: int = Field(default=5, ge=1, le=10)
+    agent_max_output_characters: int = Field(default=20_000, ge=1_000, le=50_000)
+    chat_session_lease_ttl_seconds: int = Field(default=300, ge=60, le=900)
 
     auth_jwt_secret: SecretStr = Field(
         default_factory=lambda: _load_or_create_local_secret("jwt.key"), min_length=32

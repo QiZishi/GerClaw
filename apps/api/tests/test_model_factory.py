@@ -4,7 +4,7 @@ import pytest
 from agentscope.model import AnthropicChatModel, DashScopeChatModel, OpenAIChatModel
 
 from gerclaw_api.config import AgentModelConfig
-from gerclaw_api.services.model_factory import build_agentscope_model
+from gerclaw_api.services.model_factory import build_agentscope_model, close_agentscope_model
 
 
 @pytest.mark.parametrize(
@@ -15,7 +15,7 @@ from gerclaw_api.services.model_factory import build_agentscope_model
         ("anthropic", AnthropicChatModel),
     ],
 )
-def test_model_factory_selects_agentscope_provider(
+async def test_model_factory_selects_agentscope_provider(
     protocol: str, expected_type: type[object]
 ) -> None:
     config = AgentModelConfig.model_validate(
@@ -29,5 +29,7 @@ def test_model_factory_selects_agentscope_provider(
     )
 
     model = build_agentscope_model(config)
-
-    assert isinstance(model, expected_type)
+    try:
+        assert isinstance(model, expected_type)
+    finally:
+        await close_agentscope_model(model)

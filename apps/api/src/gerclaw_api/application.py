@@ -11,6 +11,7 @@ from fastapi.responses import JSONResponse
 from qdrant_client import AsyncQdrantClient
 from redis.asyncio import Redis
 
+from gerclaw_api.api.routes.chat import router as chat_router
 from gerclaw_api.api.routes.health import router as health_router
 from gerclaw_api.api.routes.rag import router as rag_router
 from gerclaw_api.api.routes.traces import router as traces_router
@@ -29,6 +30,7 @@ from gerclaw_api.modules.rag import (
     create_rag_runtime,
 )
 from gerclaw_api.services.health_service import DependencyHealthService
+from gerclaw_api.services.model_router import FailoverChatModel
 from gerclaw_api.services.rate_limit import RateLimiter, RateLimitExceeded, RateLimitUnavailable
 from gerclaw_api.services.trace_service import (
     TraceConflictError,
@@ -65,11 +67,16 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             api_key=qdrant_api_key or None,
         )
         rag_runtime = create_rag_runtime(resolved, qdrant_client)
+        model_configs = resolved.agent_model_configs
         app.state.database = database
         app.state.redis = redis_client
         app.state.qdrant = qdrant_client
         app.state.rag_runtime = rag_runtime
         app.state.agentic_rag_middleware = build_agentic_rag_middleware(rag_runtime.module)
+        app.state.agent_model = (
+            FailoverChatModel(model_configs) if len(model_configs) == 3 else None
+        )
+        agent_model = app.state.agent_model
         app.state.rate_limiter = RateLimiter(
             redis_client,
             limit=resolved.rate_limit_requests,
@@ -85,6 +92,8 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         try:
             yield
         finally:
+            if agent_model is not None:
+                await agent_model.aclose()
             await rag_runtime.aclose()
             await qdrant_client.close()
             await redis_client.aclose()
@@ -111,6 +120,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     app.include_router(health_router)
     app.include_router(traces_router, prefix=resolved.api_prefix)
     app.include_router(rag_router, prefix=resolved.api_prefix)
+    app.include_router(chat_router, prefix=resolved.api_prefix)
 
     @app.exception_handler(TraceNotFoundError)
     async def trace_not_found(_request: Request, error: TraceNotFoundError) -> JSONResponse:

@@ -85,7 +85,7 @@ class SqlAlchemyTraceRepository:
             ExecutionTrace.trace_id == trace_id,
         )
         if for_update:
-            statement = statement.with_for_update()
+            statement = statement.with_for_update().execution_options(populate_existing=True)
         return cast(ExecutionTrace | None, await self._session.scalar(statement))
 
     async def add_trace(self, trace: ExecutionTrace) -> None:

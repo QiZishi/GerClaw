@@ -44,6 +44,13 @@ def make_settings(**overrides: object) -> Settings:
 
 
 @pytest.fixture
+def unit_settings() -> Settings:
+    """Deterministic settings for pure unit tests."""
+
+    return make_settings()
+
+
+@pytest.fixture
 def integration_settings() -> Settings:
     """Return settings for explicitly enabled real-dependency tests."""
 
@@ -71,6 +78,8 @@ def integration_settings() -> Settings:
         )
     ):
         raise pytest.UsageError("root .env must configure the real RAG model services")
+    if len(real_services.agent_model_configs) != 3:
+        raise pytest.UsageError("root .env must configure all three Agent model services")
     return make_settings(
         database_url=database_url,
         redis_url=os.getenv(
@@ -83,6 +92,24 @@ def integration_settings() -> Settings:
         siliconflow_api_key=real_services.siliconflow_api_key.get_secret_value(),
         embedding_model=real_services.embedding_model,
         rerank_model=real_services.rerank_model,
+        agent_primary_url=real_services.agent_primary_url,
+        agent_primary_api_key=real_services.agent_primary_api_key.get_secret_value()
+        if real_services.agent_primary_api_key is not None
+        else None,
+        agent_primary_model=real_services.agent_primary_model,
+        agent_primary_protocol=real_services.agent_primary_protocol,
+        agent_backup1_url=real_services.agent_backup1_url,
+        agent_backup1_api_key=real_services.agent_backup1_api_key.get_secret_value()
+        if real_services.agent_backup1_api_key is not None
+        else None,
+        agent_backup1_model=real_services.agent_backup1_model,
+        agent_backup1_protocol=real_services.agent_backup1_protocol,
+        agent_backup2_url=real_services.agent_backup2_url,
+        agent_backup2_api_key=real_services.agent_backup2_api_key.get_secret_value()
+        if real_services.agent_backup2_api_key is not None
+        else None,
+        agent_backup2_model=real_services.agent_backup2_model,
+        agent_backup2_protocol=real_services.agent_backup2_protocol,
     )
 
 
@@ -113,6 +140,8 @@ async def integration_client(
                 "feedback:write",
                 "metrics:read",
                 "rag:read",
+                "chat:read",
+                "chat:write",
             },
         )
         async with AsyncClient(

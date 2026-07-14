@@ -1,6 +1,9 @@
 """Local medical Agentic RAG public surface."""
 
-from gerclaw_api.modules.rag.agentscope_adapter import build_agentic_rag_middleware
+from gerclaw_api.modules.rag.agentscope_adapter import (
+    build_agentic_rag_middleware,
+    capture_agentic_rag_results,
+)
 from gerclaw_api.modules.rag.module import HybridRAGModule, RAGUnavailableError
 from gerclaw_api.modules.rag.protocols import (
     IndexResult,
@@ -21,5 +24,6 @@ __all__ = [
     "RAGUnavailableError",
     "RetrievalResult",
     "build_agentic_rag_middleware",
+    "capture_agentic_rag_results",
     "create_rag_runtime",
 ]

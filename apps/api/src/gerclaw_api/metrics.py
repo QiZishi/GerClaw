@@ -45,6 +45,21 @@ RAG_INDEX_CHUNKS = Counter(
     "gerclaw_rag_index_chunks_total",
     "Knowledge-base chunks written by the one-shot indexer",
 )
+CHAT_TURNS = Counter(
+    "gerclaw_chat_turns_total",
+    "Agent Harness turns by bounded terminal outcome",
+    ("outcome",),
+)
+CHAT_TURN_LATENCY = Histogram(
+    "gerclaw_chat_turn_duration_seconds",
+    "End-to-end Agent Harness turn latency",
+    buckets=(0.1, 0.25, 0.5, 1, 2.5, 5, 10, 30, 60, 120, 300),
+)
+AGENT_MODEL_ATTEMPTS = Counter(
+    "gerclaw_agent_model_attempts_total",
+    "Real agent model attempts by configured slot and bounded outcome",
+    ("preference", "outcome"),
+)
 
 
 def render_metrics() -> tuple[bytes, str]:

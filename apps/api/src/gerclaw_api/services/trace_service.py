@@ -5,6 +5,7 @@ from __future__ import annotations
 import hashlib
 import json
 import uuid
+from dataclasses import dataclass
 from datetime import UTC, datetime
 from typing import Any
 
@@ -32,6 +33,14 @@ class TraceResourceLimitError(RuntimeError):
     """Raised when one Trace reaches its configured event ceiling."""
 
 
+@dataclass(frozen=True, slots=True)
+class TraceStartResult:
+    """Trace plus whether this caller durably created it."""
+
+    trace: ExecutionTrace
+    created: bool
+
+
 def _sanitized_dict(value: dict[str, Any]) -> dict[str, Any]:
     sanitized = sanitize_payload(value)
     if not isinstance(sanitized, dict):  # pragma: no cover - defensive invariant
@@ -42,6 +51,22 @@ def _sanitized_dict(value: dict[str, Any]) -> dict[str, Any]:
 def _finish_fingerprint(request: TraceFinishRequest) -> str:
     canonical = json.dumps(
         request.model_dump(mode="json"),
+        ensure_ascii=False,
+        allow_nan=False,
+        sort_keys=True,
+        separators=(",", ":"),
+    )
+    return hashlib.sha256(canonical.encode()).hexdigest()
+
+
+def _start_fingerprint(request: TraceStartRequest, actor_id: str) -> str:
+    canonical = json.dumps(
+        {
+            "actor_id": actor_id,
+            "attributes": _sanitized_dict(request.attributes),
+            "execution_type": request.execution_type,
+            "session_id": str(request.session_id) if request.session_id is not None else None,
+        },
         ensure_ascii=False,
         allow_nan=False,
         sort_keys=True,
@@ -66,10 +91,30 @@ class TraceService:
         tenant_id: str,
         actor_id: str,
     ) -> ExecutionTrace:
+        result = await self.start_trace_with_status(
+            request,
+            request_id,
+            trace_id=trace_id,
+            tenant_id=tenant_id,
+            actor_id=actor_id,
+        )
+        return result.trace
+
+    async def start_trace_with_status(
+        self,
+        request: TraceStartRequest,
+        request_id: str,
+        *,
+        trace_id: str,
+        tenant_id: str,
+        actor_id: str,
+    ) -> TraceStartResult:
+        """Start a Trace and expose ownership for safe concurrent retries."""
+
         existing = await self._repository.get_trace(tenant_id, trace_id)
         if existing is not None:
             self._validate_replayed_start(existing, request, actor_id)
-            return existing
+            return TraceStartResult(trace=existing, created=False)
 
         trace = ExecutionTrace(
             trace_id=trace_id,
@@ -80,6 +125,7 @@ class TraceService:
             execution_type=request.execution_type,
             status=TraceStatus.RUNNING.value,
             attributes=_sanitized_dict(request.attributes),
+            start_fingerprint=_start_fingerprint(request, actor_id),
             started_at=datetime.now(UTC),
         )
         await self._repository.add_trace(trace)
@@ -90,8 +136,8 @@ class TraceService:
             if existing is None:  # pragma: no cover - database invariant
                 raise
             self._validate_replayed_start(existing, request, actor_id)
-            return existing
-        return trace
+            return TraceStartResult(trace=existing, created=False)
+        return TraceStartResult(trace=trace, created=True)
 
     async def get_trace(self, tenant_id: str, trace_id: str) -> ExecutionTrace:
         trace = await self._repository.get_trace(tenant_id, trace_id)
@@ -100,7 +146,12 @@ class TraceService:
         return trace
 
     async def append_event(
-        self, tenant_id: str, trace_id: str, request: TraceEventCreate
+        self,
+        tenant_id: str,
+        trace_id: str,
+        request: TraceEventCreate,
+        *,
+        commit: bool = True,
     ) -> TraceEvent:
         existing_event = await self._repository.get_event_by_id(
             tenant_id, trace_id, request.event_id
@@ -129,7 +180,12 @@ class TraceService:
         )
         await self._repository.add_event(event)
         try:
-            await self._repository.commit()
+            if commit:
+                await self._repository.commit()
+            else:
+                # Flush allocates the sequence inside the current transaction so
+                # later staged events observe it without exposing partial success.
+                await self._repository.flush()
         except DuplicateKeyError:
             existing_event = await self._repository.get_event_by_id(
                 tenant_id, trace_id, request.event_id
@@ -141,7 +197,12 @@ class TraceService:
         return event
 
     async def finish_trace(
-        self, tenant_id: str, trace_id: str, request: TraceFinishRequest
+        self,
+        tenant_id: str,
+        trace_id: str,
+        request: TraceFinishRequest,
+        *,
+        commit: bool = True,
     ) -> ExecutionTrace:
         if request.status is TraceStatus.RUNNING:
             raise TraceConflictError("a trace cannot be finished with running status")
@@ -177,7 +238,10 @@ class TraceService:
                 reason_codes=[request.error_code or "execution_failed"],
                 severity="high",
             )
-        await self._repository.commit()
+        if commit:
+            await self._repository.commit()
+        else:
+            await self._repository.flush()
         return trace
 
     async def list_events(
@@ -301,19 +365,28 @@ class TraceService:
     def _validate_replayed_start(
         existing: ExecutionTrace, request: TraceStartRequest, actor_id: str
     ) -> None:
-        identity = (
-            existing.actor_id,
-            existing.session_id,
-            existing.execution_type,
-            existing.attributes,
+        expected = _start_fingerprint(request, actor_id)
+        if existing.start_fingerprint is not None:
+            if existing.start_fingerprint != expected:
+                raise TraceConflictError(
+                    "trace ID was already used with different execution fields"
+                )
+            return
+
+        # Legacy rows predate the immutable fingerprint. Compare the stable
+        # identity plus every caller-provided start attribute, while ignoring
+        # finish-only attributes added after the Trace became terminal.
+        sanitized_attributes = _sanitized_dict(request.attributes)
+        legacy_matches = (
+            existing.actor_id == actor_id
+            and existing.session_id == request.session_id
+            and existing.execution_type == request.execution_type
+            and all(
+                key in existing.attributes and existing.attributes[key] == value
+                for key, value in sanitized_attributes.items()
+            )
         )
-        replay = (
-            actor_id,
-            request.session_id,
-            request.execution_type,
-            _sanitized_dict(request.attributes),
-        )
-        if identity != replay:
+        if not legacy_matches:
             raise TraceConflictError("trace ID was already used with different execution fields")
 
     @staticmethod

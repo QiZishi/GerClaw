@@ -49,6 +49,8 @@ def test_json_logging_binds_context_and_redacts_extras() -> None:
 def test_logging_configuration_metrics_and_header_ids() -> None:
     configure_logging("WARNING")
     assert logging.getLogger().level == logging.WARNING
+    assert logging.getLogger("httpx").level == logging.WARNING
+    assert logging.getLogger("openai").level == logging.WARNING
 
     body, media_type = render_metrics()
     assert b"gerclaw_http_requests_total" in body

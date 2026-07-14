@@ -2,7 +2,7 @@
 
 GerClaw 二阶段生产后端。当前里程碑提供真实 PostgreSQL、Redis、Qdrant，JWT scope/tenant 隔离，Redis 原子限流，Trace/反馈/bad-case 数据闭环，以及按设计要求第四章拆分的 Agent Harness、Memory、Agentic RAG、Skill、Input/Output、Tool Protocol 边界。
 
-本地医学 Agentic RAG 已使用 AgentScope 2.0.4 `RAGMiddleware(mode="agentic")` 真实接入；对话 Agent Harness、CGA、处方与 Voice 业务仍在后续独立变更集实现。本阶段不伪造医疗对话或检索结果。
+本地医学 Agentic RAG 已使用 AgentScope 2.0.4 `RAGMiddleware(mode="agentic")` 真实接入；生产对话 Harness 已使用 AgentScope `Agent`/ReAct、三模型依次兜底、安全 SSE、加密会话、Redis session lease 和幂等 Trace 重放形成闭环。CGA、处方、长期 Memory、Skill、上传文档与 Voice 业务仍在后续独立变更集实现。本阶段不伪造医疗对话或检索结果。
 
 ## 配置与安全
 
@@ -75,7 +75,7 @@ set +a
 GERCLAW_RUN_EXTERNAL=1 uv run pytest tests/test_real_external_services.py -m external -s --no-cov
 ```
 
-2026-07-15 的完整真实回归结果为 `91 passed`、0 skipped、一次性全量覆盖率 87.58%；独立审阅按 unit+integration 与 external 分组复测的主覆盖率为 87.55%，4 个 external tests 全部通过。三套 AgentScope LLM、MiMo TTS→ASR、SiliconFlow BGE-M3 Embedding/Rerank、Tavily、PostgreSQL、Redis、Qdrant、AgentScope `search_knowledge`、RAG HTTP/Trace 重试、索引中断/lost-ack/锁断连/远端 late-commit fencing/撤回证据清理与失败 Bad Case 链路均通过。
+2026-07-15 的 0016 最终回归结果：默认单元套件 `137 passed`、覆盖率 80.08%；真实 PostgreSQL/Redis/Qdrant 套件 `151 passed`、覆盖率 88.21%；空库 Alembic `upgrade → downgrade → upgrade` 到 `bf1a2d7c2016 (head)` 通过。根 `.env` 的三套 AgentScope LLM 以及 Mimo ASR/TTS、SiliconFlow embedding/rerank、Tavily 均以真实服务调用通过，external 套件 `5 passed`。完整 Chat 同时验证了模型自主 `search_knowledge`、Qdrant 本地证据、SSE 顺序与空白规范化、citation、AES-GCM 消息落库、Trace 完成和同 Trace 重放；未使用 mock 成功路径。
 
 ## API
 
@@ -89,5 +89,8 @@ GERCLAW_RUN_EXTERNAL=1 uv run pytest tests/test_real_external_services.py -m ext
 - `POST /api/v1/feedback`：要求 `feedback:write`；负反馈自动创建 bad case。
 - `GET /api/v1/rag/status`：要求 `rag:read`；返回语料/索引文档数、chunk 数和检索模式。
 - `POST /api/v1/rag/retrieve`：要求 `rag:read`；执行 dense+sparse RRF + rerank，返回相对文件/章节/chunk citation 和医疗免责声明，并自动完成 Trace start/event/finish。相同 Trace ID 只能重放 keyed fingerprint 一致的同一请求，completed Trace 重试不追加重复事件。
+- `POST /api/v1/sessions`：要求 `chat:write`；创建或幂等返回当前 tenant/actor 所属会话。
+- `GET /api/v1/sessions/{session_id}/messages`：要求 `chat:read`；只返回当前 tenant/actor 的有界解密历史，其他主体统一返回 404。
+- `POST /api/v1/chat`：要求 `chat:write`；运行 AgentScope ReAct + 本地 Agentic RAG，返回 `agent_start/thinking/tool_call/tool_result/text_delta/done` SSE。医疗请求无本地证据时 fail closed；`done` 仅在加密消息和 completed Trace 已提交后发送。
 
 所有受保护 API 共享每主体 `100 requests/minute` 的 Redis 原子限流；Redis 故障时写链路 fail closed。请求体在 JSON 解析前限制为 256 KiB，嵌套深度、节点数、字符串长度和非有限浮点数也在 Pydantic 信任边界拒绝。

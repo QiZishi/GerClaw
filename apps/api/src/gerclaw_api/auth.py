@@ -147,3 +147,19 @@ async def require_rag_read(
     """Require access to local medical evidence retrieval."""
 
     return _authorize(identity, "rag:read")
+
+
+async def require_chat_read(
+    identity: Annotated[AuthContext, Depends(authenticate)],
+) -> AuthContext:
+    """Require access to the caller's own conversation history."""
+
+    return _authorize(identity, "chat:read")
+
+
+async def require_chat_write(
+    identity: Annotated[AuthContext, Depends(authenticate)],
+) -> AuthContext:
+    """Require access to execute a tenant-scoped Agent turn."""
+
+    return _authorize(identity, "chat:write")

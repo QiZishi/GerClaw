@@ -17,6 +17,7 @@ from sqlalchemy import (
     String,
     UniqueConstraint,
     func,
+    text,
 )
 from sqlalchemy.dialects.postgresql import JSONB, UUID
 from sqlalchemy.orm import Mapped, mapped_column
@@ -72,6 +73,10 @@ class ConversationSession(TimestampMixin, Base):
     agent_id: Mapped[str] = mapped_column(String(128), nullable=False)
     title: Mapped[str | None] = mapped_column(EncryptedText(), nullable=True)
     status: Mapped[str] = mapped_column(String(16), default="active", nullable=False)
+    active_fencing_token: Mapped[int] = mapped_column(
+        BigInteger, default=0, server_default="0", nullable=False
+    )
+    active_fencing_trace_id: Mapped[str | None] = mapped_column(String(64), nullable=True)
     context_summary: Mapped[dict[str, Any]] = mapped_column(
         EncryptedJSON(), default=dict, nullable=False
     )
@@ -84,6 +89,20 @@ class Message(Base):
     __table_args__ = (
         CheckConstraint("role IN ('user','assistant','system','tool')", name="valid_role"),
         Index("ix_messages_tenant_session_created", "tenant_id", "session_id", "created_at"),
+        Index(
+            "uq_messages_tenant_trace_user",
+            "tenant_id",
+            "trace_id",
+            unique=True,
+            postgresql_where=text("role = 'user' AND trace_id IS NOT NULL"),
+        ),
+        Index(
+            "uq_messages_tenant_trace_assistant",
+            "tenant_id",
+            "trace_id",
+            unique=True,
+            postgresql_where=text("role = 'assistant' AND trace_id IS NOT NULL"),
+        ),
     )
 
     id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
@@ -145,6 +164,7 @@ class ExecutionTrace(Base):
     execution_type: Mapped[str] = mapped_column(String(64), nullable=False, index=True)
     status: Mapped[str] = mapped_column(String(16), default="running", nullable=False)
     attributes: Mapped[dict[str, Any]] = mapped_column(JSONB, default=dict, nullable=False)
+    start_fingerprint: Mapped[str | None] = mapped_column(String(64), nullable=True)
     error_code: Mapped[str | None] = mapped_column(String(64), nullable=True)
     error_summary: Mapped[str | None] = mapped_column(EncryptedText(), nullable=True)
     finish_idempotency_key: Mapped[str | None] = mapped_column(String(96), nullable=True)

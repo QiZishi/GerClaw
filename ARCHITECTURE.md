@@ -62,6 +62,27 @@ FastAPI后端
     └── MinerU Provider (文档解析)
 ```
 
+### 二阶段当前对话闭环（0016）
+
+```text
+POST /api/v1/chat
+  → JWT chat:write + tenant/actor + Redis principal rate limit
+  → PostgreSQL 单调 fencing token + Redis session owner lease
+  → session token claim + PostgreSQL 加密历史 + 幂等 user message
+  → 本地医学证据门（dense+sparse RRF + rerank）
+  → AgentScope Agent/ReAct
+       ├── primary → backup1 → backup2 model router
+       └── agentic search_knowledge → 同一 production RAG
+  → 按句医疗安全后处理 + citation + 免责声明
+  → Redis owner + PostgreSQL token 复验
+  → session 行锁 + Redis owner 双重终态校验
+  → 加密 assistant message + completed Trace 原子事务
+    / SYSTEM_ERROR + failed Trace + Bad Case 原子事务
+  → SSE done（仅持久化提交后）
+```
+
+共享的是无状态 provider client；`AgentState`、RAG middleware、事件缓冲和模型尝试审计均按 turn 隔离。PostgreSQL 是会话事实源，AgentScope 内存状态不承担跨请求持久化。
+
 ## 3. 推荐技术栈
 
 ### 3.1 MVP阶段（纯前端）
@@ -208,7 +229,7 @@ types → config → providers → repositories → services → agents → rout
 | 外部LLM输出 | 后处理检查：确定性诊断用语拦截、有害内容检测、免责声明附加、结构化输出schema验证 |
 | 联网搜索结果 | 加隔离标记（BEGIN/END SEARCH RESULT包裹），剥离指令性文字，来源角标可追溯 |
 | 技能内容(skill.md) | 加载前安全检查，禁止包含修改系统角色的指令 |
-| 外部API响应 | Zod schema校验、超时处理、错误捕获、主备切换 |
+| 外部API响应 | 前端 Zod / 后端 Pydantic schema 校验、超时处理、错误捕获、主备切换 |
 | 本地医学知识库 | 仅允许根目录内 UTF-8 Markdown；大小、相对路径、HTML 指令载体、embedding 维度、Qdrant payload 和 citation 均在后端边界校验 |
 | 环境变量 | 启动时Zod校验，缺失关键变量直接失败不启动 |
 
@@ -237,3 +258,6 @@ types → config → providers → repositories → services → agents → rout
 | ADR-005 | CGA评估/五大处方采用"状态机骨架+LLM柔性层"混合架构 | 量表计分、处方结构、评估流程需要确定性保证；自然语言对话引导、健康建议生成需要LLM柔性处理；两者结合兼顾安全和体验 | 纯状态机表单→老年用户体验差不会填表；纯LLM自由对话→计分和结构无法保证准确性 | 2026-07-04 |
 | ADR-006 | 两阶段 Mock 策略（UI 阶段允许 mock，实现阶段禁止 mock） | 第一个计划需构建完整可交互 UI 壳子，真实 API 调用会阻塞 UI 开发；第二个计划起逐模块接入真实 API，必须用真实数据验证 | 全程禁止 Mock→UI 开发被 API 调试阻塞；全程允许 Mock→功能实现阶段无法验证真实能力 | 2026-07-05 |
 | ADR-007 | AgentScope agentic middleware + GerClaw hybrid KnowledgeBase adapter | 保留 AgentScope 2.0.4 的工具决策与权限边界，同时补齐其内置 Qdrant store 缺少的 sparse RRF、外部 rerank、引用元数据和全量增量索引能力 | 仅用内置 dense store→不满足设计要求；自研完整 agent loop→重复造轮子且偏离 AgentScope 优先级 | 2026-07-15 |
+| ADR-008 | 每 turn 隔离 AgentScope State + PostgreSQL 加密事实源 + Redis session lease | 避免跨请求共享可变 Agent/RAG 状态；支持多副本会话串行化、断线取消、幂等消息和 completed Trace 重放 | 进程内长期 Agent 对象→跨租户污染且无法横向扩展；只靠数据库锁→长模型流占用连接且租约失联难以 fail-stop | 2026-07-15 |
+| ADR-009 | 三模型仅在未产生可见/工具输出前 failover | 保证 primary→backup1→backup2 可用性，同时避免流中断后重放造成重复或相互矛盾的医疗正文 | 任意时刻切模型→用户可能收到两套冲突建议；完全不切换→单 provider 故障直接中断 | 2026-07-15 |
+| ADR-010 | Redis owner lease + PostgreSQL 单调 fencing token/Trace 绑定 + terminal 原子事务 | Redis 负责长模型调用期间低成本互斥；新 owner 通过 session 行发布更高 token 与当前 Trace，成功和失败终态均在 lease 内以 session 行锁加 Redis compare-and-renew 双重校验；assistant/成功 Trace 一次提交，SYSTEM_ERROR/失败 Trace/Bad Case 一次提交，避免租约丢失或提交故障形成矛盾终态 | 仅 owner-token→丢锁检测存在窗口；长事务数据库锁→占用连接；多次独立 commit→消息、Trace 与 Bad Case 状态可分裂 | 2026-07-15 |

@@ -1,8 +1,8 @@
-"""Chapter 4.6 Agent Harness interface; implementation follows in the next milestone."""
+"""Chapter 4.6 Agent Harness interfaces and bounded streaming contracts."""
 
 from __future__ import annotations
 
-from collections.abc import Callable
+from collections.abc import Awaitable, Callable
 from datetime import datetime
 from typing import Literal, Protocol
 
@@ -10,6 +10,15 @@ from pydantic import BaseModel, ConfigDict, Field
 
 from gerclaw_api.modules.contracts import AgentResponse, ExecutionContext
 from gerclaw_api.security import JsonValue
+
+
+class ConversationHistoryMessage(BaseModel):
+    """Bounded decrypted history supplied to an isolated AgentScope state."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    role: Literal["user", "assistant"]
+    text: str = Field(min_length=1, max_length=50_000)
 
 
 class AgentContext(BaseModel):
@@ -24,6 +33,9 @@ class AgentContext(BaseModel):
     memory_refs: list[str] = Field(default_factory=list, max_length=100)
     loaded_skills: list[str] = Field(default_factory=list, max_length=50)
     uploaded_files: list[str] = Field(default_factory=list, max_length=20)
+    conversation_history: list[ConversationHistoryMessage] = Field(
+        default_factory=list, max_length=200
+    )
 
 
 class StreamEvent(BaseModel):
@@ -52,7 +64,7 @@ class AgentHarness(Protocol):
         user_message: str,
         session_id: str,
         context: AgentContext,
-        stream_callback: Callable[[StreamEvent], None],
+        stream_callback: Callable[[StreamEvent], Awaitable[None] | None],
     ) -> AgentResponse:
         """Process one safe, traced message through AgentScope."""
 

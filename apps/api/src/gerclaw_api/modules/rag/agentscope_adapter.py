@@ -3,6 +3,9 @@
 from __future__ import annotations
 
 import asyncio
+from collections.abc import Iterator
+from contextlib import contextmanager
+from contextvars import ContextVar
 from typing import cast
 
 from agentscope.message import DataBlock, TextBlock
@@ -10,6 +13,7 @@ from agentscope.middleware import RAGMiddleware
 from agentscope.rag import Chunk, KnowledgeBase, VectorSearchResult
 
 from gerclaw_api.modules.rag.module import HybridRAGModule
+from gerclaw_api.modules.rag.protocols import RetrievalResult
 from gerclaw_api.security import JsonValue
 
 
@@ -25,6 +29,23 @@ def _metadata_str(metadata: dict[str, JsonValue], key: str) -> str:
     if not isinstance(value, str) or not value:
         raise ValueError(f"RAG result metadata field {key} must be text")
     return value
+
+
+_AGENTIC_CAPTURE: ContextVar[list[RetrievalResult] | None] = ContextVar(
+    "gerclaw_agentic_rag_capture", default=None
+)
+
+
+@contextmanager
+def capture_agentic_rag_results() -> Iterator[list[RetrievalResult]]:
+    """Capture agent-initiated evidence in the current request context."""
+
+    results: list[RetrievalResult] = []
+    token = _AGENTIC_CAPTURE.set(results)
+    try:
+        yield results
+    finally:
+        _AGENTIC_CAPTURE.reset(token)
 
 
 class HybridKnowledgeBaseAdapter:
@@ -57,6 +78,10 @@ class HybridKnowledgeBaseAdapter:
         result_sets = await asyncio.gather(
             *(self._module.retrieve(query, top_k=top_k) for query in text_queries)
         )
+        capture = _AGENTIC_CAPTURE.get()
+        if capture is not None:
+            for results in result_sets:
+                capture.extend(results)
         merged: dict[str, VectorSearchResult] = {}
         for results in result_sets:
             for result in results:
