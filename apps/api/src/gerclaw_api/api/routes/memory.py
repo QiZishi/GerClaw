@@ -121,3 +121,9 @@ async def decide_fact(
             status_code=409,
             detail={"code": "MEMORY_REVISION_CONFLICT", "message": "记忆已更新, 请刷新后重试。"},
         ) from error
+    except BaseException:
+        # The request session dependency only rolls back PostgreSQL. Memory
+        # additionally owns pre-commit Qdrant points and must compensate them
+        # for provider, flush, response projection, and cancellation failures.
+        await module.rollback()
+        raise

@@ -48,7 +48,7 @@
 
 ## 5. 执行证据
 
-- 默认测试 `238 passed, 21 skipped`，覆盖率 80.99%；真实 PostgreSQL/Redis/Qdrant 回归 `253 passed, 6 deselected`，覆盖率 88.26%。
+- 默认测试 `239 passed, 21 skipped`，覆盖率 81.20%；真实 PostgreSQL/Redis/Qdrant 回归 `254 passed, 6 deselected`，覆盖率 88.37%。接口级故障注入证明 Qdrant upsert 后任意 PostgreSQL/响应异常都会触发 rollback，并只删除本 Unit of Work 登记的精确 fenced point ID。
 - 根 `.env` 的 6 项外部用例均取得真实通过结果：全套一次为 `5 passed, 1 failed`，失败发生在新会话已召回 `memories=2` 后的供应商可见输出断流，系统按设计返回 `CHAT_MODEL_STREAM_INTERRUPTED`；该跨会话真实用例随后隔离重跑 `1 passed`。三套真实 LLM、Mimo ASR/TTS、SiliconFlow embedding/rerank、Tavily 和完整 Agentic RAG Chat 均未使用 mock 成功路径。
 - PostgreSQL 全新测试库完成 Alembic `upgrade → downgrade → upgrade` 至 `e41b8c2a2017 (head)`；`memory_fact_revisions.snapshot` 原始列为 `enc:v1:` 密文，停药/拒绝前的旧状态、剂量和 source Trace 可恢复；Docker 镜像构建、迁移、`/health/ready` 通过。
 - readiness 强制复验可在 Memory collection 被外部删除后重建；单进程锁与多副本竞争后复验保证初始化幂等；开发 collection 为 0 points、无 PHI payload，隔离的测试 collection 在 fixture 结束后不存在。

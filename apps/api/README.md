@@ -75,7 +75,7 @@ set +a
 GERCLAW_RUN_EXTERNAL=1 uv run pytest tests/test_real_external_services.py -m external -s --no-cov
 ```
 
-2026-07-15 的 0017 回归结果：默认套件 `238 passed, 21 skipped`、覆盖率 80.99%；真实 PostgreSQL/Redis/Qdrant 套件 `253 passed, 6 deselected`、覆盖率 88.26%；全新库 Alembic `upgrade → downgrade → upgrade` 到 `e41b8c2a2017 (head)` 通过。根 `.env` 的 6 项真实外部测试均取得通过结果，覆盖三套 AgentScope LLM、Mimo ASR/TTS、SiliconFlow embedding/rerank、Tavily 和完整 Chat；一次全套执行为 `5 passed, 1 failed`，失败用例已成功召回 `memories=2`，但供应商在可见输出后断流并被系统正确 fail closed，随后该真实用例隔离重跑 `1 passed`。跨会话测试由真实模型从首轮 user message 抽取青霉素过敏/阿司匹林用药，第二 session 的 AgentScope 自动召回并实际调用 `search_memory`；同时验证重放不重复、PG ciphertext、加密 revision audit、同名多次重大事件不覆盖、Qdrant 无 PHI payload、本地 RAG citation、测试 collection 清理、readiness 强制复验重建与多副本初始化竞争安全。模型候选的配置超时现在覆盖完整 stream，持续心跳无法无限占用执行槽；超时前无公开输出才 failover，已有公开输出则 fail closed。未使用 mock 成功路径。
+2026-07-15 的 0017 回归结果：默认套件 `239 passed, 21 skipped`、覆盖率 81.20%；真实 PostgreSQL/Redis/Qdrant 套件 `254 passed, 6 deselected`、覆盖率 88.37%；全新库 Alembic `upgrade → downgrade → upgrade` 到 `e41b8c2a2017 (head)` 通过。根 `.env` 的 6 项真实外部测试均取得通过结果，覆盖三套 AgentScope LLM、Mimo ASR/TTS、SiliconFlow embedding/rerank、Tavily 和完整 Chat；一次全套执行为 `5 passed, 1 failed`，失败用例已成功召回 `memories=2`，但供应商在可见输出后断流并被系统正确 fail closed，随后该真实用例隔离重跑 `1 passed`。跨会话测试由真实模型从首轮 user message 抽取青霉素过敏/阿司匹林用药，第二 session 的 AgentScope 自动召回并实际调用 `search_memory`；同时验证重放不重复、PG ciphertext、加密 revision audit、同名多次重大事件不覆盖、Qdrant 无 PHI payload、本地 RAG citation、测试 collection 清理、readiness 强制复验重建、多副本初始化竞争安全，以及事实确认接口在 vector upsert 后数据库失败时精确补偿本 Unit of Work 的 fenced point。模型候选的配置超时现在覆盖完整 stream，持续心跳无法无限占用执行槽；超时前无公开输出才 failover，已有公开输出则 fail closed。未使用 mock 成功路径。
 
 ## API
 

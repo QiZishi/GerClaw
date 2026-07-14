@@ -18,7 +18,10 @@ from agentscope.model import (
 )
 from agentscope.tool import ToolChoice
 from qdrant_client import AsyncQdrantClient
+from starlette.requests import Request
 
+from gerclaw_api.api.routes import memory as memory_routes
+from gerclaw_api.auth import AuthContext
 from gerclaw_api.database.models import (
     ConversationSession,
     HealthProfile,
@@ -1468,6 +1471,67 @@ async def test_fact_mutation_preserves_encrypted_revision_audit_projection() -> 
     assert history.snapshot["status"] == "confirmed"
     assert history.snapshot["source_trace_id"] == "trace_medication_active"
     assert cast(dict[str, object], history.snapshot["details"])["dose"] == "100mg"
+
+
+@pytest.mark.asyncio
+async def test_memory_decision_route_compensates_vector_after_post_upsert_database_failure(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    repository = _Repository(user_id=uuid.uuid4(), session_id=uuid.uuid4())
+    vector_store = _VectorStore()
+    pending = _fact(user_id=cast(uuid.UUID, repository.session.user_id), status="pending")
+    repository.facts.append(pending)
+    module = _module(repository, _Extractor([]), vector_store)
+
+    async def failing_flush() -> None:
+        raise RuntimeError("database flush failed after vector upsert")
+
+    repository.flush = failing_flush  # type: ignore[method-assign]
+
+    class _RouteRepository:
+        async def get_user(self, **_kwargs: object) -> SimpleNamespace:
+            return SimpleNamespace(id=repository.session.user_id)
+
+    class _RateLimiter:
+        async def check(self, **_kwargs: object) -> None:
+            return None
+
+    app = SimpleNamespace(
+        state=SimpleNamespace(
+            rate_limiter=_RateLimiter(),
+            settings=object(),
+            rag_runtime=SimpleNamespace(embedding_model=object()),
+            memory_store=object(),
+        )
+    )
+    request = Request({"type": "http", "app": app})
+    request.state.trace_id = "trace_memory_route_failure"
+    identity = AuthContext(
+        tenant_id="tenant_memory0001",
+        actor_id="usr_memory_unit0001",
+        scopes=frozenset({"memory:write"}),
+    )
+    monkeypatch.setattr(
+        memory_routes, "SqlAlchemyMemoryRepository", lambda _session: _RouteRepository()
+    )
+    monkeypatch.setattr(memory_routes, "_required_model", lambda _request: cast(Any, object()))
+    monkeypatch.setattr(memory_routes, "create_memory_module", lambda **_kwargs: module)
+
+    with pytest.raises(RuntimeError, match="database flush failed after vector upsert"):
+        await memory_routes.decide_fact(
+            pending.id,
+            MemoryFactDecisionRequest(expected_revision=1, decision="confirm"),
+            request,
+            cast(Any, object()),
+            identity,
+        )
+
+    assert repository.commits == 0
+    assert repository.rollbacks == 1
+    assert repository.profile is not None
+    assert repository.profile.version == 1
+    assert vector_store.records == []
+    assert vector_store.deleted_point_ids == [memory_point_id(pending.id, 2)]
 
 
 @pytest.mark.asyncio
