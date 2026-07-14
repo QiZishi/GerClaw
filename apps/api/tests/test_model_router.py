@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 from collections.abc import AsyncGenerator
 from dataclasses import dataclass
 from typing import Any
@@ -62,7 +63,9 @@ class _ScriptedModel(ChatModelBase):
         async def stream() -> AsyncGenerator[ChatResponse, None]:
             accumulated = ""
             for action in actions:
-                if action.kind == "thinking":
+                if action.kind == "sleep":
+                    await asyncio.sleep(float(action.text))
+                elif action.kind == "thinking":
                     yield ChatResponse(content=[ThinkingBlock(thinking=action.text)], is_last=False)
                 elif action.kind == "text":
                     accumulated += action.text
@@ -78,7 +81,7 @@ class _ScriptedModel(ChatModelBase):
         return stream()
 
 
-def _router(models: list[_ScriptedModel]) -> FailoverChatModel:
+def _router(models: list[_ScriptedModel], *, timeout_seconds: float = 30.0) -> FailoverChatModel:
     configs = tuple(
         AgentModelConfig(
             url=f"https://{preference}.example/v1",
@@ -86,6 +89,7 @@ def _router(models: list[_ScriptedModel]) -> FailoverChatModel:
             model_name=f"{preference}-model",
             protocol="openai",
             preference=preference,
+            timeout_seconds=timeout_seconds,
         )
         for preference in ("primary", "backup1", "backup2")
     )
@@ -198,6 +202,40 @@ async def test_partial_visible_stream_fails_closed_without_replay() -> None:
         _ScriptedModel("backup2", [_Action("text", "must-not-run")]),
     ]
     router = _router(models)
+    with pytest.raises(PartialModelStreamError):
+        await _consume(router)
+    assert [model.calls for model in models] == [1, 0, 0]
+
+
+@pytest.mark.asyncio
+async def test_total_stream_deadline_falls_over_before_visible_output() -> None:
+    models = [
+        _ScriptedModel("primary", [_Action("sleep", "0.05")]),
+        _ScriptedModel("backup1", [_Action("text", "限时备用成功")]),
+        _ScriptedModel("backup2", [_Action("text", "unused")]),
+    ]
+    router = _router(models, timeout_seconds=0.01)
+    with capture_model_attempts() as attempts:
+        assert await _consume(router) == "限时备用成功"
+    assert [(item.preference, item.outcome, item.error_code) for item in attempts] == [
+        ("primary", "started", None),
+        ("primary", "failed", "MODEL_TIMEOUT"),
+        ("backup1", "started", None),
+        ("backup1", "succeeded", None),
+    ]
+
+
+@pytest.mark.asyncio
+async def test_total_stream_deadline_after_visible_output_fails_closed() -> None:
+    models = [
+        _ScriptedModel(
+            "primary",
+            [_Action("text", "已经输出"), _Action("sleep", "0.05")],
+        ),
+        _ScriptedModel("backup1", [_Action("text", "must-not-run")]),
+        _ScriptedModel("backup2", [_Action("text", "must-not-run")]),
+    ]
+    router = _router(models, timeout_seconds=0.01)
     with pytest.raises(PartialModelStreamError):
         await _consume(router)
     assert [model.calls for model in models] == [1, 0, 0]

@@ -13,6 +13,7 @@ from redis.asyncio import Redis
 
 from gerclaw_api.config import Settings
 from gerclaw_api.database.session import Database
+from gerclaw_api.modules.memory.store import QdrantMemoryStore
 from gerclaw_api.modules.rag.protocols import RAGModule
 
 
@@ -27,12 +28,14 @@ class DependencyHealthService:
         redis_client: Redis,
         qdrant_client: AsyncQdrantClient,
         rag_module: RAGModule,
+        memory_store: QdrantMemoryStore,
     ) -> None:
         self._settings = settings
         self._database = database
         self._redis = redis_client
         self._qdrant = qdrant_client
         self._rag = rag_module
+        self._memory = memory_store
         self._cache: tuple[float, dict[str, Any]] | None = None
         self._lock = asyncio.Lock()
 
@@ -58,6 +61,7 @@ class DependencyHealthService:
                 self._probe("qdrant", self._ping_qdrant),
                 self._probe("knowledge_base", self._check_knowledge_base),
                 self._probe("rag_index", self._check_rag_index),
+                self._probe("memory_index", self._check_memory_index),
                 self._probe("agentscope", self._check_agentscope),
             )
             checks = {name: state for name, state in results}
@@ -109,6 +113,14 @@ class DependencyHealthService:
             "indexed_documents": status.indexed_documents,
             "indexed_chunks": status.indexed_chunks,
             "retrieval_mode": status.retrieval_mode,
+        }
+
+    async def _check_memory_index(self) -> dict[str, Any]:
+        await self._memory.ensure_collection(force=True)
+        return {
+            "collection": self._memory.collection,
+            "vector_points": await self._memory.count(),
+            "payload_contains_phi": False,
         }
 
     @staticmethod

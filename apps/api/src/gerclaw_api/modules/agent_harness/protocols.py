@@ -30,7 +30,10 @@ class AgentContext(BaseModel):
     system_instructions: list[str] = Field(max_length=20)
     tool_names: list[str] = Field(max_length=100)
     profile_ref: str | None = None
+    profile_context: str = Field(default="", max_length=20_000)
+    profile_version: int = Field(default=0, ge=0)
     memory_refs: list[str] = Field(default_factory=list, max_length=100)
+    session_summary: str = Field(default="", max_length=20_000)
     loaded_skills: list[str] = Field(default_factory=list, max_length=50)
     uploaded_files: list[str] = Field(default_factory=list, max_length=20)
     conversation_history: list[ConversationHistoryMessage] = Field(

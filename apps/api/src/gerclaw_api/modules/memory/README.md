@@ -1,3 +1,27 @@
 # Memory
 
-对应设计要求 §4.8。接口分离短期消息、长期画像、提取更新和上下文压缩；敏感内容通过加密列持久化。
+对应设计要求 §4.2.5、§4.8、§14。生产实现以 PostgreSQL 为健康事实权威源，并复用 AgentScope 2.0.4 `Mem0Middleware`、`ContextConfig` 和 `Agent.compress_context()`；没有第二套 ReAct，也不使用 mem0 默认 SQLite/明文向量 payload。
+
+## 数据边界
+
+- `messages.content/metadata`、`sessions.context_summary`、`health_profiles.profile`、`memory_facts.statement/details` 均使用 AES-256-GCM envelope 加密。
+- `memory_facts` 保存 tenant/user、来源 session/Trace、固定 category/type/status、稳定 HMAC dedupe key、confidence 和单调 revision；只有用户原文中可逐字验证的 `evidence_span` 才能进入事实。
+- Qdrant `gerclaw_user_memory_v1` 只保存向量、HMAC tenant/user namespace、fact UUID、category/status/revision。严禁保存 statement、evidence、actor ID 或 tenant ID 明文。
+- Qdrant point ID 为 `UUIDv5(fact_id, revision)`。检索时用 PostgreSQL 当前 `vector_revision` 生成 allowlist point IDs，再校验 Qdrant revision 与 PostgreSQL revision/status，旧写入、回滚孤儿点和 inactive fact 均不可进入 prompt。
+
+## 每轮执行
+
+1. 从加密 `messages` 加载有界短期历史；超出 token budget 时用 AgentScope 医疗摘要压缩，强制保留过敏、当前/停用药物、红旗事件和待确认信息。
+2. 将确认画像和摘要作为 `<untrusted-user-memory>` 背景，而不是 system instruction。
+3. `Mem0Middleware(mode="both")` 自动召回并暴露 `search_memory`/`add_memory`；GerClaw async client adapter 将调用映射回同一 `ProductionMemoryModule`。
+4. 写入只抽取本轮真实 user message，不从 assistant 回复或工具建议反向造事实。否认、低置信度和冲突进入 pending/inactive。
+5. assistant、事实/画像、`memory.update` Trace 与 completed Trace 在同一 request-scoped PostgreSQL 事务提交。模型、Qdrant、schema 或 ownership 失败均不发送 `done`。
+
+Qdrant 在 PostgreSQL commit 前可能存在不含 PHI 的孤儿 revision point；authoritative point-ID allowlist 令其不可检索。物理清理由显式 scroll 快照 point IDs 后删除，避免宽 filter 误删并发新 revision。
+
+## API
+
+- `GET /api/v1/memory/profile`：`memory:read`，返回当前 actor 的解密画像和事实；未建档 actor 返回空画像。
+- `POST /api/v1/memory/facts/{fact_id}/decision`：`memory:write`，使用 `expected_revision` 乐观锁确认或拒绝当前 actor 的事实；跨 actor/tenant 统一 404。
+
+所有 endpoint 共用 Redis principal 限流。Trace 只记录 fact UUID、category、数量、画像版本和结果，不记录健康文本。

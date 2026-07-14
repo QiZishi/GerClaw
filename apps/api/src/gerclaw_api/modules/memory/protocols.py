@@ -1,27 +1,83 @@
-"""Chapter 4.8 short-term, long-term, extraction, and compression interface."""
+"""Chapter 4.8 short-term, long-term, extraction, and compression boundary."""
 
 from __future__ import annotations
 
+import uuid
+from datetime import datetime
 from typing import Literal, Protocol
 
 from pydantic import BaseModel, ConfigDict, Field
 
 from gerclaw_api.security import JsonValue
 
+MemoryRole = Literal["user", "assistant", "system", "tool"]
+MemoryCategory = Literal[
+    "basic_info",
+    "allergy",
+    "condition",
+    "medication",
+    "vital_sign",
+    "assessment",
+    "event",
+    "social",
+    "preference",
+    "goal",
+]
+MemoryType = Literal["stable", "evolving", "event"]
+MemoryStatus = Literal["confirmed", "pending", "inactive"]
+
 
 class MemoryMessage(BaseModel):
+    """One bounded message at the Memory Protocol boundary."""
+
     model_config = ConfigDict(extra="forbid")
 
-    role: Literal["user", "assistant", "system", "tool"]
-    content: list[dict[str, JsonValue]] = Field(max_length=50)
+    role: MemoryRole
+    content: list[dict[str, JsonValue]] = Field(min_length=1, max_length=50)
+
+    def text(self) -> str:
+        """Project validated text blocks without accepting arbitrary objects."""
+
+        parts: list[str] = []
+        for block in self.content:
+            if block.get("type") != "text":
+                continue
+            value = block.get("text")
+            if isinstance(value, str) and value.strip():
+                parts.append(value.strip())
+        return "\n".join(parts)
+
+
+class MemoryFactView(BaseModel):
+    """Decrypted fact returned only after tenant/user and vector-version checks."""
+
+    model_config = ConfigDict(extra="forbid", from_attributes=True)
+
+    id: uuid.UUID
+    category: MemoryCategory
+    memory_type: MemoryType
+    status: MemoryStatus
+    statement: str = Field(min_length=1, max_length=1_000)
+    details: dict[str, JsonValue]
+    confidence: float = Field(ge=0, le=1)
+    revision: int = Field(ge=1)
+    source_trace_id: str | None = Field(default=None, max_length=64)
+    occurred_at: datetime | None = None
+    confirmed_at: datetime | None = None
+    updated_at: datetime
+    relevance_score: float | None = Field(default=None, ge=0, le=1)
 
 
 class UserProfile(BaseModel):
+    """Structured core profile plus optional relevance-filtered facts."""
+
     model_config = ConfigDict(extra="forbid")
 
     schema_version: int = Field(ge=1)
+    version: int = Field(ge=0)
     profile: dict[str, JsonValue]
     provenance_refs: list[str] = Field(default_factory=list, max_length=200)
+    relevant_facts: list[MemoryFactView] = Field(default_factory=list, max_length=50)
 
 
 class MemoryModule(Protocol):

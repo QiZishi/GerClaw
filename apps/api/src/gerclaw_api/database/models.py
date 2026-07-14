@@ -10,6 +10,7 @@ from sqlalchemy import (
     BigInteger,
     CheckConstraint,
     DateTime,
+    Float,
     ForeignKey,
     ForeignKeyConstraint,
     Index,
@@ -122,7 +123,7 @@ class Message(Base):
 
 
 class HealthProfile(TimestampMixin, Base):
-    """Versioned, structured patient health profile stored as JSONB."""
+    """Versioned patient profile stored in one AES-GCM encrypted column."""
 
     __tablename__ = "health_profiles"
     __table_args__ = (
@@ -138,6 +139,50 @@ class HealthProfile(TimestampMixin, Base):
     schema_version: Mapped[int] = mapped_column(Integer, default=1, nullable=False)
     version: Mapped[int] = mapped_column(Integer, default=1, nullable=False)
     profile: Mapped[dict[str, Any]] = mapped_column(EncryptedJSON(), default=dict, nullable=False)
+
+
+class MemoryFact(TimestampMixin, Base):
+    """One encrypted, evidenced user-memory fact with a vector revision."""
+
+    __tablename__ = "memory_facts"
+    __table_args__ = (
+        UniqueConstraint(
+            "tenant_id", "user_id", "fact_key", name="uq_memory_facts_tenant_user_key"
+        ),
+        CheckConstraint(
+            "category IN ('basic_info','allergy','condition','medication','vital_sign',"
+            "'assessment','event','social','preference','goal')",
+            name="valid_category",
+        ),
+        CheckConstraint("memory_type IN ('stable','evolving','event')", name="valid_memory_type"),
+        CheckConstraint("status IN ('confirmed','pending','inactive')", name="valid_status"),
+        CheckConstraint("confidence >= 0 AND confidence <= 1", name="valid_confidence"),
+        CheckConstraint("revision > 0", name="positive_revision"),
+        CheckConstraint("vector_revision >= 0", name="nonnegative_vector_revision"),
+        Index("ix_memory_facts_tenant_user_status", "tenant_id", "user_id", "status"),
+        Index("ix_memory_facts_vector_sync", "status", "revision", "vector_revision"),
+    )
+
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    tenant_id: Mapped[str] = mapped_column(String(64), nullable=False, index=True)
+    user_id: Mapped[uuid.UUID] = mapped_column(
+        ForeignKey("users.id", ondelete="CASCADE"), nullable=False
+    )
+    source_session_id: Mapped[uuid.UUID | None] = mapped_column(
+        ForeignKey("sessions.id", ondelete="SET NULL"), nullable=True
+    )
+    source_trace_id: Mapped[str | None] = mapped_column(String(64), nullable=True, index=True)
+    category: Mapped[str] = mapped_column(String(32), nullable=False)
+    memory_type: Mapped[str] = mapped_column(String(16), nullable=False)
+    fact_key: Mapped[str] = mapped_column(String(64), nullable=False)
+    status: Mapped[str] = mapped_column(String(16), nullable=False)
+    statement: Mapped[str] = mapped_column(EncryptedText(), nullable=False)
+    details: Mapped[dict[str, Any]] = mapped_column(EncryptedJSON(), default=dict, nullable=False)
+    confidence: Mapped[float] = mapped_column(Float, nullable=False)
+    revision: Mapped[int] = mapped_column(Integer, default=1, nullable=False)
+    vector_revision: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
+    occurred_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    confirmed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
 
 
 class ExecutionTrace(Base):

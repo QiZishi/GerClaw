@@ -87,7 +87,20 @@ EVENT_AUDIT_KEYS: dict[TraceEventType, frozenset[str]] = {
         {"duration_ms", "error_code", "operation", "outcome", "skill", "success"}
     ),
     TraceEventType.MEMORY_UPDATE: frozenset(
-        {"document_count", "duration_ms", "operation", "outcome", "success"}
+        {
+            "categories",
+            "confirmed_count",
+            "document_count",
+            "duration_ms",
+            "event_count",
+            "inactive_count",
+            "memory_ids",
+            "operation",
+            "outcome",
+            "pending_count",
+            "success",
+            "version",
+        }
     ),
     TraceEventType.SAFETY_CHECK: frozenset({"duration_ms", "outcome", "safety_flags", "success"}),
     TraceEventType.VOICE_CALL: frozenset(

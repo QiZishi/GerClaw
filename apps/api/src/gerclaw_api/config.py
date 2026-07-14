@@ -96,6 +96,18 @@ class Settings(BaseSettings):
     agent_evidence_top_k: int = Field(default=5, ge=1, le=10)
     agent_max_output_characters: int = Field(default=20_000, ge=1_000, le=50_000)
     chat_session_lease_ttl_seconds: int = Field(default=300, ge=60, le=900)
+    memory_collection_name: str = Field(
+        default="gerclaw_user_memory_v1",
+        min_length=3,
+        max_length=128,
+        pattern=r"^[a-z][a-z0-9_-]+$",
+    )
+    memory_retrieval_top_k: int = Field(default=5, ge=1, le=20)
+    memory_retrieval_candidates: int = Field(default=20, ge=5, le=100)
+    memory_min_score: float = Field(default=0.2, ge=0, le=1)
+    memory_context_budget_ratio: float = Field(default=0.55, ge=0.2, le=0.8)
+    memory_extraction_min_confidence: float = Field(default=0.8, ge=0.5, le=1)
+    memory_max_facts_per_turn: int = Field(default=12, ge=1, le=30)
 
     auth_jwt_secret: SecretStr = Field(
         default_factory=lambda: _load_or_create_local_secret("jwt.key"), min_length=32
@@ -401,6 +413,8 @@ class Settings(BaseSettings):
             raise ValueError("RAG target chunk size cannot exceed the hard maximum")
         if self.rag_rerank_candidates > self.rag_retrieval_candidates:
             raise ValueError("RAG rerank candidates cannot exceed retrieval candidates")
+        if self.memory_retrieval_top_k > self.memory_retrieval_candidates:
+            raise ValueError("memory top-k cannot exceed retrieval candidates")
 
         if self.app_env == "production":
             if not {"auth_jwt_secret", "data_encryption_key"}.issubset(self.model_fields_set):

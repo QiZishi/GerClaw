@@ -13,6 +13,7 @@ from redis.asyncio import Redis
 
 from gerclaw_api.api.routes.chat import router as chat_router
 from gerclaw_api.api.routes.health import router as health_router
+from gerclaw_api.api.routes.memory import router as memory_router
 from gerclaw_api.api.routes.rag import router as rag_router
 from gerclaw_api.api.routes.traces import router as traces_router
 from gerclaw_api.config import Settings, get_settings
@@ -24,6 +25,7 @@ from gerclaw_api.middleware import (
     RequestContextMiddleware,
     SecurityHeadersMiddleware,
 )
+from gerclaw_api.modules.memory.runtime import create_memory_store
 from gerclaw_api.modules.rag import (
     RAGUnavailableError,
     build_agentic_rag_middleware,
@@ -67,11 +69,13 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             api_key=qdrant_api_key or None,
         )
         rag_runtime = create_rag_runtime(resolved, qdrant_client)
+        memory_store = create_memory_store(resolved, qdrant_client)
         model_configs = resolved.agent_model_configs
         app.state.database = database
         app.state.redis = redis_client
         app.state.qdrant = qdrant_client
         app.state.rag_runtime = rag_runtime
+        app.state.memory_store = memory_store
         app.state.agentic_rag_middleware = build_agentic_rag_middleware(rag_runtime.module)
         app.state.agent_model = (
             FailoverChatModel(model_configs) if len(model_configs) == 3 else None
@@ -88,6 +92,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             redis_client=redis_client,
             qdrant_client=qdrant_client,
             rag_module=rag_runtime.module,
+            memory_store=memory_store,
         )
         try:
             yield
@@ -121,6 +126,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     app.include_router(traces_router, prefix=resolved.api_prefix)
     app.include_router(rag_router, prefix=resolved.api_prefix)
     app.include_router(chat_router, prefix=resolved.api_prefix)
+    app.include_router(memory_router, prefix=resolved.api_prefix)
 
     @app.exception_handler(TraceNotFoundError)
     async def trace_not_found(_request: Request, error: TraceNotFoundError) -> JSONResponse:

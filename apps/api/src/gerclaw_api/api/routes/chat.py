@@ -29,10 +29,13 @@ from gerclaw_api.domain.chat_schemas import (
 )
 from gerclaw_api.middleware import set_active_trace
 from gerclaw_api.modules.agent_harness import StreamEvent
+from gerclaw_api.modules.memory.memory_module import ProductionMemoryModule
+from gerclaw_api.modules.memory.runtime import create_memory_module
 from gerclaw_api.repositories.conversation import (
     ConversationConflictError,
     SqlAlchemyConversationRepository,
 )
+from gerclaw_api.repositories.memory import SqlAlchemyMemoryRepository
 from gerclaw_api.repositories.trace import SqlAlchemyTraceRepository
 from gerclaw_api.services.chat_service import ChatService
 from gerclaw_api.services.conversation_service import (
@@ -138,6 +141,29 @@ async def chat(
         database: Database = request.app.state.database
         try:
             async with database.session() as database_session:
+                memory_repository = SqlAlchemyMemoryRepository(database_session)
+
+                def memory_factory(
+                    *,
+                    tenant_id: str,
+                    actor_id: str,
+                    user_id: uuid.UUID,
+                    session_id: uuid.UUID,
+                    trace_id: str,
+                ) -> ProductionMemoryModule:
+                    return create_memory_module(
+                        settings=request.app.state.settings,
+                        repository=memory_repository,
+                        model=request.app.state.agent_model,
+                        embedding_model=request.app.state.rag_runtime.embedding_model,
+                        vector_store=request.app.state.memory_store,
+                        tenant_id=tenant_id,
+                        actor_id=actor_id,
+                        user_id=user_id,
+                        session_id=session_id,
+                        trace_id=trace_id,
+                    )
+
                 service = ChatService(
                     settings=request.app.state.settings,
                     conversation=ConversationService(
@@ -153,6 +179,7 @@ async def chat(
                     ),
                     model=request.app.state.agent_model,
                     rag_module=request.app.state.rag_runtime.module,
+                    memory_factory=memory_factory,
                 )
                 await service.process(
                     payload,
@@ -243,5 +270,6 @@ def _public_error(code: str) -> tuple[str, bool]:
         "CHAT_APPROVAL_REQUIRED": ("该操作需要医生确认，当前未执行。", False),
         "CHAT_CONTEXT_UNSUPPORTED": ("当前请求包含尚未启用的上下文类型。", False),
         "CHAT_EMPTY_RESPONSE": ("模型未返回可用内容，请稍后重试。", True),
+        "CHAT_MEMORY_UNAVAILABLE": ("健康记忆服务暂时不可用，本次未完成，请稍后重试。", True),
     }
     return errors.get(code, ("本次对话执行失败，请稍后重试。", True))

@@ -163,3 +163,19 @@ async def require_chat_write(
     """Require access to execute a tenant-scoped Agent turn."""
 
     return _authorize(identity, "chat:write")
+
+
+async def require_memory_read(
+    identity: Annotated[AuthContext, Depends(authenticate)],
+) -> AuthContext:
+    """Require access to the caller's own encrypted health memory."""
+
+    return _authorize(identity, "memory:read")
+
+
+async def require_memory_write(
+    identity: Annotated[AuthContext, Depends(authenticate)],
+) -> AuthContext:
+    """Require confirmation or retirement of the caller's memory facts."""
+
+    return _authorize(identity, "memory:write")

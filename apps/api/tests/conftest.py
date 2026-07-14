@@ -87,6 +87,9 @@ def integration_settings() -> Settings:
         ),
         qdrant_url=os.getenv("GERCLAW_TEST_QDRANT_URL", "http://127.0.0.1:6333"),
         qdrant_api_key=os.getenv("GERCLAW_TEST_QDRANT_API_KEY", "local-qdrant-only"),
+        memory_collection_name=os.getenv(
+            "GERCLAW_TEST_MEMORY_COLLECTION_NAME", "gerclaw_user_memory_test_v1"
+        ),
         knowledge_base_path=Path(knowledge_base_path),
         siliconflow_url=real_services.siliconflow_url,
         siliconflow_api_key=real_services.siliconflow_api_key.get_secret_value(),
@@ -122,11 +125,13 @@ async def integration_client(
     app = create_app(integration_settings)
     async with app.router.lifespan_context(app):
         await app.state.redis.flushdb()
+        if await app.state.qdrant.collection_exists(integration_settings.memory_collection_name):
+            await app.state.qdrant.delete_collection(integration_settings.memory_collection_name)
         async with app.state.database.engine.begin() as connection:
             await connection.execute(
                 text(
                     "TRUNCATE bad_cases, user_feedback, trace_events, messages, "
-                    "health_profiles, sessions, users, execution_traces "
+                    "memory_facts, health_profiles, sessions, users, execution_traces "
                     "RESTART IDENTITY CASCADE"
                 )
             )
@@ -142,6 +147,8 @@ async def integration_client(
                 "rag:read",
                 "chat:read",
                 "chat:write",
+                "memory:read",
+                "memory:write",
             },
         )
         async with AsyncClient(
@@ -150,3 +157,5 @@ async def integration_client(
             headers={"Authorization": f"Bearer {token}"},
         ) as client:
             yield client, app
+        if await app.state.qdrant.collection_exists(integration_settings.memory_collection_name):
+            await app.state.qdrant.delete_collection(integration_settings.memory_collection_name)

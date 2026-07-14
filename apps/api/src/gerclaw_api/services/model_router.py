@@ -40,6 +40,7 @@ class ModelAttempt:
 class _Candidate:
     preference: Literal["primary", "backup1", "backup2"]
     model: ChatModelBase
+    timeout_seconds: float
 
 
 _ATTEMPT_CAPTURE: ContextVar[list[ModelAttempt] | None] = ContextVar(
@@ -100,7 +101,12 @@ class FailoverChatModel(ChatModelBase):
         if len(configs) != 3:
             raise ValueError("GerClaw failover requires exactly three configured models")
         candidates = tuple(
-            _Candidate(config.preference, build_agentscope_model(config)) for config in configs
+            _Candidate(
+                config.preference,
+                build_agentscope_model(config),
+                config.timeout_seconds,
+            )
+            for config in configs
         )
         self._candidates = candidates
         super().__init__(
@@ -123,13 +129,18 @@ class FailoverChatModel(ChatModelBase):
         del model_name
         for index, candidate in enumerate(self._candidates):
             _record(ModelAttempt(candidate.preference, "started"))
+            loop = asyncio.get_running_loop()
+            deadline = loop.time() + candidate.timeout_seconds
             try:
-                response = await candidate.model(
-                    messages=messages,
-                    tools=tools,
-                    tool_choice=tool_choice,
-                    **kwargs,
-                )
+                async with asyncio.timeout_at(deadline):
+                    response = await candidate.model(
+                        messages=messages,
+                        tools=tools,
+                        tool_choice=tool_choice,
+                        **kwargs,
+                    )
+                if loop.time() >= deadline:
+                    raise TimeoutError("model call exceeded its total deadline")
             except asyncio.CancelledError:
                 raise
             except Exception as error:
@@ -142,7 +153,15 @@ class FailoverChatModel(ChatModelBase):
                     return response
                 _record(ModelAttempt(candidate.preference, "failed", "MODEL_EMPTY_RESPONSE"))
                 continue
-            return self._stream_with_failover(index, response, messages, tools, tool_choice, kwargs)
+            return self._stream_with_failover(
+                index,
+                response,
+                messages,
+                tools,
+                tool_choice,
+                kwargs,
+                deadline,
+            )
         raise ModelChainExhaustedError("all configured model services are unavailable")
 
     async def _stream_with_failover(
@@ -153,6 +172,7 @@ class FailoverChatModel(ChatModelBase):
         tools: list[dict[str, Any]] | None,
         tool_choice: ToolChoice | None,
         kwargs: dict[str, Any],
+        deadline: float,
     ) -> AsyncGenerator[ChatResponse, None]:
         current_index = start_index
         stream = initial
@@ -160,15 +180,21 @@ class FailoverChatModel(ChatModelBase):
             candidate = self._candidates[current_index]
             committed = False
             try:
-                async for chunk in stream:
-                    chunk_committed = _commits_stream(chunk)
-                    committed = committed or chunk_committed
-                    if chunk_committed or (
-                        not chunk.is_last
-                        and chunk.content
-                        and all(isinstance(block, ThinkingBlock) for block in chunk.content)
-                    ):
-                        yield chunk
+                async with asyncio.timeout_at(deadline):
+                    async for chunk in stream:
+                        chunk_committed = _commits_stream(chunk)
+                        committed = committed or chunk_committed
+                        if chunk_committed or (
+                            not chunk.is_last
+                            and chunk.content
+                            and all(isinstance(block, ThinkingBlock) for block in chunk.content)
+                        ):
+                            yield chunk
+                # Some provider/AgentScope stream wrappers turn task
+                # cancellation into a clean iterator end. Deadline expiry is
+                # still authoritative even when no TimeoutError propagates.
+                if asyncio.get_running_loop().time() >= deadline:
+                    raise TimeoutError("model stream exceeded its total deadline")
                 if committed:
                     _record(ModelAttempt(candidate.preference, "succeeded"))
                     return
@@ -190,13 +216,18 @@ class FailoverChatModel(ChatModelBase):
                     raise ModelChainExhaustedError("all configured model services are unavailable")
                 next_candidate = self._candidates[current_index]
                 _record(ModelAttempt(next_candidate.preference, "started"))
+                loop = asyncio.get_running_loop()
+                deadline = loop.time() + next_candidate.timeout_seconds
                 try:
-                    next_response = await next_candidate.model(
-                        messages=messages,
-                        tools=tools,
-                        tool_choice=tool_choice,
-                        **kwargs,
-                    )
+                    async with asyncio.timeout_at(deadline):
+                        next_response = await next_candidate.model(
+                            messages=messages,
+                            tools=tools,
+                            tool_choice=tool_choice,
+                            **kwargs,
+                        )
+                    if loop.time() >= deadline:
+                        raise TimeoutError("model call exceeded its total deadline")
                 except asyncio.CancelledError:
                     raise
                 except Exception as error:

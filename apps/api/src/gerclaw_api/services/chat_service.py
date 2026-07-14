@@ -10,6 +10,7 @@ import time
 import uuid
 from collections.abc import Awaitable, Callable
 from datetime import UTC, datetime
+from typing import Protocol
 
 from gerclaw_api.auth import AuthContext
 from gerclaw_api.config import Settings
@@ -21,8 +22,14 @@ from gerclaw_api.domain.trace_schemas import (
     TraceStartRequest,
 )
 from gerclaw_api.metrics import CHAT_TURN_LATENCY, CHAT_TURNS
-from gerclaw_api.modules.agent_harness import ProductionAgentHarness, StreamEvent
+from gerclaw_api.modules.agent_harness import (
+    ConversationHistoryMessage,
+    ProductionAgentHarness,
+    StreamEvent,
+)
 from gerclaw_api.modules.contracts import AgentResponse, ExecutionContext
+from gerclaw_api.modules.memory.memory_module import ProductionMemoryModule
+from gerclaw_api.modules.memory.models import MemoryUpdateResult
 from gerclaw_api.modules.rag import HybridRAGModule
 from gerclaw_api.security import JsonValue
 from gerclaw_api.services.conversation_service import ConversationService
@@ -31,6 +38,20 @@ from gerclaw_api.services.session_lease import SessionLease, SessionLeaseGuard
 from gerclaw_api.services.trace_service import TraceService
 
 StreamCallback = Callable[[StreamEvent], Awaitable[None]]
+
+
+class MemoryModuleFactory(Protocol):
+    """Build a principal- and turn-isolated Memory graph."""
+
+    def __call__(
+        self,
+        *,
+        tenant_id: str,
+        actor_id: str,
+        user_id: uuid.UUID,
+        session_id: uuid.UUID,
+        trace_id: str,
+    ) -> ProductionMemoryModule: ...
 
 
 class ChatReplayUnavailableError(RuntimeError):
@@ -71,6 +92,7 @@ class ChatService:
         lease: SessionLease,
         model: FailoverChatModel,
         rag_module: HybridRAGModule,
+        memory_factory: MemoryModuleFactory,
     ) -> None:
         self._settings = settings
         self._conversation = conversation
@@ -78,6 +100,7 @@ class ChatService:
         self._lease = lease
         self._model = model
         self._rag_module = rag_module
+        self._memory_factory = memory_factory
 
     async def process(
         self,
@@ -237,12 +260,18 @@ class ChatService:
             fencing_token=lease_guard.fencing_token,
             trace_id=trace_id,
         )
-        history = await self._conversation.load_history(
-            payload.session_id,
+        if conversation.user_id is None:
+            raise RuntimeError("conversation has no active user principal")
+        memory = self._memory_factory(
             tenant_id=identity.tenant_id,
             actor_id=identity.actor_id,
-            limit=self._settings.agent_history_messages,
-            exclude_trace_id=trace_id,
+            user_id=conversation.user_id,
+            session_id=payload.session_id,
+            trace_id=trace_id,
+        )
+        short_term = await memory.get_short_term(
+            str(payload.session_id),
+            max_turns=max(1, self._settings.agent_history_messages // 2),
         )
         await self._conversation.store_user_message(
             tenant_id=identity.tenant_id,
@@ -251,6 +280,22 @@ class ChatService:
             text=payload.message,
             channel=payload.channel,
         )
+        compressed = await memory.compress_context(
+            short_term,
+            max_tokens=max(
+                1,
+                int(self._model.context_size * self._settings.memory_context_budget_ratio),
+            ),
+        )
+        history = [
+            ConversationHistoryMessage(role=message.role, text=message.text())
+            for message in compressed
+            if message.role in {"user", "assistant"} and message.text()
+        ]
+        session_summary = "\n\n".join(
+            message.text() for message in compressed if message.role == "system" and message.text()
+        )
+        profile_context, profile_version, memory_refs = await memory.core_profile_context()
         execution = ExecutionContext(
             request_id=request_id,
             trace_id=trace_id,
@@ -262,8 +307,13 @@ class ChatService:
             settings=self._settings,
             model=self._model,
             rag_module=self._rag_module,
+            memory_module=memory,
             execution=execution,
             history=history,
+            profile_context=profile_context,
+            profile_version=profile_version,
+            memory_refs=memory_refs,
+            session_summary=session_summary,
         )
         context = await harness.assemble_context(
             str(payload.session_id),
@@ -282,6 +332,7 @@ class ChatService:
                 "module": "agent_harness",
                 "operation": "process_message",
             },
+            commit=False,
         )
 
         async def projected(event: StreamEvent) -> None:
@@ -310,6 +361,7 @@ class ChatService:
                         "tool_name": data.get("tool_name", "unknown_tool"),
                     },
                     duration_ms=duration_ms,
+                    commit=False,
                 )
 
         response = await harness.process_message(
@@ -337,7 +389,13 @@ class ChatService:
                 response=response,
                 commit=False,
             )
-            await self._record_success(identity.tenant_id, trace_id, response, commit=False)
+            await self._record_success(
+                identity.tenant_id,
+                trace_id,
+                response,
+                memory_update=memory.last_update,
+                commit=False,
+            )
             await self._traces.finish_trace(
                 identity.tenant_id,
                 trace_id,
@@ -379,6 +437,7 @@ class ChatService:
         trace_id: str,
         response: AgentResponse,
         *,
+        memory_update: MemoryUpdateResult,
         commit: bool = True,
     ) -> None:
         structured = response.structured
@@ -422,6 +481,27 @@ class ChatService:
                 },
                 commit=commit,
             )
+        memory_ids: list[JsonValue] = [str(item) for item in memory_update.changed_fact_ids]
+        memory_categories: list[JsonValue] = list(memory_update.categories)
+        memory_changed = bool(memory_ids)
+        await self._append_event(
+            tenant_id,
+            trace_id,
+            TraceEventType.MEMORY_UPDATE,
+            TraceEventStatus.SUCCEEDED if memory_changed else TraceEventStatus.SKIPPED,
+            {
+                "categories": memory_categories,
+                "confirmed_count": memory_update.confirmed_count,
+                "event_count": len(memory_ids),
+                "inactive_count": memory_update.inactive_count,
+                "memory_ids": memory_ids,
+                "outcome": "updated" if memory_changed else "unchanged",
+                "pending_count": memory_update.pending_count,
+                "success": True,
+                "version": memory_update.profile_version,
+            },
+            commit=commit,
+        )
         safety_flags: list[JsonValue] = list(response.safety.notices)
         await self._append_event(
             tenant_id,
@@ -486,6 +566,10 @@ class ChatService:
         lease_guard: SessionLeaseGuard | None,
     ) -> None:
         try:
+            # A memory tool may have staged encrypted facts before the agent
+            # fails. Clear the shared unit of work before recording the durable
+            # failure Trace, otherwise a failure transition could commit it.
+            await self._conversation.rollback()
             if fencing_token is not None:
                 allowed = await self._conversation.lock_trace_failure_fence(
                     payload.session_id,
@@ -495,7 +579,6 @@ class ChatService:
                     trace_id=trace_id,
                 )
                 if not allowed:
-                    await self._conversation.rollback()
                     return
             if lease_guard is not None:
                 await lease_guard.assert_owned()
@@ -598,5 +681,10 @@ class ChatService:
             "AgentApprovalRequiredError": "CHAT_APPROVAL_REQUIRED",
             "UnsupportedAgentContextError": "CHAT_CONTEXT_UNSUPPORTED",
             "EmptyAgentResponseError": "CHAT_EMPTY_RESPONSE",
+            "AgentScopeMemoryAdapterError": "CHAT_MEMORY_UNAVAILABLE",
+            "MemoryDataError": "CHAT_MEMORY_UNAVAILABLE",
+            "MemoryExtractionError": "CHAT_MEMORY_UNAVAILABLE",
+            "MemoryRepositoryError": "CHAT_MEMORY_UNAVAILABLE",
+            "MemoryStoreError": "CHAT_MEMORY_UNAVAILABLE",
         }
         return mapping.get(name, "CHAT_EXECUTION_FAILED")

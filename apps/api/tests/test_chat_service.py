@@ -21,6 +21,8 @@ from gerclaw_api.database.models import ConversationSession, ExecutionTrace
 from gerclaw_api.domain.chat_schemas import ChatRequest
 from gerclaw_api.domain.enums import TraceStatus
 from gerclaw_api.domain.trace_schemas import TraceEventCreate, TraceFinishRequest
+from gerclaw_api.modules.memory.models import MemoryUpdateResult
+from gerclaw_api.modules.memory.protocols import MemoryMessage, UserProfile
 from gerclaw_api.services.chat_service import ChatService
 from gerclaw_api.services.session_lease import SessionBusyError, SessionLeaseLostError
 from gerclaw_api.services.trace_service import TraceStartResult
@@ -65,6 +67,45 @@ class _TextModel(ChatModelBase):
 class _NoopRAG:
     async def retrieve(self, *_args: object, **_kwargs: object) -> list[object]:
         return []
+
+
+class _MemoryFacade:
+    def __init__(self) -> None:
+        self.short_term_sessions: list[str] = []
+        self.sources: list[str] = []
+        self.last_update = MemoryUpdateResult(profile_version=1)
+
+    async def get_short_term(self, session_id: str, max_turns: int) -> list[MemoryMessage]:
+        del max_turns
+        self.short_term_sessions.append(session_id)
+        return []
+
+    async def compress_context(
+        self, messages: list[MemoryMessage], max_tokens: int
+    ) -> list[MemoryMessage]:
+        assert max_tokens > 0
+        return messages
+
+    async def core_profile_context(self) -> tuple[str, int, list[str]]:
+        return "", 1, []
+
+    async def get_long_term(self, _actor_id: str, query: str | None = None) -> UserProfile:
+        del query
+        return UserProfile(schema_version=1, version=1, profile={})
+
+    async def extract_and_update_profile(
+        self, _actor_id: str, conversation: list[MemoryMessage]
+    ) -> None:
+        self.sources.extend(message.text() for message in conversation)
+
+
+def _memory_factory(memory: _MemoryFacade | None = None) -> Any:
+    instance = memory or _MemoryFacade()
+
+    def factory(**_kwargs: object) -> _MemoryFacade:
+        return instance
+
+    return factory
 
 
 class _ConversationFacade:
@@ -240,6 +281,7 @@ async def test_busy_retry_only_finishes_trace_created_by_this_request(
         lease=cast(Any, _BusyLease()),
         model=cast(Any, None),
         rag_module=cast(Any, None),
+        memory_factory=_memory_factory(),
     )
 
     async def callback(_event: object) -> None:
@@ -281,6 +323,7 @@ async def test_unverifiable_fence_never_mutates_possibly_adopted_trace(
         lease=cast(Any, _BusyLease()),
         model=cast(Any, None),
         rag_module=cast(Any, None),
+        memory_factory=_memory_factory(),
     )
 
     async def callback(_event: object) -> None:
@@ -307,6 +350,7 @@ async def test_owned_turn_streams_only_after_durable_success(unit_settings: Sett
     session_id = uuid.uuid4()
     traces = _TraceFacade(created=True, session_id=session_id)
     conversation = _ConversationFacade(session_id)
+    memory = _MemoryFacade()
     service = ChatService(
         settings=unit_settings,
         conversation=cast(Any, conversation),
@@ -314,6 +358,7 @@ async def test_owned_turn_streams_only_after_durable_success(unit_settings: Sett
         lease=cast(Any, _OwnedLease()),
         model=cast(Any, _TextModel()),
         rag_module=cast(Any, _NoopRAG()),
+        memory_factory=_memory_factory(memory),
     )
     events: list[object] = []
 
@@ -341,13 +386,15 @@ async def test_owned_turn_streams_only_after_durable_success(unit_settings: Sett
     assert conversation.response is response
     assert conversation.assistant_commit is False
     assert conversation.rollback_count == 0
-    assert conversation.history_exclude_trace_id == "trace_chat_busy_0001"
+    assert memory.short_term_sessions == [str(session_id)]
+    assert memory.sources == ["您好!"]
     assert response.text.endswith("内容由 AI 生成，仅供参考。身体不适请及时就医。")
     assert traces.trace.status == TraceStatus.COMPLETED.value
     trace_event_types = [event.event_type.value for event in traces.events]
     assert trace_event_types == [
         "agent.start",
         "model.call",
+        "memory.update",
         "safety.check",
         "agent.finish",
     ]
@@ -394,6 +441,7 @@ async def test_terminal_trace_failure_rolls_back_assistant_before_recording_fail
         lease=cast(Any, _OwnedLease()),
         model=cast(Any, _TextModel()),
         rag_module=cast(Any, _NoopRAG()),
+        memory_factory=_memory_factory(),
     )
     events: list[object] = []
 
@@ -414,7 +462,7 @@ async def test_terminal_trace_failure_rolls_back_assistant_before_recording_fail
         )
 
     assert conversation.response is None
-    assert conversation.rollback_count == 1
+    assert conversation.rollback_count == 2
     assert traces.trace.status == TraceStatus.FAILED.value
     assert traces.finishes[-1].status is TraceStatus.FAILED
     assert all(cast(Any, event).event_type != "done" for event in events)
@@ -434,6 +482,7 @@ async def test_stale_owner_cannot_fail_same_trace_after_successor_adoption(
         lease=cast(Any, _SupersedingLease(conversation)),
         model=cast(Any, _TextModel()),
         rag_module=cast(Any, _NoopRAG()),
+        memory_factory=_memory_factory(),
     )
 
     async def callback(_event: object) -> None:

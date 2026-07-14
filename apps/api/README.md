@@ -2,7 +2,7 @@
 
 GerClaw 二阶段生产后端。当前里程碑提供真实 PostgreSQL、Redis、Qdrant，JWT scope/tenant 隔离，Redis 原子限流，Trace/反馈/bad-case 数据闭环，以及按设计要求第四章拆分的 Agent Harness、Memory、Agentic RAG、Skill、Input/Output、Tool Protocol 边界。
 
-本地医学 Agentic RAG 已使用 AgentScope 2.0.4 `RAGMiddleware(mode="agentic")` 真实接入；生产对话 Harness 已使用 AgentScope `Agent`/ReAct、三模型依次兜底、安全 SSE、加密会话、Redis session lease 和幂等 Trace 重放形成闭环。CGA、处方、长期 Memory、Skill、上传文档与 Voice 业务仍在后续独立变更集实现。本阶段不伪造医疗对话或检索结果。
+本地医学 Agentic RAG 已使用 AgentScope 2.0.4 `RAGMiddleware(mode="agentic")` 真实接入；长期健康记忆已使用 `Mem0Middleware(mode="both")` + GerClaw adapter 接入，并以加密 PostgreSQL 为事实源、PHI-free Qdrant revision vector 为语义索引。生产对话 Harness 已形成三模型依次兜底、安全 SSE、加密会话/画像、Redis session lease 和幂等 Trace 重放闭环。CGA、处方、Skill、上传文档与 Voice 业务仍在后续独立变更集实现。本阶段不伪造医疗对话、检索或记忆结果。
 
 ## 配置与安全
 
@@ -75,12 +75,12 @@ set +a
 GERCLAW_RUN_EXTERNAL=1 uv run pytest tests/test_real_external_services.py -m external -s --no-cov
 ```
 
-2026-07-15 的 0016 最终回归结果：默认单元套件 `137 passed`、覆盖率 80.08%；真实 PostgreSQL/Redis/Qdrant 套件 `151 passed`、覆盖率 88.21%；空库 Alembic `upgrade → downgrade → upgrade` 到 `bf1a2d7c2016 (head)` 通过。根 `.env` 的三套 AgentScope LLM 以及 Mimo ASR/TTS、SiliconFlow embedding/rerank、Tavily 均以真实服务调用通过，external 套件 `5 passed`。完整 Chat 同时验证了模型自主 `search_knowledge`、Qdrant 本地证据、SSE 顺序与空白规范化、citation、AES-GCM 消息落库、Trace 完成和同 Trace 重放；未使用 mock 成功路径。
+2026-07-15 的 0017 回归结果：默认套件 `149 passed`、覆盖率 80.10%；真实 PostgreSQL/Redis/Qdrant 套件 `164 passed`、覆盖率 87.72%；全新库 Alembic `upgrade → downgrade → upgrade` 到 `d7f403a12017 (head)` 通过。根 `.env` 的 6 项真实外部测试全部通过，覆盖三套 AgentScope LLM、Mimo ASR/TTS、SiliconFlow embedding/rerank、Tavily 和完整 Chat。跨会话测试由真实模型从首轮 user message 抽取青霉素过敏/阿司匹林用药，第二 session 的 AgentScope 自动召回 `memories=2` 并实际调用 `search_memory`；同时验证重放不重复、PG ciphertext、Qdrant 无 PHI payload、本地 RAG citation、测试 collection 清理、readiness 强制复验重建与多副本初始化竞争安全。模型候选的配置超时现在覆盖完整 stream，持续心跳无法无限占用执行槽；超时前无公开输出才 failover，已有公开输出则 fail closed。未使用 mock 成功路径。
 
 ## API
 
 - `GET /health/live`：公开进程存活探针。
-- `GET /health/ready`：公开 PostgreSQL、Redis、Qdrant、AgentScope、知识库及索引一致性状态，不返回连接信息。
+- `GET /health/ready`：公开 PostgreSQL、Redis、Qdrant、AgentScope、知识库、RAG 索引及 Memory collection 状态，不返回连接信息或健康文本。
 - `GET /metrics`：要求 `metrics:read` scope。
 - `POST /api/v1/traces`：要求 `trace:write`；durable Trace ID 来自合法 `X-Trace-ID` 或服务端生成值。
 - `GET /api/v1/traces/{trace_id}`：要求 `trace:read`；使用 `after_sequence`/`limit≤100` 分页。
@@ -92,5 +92,7 @@ GERCLAW_RUN_EXTERNAL=1 uv run pytest tests/test_real_external_services.py -m ext
 - `POST /api/v1/sessions`：要求 `chat:write`；创建或幂等返回当前 tenant/actor 所属会话。
 - `GET /api/v1/sessions/{session_id}/messages`：要求 `chat:read`；只返回当前 tenant/actor 的有界解密历史，其他主体统一返回 404。
 - `POST /api/v1/chat`：要求 `chat:write`；运行 AgentScope ReAct + 本地 Agentic RAG，返回 `agent_start/thinking/tool_call/tool_result/text_delta/done` SSE。医疗请求无本地证据时 fail closed；`done` 仅在加密消息和 completed Trace 已提交后发送。
+- `GET /api/v1/memory/profile`：要求 `memory:read`；返回当前 actor 的加密健康画像投影和 evidenced facts，未建档访客返回空画像。
+- `POST /api/v1/memory/facts/{fact_id}/decision`：要求 `memory:write`；用 expected revision 确认或拒绝当前 actor 的事实，跨主体统一 404。
 
 所有受保护 API 共享每主体 `100 requests/minute` 的 Redis 原子限流；Redis 故障时写链路 fail closed。请求体在 JSON 解析前限制为 256 KiB，嵌套深度、节点数、字符串长度和非有限浮点数也在 Pydantic 信任边界拒绝。

@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import base64
 import json
 import os
@@ -15,6 +16,7 @@ from pydantic import SecretStr
 from sqlalchemy import text
 
 from gerclaw_api.config import Settings
+from gerclaw_api.modules.memory.store import memory_point_id
 from gerclaw_api.modules.rag.providers import SiliconFlowEmbeddingModel, SiliconFlowReranker
 from gerclaw_api.services.model_factory import build_agentscope_model, close_agentscope_model
 
@@ -59,8 +61,9 @@ async def test_real_agent_model_chain() -> None:
         model = build_agentscope_model(config)
         try:
             final = None
-            async for chunk in await model([UserMsg(name="user", content="只回复 GERCLAW_OK")]):
-                final = chunk
+            async with asyncio.timeout(config.timeout_seconds):
+                async for chunk in await model([UserMsg(name="user", content="只回复 GERCLAW_OK")]):
+                    final = chunk
             assert final is not None
             assert "GERCLAW_OK" in str(final.content)
             assert final.usage is not None
@@ -143,6 +146,7 @@ async def test_real_chat_sse_agentic_rag_persistence_and_replay(
     assert "tool.call" in trace_types
     assert "model.call" in trace_types
     assert "rag.retrieve" in trace_types
+    assert "memory.update" in trace_types
     assert "safety.check" in trace_types
     telemetry = json.dumps(trace_payload, ensure_ascii=False)
     assert payload["message"] not in telemetry
@@ -182,6 +186,146 @@ async def test_real_chat_sse_agentic_rag_persistence_and_replay(
     assert len(encrypted) == 2
     assert all(row.content.startswith("enc:v1:") for row in encrypted)
     assert all(row.metadata.startswith("enc:v1:") for row in encrypted)
+
+
+@pytest.mark.integration
+@pytest.mark.asyncio
+async def test_real_cross_session_evidenced_memory_recall_and_encrypted_storage(
+    integration_client: tuple[AsyncClient, object],
+) -> None:
+    """Prove real-model extraction, cross-session recall, and PHI-free vector payloads."""
+
+    client, app = integration_client
+    first_session = uuid.uuid4()
+    first_trace = "trace_real_memory_write_0001"
+    assert (
+        await client.post("/api/v1/sessions", json={"session_id": str(first_session)})
+    ).status_code == 201
+    first_payload = {
+        "session_id": str(first_session),
+        "message": (
+            "这是我的明确健康资料：我对青霉素过敏，曾出现皮疹；"
+            "目前每天服用阿司匹林100mg。请调用 search_knowledge 检索老年用药风险依据，"
+            "并告诉我需要向医生核验什么。"
+        ),
+        "channel": "web",
+    }
+    first = await client.post(
+        "/api/v1/chat",
+        headers={"X-Trace-ID": first_trace, "X-Request-ID": "request_real_memory_write"},
+        json=first_payload,
+        timeout=240,
+    )
+    first_events = _sse_events(first.text)
+    assert first.status_code == 200, first.text
+    assert first_events[-1][0] == "done", first_events[-2:]
+
+    profile_response = await client.get("/api/v1/memory/profile")
+    assert profile_response.status_code == 200, profile_response.text
+    profile = profile_response.json()
+    facts = profile["facts"]
+    assert facts
+    serialized_facts = json.dumps(facts, ensure_ascii=False)
+    assert "青霉素" in serialized_facts
+    assert "阿司匹林" in serialized_facts
+    confirmed = [fact for fact in facts if fact["status"] == "confirmed"]
+    assert confirmed
+
+    first_trace_response = await client.get(f"/api/v1/traces/{first_trace}?limit=100")
+    assert first_trace_response.status_code == 200
+    memory_events = [
+        event
+        for event in first_trace_response.json()["events"]
+        if event["event_type"] == "memory.update"
+    ]
+    assert len(memory_events) == 1
+    assert memory_events[0]["status"] == "succeeded"
+    assert memory_events[0]["payload"]["event_count"] >= 1
+
+    async with app.state.database.engine.connect() as connection:
+        raw_rows = (
+            await connection.execute(
+                text(
+                    "SELECT statement, details FROM memory_facts "
+                    "WHERE tenant_id=:tenant ORDER BY created_at"
+                ),
+                {"tenant": "tenant_public0001"},
+            )
+        ).all()
+        raw_profile = (
+            await connection.execute(
+                text("SELECT profile FROM health_profiles WHERE tenant_id=:tenant"),
+                {"tenant": "tenant_public0001"},
+            )
+        ).scalar_one()
+    assert raw_rows
+    assert all(row.statement.startswith("enc:v1:") for row in raw_rows)
+    assert all(row.details.startswith("enc:v1:") for row in raw_rows)
+    assert raw_profile.startswith("enc:v1:")
+    raw_ciphertext = raw_profile + "".join(row.statement + row.details for row in raw_rows)
+    assert "青霉素" not in raw_ciphertext
+    assert "阿司匹林" not in raw_ciphertext
+
+    point_ids = [memory_point_id(uuid.UUID(fact["id"]), fact["revision"]) for fact in confirmed]
+    vector_points = await app.state.qdrant.retrieve(
+        collection_name=app.state.settings.memory_collection_name,
+        ids=point_ids,
+        with_payload=True,
+        with_vectors=False,
+    )
+    assert vector_points
+    vector_payload = json.dumps(
+        [point.payload for point in vector_points], ensure_ascii=False, default=str
+    )
+    assert "青霉素" not in vector_payload
+    assert "阿司匹林" not in vector_payload
+    assert "statement" not in vector_payload
+    assert "tenant_public0001" not in vector_payload
+
+    replay = await client.post(
+        "/api/v1/chat",
+        headers={"X-Trace-ID": first_trace, "X-Request-ID": "request_real_memory_replay"},
+        json=first_payload,
+        timeout=30,
+    )
+    assert _sse_events(replay.text)[-1][1]["replayed"] is True
+    replay_profile = (await client.get("/api/v1/memory/profile")).json()
+    assert replay_profile["version"] == profile["version"]
+    assert len(replay_profile["facts"]) == len(facts)
+
+    second_session = uuid.uuid4()
+    second_trace = "trace_real_memory_read_0001"
+    assert (
+        await client.post("/api/v1/sessions", json={"session_id": str(second_session)})
+    ).status_code == 201
+    second = await client.post(
+        "/api/v1/chat",
+        headers={"X-Trace-ID": second_trace, "X-Request-ID": "request_real_memory_read"},
+        json={
+            "session_id": str(second_session),
+            "message": (
+                "请先调用 search_memory 回忆我以前明确说过的药物过敏史和当前用药，"
+                "再调用 search_knowledge 检索本地知识库中老年患者多重用药风险审查的依据，"
+                "并列出需要我向医生再次核验的信息。"
+            ),
+            "channel": "web",
+        },
+        timeout=240,
+    )
+    second_events = _sse_events(second.text)
+    assert second.status_code == 200, second.text
+    assert second_events[-1][0] == "done", second_events[-2:]
+    second_text = second_events[-1][1]["full_text"]
+    assert isinstance(second_text, str)
+    assert "青霉素" in second_text
+    assert "阿司匹林" in second_text
+    memory_tool_calls = [
+        data
+        for name, data in second_events
+        if name == "tool_call" and data.get("tool_name") == "search_memory"
+    ]
+    assert memory_tool_calls
+    assert second_events[-1][1]["references"]
 
 
 @pytest.mark.asyncio

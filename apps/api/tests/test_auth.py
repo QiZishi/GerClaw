@@ -12,6 +12,8 @@ from gerclaw_api.auth import (
     authenticate,
     create_access_token,
     require_feedback_write,
+    require_memory_read,
+    require_memory_write,
     require_metrics_read,
     require_trace_read,
     require_trace_write,
@@ -32,7 +34,14 @@ async def test_authentication_verifies_claims_and_scopes() -> None:
         settings,
         actor_id="usr_patient_auth0001",
         tenant_id="tenant_public0001",
-        scopes={"trace:read", "trace:write", "feedback:write", "metrics:read"},
+        scopes={
+            "trace:read",
+            "trace:write",
+            "feedback:write",
+            "metrics:read",
+            "memory:read",
+            "memory:write",
+        },
     )
     identity = await authenticate(
         request,
@@ -43,6 +52,8 @@ async def test_authentication_verifies_claims_and_scopes() -> None:
     assert await require_trace_write(identity) is identity
     assert await require_feedback_write(identity) is identity
     assert await require_metrics_read(identity) is identity
+    assert await require_memory_read(identity) is identity
+    assert await require_memory_write(identity) is identity
 
 
 @pytest.mark.asyncio

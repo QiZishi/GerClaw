@@ -24,6 +24,8 @@ from gerclaw_api.modules.agent_harness.safety import (
     EvidenceUnavailableError,
 )
 from gerclaw_api.modules.contracts import ExecutionContext
+from gerclaw_api.modules.memory.models import MemoryUpdateResult
+from gerclaw_api.modules.memory.protocols import MemoryMessage, UserProfile
 from gerclaw_api.modules.rag.protocols import RetrievalResult
 from gerclaw_api.services.model_router import FailoverChatModel
 
@@ -106,6 +108,22 @@ class _HarnessRAG:
         return self.results
 
 
+class _HarnessMemory:
+    def __init__(self) -> None:
+        self.searches: list[str] = []
+        self.sources: list[str] = []
+        self.last_update = MemoryUpdateResult(profile_version=1)
+
+    async def get_long_term(self, _actor_id: str, query: str | None = None) -> UserProfile:
+        self.searches.append(query or "")
+        return UserProfile(schema_version=1, version=1, profile={})
+
+    async def extract_and_update_profile(
+        self, _actor_id: str, conversation: list[MemoryMessage]
+    ) -> None:
+        self.sources.extend(message.text() for message in conversation)
+
+
 def _evidence() -> RetrievalResult:
     return RetrievalResult(
         content="老年高血压管理需结合血压测量、合并症与用药情况综合评估。",
@@ -143,6 +161,7 @@ def _harness(
         settings=settings,
         model=cast(FailoverChatModel, model),
         rag_module=cast(Any, rag),
+        memory_module=cast(Any, _HarnessMemory()),
         execution=_execution(),
         history=history or [],
     )
