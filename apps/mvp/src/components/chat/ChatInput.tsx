@@ -262,9 +262,6 @@ export function ChatInput({
   const availableSkills = useSkillStore((s) => s.skills);
   const skillStatus = useSkillStore((s) => s.status);
   const refreshSkills = useSkillStore((s) => s.refresh);
-  const setChatAction = useAppStore((s) => s.setChatAction);
-  const chatAction = useAppStore((s) => s.chatAction);
-  const setRightPanel = useAppStore((s) => s.setRightPanel);
   const isOnline = useAppStore((s) => s.isOnline);
   const asrAvailable = useAppStore((s) => s.asrAvailable);
 
@@ -273,7 +270,7 @@ export function ChatInput({
       onStartAction(action);
       return;
     }
-    setChatAction(action);
+    toast.show("该临床工作流正在接入。您仍可在对话中描述情况，GerClaw 会基于真实后端证据提供一般健康咨询。");
   };
 
   const [text, setText] = useState("");
@@ -350,10 +347,6 @@ export function ChatInput({
   };
 
   const handleFileSelect = () => {
-    if (chatAction === "prescription" || chatAction === "drug-review") {
-      setRightPanel("file-preview");
-      return;
-    }
     fileInputRef.current?.click();
   };
 
@@ -419,12 +412,6 @@ export function ChatInput({
   const handleFileChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const files = e.target.files;
     if (!files || files.length === 0) return;
-
-    if (chatAction === "prescription" || chatAction === "drug-review") {
-      setRightPanel("file-preview");
-      e.target.value = "";
-      return;
-    }
 
     const isImage = (file: File) => ALLOWED_IMAGE_MIME_TYPES.includes(file.type as (typeof ALLOWED_IMAGE_MIME_TYPES)[number]);
     const documentFiles: File[] = [];
