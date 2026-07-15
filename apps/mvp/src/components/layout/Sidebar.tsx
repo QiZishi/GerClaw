@@ -189,13 +189,13 @@ export function Sidebar({ onNavigate }: SidebarProps) {
       style={{ width: LAYOUT.sidebar.expanded }}
     >
       {/* ===== 顶部：标识区 + 折叠按钮 ===== */}
-      <div className="flex items-center gap-2 px-3 h-14 shrink-0">
+      <div className={cn("flex items-center gap-2 px-3 h-14 shrink-0", seniorMode && "h-16")}>
         <div className="flex items-center justify-center size-8 rounded-lg bg-primary text-primary-foreground shrink-0">
           <Stethoscope className="size-4" />
         </div>
         <div className="flex items-center gap-2 min-w-0 flex-1">
-          <span className="font-bold text-base">GerClaw</span>
-          <Badge variant="secondary" className={cn("shrink-0", getRoleBadgeColor())}>
+          <span className={cn("font-bold text-base", seniorMode && "text-lg")}>GerClaw</span>
+          <Badge variant="secondary" className={cn("shrink-0", seniorMode && "text-base", getRoleBadgeColor())}>
             {getRoleBadgeLabel()}
           </Badge>
         </div>
@@ -204,14 +204,15 @@ export function Sidebar({ onNavigate }: SidebarProps) {
             render={
               <Button
                 variant="ghost"
-                size="icon-sm"
-                className="btn-icon shrink-0"
+                size={seniorMode ? "default" : "icon-sm"}
+                className={cn("btn-icon shrink-0", seniorMode && "min-h-12 gap-1 px-2 text-base")}
                 onClick={toggleSidebar}
                 aria-label="折叠侧边栏"
               />
             }
           >
             <Menu className="size-4" />
+            {seniorMode && <span>收起</span>}
           </TooltipTrigger>
           <TooltipContent>折叠</TooltipContent>
         </Tooltip>
@@ -221,7 +222,7 @@ export function Sidebar({ onNavigate }: SidebarProps) {
       <div className="px-3 pb-2">
         <Button
           variant="default"
-          className="w-full justify-start gap-2"
+          className={cn("w-full justify-start gap-2", seniorMode && "min-h-12 text-lg")}
           onClick={handleNewSession}
         >
           <Plus className="size-4" />
@@ -233,7 +234,7 @@ export function Sidebar({ onNavigate }: SidebarProps) {
       <div className="px-3 pb-2">
         <Button
           variant={mainView === "skills" ? "secondary" : "ghost"}
-          className="w-full justify-start gap-2"
+          className={cn("w-full justify-start gap-2", seniorMode && "min-h-12 text-lg")}
           onClick={handleToggleSkills}
           aria-label="技能"
         >
@@ -250,7 +251,7 @@ export function Sidebar({ onNavigate }: SidebarProps) {
             placeholder="搜索历史对话"
             value={searchQuery}
             onChange={(e) => setSearchQuery(e.target.value)}
-            className="pl-8 h-8"
+            className={cn("pl-8 h-8", seniorMode && "h-12 pl-10 text-lg")}
           />
         </div>
       </div>
@@ -259,13 +260,13 @@ export function Sidebar({ onNavigate }: SidebarProps) {
       <ScrollArea className="flex-1 min-h-0">
         <div className="px-2 py-1">
           {!mounted ? (
-            <div className="px-2 py-4 text-center text-sm text-muted-foreground">
+            <div className={cn("px-2 py-4 text-center text-sm text-muted-foreground", seniorMode && "text-lg")}>
               加载中...
             </div>
           ) : effectiveSessions.length === 0 ? (
             <div className="px-3 py-7 text-center">
-              <p className="text-sm font-medium">还没有对话</p>
-              <p className="mt-1 text-xs leading-relaxed text-muted-foreground">点击“新建对话”，用语音或文字开始健康咨询。</p>
+              <p className={cn("text-sm font-medium", seniorMode && "text-lg")}>还没有对话</p>
+              <p className={cn("mt-1 text-xs leading-relaxed text-muted-foreground", seniorMode && "text-base")}>点击“新建对话”，用语音或文字开始健康咨询。</p>
             </div>
           ) : (
             (Object.keys(groupedSessions) as SessionGroup[]).map((group) => {
@@ -273,7 +274,7 @@ export function Sidebar({ onNavigate }: SidebarProps) {
               if (list.length === 0) return null;
               return (
                 <div key={group} className="mb-2">
-                  <div className="px-2 py-1 text-xs font-medium text-muted-foreground">
+                  <div className={cn("px-2 py-1 text-xs font-medium text-muted-foreground", seniorMode && "text-base")}>
                     {group}
                   </div>
                   {list.map((s) => (
@@ -285,6 +286,7 @@ export function Sidebar({ onNavigate }: SidebarProps) {
                       onRename={(title) => renameSession(s.id, title)}
                       onDelete={() => removeSession(s.id)}
                       onTogglePin={() => togglePinSession(s.id)}
+                      seniorMode={seniorMode}
                     />
                   ))}
                 </div>
@@ -303,7 +305,10 @@ export function Sidebar({ onNavigate }: SidebarProps) {
             render={
               <button
                 type="button"
-                className="flex items-center gap-2 w-full rounded-lg hover:bg-sidebar-accent p-1.5 transition-colors"
+                className={cn(
+                  "flex items-center gap-2 w-full rounded-lg hover:bg-sidebar-accent p-1.5 transition-colors",
+                  seniorMode && "min-h-14 px-2 py-2 text-lg"
+                )}
                 aria-label="用户菜单"
               />
             }
@@ -320,13 +325,13 @@ export function Sidebar({ onNavigate }: SidebarProps) {
               </AvatarFallback>
             </Avatar>
             <div className="flex-1 min-w-0 text-left">
-              <div className="text-sm font-medium truncate">访客用户</div>
-              <div className="text-xs text-muted-foreground truncate">
+              <div className={cn("text-sm font-medium truncate", seniorMode && "text-lg")}>访客用户</div>
+              <div className={cn("text-xs text-muted-foreground truncate", seniorMode && "text-base")}>
                 {getModeLabel()}
               </div>
             </div>
           </DropdownMenuTrigger>
-          <DropdownMenuContent align="end" className="w-60">
+          <DropdownMenuContent align="end" className={cn("w-60", seniorMode && "w-72 text-base")}>
             <DropdownMenuGroup>
               <DropdownMenuLabel>访客用户</DropdownMenuLabel>
             </DropdownMenuGroup>
@@ -336,7 +341,7 @@ export function Sidebar({ onNavigate }: SidebarProps) {
             <DropdownMenuGroup>
               <DropdownMenuLabel className="text-xs font-normal text-muted-foreground">选择模式</DropdownMenuLabel>
               <DropdownMenuItem
-                className={cn("cursor-pointer gap-2", isVisitor && "bg-accent")}
+                className={cn("cursor-pointer gap-2", seniorMode && "min-h-12 text-base", isVisitor && "bg-accent")}
                 onClick={() => setRole("visitor")}
               >
                 <Users className="size-4 text-gray-500" />
@@ -344,7 +349,7 @@ export function Sidebar({ onNavigate }: SidebarProps) {
                 {isVisitor && <Check className="size-4 ml-auto" />}
               </DropdownMenuItem>
               <DropdownMenuItem
-                className={cn("cursor-pointer gap-2", isPatient && "bg-accent")}
+                className={cn("cursor-pointer gap-2", seniorMode && "min-h-12 text-base", isPatient && "bg-accent")}
                 onClick={() => setRole("patient")}
               >
                 <User className="size-4 text-primary" />
@@ -352,7 +357,7 @@ export function Sidebar({ onNavigate }: SidebarProps) {
                 {isPatient && <Check className="size-4 ml-auto" />}
               </DropdownMenuItem>
               <DropdownMenuItem
-                className={cn("cursor-pointer gap-2", isDoctor && "bg-accent")}
+                className={cn("cursor-pointer gap-2", seniorMode && "min-h-12 text-base", isDoctor && "bg-accent")}
                 onClick={() => setRole("doctor")}
               >
                 <Stethoscope className="size-4 text-blue-600" />
@@ -365,7 +370,7 @@ export function Sidebar({ onNavigate }: SidebarProps) {
 
             {/* 老年模式（仅患者端）*/}
             {isPatient && (
-              <div className="flex items-center justify-between px-2 py-1.5 text-sm">
+              <div className={cn("flex items-center justify-between px-2 py-1.5 text-sm", seniorMode && "min-h-12 text-base")}>
                 <span>老年模式</span>
                 <Switch
                   checked={seniorMode}
@@ -378,7 +383,7 @@ export function Sidebar({ onNavigate }: SidebarProps) {
             {/* 主题切换 */}
             <DropdownMenuItem
               onClick={toggleTheme}
-              className="flex items-center justify-between cursor-pointer"
+              className={cn("flex items-center justify-between cursor-pointer", seniorMode && "min-h-12 text-base")}
             >
               <span className="flex items-center gap-2">
                 {resolvedTheme === "dark" ? (
@@ -388,24 +393,24 @@ export function Sidebar({ onNavigate }: SidebarProps) {
                 )}
                 主题
               </span>
-              <span className="text-xs text-muted-foreground">
+              <span className={cn("text-xs text-muted-foreground", seniorMode && "text-base")}>
                 {resolvedTheme === "dark" ? "深色" : "浅色"}
               </span>
             </DropdownMenuItem>
 
             <DropdownMenuSeparator />
             <DropdownMenuGroup>
-              <DropdownMenuItem className="cursor-pointer" onClick={() => setRightPanel("settings")}>
+              <DropdownMenuItem className={cn("cursor-pointer", seniorMode && "min-h-12 text-base")} onClick={() => setRightPanel("settings")}>
                 <Settings className="size-4" />
                 设置
               </DropdownMenuItem>
-              <DropdownMenuItem className="cursor-pointer" onClick={() => toast.show("帮助中心正在整理中；您可以先选择患者模式或医生模式开始咨询。")}>
+              <DropdownMenuItem className={cn("cursor-pointer", seniorMode && "min-h-12 text-base")} onClick={() => toast.show("帮助中心正在整理中；您可以先选择患者模式或医生模式开始咨询。")}>
                 <HelpCircle className="size-4" />
                 帮助
               </DropdownMenuItem>
             </DropdownMenuGroup>
             <DropdownMenuSeparator />
-            <DropdownMenuItem className="cursor-pointer" onClick={() => {
+            <DropdownMenuItem className={cn("cursor-pointer", seniorMode && "min-h-12 text-base")} onClick={() => {
               setRole("visitor");
               setCurrentSession(null);
               closeRightPanel();
@@ -429,6 +434,7 @@ function SessionItem({
   onRename,
   onDelete,
   onTogglePin,
+  seniorMode,
 }: {
   session: Session;
   active: boolean;
@@ -436,6 +442,7 @@ function SessionItem({
   onRename: (title: string) => void;
   onDelete: () => void;
   onTogglePin: () => void;
+  seniorMode: boolean;
 }) {
   // onRename 当前未接入 UI（重命名弹窗在 Phase 4 接入）
   void onRename;
@@ -444,12 +451,12 @@ function SessionItem({
     <div
       data-session-item
       className={cn(
-        "group relative flex items-center gap-2 rounded-xl px-2 py-2.5 mx-0.5 cursor-pointer transition-colors duration-150 ease-out",
+        "group relative flex items-center gap-2 rounded-xl px-2 py-2.5 mx-0.5 transition-colors duration-150 ease-out",
+        seniorMode && "flex-col items-stretch px-3 py-3",
         active
           ? "bg-sidebar-accent text-sidebar-accent-foreground"
           : "hover:bg-sidebar-accent/70"
       )}
-      onClick={onSelect}
     >
       {/* 选中态左侧指示条 */}
       <div
@@ -458,31 +465,41 @@ function SessionItem({
           active ? "opacity-100" : "opacity-0"
         )}
       />
-      <div className="flex-1 min-w-0 ml-1">
+      <button type="button" className={cn("flex-1 min-w-0 ml-1 text-left", seniorMode && "min-h-12")} onClick={onSelect}>
         <div className="flex items-center gap-1">
           {session.pinned && <Pin className="size-3 text-primary shrink-0" />}
-          <div className="text-sm font-medium truncate">{session.title}</div>
+          <div className={cn("text-sm font-medium truncate", seniorMode && "text-lg")}>{session.title}</div>
         </div>
-        <div className="text-xs text-muted-foreground truncate mt-0.5">
+        <div className={cn("text-xs text-muted-foreground truncate mt-0.5", seniorMode && "text-base")}>
           {session.lastMessagePreview ?? formatRelativeTime(session.updatedAt)}
         </div>
-      </div>
+      </button>
       {/* 操作按钮 */}
-      <div className="flex items-center gap-0.5 opacity-0 group-hover:opacity-100 focus-within:opacity-100 transition-opacity duration-150 ease-out">
+      <div className={cn(
+        "flex items-center gap-0.5 opacity-0 group-hover:opacity-100 focus-within:opacity-100 transition-opacity duration-150 ease-out",
+        seniorMode && "justify-end gap-2 opacity-100"
+      )}>
         <button
           type="button"
-          className="p-1.5 rounded-lg hover:bg-background text-muted-foreground hover:text-foreground transition-colors"
+          className={cn(
+            "p-1.5 rounded-lg hover:bg-background text-muted-foreground hover:text-foreground transition-colors",
+            seniorMode && "inline-flex min-h-12 items-center gap-1.5 px-3 text-base"
+          )}
           onClick={(e) => {
             e.stopPropagation();
             onTogglePin();
           }}
-          aria-label="置顶"
+          aria-label={session.pinned ? "取消置顶" : "置顶"}
         >
           <Pin className="size-3.5" />
+          {seniorMode && <span>{session.pinned ? "取消置顶" : "置顶"}</span>}
         </button>
         <button
           type="button"
-          className="p-1.5 rounded-lg hover:bg-background text-muted-foreground hover:text-destructive transition-colors"
+          className={cn(
+            "p-1.5 rounded-lg hover:bg-background text-muted-foreground hover:text-destructive transition-colors",
+            seniorMode && "inline-flex min-h-12 items-center gap-1.5 px-3 text-base"
+          )}
           onClick={(e) => {
             e.stopPropagation();
             onDelete();
@@ -490,6 +507,7 @@ function SessionItem({
           aria-label="删除"
         >
           <Trash2 className="size-3.5" />
+          {seniorMode && <span>删除</span>}
         </button>
       </div>
     </div>

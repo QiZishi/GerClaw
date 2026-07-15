@@ -3,6 +3,8 @@
 import { useEffect, useRef, useState, useCallback } from "react";
 import { ArrowDown } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import { useAppStore } from "@/stores/appStore";
+import { cn } from "@/lib/utils";
 import { MessageBubble } from "./MessageBubble";
 import type { Message } from "@/types";
 
@@ -26,6 +28,7 @@ export function MessageList({
   const bottomRef = useRef<HTMLDivElement>(null);
   const containerRef = useRef<HTMLDivElement>(null);
   const [showScrollDown, setShowScrollDown] = useState(false);
+  const seniorMode = useAppStore((state) => state.seniorMode);
   const autoScrollEnabledRef = useRef(true);
   const isUserScrollingRef = useRef(false);
 
@@ -145,12 +148,16 @@ export function MessageList({
       {showScrollDown && (
         <Button
           variant="outline"
-          size="icon"
-          className="btn-icon absolute bottom-4 left-1/2 -translate-x-1/2 rounded-full shadow-md z-10"
+          size={seniorMode ? "default" : "icon"}
+          className={cn(
+            "btn-icon absolute bottom-4 left-1/2 -translate-x-1/2 rounded-full shadow-md z-10",
+            seniorMode && "min-h-12 gap-2 px-4 text-base"
+          )}
           onClick={handleScrollToBottom}
           aria-label="回到底部"
         >
           <ArrowDown className="size-4" />
+          {seniorMode && <span>回到底部</span>}
         </Button>
       )}
     </div>

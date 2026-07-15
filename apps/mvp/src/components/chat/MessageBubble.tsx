@@ -200,14 +200,18 @@ export function MessageBubble({
     setShowFeedbackDialog(true);
   };
 
-  const handleFeedbackClose = () => {
-    if (feedbackType) {
-      setMessageFeedback(message.id, feedbackType);
-      toast.show("感谢反馈");
-    }
+  const dismissFeedbackDialog = () => {
     setShowFeedbackDialog(false);
     setFeedbackText("");
     setFeedbackType(null);
+  };
+
+  const submitFeedback = () => {
+    if (feedbackType) {
+      setMessageFeedback(message.id, feedbackType, feedbackText.trim() || undefined);
+      toast.show("感谢反馈");
+    }
+    dismissFeedbackDialog();
   };
 
   const handleEditInDoc = () => {
@@ -238,8 +242,9 @@ export function MessageBubble({
     "transition-all duration-200 ease-out",
     appeared ? "opacity-100 translate-y-0" : "opacity-0 translate-y-2"
   );
-  const iconSize = seniorMode ? "size-4" : "size-3.5";
-  const btnSize = seniorMode ? "icon" : "icon-sm";
+  const iconSize = seniorMode ? "size-5" : "size-3.5";
+  const btnSize = seniorMode ? "default" : "icon-sm";
+  const seniorActionClass = seniorMode ? "min-h-12 gap-1.5 px-3 text-base" : undefined;
   const showRegenerate =
     !isUser &&
     isLastMessage &&
@@ -444,7 +449,7 @@ export function MessageBubble({
         {message.hasDisclaimer && !hasInlineDisclaimer && (
           <div className={cn(
             "text-muted-foreground px-2",
-            seniorMode ? "text-xs" : "text-[11px]"
+            seniorMode ? "text-lg leading-relaxed" : "text-[11px]"
           )}>
             {MEDICAL_DISCLAIMER}
           </div>
@@ -465,7 +470,7 @@ export function MessageBubble({
                 "flex items-center gap-0.5 transition-opacity duration-150",
                 "rounded-full bg-muted/40 border border-border/40 px-1 py-0.5",
                 seniorMode
-                  ? "opacity-100"
+                  ? "flex-wrap gap-1 rounded-xl px-2 py-1 opacity-100"
                   : "opacity-0 group-hover:opacity-100 focus-within:opacity-100"
               )}
             >
@@ -477,13 +482,14 @@ export function MessageBubble({
                         <Button
                           variant="ghost"
                           size={btnSize}
-                          className={cn(feedback === 'up' && "text-primary bg-primary/10")}
+                          className={cn(seniorActionClass, feedback === 'up' && "text-primary bg-primary/10")}
                           onClick={() => handleFeedbackClick('up')}
                           aria-label="赞"
                         />
                       }
                     >
                       <ThumbsUp className={iconSize} fill={feedback === 'up' ? 'currentColor' : 'none'} />
+                      {seniorMode && <span>有帮助</span>}
                     </TooltipTrigger>
                     <TooltipContent>赞</TooltipContent>
                   </Tooltip>
@@ -494,13 +500,14 @@ export function MessageBubble({
                         <Button
                           variant="ghost"
                           size={btnSize}
-                          className={cn(feedback === 'down' && "text-primary bg-primary/10")}
+                          className={cn(seniorActionClass, feedback === 'down' && "text-primary bg-primary/10")}
                           onClick={() => handleFeedbackClick('down')}
                           aria-label="踩"
                         />
                       }
                     >
                       <ThumbsDown className={iconSize} fill={feedback === 'down' ? 'currentColor' : 'none'} />
+                      {seniorMode && <span>没帮助</span>}
                     </TooltipTrigger>
                     <TooltipContent>踩</TooltipContent>
                   </Tooltip>
@@ -515,6 +522,7 @@ export function MessageBubble({
                     <Button
                       variant="ghost"
                       size={btnSize}
+                      className={seniorActionClass}
                       onClick={handleCopy}
                       aria-label="复制"
                     />
@@ -525,6 +533,7 @@ export function MessageBubble({
                   ) : (
                     <Copy className={iconSize} />
                   )}
+                  {seniorMode && <span>{copied ? "已复制" : "复制"}</span>}
                 </TooltipTrigger>
                 <TooltipContent>{copied ? "已复制" : "复制"}</TooltipContent>
               </Tooltip>}
@@ -536,12 +545,14 @@ export function MessageBubble({
                       <Button
                         variant="ghost"
                         size={btnSize}
+                        className={seniorActionClass}
                         onClick={() => onRegenerate!(message.id)}
                         aria-label="重新生成"
                       />
                     }
                   >
                     <RefreshCw className={iconSize} />
+                    {seniorMode && <span>重新生成</span>}
                   </TooltipTrigger>
                   <TooltipContent>重新生成</TooltipContent>
                 </Tooltip>
@@ -557,12 +568,14 @@ export function MessageBubble({
                     <Button
                       variant="ghost"
                       size={btnSize}
+                      className={seniorActionClass}
                       onClick={handleShare}
                       aria-label="分享"
                     />
                   }
                 >
                   <Share2 className={iconSize} />
+                  {seniorMode && <span>分享</span>}
                 </TooltipTrigger>
                 <TooltipContent>分享/导出</TooltipContent>
               </Tooltip>}
@@ -574,20 +587,23 @@ export function MessageBubble({
                       <Button
                         variant="ghost"
                         size={btnSize}
+                        className={seniorActionClass}
                         aria-label="更多"
                       />
                     }
                   >
                     <MoreHorizontal className={iconSize} />
+                    {seniorMode && <span>更多</span>}
                   </DropdownMenuTrigger>
                   <DropdownMenuContent align="end" sideOffset={4}>
-                    <DropdownMenuItem onClick={handleEditInDoc}>
+                    <DropdownMenuItem className={cn(seniorMode && "min-h-12 text-base")} onClick={handleEditInDoc}>
                       <FileEdit className="size-4" />
                       转为文档编辑
                     </DropdownMenuItem>
                     <DropdownMenuSeparator />
                     <DropdownMenuItem
                       variant="destructive"
+                      className={cn(seniorMode && "min-h-12 text-base")}
                       onClick={handleDelete}
                     >
                       <Trash2 className="size-4" />
@@ -602,12 +618,14 @@ export function MessageBubble({
                       <Button
                         variant="ghost"
                         size={btnSize}
+                        className={seniorActionClass}
                         onClick={handleDelete}
                         aria-label="删除"
                       />
                     }
                   >
                     <Trash2 className={iconSize} />
+                    {seniorMode && <span>删除</span>}
                   </TooltipTrigger>
                   <TooltipContent>删除</TooltipContent>
                 </Tooltip>
@@ -620,7 +638,7 @@ export function MessageBubble({
       <Dialog
         open={showFeedbackDialog}
         onOpenChange={(open) => {
-          if (!open) handleFeedbackClose();
+          if (!open) dismissFeedbackDialog();
         }}
       >
         <DialogContent className="sm:max-w-[425px]">
@@ -635,13 +653,13 @@ export function MessageBubble({
             placeholder="请输入您的评价（可选）"
             className={cn(
               "w-full rounded-md border border-border bg-background px-3 py-2 text-sm ring-offset-background placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 resize-none",
-              seniorMode && "text-base"
+              seniorMode && "min-h-32 text-lg"
             )}
             rows={4}
           />
           <DialogFooter className="gap-2">
-            <DialogClose render={<Button variant="outline">取消</Button>} />
-            <Button onClick={handleFeedbackClose}>提交反馈</Button>
+            <DialogClose render={<Button variant="outline" className={cn(seniorMode && "min-h-12 px-4 text-base")}>取消</Button>} />
+            <Button className={cn(seniorMode && "min-h-12 px-4 text-base")} onClick={submitFeedback}>提交反馈</Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>
