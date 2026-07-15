@@ -1,6 +1,6 @@
 # GerClaw API
 
-GerClaw 二阶段生产后端。当前里程碑提供真实 PostgreSQL、Redis、Qdrant，JWT scope/tenant 隔离，Redis 原子限流，Trace/反馈/bad-case 数据闭环，以及按设计要求第四章拆分的 Agent Harness、Memory、Agentic RAG、Skill、Input/Output、Tool Protocol 边界。
+GerClaw 二阶段生产后端。当前已提供真实 PostgreSQL、Redis、Qdrant，JWT scope/tenant 隔离，Redis 原子限流，Trace 与反馈/Bad Case 基础写入，以及按设计要求第四章拆分的 Agent Harness、Memory、Agentic RAG、Search、Skill、Input/Output、Tool Protocol 边界。反馈查询、Bad Case 治理和 Eval 回放闭环仍待后续里程碑完成。
 
 本地医学 Agentic RAG 已使用 AgentScope 2.0.4 `RAGMiddleware(mode="agentic")` 真实接入；长期健康记忆已使用 `Mem0Middleware(mode="both")` + GerClaw adapter 接入，并以加密 PostgreSQL 为事实源、PHI-free Qdrant revision vector 为语义索引。联网医疗证据由 AgentScope 只读 `web_search` 工具调用生产 `SearchModule`，严格执行 AnySearch `/mcp` JSON-RPC 主通道、Tavily 备用通道和 S/A/B/C 来源分级。声明式 Skill 已通过 `LocalSkillLoader`、`Skill` 和 `Toolkit` viewer 接入同一生产 Harness，支持四个内置包、加密版本注册表、会话选择、Markdown/ZIP 安装和真实模型生成待审阅草稿。生产对话 Harness 已形成三模型依次兜底、安全 SSE、加密会话/画像、Redis session lease 和幂等 Trace 重放闭环。CGA、处方、上传文档与 Voice 的完整后端业务仍在后续独立变更集实现。本阶段不伪造医疗对话、检索、联网来源、记忆或 Skill 结果。
 
@@ -85,7 +85,7 @@ GERCLAW_RUN_EXTERNAL=1 uv run pytest tests/test_real_external_services.py -m ext
 
 2026-07-15 的 0017 回归结果：默认套件 `239 passed, 21 skipped`、覆盖率 81.20%；真实 PostgreSQL/Redis/Qdrant 套件 `254 passed, 6 deselected`、覆盖率 88.37%；全新库 Alembic `upgrade → downgrade → upgrade` 到 `e41b8c2a2017 (head)` 通过。根 `.env` 的 6 项真实外部测试均取得通过结果，覆盖三套 AgentScope LLM、Mimo ASR/TTS、SiliconFlow embedding/rerank、Tavily 和完整 Chat；一次全套执行为 `5 passed, 1 failed`，失败用例已成功召回 `memories=2`，但供应商在可见输出后断流并被系统正确 fail closed，随后该真实用例隔离重跑 `1 passed`。跨会话测试由真实模型从首轮 user message 抽取青霉素过敏/阿司匹林用药，第二 session 的 AgentScope 自动召回并实际调用 `search_memory`；同时验证重放不重复、PG ciphertext、加密 revision audit、同名多次重大事件不覆盖、Qdrant 无 PHI payload、本地 RAG citation、测试 collection 清理、readiness 强制复验重建、多副本初始化竞争安全，以及事实确认接口在 vector upsert 后数据库失败时精确补偿本 Unit of Work 的 fenced point。模型候选的配置超时现在覆盖完整 stream，持续心跳无法无限占用执行槽；超时前无公开输出才 failover，已有公开输出则 fail closed。未使用 mock 成功路径。
 
-2026-07-15 的 0019 回归结果：默认套件 `299 passed, 29 skipped`、覆盖率 80.24%；Skill 真实 PostgreSQL/Redis/Qdrant 集成 `3 passed`；根 `.env` 的真实模型生成草稿→注册→AgentScope Skill viewer→本地 Agentic RAG→实际 skill/version Trace 用例 `1 passed`（30.58s）。浏览器真实链路验证了会话级 Skill 隔离与刷新恢复、停止流的失败态、红旗症状 54ms 确定性短路，以及 Skill + `search_knowledge` + 6 条本地引用的完整 `done`；控制台 0 错误。模型 adapter 统一使用可配置 60s 完整流 deadline 和 1024-token 上限。应用 Docker 依用户指示延后到全部功能和前后端联调完成后统一封装。
+2026-07-15 的 0019 最终回归结果：默认套件 `349 passed, 31 skipped`、coverage 80.02%；真实 PostgreSQL/Redis/Qdrant 非 external 套件 `370 passed, 10 deselected`、coverage 87.05%；根 `.env` 的真实模型生成草稿→注册→AgentScope Skill viewer→本地 Agentic RAG→实际 skill/version Trace 由开发者和独立审阅者分别复现通过。浏览器真实链路验证了会话级 Skill 隔离与刷新恢复、停止流终态、红旗症状确定性短路和患者模式适老化。最终应用 Docker 运行验收仍在全部临床功能与前后端联调完成后统一执行，当前只能声明 API image 可构建。
 
 ## API
 

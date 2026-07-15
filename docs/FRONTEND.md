@@ -221,10 +221,10 @@ apps/mvp/
 ```env
 # Next.js server runtime only
 GERCLAW_API_URL=http://127.0.0.1:8000
-GERCLAW_GUEST_IDENTITY_SECRET=<由 Secret Manager 注入，至少32字符>
+# GERCLAW_GUEST_IDENTITY_SECRET 由 Secret Manager 注入，至少32字符
 
 # Python backend only；完整模型/RAG/Voice/Search/MinerU 配置见根 .env.example
-GERCLAW_AUTH_JWT_SECRET=<由 Secret Manager 注入，至少32字符>
+# GERCLAW_AUTH_JWT_SECRET 由 Secret Manager 注入，至少32字符
 ```
 
 .env.example提交到仓库，真实.env*文件加入.gitignore。
