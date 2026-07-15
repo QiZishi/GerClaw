@@ -81,7 +81,7 @@ export const approvalSchema = z
 
 export type RuntimeApproval = z.infer<typeof approvalSchema>;
 
-const cgaScaleIdSchema = z.enum(["phq9", "sas"]);
+export const cgaScaleIdSchema = z.enum(["phq9", "sas"]);
 const cgaOptionSchema = z.tuple([z.number().int().min(0).max(4), z.string().min(1).max(80)]);
 export const cgaQuestionSchema = z
   .object({
@@ -145,6 +145,8 @@ export const cgaReportSchema = z
 export type CgaAssessment = z.infer<typeof cgaAssessmentSchema>;
 export type CgaQuestion = z.infer<typeof cgaQuestionSchema>;
 export type CgaReport = z.infer<typeof cgaReportSchema>;
+export type CgaScale = z.infer<typeof cgaScalesSchema>["scales"][number];
+export type CgaScaleId = z.infer<typeof cgaScaleIdSchema>;
 
 export const uploadedDocumentSchema = z
   .object({

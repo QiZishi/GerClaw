@@ -5,6 +5,7 @@ import {
   cgaScalesSchema,
   type CgaAssessment,
   type CgaReport,
+  type CgaScaleId,
 } from "./schemas";
 import { z } from "zod";
 
@@ -21,11 +22,15 @@ export async function listCgaScales() {
   return gerclawRequest("cga/scales", cgaScalesSchema);
 }
 
-export async function startPhq9Assessment(): Promise<CgaAssessment> {
+export async function startCgaAssessment(scaleId: CgaScaleId): Promise<CgaAssessment> {
   return gerclawRequest("cga/assessments", cgaAssessmentSchema, {
     method: "POST",
-    body: JSON.stringify({ scale_id: "phq9" }),
+    body: JSON.stringify({ scale_id: scaleId }),
   });
+}
+
+export async function startPhq9Assessment(): Promise<CgaAssessment> {
+  return startCgaAssessment("phq9");
 }
 
 export async function getCgaAssessment(assessmentId: string): Promise<CgaAssessment> {

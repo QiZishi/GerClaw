@@ -23,7 +23,7 @@ import { WelcomePage } from "@/components/chat/WelcomePage";
 import { SkillManager } from "@/components/skills/SkillManager";
 import { ScaleSelector } from "@/components/cga/ScaleSelector";
 import { CGAConversation } from "@/components/cga/CGAConversation";
-import { Phq9Assessment } from "@/components/cga/Phq9Assessment";
+import { CgaAssessment } from "@/components/cga/CgaAssessment";
 import { useAppStore } from "@/stores/appStore";
 import { useChatStore } from "@/stores/chatStore";
 import { scales } from "@/data/scales";
@@ -1562,7 +1562,7 @@ ${hasSuicideRisk ? "⚠️ 重要：您在评估中提到了伤害自己的想�
         />
       ) : chatAction === "cga" ? (
         <div className="flex-1 min-h-0 overflow-y-auto">
-          <Phq9Assessment onExit={handleExitAction} />
+          <CgaAssessment onExit={handleExitAction} />
         </div>
       ) : showScaleSelector ? (
         <div className="flex-1 min-h-0 overflow-y-auto">
