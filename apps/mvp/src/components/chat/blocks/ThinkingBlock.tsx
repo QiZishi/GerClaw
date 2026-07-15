@@ -11,19 +11,7 @@ interface ThinkingBlockProps {
 }
 
 function ThinkingDots() {
-  const reducedMotion = useReducedMotion();
-  
-  if (reducedMotion) {
-    return <span className="text-base leading-none">...</span>;
-  }
-  
-  return (
-    <span className="inline-flex items-center gap-1">
-      <span className="thinking-bounce-dot thinking-bounce-dot-1" />
-      <span className="thinking-bounce-dot thinking-bounce-dot-2" />
-      <span className="thinking-bounce-dot thinking-bounce-dot-3" />
-    </span>
-  );
+  return <span className="text-base leading-none" aria-hidden>...</span>;
 }
 
 export function ThinkingBlock({ data }: ThinkingBlockProps) {
@@ -53,7 +41,7 @@ export function ThinkingBlock({ data }: ThinkingBlockProps) {
           <Brain 
             className={cn(
               "size-4 shrink-0",
-              isThinking && !reducedMotion && "animate-pulse"
+              isThinking && "text-primary"
             )} 
           />
           <span className="font-medium">

@@ -1,12 +1,13 @@
 "use client";
 
-import { useState, useEffect, useCallback, useRef, useMemo } from "react";
-import { ChevronLeft, ChevronRight, Check, Volume2, Pause, Mic, Loader2, X, CheckCircle2, RotateCcw, ListTodo, BarChart3 } from "lucide-react";
+import { useState, useEffect, useCallback, useMemo } from "react";
+import { ChevronLeft, ChevronRight, Check, Volume2, Pause, Mic, Loader2, Square, X, CheckCircle2, RotateCcw, ListTodo, BarChart3 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Progress } from "@/components/ui/progress";
 import { useAppStore } from "@/stores/appStore";
 import { cn } from "@/lib/utils";
 import { useAudioRecorder } from "@/hooks/useAudioRecorder";
+import { useAudioPlayer } from "@/hooks/useAudioPlayer";
 import { recognizeAudio } from "@/services/voice/asr";
 import { toast } from "@/components/ui/toast";
 import { SuicideRiskAlert } from "@/components/prescription/SuicideRiskAlert";
@@ -199,11 +200,11 @@ export function CGAConversation({
 }: CGAConversationProps) {
   function getInitialAudioEnabled(): boolean {
     try {
-      if (typeof window === 'undefined') return true;
+      if (typeof window === 'undefined') return false;
       const stored = localStorage.getItem('cga-audio-enabled');
-      return stored === null ? true : stored === 'true';
+      return stored === 'true';
     } catch {
-      return true;
+      return false;
     }
   }
 
@@ -215,13 +216,9 @@ export function CGAConversation({
   const [isTranscribing, setIsTranscribing] = useState(false);
   const [hasSpokenCompletion, setHasSpokenCompletion] = useState(false);
   const [cgaAudioEnabled, setCgaAudioEnabled] = useState(getInitialAudioEnabled);
-  const [isAudioPlaying, setIsAudioPlaying] = useState(false);
-  const [isAudioLoading, setIsAudioLoading] = useState(false);
-  const [isAudioPaused, setIsAudioPaused] = useState(false);
   const [showSuicideRiskAlert, setShowSuicideRiskAlert] = useState(false);
   const [suicideAlertDismissed, setSuicideAlertDismissed] = useState(false);
 
-  const audioRef = useRef<HTMLAudioElement | null>(null);
   const allQuestions = useMemo(() => flattenQuestions(scales), [scales]);
   const total = allQuestions.length;
   const current = allQuestions[idx];
@@ -234,6 +231,15 @@ export function CGAConversation({
     stopRecording,
     cancelRecording,
   } = useAudioRecorder();
+  const {
+    isPlaying: isAudioPlaying,
+    isPaused: isAudioPaused,
+    isLoading: isAudioLoading,
+    playSource,
+    pause: pauseAudio,
+    resume: resumeAudio,
+    stop: stopAudio,
+  } = useAudioPlayer();
 
   const progress = total > 0 ? ((idx + 1) / total) * 100 : 0;
   const isLast = idx === total - 1;
@@ -247,85 +253,27 @@ export function CGAConversation({
     }
   }, [idx, answers, isCompleted, onSaveProgress]);
 
-  const stopAudio = useCallback(() => {
-    if (audioRef.current) {
-      audioRef.current.pause();
-      audioRef.current.currentTime = 0;
+  const stopAudioByUser = useCallback(() => {
+    stopAudio();
+    setCgaAudioEnabled(false);
+    try {
+      localStorage.setItem("cga-audio-enabled", "false");
+    } catch {
     }
-    setIsAudioPlaying(false);
-    setIsAudioLoading(false);
-    setIsAudioPaused(false);
-  }, []);
-
-  const pauseAudio = useCallback(() => {
-    if (audioRef.current && isAudioPlaying) {
-      audioRef.current.pause();
-      setIsAudioPlaying(false);
-      setIsAudioPaused(true);
-    }
-  }, [isAudioPlaying]);
-
-  const resumeAudio = useCallback(() => {
-    if (audioRef.current && isAudioPaused) {
-      audioRef.current.play().catch(() => {
-        setIsAudioPlaying(false);
-        setIsAudioPaused(false);
-      });
-      setIsAudioPlaying(true);
-      setIsAudioPaused(false);
-    }
-  }, [isAudioPaused]);
+  }, [stopAudio]);
 
   const playAudio = useCallback(() => {
     if (!current) return;
-    stopAudio();
-    setIsAudioLoading(true);
-    setIsAudioPaused(false);
     const audioSrc = `/audio/scales/${current.scaleId}_${current.question.id}.wav`;
-    const audio = new Audio(audioSrc);
-    audioRef.current = audio;
-
-    audio.oncanplaythrough = () => {
-      setIsAudioLoading(false);
-      setIsAudioPlaying(true);
-      audio.play().catch(() => {
-        setIsAudioPlaying(false);
-        setIsAudioLoading(false);
-        setIsAudioPaused(false);
-      });
-    };
-
-    audio.onended = () => {
-      setIsAudioPlaying(false);
-      setIsAudioLoading(false);
-      setIsAudioPaused(false);
-    };
-
-    audio.onerror = () => {
-      setIsAudioPlaying(false);
-      setIsAudioLoading(false);
-      setIsAudioPaused(false);
-    };
-
-    audio.load();
-  }, [current, stopAudio]);
+    void playSource(audioSrc).catch(() => toast.show("题目朗读失败，请稍后重试"));
+  }, [current, playSource]);
 
   const toggleAudio = useCallback(() => {
     if (isAudioLoading) return;
     if (isAudioPlaying) {
       pauseAudio();
-      setCgaAudioEnabled(false);
-      try {
-        localStorage.setItem('cga-audio-enabled', 'false');
-      } catch {
-      }
     } else if (isAudioPaused) {
-      resumeAudio();
-      setCgaAudioEnabled(true);
-      try {
-        localStorage.setItem('cga-audio-enabled', 'true');
-      } catch {
-      }
+      void resumeAudio().catch(() => toast.show("继续朗读失败，请稍后重试"));
     } else {
       setCgaAudioEnabled(true);
       try {
@@ -345,7 +293,7 @@ export function CGAConversation({
     }, 100);
     return () => clearTimeout(timer);
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [idx, cgaAudioEnabled, current?.question.id, isCompleted]);
+  }, [idx, current?.question.id, isCompleted]);
 
   useEffect(() => {
     return () => {
@@ -589,8 +537,6 @@ export function CGAConversation({
 
   return (
     <div className="flex flex-col gap-3">
-      <audio ref={audioRef} style={{ display: "none" }} />
-
       {showSuicideRiskAlert && !suicideAlertDismissed && (
         <SuicideRiskAlert onDismiss={() => setSuicideAlertDismissed(true)} />
       )}
@@ -647,28 +593,42 @@ export function CGAConversation({
               </div>
             )}
           </div>
-          <button
-            type="button"
-            onClick={toggleAudio}
-            className={cn(
-              "flex items-center justify-center shrink-0 rounded-full transition-colors",
-              iconBtnSize,
-              isAudioPlaying
-                ? "bg-primary text-primary-foreground"
-                : isAudioLoading
-                  ? "bg-muted text-muted-foreground"
+          <div className="flex shrink-0 items-center gap-1" role="group" aria-label="题目朗读控制">
+            <button
+              type="button"
+              onClick={isAudioLoading ? stopAudioByUser : toggleAudio}
+              className={cn(
+                "flex items-center justify-center gap-1.5 shrink-0 rounded-full transition-colors",
+                seniorMode ? "h-12 px-4 text-base" : iconBtnSize,
+                isAudioPlaying
+                  ? "bg-primary text-primary-foreground"
                   : "bg-muted hover:bg-muted/80 text-foreground"
+              )}
+              aria-label={isAudioLoading ? "取消朗读准备" : isAudioPlaying ? "暂停朗读" : isAudioPaused ? "继续朗读" : "朗读题目"}
+              aria-busy={isAudioLoading}
+            >
+              {isAudioPlaying ? (
+                <Pause className={cn(seniorMode ? "size-5" : "size-4")} />
+              ) : (
+                <Volume2 className={cn(seniorMode ? "size-5" : "size-4")} />
+              )}
+              {seniorMode && <span>{isAudioLoading ? "准备中，点此取消" : isAudioPlaying ? "暂停" : isAudioPaused ? "继续" : "朗读"}</span>}
+            </button>
+            {(isAudioPlaying || isAudioPaused) && (
+              <button
+                type="button"
+                onClick={stopAudioByUser}
+                className={cn(
+                  "flex items-center justify-center gap-1.5 rounded-full bg-muted hover:bg-muted/80",
+                  seniorMode ? "h-12 px-4 text-base" : iconBtnSize
+                )}
+                aria-label="停止朗读"
+              >
+                <Square className={cn(seniorMode ? "size-5" : "size-4")} />
+                {seniorMode && <span>停止</span>}
+              </button>
             )}
-            aria-label={isAudioPlaying ? "暂停朗读" : isAudioPaused ? "继续朗读" : "朗读题目"}
-          >
-            {isAudioLoading ? (
-              <Loader2 className={cn("animate-spin", seniorMode ? "size-5" : "size-4")} />
-            ) : isAudioPlaying ? (
-              <Pause className={cn(seniorMode ? "size-5" : "size-4")} />
-            ) : (
-              <Volume2 className={cn(seniorMode ? "size-5" : "size-4")} />
-            )}
-          </button>
+          </div>
         </div>
       </div>
 

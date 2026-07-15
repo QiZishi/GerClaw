@@ -7,16 +7,17 @@ import {
   Copy,
   ExternalLink,
   FileEdit,
-  Loader2,
   MoreHorizontal,
+  Pause,
+  Play,
   RefreshCw,
   Share2,
+  Square,
   Stethoscope,
   ThumbsDown,
   ThumbsUp,
   Trash2,
   Volume2,
-  VolumeX,
 } from "lucide-react";
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
 import { Button } from "@/components/ui/button";
@@ -72,31 +73,53 @@ interface MessageBubbleProps {
 }
 
 function VoiceReadButton({ text, seniorMode }: { text: string; seniorMode: boolean }) {
-  const { isPlaying, isLoading, play, stop } = useAudioPlayer();
+  const { isPlaying, isPaused, isLoading, play, pause, resume, stop } = useAudioPlayer();
 
-  const handleClick = () => {
-    try {
-      if (isPlaying || isLoading) {
-        stop();
-      } else {
-        play(text);
-      }
-    } catch {
-      toast.show("语音播放失败");
-    }
-  };
+  const reportPlaybackError = () => toast.show("语音播放失败，请稍后重试");
+  const start = () => void play(text).catch(reportPlaybackError);
+  const continuePlayback = () => void resume().catch(reportPlaybackError);
 
-  let icon;
-  let label;
   if (isLoading) {
-    icon = <Loader2 className={cn("animate-spin", seniorMode ? "size-4" : "size-3.5")} />;
-    label = "加载中";
-  } else if (isPlaying) {
-    icon = <VolumeX className={cn(seniorMode ? "size-4" : "size-3.5")} />;
-    label = "停止播放";
-  } else {
-    icon = <Volume2 className={cn(seniorMode ? "size-4" : "size-3.5")} />;
-    label = "语音朗读";
+    return (
+      <Button
+        variant="ghost"
+        size={seniorMode ? "default" : "sm"}
+        className={cn("gap-1.5 text-primary bg-primary/10", seniorMode && "min-h-12 px-3 text-base")}
+        onClick={stop}
+        aria-label="取消语音准备"
+        aria-busy="true"
+      >
+        <Volume2 className={seniorMode ? "size-5" : "size-4"} />
+        <span>正在准备，点击取消</span>
+      </Button>
+    );
+  }
+
+  if (isPlaying || isPaused) {
+    return (
+      <div className="inline-flex items-center gap-1" role="group" aria-label="语音播放控制">
+        <Button
+          variant="ghost"
+          size={seniorMode ? "default" : "icon-sm"}
+          className={cn("text-primary bg-primary/10", seniorMode && "min-h-12 gap-1.5 px-3 text-base")}
+          onClick={isPlaying ? pause : continuePlayback}
+          aria-label={isPlaying ? "暂停语音" : "继续播放语音"}
+        >
+          {isPlaying ? <Pause className="size-4" /> : <Play className="size-4" />}
+          {seniorMode && <span>{isPlaying ? "暂停" : "继续"}</span>}
+        </Button>
+        <Button
+          variant="ghost"
+          size={seniorMode ? "default" : "icon-sm"}
+          className={cn(seniorMode && "min-h-12 gap-1.5 px-3 text-base")}
+          onClick={stop}
+          aria-label="停止语音"
+        >
+          <Square className="size-4" />
+          {seniorMode && <span>停止</span>}
+        </Button>
+      </div>
+    );
   }
 
   return (
@@ -105,18 +128,17 @@ function VoiceReadButton({ text, seniorMode }: { text: string; seniorMode: boole
         render={
           <Button
             variant="ghost"
-            size={seniorMode ? "icon" : "icon-sm"}
-            className={cn(
-              (isPlaying || isLoading) && "text-primary bg-primary/10"
-            )}
-            onClick={handleClick}
-            aria-label={label}
+            size={seniorMode ? "default" : "icon-sm"}
+            className={cn(seniorMode && "min-h-12 gap-1.5 px-3 text-base")}
+            onClick={start}
+            aria-label="语音朗读"
           />
         }
       >
-        {icon}
+        <Volume2 className={seniorMode ? "size-5" : "size-4"} />
+        {seniorMode && <span>朗读</span>}
       </TooltipTrigger>
-      <TooltipContent>{label}</TooltipContent>
+      <TooltipContent>语音朗读</TooltipContent>
     </Tooltip>
   );
 }

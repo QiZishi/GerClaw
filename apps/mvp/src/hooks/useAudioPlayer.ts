@@ -5,33 +5,37 @@ import { synthesizeSpeech } from "@/services/voice/tts";
 
 interface UseAudioPlayerReturn {
   isPlaying: boolean;
+  isPaused: boolean;
   isLoading: boolean;
-  play: (text: string) => void;
+  play: (text: string) => Promise<void>;
+  playSource: (sourceUrl: string) => Promise<void>;
+  pause: () => void;
+  resume: () => Promise<void>;
   stop: () => void;
 }
 
+let stopActivePlayer: (() => void) | null = null;
+let activePlayerId: symbol | null = null;
+
 export function useAudioPlayer(): UseAudioPlayerReturn {
   const [isPlaying, setIsPlaying] = useState(false);
+  const [isPaused, setIsPaused] = useState(false);
   const [isLoading, setIsLoading] = useState(false);
-
   const audioRef = useRef<HTMLAudioElement | null>(null);
   const objectUrlRef = useRef<string | null>(null);
   const abortControllerRef = useRef<AbortController | null>(null);
+  const playerIdRef = useRef(Symbol("audio-player"));
 
-  const cleanup = useCallback(() => {
-    if (abortControllerRef.current) {
-      abortControllerRef.current.abort();
-      abortControllerRef.current = null;
-    }
+  const releaseMedia = useCallback(() => {
+    abortControllerRef.current?.abort();
+    abortControllerRef.current = null;
     if (audioRef.current) {
       const audio = audioRef.current;
-      audio.oncanplaythrough = null;
       audio.onended = null;
       audio.onerror = null;
       audio.pause();
-      if (audio.src) {
-        audio.src = "";
-      }
+      audio.removeAttribute("src");
+      audio.load();
       audioRef.current = null;
     }
     if (objectUrlRef.current) {
@@ -40,75 +44,91 @@ export function useAudioPlayer(): UseAudioPlayerReturn {
     }
   }, []);
 
-  useEffect(() => {
-    return () => {
-      cleanup();
-    };
-  }, [cleanup]);
+  const stop = useCallback(() => {
+    releaseMedia();
+    if (activePlayerId === playerIdRef.current) {
+      stopActivePlayer = null;
+      activePlayerId = null;
+    }
+    setIsPlaying(false);
+    setIsPaused(false);
+    setIsLoading(false);
+  }, [releaseMedia]);
+
+  useEffect(() => stop, [stop]);
+
+  const claimPlayer = useCallback(() => {
+    if (stopActivePlayer && activePlayerId !== playerIdRef.current) stopActivePlayer();
+    stop();
+    stopActivePlayer = stop;
+    activePlayerId = playerIdRef.current;
+    setIsLoading(true);
+  }, [stop]);
+
+  const startAudio = useCallback(async (sourceUrl: string) => {
+    const audio = new Audio(sourceUrl);
+    audio.preload = "auto";
+    audioRef.current = audio;
+    audio.onended = () => stop();
+    audio.onerror = () => stop();
+    await audio.play();
+    if (audioRef.current !== audio) return;
+    setIsLoading(false);
+    setIsPlaying(true);
+    setIsPaused(false);
+  }, [stop]);
 
   const play = useCallback(async (text: string) => {
-    cleanup();
-    setIsLoading(true);
-    setIsPlaying(false);
+    claimPlayer();
 
-    abortControllerRef.current = new AbortController();
-    const signal = abortControllerRef.current.signal;
-
+    const controller = new AbortController();
+    abortControllerRef.current = controller;
     try {
-      const audioBlob = await synthesizeSpeech(text, signal);
-
-      if (signal.aborted) return;
+      const audioBlob = await synthesizeSpeech(text, controller.signal);
+      if (controller.signal.aborted) return;
 
       const url = URL.createObjectURL(audioBlob);
       objectUrlRef.current = url;
-
-      const audio = new Audio(url);
-      audioRef.current = audio;
-
-      audio.oncanplaythrough = () => {
-        if (signal.aborted) return;
-        setIsLoading(false);
-        setIsPlaying(true);
-        audio.play().catch((err) => {
-          console.error("Audio play error:", err);
-          setIsPlaying(false);
-          setIsLoading(false);
-        });
-      };
-
-      audio.onended = () => {
-        setIsPlaying(false);
-        setIsLoading(false);
-      };
-
-      audio.onerror = () => {
-        console.warn("Audio playback error");
-        setIsPlaying(false);
-        setIsLoading(false);
-      };
-
-      audio.load();
-    } catch (err) {
-      if (signal.aborted) return;
-      const error = err instanceof Error ? err.message : String(err);
-      if (error !== "Aborted" && error !== "The user aborted a request.") {
-        console.error("TTS synthesis error:", err);
+      await startAudio(url);
+      if (controller.signal.aborted) return;
+    } catch (error) {
+      if (!controller.signal.aborted) {
+        stop();
+        throw error;
       }
-      setIsPlaying(false);
-      setIsLoading(false);
     }
-  }, [cleanup]);
+  }, [claimPlayer, startAudio, stop]);
 
-  const stop = useCallback(() => {
-    cleanup();
+  const playSource = useCallback(async (sourceUrl: string) => {
+    claimPlayer();
+    try {
+      await startAudio(sourceUrl);
+    } catch (error) {
+      stop();
+      throw error;
+    }
+  }, [claimPlayer, startAudio, stop]);
+
+  const pause = useCallback(() => {
+    const audio = audioRef.current;
+    if (!audio || audio.paused) return;
+    audio.pause();
     setIsPlaying(false);
-    setIsLoading(false);
-  }, [cleanup]);
+    setIsPaused(true);
+  }, []);
 
-  return {
-    isPlaying,
-    isLoading,
-    play,
-    stop,
-  };
+  const resume = useCallback(async () => {
+    const audio = audioRef.current;
+    if (!audio || !isPaused) return;
+    try {
+      await audio.play();
+      setIsPlaying(true);
+      setIsPaused(false);
+    } catch (error) {
+      stop();
+      throw error;
+    }
+  }, [isPaused, stop]);
+
+  return { isPlaying, isPaused, isLoading, play, playSource, pause, resume, stop };
 }

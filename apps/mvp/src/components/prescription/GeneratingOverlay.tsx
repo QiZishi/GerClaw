@@ -7,9 +7,9 @@ import { useAppStore } from "@/stores/appStore";
 import { cn } from "@/lib/utils";
 
 interface GeneratingOverlayProps {
-  /** 完成回调，默认 1.5s 后触发 */
+  /** 完成回调，默认 6s 后触发 */
   onDone?: () => void;
-  /** 总时长 ms，默认 1500 */
+  /** 总时长 ms，默认 6000 */
   durationMs?: number;
 }
 
@@ -25,7 +25,7 @@ const STAGES = [
  * 旋转加载 + 进度条 + 多阶段文案
  * 默认 1.5s 切换到 preview
  */
-export function GeneratingOverlay({ onDone, durationMs = 1500 }: GeneratingOverlayProps) {
+export function GeneratingOverlay({ onDone, durationMs = 6000 }: GeneratingOverlayProps) {
   const seniorMode = useAppStore((s) => s.seniorMode);
   const [progress, setProgress] = useState(0);
   const [stageIdx, setStageIdx] = useState(0);
@@ -43,7 +43,7 @@ export function GeneratingOverlay({ onDone, durationMs = 1500 }: GeneratingOverl
         setStageIdx(STAGES.length - 1);
         setTimeout(() => onDone?.(), 200);
       }
-    }, 80);
+    }, 250);
     return () => clearInterval(tick);
   }, [durationMs, onDone]);
 

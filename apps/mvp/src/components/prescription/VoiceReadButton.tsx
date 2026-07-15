@@ -1,90 +1,74 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
-import { Loader2, Volume2, VolumeX } from "lucide-react";
+import { Pause, Play, Square, Volume2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
-import {
-  Tooltip,
-  TooltipContent,
-  TooltipTrigger,
-} from "@/components/ui/tooltip";
+import { toast } from "@/components/ui/toast";
+import { useAudioPlayer } from "@/hooks/useAudioPlayer";
+import { useAppStore } from "@/stores/appStore";
 import { cn } from "@/lib/utils";
 
-type PlayState = "idle" | "loading" | "playing";
-
 interface VoiceReadButtonProps {
-  /** 朗读文本 */
   text?: string;
   className?: string;
-  /** mock 载入时长，默认 1000ms */
-  loadingMs?: number;
 }
 
-/**
- * §语音交互 — 语音朗读按钮
- * idle → loading (1s) → playing → idle（再次点击停止）
- * mock 阶段不调用真实 TTS
- */
-export function VoiceReadButton({
-  text,
-  className,
-  loadingMs = 1000,
-}: VoiceReadButtonProps) {
-  const [state, setState] = useState<PlayState>("idle");
-  const timerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+export function VoiceReadButton({ text, className }: VoiceReadButtonProps) {
+  const seniorMode = useAppStore((state) => state.seniorMode);
+  const { isPlaying, isPaused, isLoading, play, pause, resume, stop } = useAudioPlayer();
+  const reportError = () => toast.show("语音播放失败，请稍后重试");
 
-  useEffect(() => {
-    return () => {
-      if (timerRef.current) clearTimeout(timerRef.current);
-    };
-  }, []);
+  if (isLoading) {
+    return (
+      <Button
+        variant="ghost"
+        className={cn("gap-1.5", seniorMode && "min-h-12 px-3 text-base", className)}
+        onClick={stop}
+        aria-busy="true"
+      >
+        <Volume2 className="size-4" />
+        正在准备，点击取消
+      </Button>
+    );
+  }
 
-  const handleClick = () => {
-    if (state === "idle") {
-      setState("loading");
-      timerRef.current = setTimeout(() => {
-        setState("playing");
-      }, loadingMs);
-    } else if (state === "playing") {
-      setState("idle");
-      if (timerRef.current) clearTimeout(timerRef.current);
-    } else if (state === "loading") {
-      setState("idle");
-      if (timerRef.current) clearTimeout(timerRef.current);
-    }
-  };
-
-  const label =
-    state === "idle"
-      ? "朗读"
-      : state === "loading"
-        ? "加载中"
-        : "停止";
+  if (isPlaying || isPaused) {
+    return (
+      <div className={cn("inline-flex items-center gap-1", className)} role="group" aria-label="处方语音播放控制">
+        <Button
+          variant="ghost"
+          size={seniorMode ? "default" : "icon-sm"}
+          className={cn(seniorMode && "min-h-12 gap-1.5 px-3 text-base")}
+          onClick={isPlaying ? pause : () => void resume().catch(reportError)}
+          aria-label={isPlaying ? "暂停朗读" : "继续朗读"}
+        >
+          {isPlaying ? <Pause className="size-4" /> : <Play className="size-4" />}
+          {seniorMode && <span>{isPlaying ? "暂停" : "继续"}</span>}
+        </Button>
+        <Button
+          variant="ghost"
+          size={seniorMode ? "default" : "icon-sm"}
+          className={cn(seniorMode && "min-h-12 gap-1.5 px-3 text-base")}
+          onClick={stop}
+          aria-label="停止朗读"
+        >
+          <Square className="size-4" />
+          {seniorMode && <span>停止</span>}
+        </Button>
+      </div>
+    );
+  }
 
   return (
-    <Tooltip>
-      <TooltipTrigger
-        render={
-          <Button
-            variant="ghost"
-            size="icon"
-            className={cn("btn-icon", className)}
-            onClick={handleClick}
-            aria-label={label}
-            aria-pressed={state === "playing"}
-          />
-        }
-      >
-        {state === "loading" ? (
-          <Loader2 className="size-4 animate-spin" />
-        ) : state === "playing" ? (
-          <VolumeX className="size-4 text-primary" />
-        ) : (
-          <Volume2 className="size-4" />
-        )}
-      </TooltipTrigger>
-      <TooltipContent>{label}</TooltipContent>
-      {text && <span className="sr-only">{text.slice(0, 200)}</span>}
-    </Tooltip>
+    <Button
+      variant="ghost"
+      size={seniorMode ? "default" : "icon-sm"}
+      className={cn(seniorMode && "min-h-12 gap-1.5 px-3 text-base", className)}
+      onClick={() => text && void play(text).catch(reportError)}
+      aria-label="朗读处方"
+      disabled={!text}
+    >
+      <Volume2 className="size-4" />
+      {seniorMode && <span>朗读</span>}
+    </Button>
   );
 }
