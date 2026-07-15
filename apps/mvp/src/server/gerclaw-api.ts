@@ -23,6 +23,14 @@ const proxyRules: Array<{ pattern: RegExp; methods: ReadonlySet<string> }> = [
     methods: new Set(["GET", "POST"]),
   },
   { pattern: /^chat$/, methods: new Set(["POST"]) },
+  { pattern: /^cga\/scales$/, methods: new Set(["GET"]) },
+  { pattern: /^cga\/assessments$/, methods: new Set(["POST"]) },
+  {
+    pattern: /^cga\/assessments\/[0-9a-f-]{36}$/,
+    methods: new Set(["GET"]),
+  },
+  { pattern: /^cga\/assessments\/[0-9a-f-]{36}\/(?:answers|complete)$/, methods: new Set(["POST"]) },
+  { pattern: /^cga\/assessments\/[0-9a-f-]{36}\/report$/, methods: new Set(["GET"]) },
   {
     pattern: /^runtime\/approvals\/[0-9a-f-]{36}(?:\/(?:cancel|decision|review))?$/,
     methods: new Set(["GET", "POST"]),

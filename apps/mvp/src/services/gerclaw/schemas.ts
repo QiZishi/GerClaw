@@ -80,3 +80,64 @@ export const approvalSchema = z
   .strict();
 
 export type RuntimeApproval = z.infer<typeof approvalSchema>;
+
+const cgaOptionSchema = z.tuple([z.number().int().min(0).max(3), z.string().min(1).max(80)]);
+export const cgaQuestionSchema = z
+  .object({
+    id: z.string().regex(/^phq9_[1-9]$/),
+    position: z.number().int().min(1).max(9),
+    text: z.string().min(1).max(500),
+    sensitive_prefix: z.string().min(1).max(200).nullable(),
+    options: z.array(cgaOptionSchema).length(4),
+  })
+  .strict();
+const cgaRiskSchema = z
+  .object({
+    requires_immediate_safety_assessment: z.boolean(),
+    high_severity_follow_up: z.boolean(),
+    messages: z.array(z.string().min(1).max(500)).max(2),
+  })
+  .strict();
+export const cgaAssessmentSchema = z
+  .object({
+    assessment_id: z.string().uuid(),
+    scale_id: z.literal("phq9"),
+    definition_version: z.string().min(1).max(32),
+    status: z.enum(["active", "completed", "abandoned"]),
+    revision: z.number().int().positive(),
+    answered_count: z.number().int().min(0).max(9),
+    next_question: cgaQuestionSchema.nullable(),
+    risk: cgaRiskSchema,
+  })
+  .strict();
+export const cgaScalesSchema = z
+  .object({
+    scales: z.array(
+      z
+        .object({
+          id: z.literal("phq9"),
+          version: z.string().min(1).max(32),
+          name: z.literal("PHQ-9"),
+          description: z.string().min(1).max(200),
+          question_count: z.literal(9),
+          questions: z.array(cgaQuestionSchema).length(9),
+        })
+        .strict()
+    ).length(1),
+  })
+  .strict();
+export const cgaReportSchema = z
+  .object({
+    total_score: z.number().int().min(0).max(27),
+    severity: z.enum(["minimal", "mild", "moderate", "moderately_severe", "severe"]),
+    self_harm_signal: z.boolean(),
+    requires_immediate_safety_assessment: z.boolean(),
+    high_severity_follow_up: z.boolean(),
+    safety_messages: z.array(z.string().min(1).max(500)).max(2),
+    disclaimer: z.string().min(1).max(200),
+  })
+  .strict();
+
+export type CgaAssessment = z.infer<typeof cgaAssessmentSchema>;
+export type CgaQuestion = z.infer<typeof cgaQuestionSchema>;
+export type CgaReport = z.infer<typeof cgaReportSchema>;
