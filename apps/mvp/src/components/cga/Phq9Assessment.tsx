@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useState } from "react";
 import { AlertTriangle, CheckCircle2, RefreshCw } from "lucide-react";
+import { z } from "zod";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 import { useAppStore } from "@/stores/appStore";
@@ -16,6 +17,7 @@ import { GerclawApiError } from "@/services/gerclaw/client";
 import type { CgaAssessment, CgaReport } from "@/services/gerclaw/schemas";
 
 const ACTIVE_ASSESSMENT_KEY = "gerclaw:cga:phq9:assessment";
+const storedAssessmentIdSchema = z.string().uuid();
 
 interface Phq9AssessmentProps {
   onExit: () => void;
@@ -35,10 +37,15 @@ export function Phq9Assessment({ onExit }: Phq9AssessmentProps) {
     setSaving(true);
     try {
       const storedId = !newAssessment ? localStorage.getItem(ACTIVE_ASSESSMENT_KEY) : null;
+      const parsedStoredId = storedAssessmentIdSchema.safeParse(storedId);
+      if (storedId !== null && !parsedStoredId.success) {
+        localStorage.removeItem(ACTIVE_ASSESSMENT_KEY);
+        setNotice("上次评估记录格式无效，已为您开始一份新的评估。");
+      }
       let next: CgaAssessment;
-      if (storedId) {
+      if (parsedStoredId.success) {
         try {
-          next = await getCgaAssessment(storedId);
+          next = await getCgaAssessment(parsedStoredId.data);
         } catch (error) {
           if (!(error instanceof GerclawApiError) || error.code !== "CGA_NOT_FOUND") {
             throw error;
