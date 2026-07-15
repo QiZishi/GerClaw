@@ -145,6 +145,29 @@ class HealthProfile(TimestampMixin, Base):
     profile: Mapped[dict[str, Any]] = mapped_column(EncryptedJSON(), default=dict, nullable=False)
 
 
+class CgaAssessment(TimestampMixin, Base):
+    """One caller-owned, encrypted CGA screening assessment."""
+
+    __tablename__ = "cga_assessments"
+    __table_args__ = (
+        CheckConstraint("status IN ('active','completed','abandoned')", name="valid_status"),
+        CheckConstraint("current_position >= 1 AND current_position <= 9", name="valid_position"),
+        CheckConstraint("revision > 0", name="positive_revision"),
+        Index("ix_cga_assessments_owner_updated", "tenant_id", "actor_id", "updated_at"),
+    )
+
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    tenant_id: Mapped[str] = mapped_column(String(64), nullable=False, index=True)
+    actor_id: Mapped[str] = mapped_column(String(128), nullable=False, index=True)
+    scale_id: Mapped[str] = mapped_column(String(32), nullable=False)
+    definition_version: Mapped[str] = mapped_column(String(32), nullable=False)
+    status: Mapped[str] = mapped_column(String(16), default="active", nullable=False)
+    current_position: Mapped[int] = mapped_column(Integer, default=1, nullable=False)
+    revision: Mapped[int] = mapped_column(Integer, default=1, nullable=False)
+    answers: Mapped[dict[str, Any]] = mapped_column(EncryptedJSON(), default=dict, nullable=False)
+    report: Mapped[dict[str, Any] | None] = mapped_column(EncryptedJSON(), nullable=True)
+
+
 class MemoryFact(TimestampMixin, Base):
     """One encrypted, evidenced user-memory fact with a vector revision."""
 

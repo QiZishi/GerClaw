@@ -53,6 +53,12 @@ PHQ9_QUESTIONS: tuple[Phq9Question, ...] = (
 )
 
 PHQ9_QUESTION_IDS = frozenset(question.id for question in PHQ9_QUESTIONS)
+PHQ9_OPTIONS: tuple[tuple[int, str], ...] = (
+    (0, "完全不会"),
+    (1, "好几天"),
+    (2, "一半以上天数"),
+    (3, "几乎每天"),
+)
 Phq9Severity = Literal["minimal", "mild", "moderate", "moderately_severe", "severe"]
 
 
@@ -62,7 +68,9 @@ class Phq9Score:
 
     total_score: int
     severity: Phq9Severity
-    urgent: bool
+    self_harm_signal: bool
+    requires_immediate_safety_assessment: bool
+    high_severity_follow_up: bool
     safety_messages: tuple[str, ...]
     disclaimer: str = SCREENING_DISCLAIMER
 
@@ -92,7 +100,9 @@ def score_phq9(answers: Mapping[str, int]) -> Phq9Score:
     return Phq9Score(
         total_score=total,
         severity=severity,
-        urgent=self_harm_signal or high_total,
+        self_harm_signal=self_harm_signal,
+        requires_immediate_safety_assessment=self_harm_signal,
+        high_severity_follow_up=high_total,
         safety_messages=tuple(messages),
     )
 

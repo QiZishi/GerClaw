@@ -49,7 +49,9 @@ def test_phq9_boundary_scores_are_deterministic(total: int, severity: str) -> No
 
     assert result.total_score == total
     assert result.severity == severity
-    assert result.urgent is (total >= 20)
+    assert result.self_harm_signal is (total == 27)
+    assert result.requires_immediate_safety_assessment is (total == 27)
+    assert result.high_severity_follow_up is (total >= 20)
     assert (HIGH_SCORE_SAFETY_MESSAGE in result.safety_messages) is (total >= 20)
     assert "不能替代医生" in result.disclaimer
 
@@ -57,7 +59,9 @@ def test_phq9_boundary_scores_are_deterministic(total: int, severity: str) -> No
 def test_phq9_self_harm_answer_is_an_immediate_high_risk_signal() -> None:
     result = score_phq9(_answers(1, ninth_score=1))
 
-    assert result.urgent is True
+    assert result.self_harm_signal is True
+    assert result.requires_immediate_safety_assessment is True
+    assert result.high_severity_follow_up is False
     assert URGENT_SAFETY_MESSAGE in result.safety_messages
     assert risk_for_answer("phq9_9", 1) == (URGENT_SAFETY_MESSAGE,)
     assert risk_for_answer("phq9_8", 3) == ()
@@ -75,3 +79,11 @@ def test_phq9_self_harm_answer_is_an_immediate_high_risk_signal() -> None:
 def test_phq9_rejects_untrusted_client_scores(answers: dict[str, int]) -> None:
     with pytest.raises(ValueError):
         score_phq9(answers)
+
+
+def test_phq9_high_total_without_item_nine_is_not_an_immediate_safety_signal() -> None:
+    result = score_phq9(_answers(20))
+
+    assert result.self_harm_signal is False
+    assert result.requires_immediate_safety_assessment is False
+    assert result.high_severity_follow_up is True
