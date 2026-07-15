@@ -6,6 +6,7 @@ import pytest
 
 from gerclaw_api.database.models import CgaAssessment
 from gerclaw_api.modules.cga.phq9 import PHQ9_QUESTIONS
+from gerclaw_api.modules.cga.psqi import PSQI_QUESTIONS
 from gerclaw_api.modules.cga.sas import SAS_QUESTIONS
 from gerclaw_api.services.cga_service import CgaAssessmentConflictError, CgaService
 
@@ -208,3 +209,82 @@ async def test_legacy_phq9_report_remains_readable_after_multiscale_contract_cha
     assert report.score_max == 27
     assert report.raw_score is None
     assert report.standard_score is None
+
+
+@pytest.mark.asyncio
+async def test_psqi_state_machine_accepts_only_server_defined_mixed_numeric_answers() -> None:
+    service = CgaService(_Repository())  # type: ignore[arg-type]
+    state = await service.start(
+        tenant_id="tenant_public0001", actor_id="usr_patient_test0001", scale_id="psqi"
+    )
+
+    assert state.next_question is not None
+    assert state.next_question.id == "psqi_1"
+    assert state.next_question.input_kind == "clock_minutes"
+    with pytest.raises(CgaAssessmentConflictError):
+        await service.answer(
+            state.assessment_id,
+            tenant_id="tenant_public0001",
+            actor_id="usr_patient_test0001",
+            expected_revision=state.revision,
+            question_id="psqi_1",
+            score=1_440,
+        )
+
+    answer_by_id = {"psqi_1": 23 * 60, "psqi_3": 7 * 60, "psqi_4": 8 * 60}
+    for question in PSQI_QUESTIONS:
+        state = await service.answer(
+            state.assessment_id,
+            tenant_id="tenant_public0001",
+            actor_id="usr_patient_test0001",
+            expected_revision=state.revision,
+            question_id=question.id,
+            score=answer_by_id.get(question.id, 0),
+        )
+    completed = await service.complete(
+        state.assessment_id,
+        tenant_id="tenant_public0001",
+        actor_id="usr_patient_test0001",
+        expected_revision=state.revision,
+    )
+    report = await service.report(
+        state.assessment_id, tenant_id="tenant_public0001", actor_id="usr_patient_test0001"
+    )
+
+    assert completed.status == "completed"
+    assert report.total_score == 0
+    assert report.score_max == 21
+    assert report.component_scores["sleep_efficiency"] == 0
+
+
+@pytest.mark.asyncio
+async def test_psqi_rejects_impossible_sleep_duration_before_persisting_it() -> None:
+    service = CgaService(_Repository())  # type: ignore[arg-type]
+    state = await service.start(
+        tenant_id="tenant_public0001", actor_id="usr_patient_test0001", scale_id="psqi"
+    )
+    for question_id, score in (("psqi_1", 23 * 60), ("psqi_2", 0), ("psqi_3", 7 * 60)):
+        state = await service.answer(
+            state.assessment_id,
+            tenant_id="tenant_public0001",
+            actor_id="usr_patient_test0001",
+            expected_revision=state.revision,
+            question_id=question_id,
+            score=score,
+        )
+
+    with pytest.raises(CgaAssessmentConflictError):
+        await service.answer(
+            state.assessment_id,
+            tenant_id="tenant_public0001",
+            actor_id="usr_patient_test0001",
+            expected_revision=state.revision,
+            question_id="psqi_4",
+            score=9 * 60,
+        )
+
+    resumed = await service.get(
+        state.assessment_id, tenant_id="tenant_public0001", actor_id="usr_patient_test0001"
+    )
+    assert resumed.revision == state.revision
+    assert resumed.next_question is not None and resumed.next_question.id == "psqi_4"

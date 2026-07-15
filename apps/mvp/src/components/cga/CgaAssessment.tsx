@@ -28,6 +28,20 @@ const SEVERITY_LABEL: Record<CgaReport["severity"], string> = {
   moderate: "中度",
   moderately_severe: "中重度",
   severe: "重度",
+  good: "睡眠质量很好",
+  fair: "睡眠质量较好",
+  average: "睡眠质量一般",
+  poor: "睡眠质量差",
+};
+
+const COMPONENT_LABEL: Record<string, string> = {
+  sleep_quality: "睡眠质量",
+  sleep_latency: "入睡时间",
+  sleep_duration: "睡眠时间",
+  sleep_efficiency: "睡眠效率",
+  sleep_disturbance: "睡眠障碍",
+  hypnotic_medication: "催眠药物",
+  daytime_dysfunction: "日间功能障碍",
 };
 
 function assessmentKey(scaleId: CgaScaleId) {
@@ -46,6 +60,7 @@ export function CgaAssessment({ onExit }: CgaAssessmentProps) {
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
+  const [manualInput, setManualInput] = useState("");
 
   const selectedScale = useMemo(
     () => scales.find((scale) => scale.id === selectedScaleId) ?? null,
@@ -114,6 +129,7 @@ export function CgaAssessment({ onExit }: CgaAssessmentProps) {
     setError(null);
     try {
       setAssessment(await submitCgaAnswer(assessment, assessment.next_question.id, score));
+      setManualInput("");
     } catch {
       setError("这道题没有保存成功。请重试；如网络较慢，请先等待当前结果出现。");
     } finally {
@@ -150,6 +166,33 @@ export function CgaAssessment({ onExit }: CgaAssessmentProps) {
     setSelectedScaleId(null);
     setError(null);
     setNotice(null);
+    setManualInput("");
+  };
+
+  const submitManualAnswer = () => {
+    const question = assessment?.next_question;
+    if (!question || saving) return;
+    if (question.input_kind === "clock_minutes") {
+      const matched = /^(\d{2}):(\d{2})$/.exec(manualInput);
+      if (!matched) {
+        setError("请选择有效的时间后再保存。");
+        return;
+      }
+      const hours = Number(matched[1]);
+      const minutes = Number(matched[2]);
+      if (hours > 23 || minutes > 59) {
+        setError("请选择有效的时间后再保存。");
+        return;
+      }
+      void choose(hours * 60 + minutes);
+      return;
+    }
+    const duration = Number(manualInput);
+    if (!Number.isInteger(duration) || duration < 1 || duration > 1_439) {
+      setError("请输入 1 到 1439 分钟之间的实际睡眠时长。");
+      return;
+    }
+    void choose(duration);
   };
 
   return (
@@ -219,11 +262,36 @@ export function CgaAssessment({ onExit }: CgaAssessmentProps) {
               <p className={cn("text-muted-foreground", textClass)}>第 {assessment.next_question.position} / {selectedScale.question_count} 题</p>
               {assessment.next_question.sensitive_prefix && <p className={cn("mt-3 text-amber-800 dark:text-amber-200", textClass)}>{assessment.next_question.sensitive_prefix}</p>}
               <h4 className={cn("mt-3 font-medium leading-relaxed", seniorMode ? "text-xl" : "text-lg")}>{assessment.next_question.text}</h4>
-              <div className="mt-5 grid gap-3">
-                {assessment.next_question.options.map(([value, label]) => (
-                  <Button key={value} variant="outline" className={cn("h-auto justify-start whitespace-normal px-5 py-4 text-left", actionClass)} onClick={() => void choose(value)} disabled={saving}>{label}</Button>
-                ))}
-              </div>
+              {assessment.next_question.input_kind === "ordinal" ? (
+                <div className="mt-5 grid gap-3">
+                  {assessment.next_question.options.map(([value, label]) => (
+                    <Button key={value} variant="outline" className={cn("h-auto justify-start whitespace-normal px-5 py-4 text-left", actionClass)} onClick={() => void choose(value)} disabled={saving}>{label}</Button>
+                  ))}
+                </div>
+              ) : (
+                <div className="mt-5 space-y-3">
+                  <label className={cn("block font-medium", textClass)} htmlFor={`cga-${assessment.next_question.id}`}>
+                    {assessment.next_question.input_kind === "clock_minutes" ? "选择时间" : "填写分钟数"}
+                  </label>
+                  <input
+                    id={`cga-${assessment.next_question.id}`}
+                    key={assessment.next_question.id}
+                    type={assessment.next_question.input_kind === "clock_minutes" ? "time" : "number"}
+                    min={assessment.next_question.input_kind === "duration_minutes" ? 1 : undefined}
+                    max={assessment.next_question.input_kind === "duration_minutes" ? 1439 : undefined}
+                    step={assessment.next_question.input_kind === "duration_minutes" ? 1 : undefined}
+                    value={manualInput}
+                    onChange={(event) => setManualInput(event.target.value)}
+                    disabled={saving}
+                    className={cn("w-full rounded-md border bg-background px-4 py-3 outline-none focus-visible:ring-2 focus-visible:ring-ring", actionClass)}
+                    aria-describedby={`cga-${assessment.next_question.id}-help`}
+                  />
+                  <p id={`cga-${assessment.next_question.id}-help`} className={cn("text-muted-foreground", textClass)}>
+                    {assessment.next_question.input_kind === "clock_minutes" ? "请按最近一个月的通常时间填写。" : "请填写每晚实际睡眠的分钟数，例如 480 表示 8 小时。"}
+                  </p>
+                  <Button className={actionClass} onClick={submitManualAnswer} disabled={saving || manualInput.length === 0}>保存这一题</Button>
+                </div>
+              )}
               {saving && <p className={cn("mt-3 text-muted-foreground", textClass)}>正在保存这一题…</p>}
             </div>
           )}
@@ -242,6 +310,19 @@ export function CgaAssessment({ onExit }: CgaAssessmentProps) {
               <p className={cn("mt-4", textClass)}>得分：<strong>{report.total_score} / {report.score_max}</strong></p>
               {report.raw_score !== null && report.standard_score !== null && <p className={cn("mt-2", textClass)}>粗分：{report.raw_score}；标准分：{report.standard_score}</p>}
               <p className={cn("mt-2", textClass)}>分级：{SEVERITY_LABEL[report.severity]}</p>
+              {Object.keys(report.component_scores).length > 0 && (
+                <div className={cn("mt-4 rounded-md bg-muted p-3", textClass)}>
+                  <p className="font-medium">各项得分</p>
+                  <dl className="mt-2 grid grid-cols-1 gap-2 sm:grid-cols-2">
+                    {Object.entries(report.component_scores).map(([key, score]) => (
+                      <div className="flex justify-between gap-3" key={key}>
+                        <dt>{COMPONENT_LABEL[key] ?? key}</dt>
+                        <dd>{score} / 3</dd>
+                      </div>
+                    ))}
+                  </dl>
+                </div>
+              )}
               {report.safety_messages.map((message) => <p className={cn("mt-3", textClass)} key={message}>{message}</p>)}
               <p className={cn("mt-5 rounded-md bg-muted p-3 text-muted-foreground", textClass)}>{report.disclaimer}</p>
               <Button className={cn("mt-4", actionClass)} variant="outline" onClick={reset}>重新开始此量表</Button>

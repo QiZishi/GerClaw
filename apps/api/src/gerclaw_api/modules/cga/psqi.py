@@ -2,10 +2,10 @@
 """Versioned PSQI definition and deterministic sleep-quality calculation.
 
 This module transcribes ``问卷量表/03-PSQI匹兹堡睡眠质量指数量表.md``.
-It deliberately contains no model, network, or persistence dependency.  PSQI
-uses clock times and durations in addition to ordinal options, so it is kept
-out of the four-choice assessment state machine until that richer input
-contract is implemented end-to-end.
+It deliberately contains no model, network, or persistence dependency.  The
+service layer consumes its clock-time, duration and ordinal definition through
+the versioned mixed-input state-machine contract; the optional free-text
+description for item 5J remains outside this score-bearing core.
 """
 
 from __future__ import annotations
@@ -18,6 +18,36 @@ PSQI_SCALE_ID = "psqi"
 PSQI_VERSION = "2026-07-16"
 PSQI_DISCLAIMER = "本结果是睡眠质量筛查结果，不能替代医生的临床诊断。"
 PSQI_HIGH_SCORE_MESSAGE = "睡眠质量筛查分数较高，建议咨询医生或睡眠健康专业人员。"
+PSQI_FREQUENCY_OPTIONS: tuple[tuple[int, str], ...] = (
+    (0, "过去1个月没有"),
+    (1, "每周平均不足1个晚上"),
+    (2, "每周平均1–2个晚上"),
+    (3, "每周平均3个或更多晚上"),
+)
+PSQI_LATENCY_OPTIONS: tuple[tuple[int, str], ...] = (
+    (0, "15分钟或以内"),
+    (1, "16–30分钟"),
+    (2, "31–60分钟"),
+    (3, "超过60分钟"),
+)
+PSQI_QUALITY_OPTIONS: tuple[tuple[int, str], ...] = (
+    (0, "非常好"),
+    (1, "尚好"),
+    (2, "不好"),
+    (3, "非常差"),
+)
+PSQI_DAYTIME_OPTIONS: tuple[tuple[int, str], ...] = (
+    (0, "没有困难"),
+    (1, "有一点困难"),
+    (2, "比较困难"),
+    (3, "非常困难"),
+)
+PSQI_PARTNER_OPTIONS: tuple[tuple[int, str], ...] = (
+    (0, "没有同睡一床或室友"),
+    (1, "同伴或室友在另外房间"),
+    (2, "同伴在同一房间但不睡同床"),
+    (3, "同伴在同一床上"),
+)
 
 
 @dataclass(frozen=True)
@@ -68,14 +98,11 @@ def score_psqi(answers: Mapping[str, int]) -> PsqiScore:
     """Validate all 19 self-report values and calculate all seven PSQI factors."""
 
     _validate_answers(answers)
+    validate_psqi_timing(answers)
     bedtime = answers["psqi_1"]
     wake_time = answers["psqi_3"]
     time_in_bed = (wake_time - bedtime) % 1_440
     actual_sleep = answers["psqi_4"]
-    if time_in_bed == 0:
-        raise ValueError("bedtime and wake time must define a non-zero interval")
-    if actual_sleep > time_in_bed:
-        raise ValueError("actual sleep duration cannot exceed time in bed")
 
     component_scores = {
         "sleep_quality": answers["psqi_6"],
@@ -108,15 +135,57 @@ def _validate_answers(answers: Mapping[str, int]) -> None:
             "PSQI answers must contain exactly the nineteen defined self-report identifiers"
         )
     for question in PSQI_QUESTIONS:
-        value = answers[question.id]
-        if isinstance(value, bool) or not isinstance(value, int):
-            raise ValueError(f"{question.id} must be an integer")
-        if question.input_kind == "ordinal" and value not in range(4):
-            raise ValueError(f"{question.id} must be an ordinal score from 0 through 3")
-        if question.input_kind == "clock_minutes" and value not in range(1_440):
-            raise ValueError(f"{question.id} must be minutes after midnight")
-        if question.input_kind == "duration_minutes" and value not in range(1, 1_440):
-            raise ValueError(f"{question.id} must be a positive duration in minutes")
+        validate_psqi_answer(question.id, answers[question.id])
+
+
+def validate_psqi_answer(question_id: str, value: int) -> None:
+    """Fail closed for the one server-owned PSQI item and its integer answer."""
+
+    question = next((item for item in PSQI_QUESTIONS if item.id == question_id), None)
+    if question is None:
+        raise ValueError("unknown PSQI question")
+    if isinstance(value, bool) or not isinstance(value, int):
+        raise ValueError(f"{question.id} must be an integer")
+    if question.input_kind == "ordinal" and value not in range(4):
+        raise ValueError(f"{question.id} must be an ordinal score from 0 through 3")
+    if question.input_kind == "clock_minutes" and value not in range(1_440):
+        raise ValueError(f"{question.id} must be minutes after midnight")
+    if question.input_kind == "duration_minutes" and value not in range(1, 1_440):
+        raise ValueError(f"{question.id} must be a positive duration in minutes")
+
+
+def validate_psqi_timing(answers: Mapping[str, int]) -> None:
+    """Reject impossible cross-item time data as soon as all three values exist."""
+
+    timing_ids = {"psqi_1", "psqi_3", "psqi_4"}
+    if not timing_ids.issubset(answers):
+        return
+    bedtime = answers["psqi_1"]
+    wake_time = answers["psqi_3"]
+    actual_sleep = answers["psqi_4"]
+    time_in_bed = (wake_time - bedtime) % 1_440
+    if time_in_bed == 0:
+        raise ValueError("bedtime and wake time must define a non-zero interval")
+    if actual_sleep > time_in_bed:
+        raise ValueError("actual sleep duration cannot exceed time in bed")
+
+
+def psqi_options_for(question_id: str) -> tuple[tuple[int, str], ...]:
+    """Return ordinal labels only; clock and duration inputs have no fake choices."""
+
+    if question_id == "psqi_2":
+        return PSQI_LATENCY_OPTIONS
+    if question_id == "psqi_6":
+        return PSQI_QUALITY_OPTIONS
+    if question_id == "psqi_9":
+        return PSQI_DAYTIME_OPTIONS
+    if question_id == "psqi_10":
+        return PSQI_PARTNER_OPTIONS
+    if question_id.startswith("psqi_5") or question_id in {"psqi_7", "psqi_8"}:
+        return PSQI_FREQUENCY_OPTIONS
+    if question_id in PSQI_QUESTION_IDS:
+        return ()
+    raise ValueError("unknown PSQI question")
 
 
 def _band(value: int, bounds: tuple[int, int, int]) -> int:

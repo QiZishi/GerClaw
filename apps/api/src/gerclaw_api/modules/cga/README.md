@@ -17,4 +17,4 @@ Authenticated callers use `GET /api/v1/cga/scales`, then start, read, answer, co
 
 ## Scope and limitations
 
-The patient UI reads the server scale directory and supports separately recoverable PHQ-9 and SAS flows; it never renders the legacy static scale data as a source of truth.  PSQI, Mini-Cog, MMSE, clinician-authorized viewing, fatigue pause, historical comparison, and report export remain unimplemented.  All results are screening information and cannot replace clinical diagnosis or emergency care.
+The patient UI reads the server scale directory and supports separately recoverable PHQ-9, SAS and the score-bearing PSQI self-report flow; it never renders legacy static scale data as a source of truth.  PSQI item 5J's optional free-text detail is not persisted yet.  Mini-Cog, MMSE, clinician-authorized viewing, fatigue pause, historical comparison, and report export remain unimplemented.  All results are screening information and cannot replace clinical diagnosis or emergency care.

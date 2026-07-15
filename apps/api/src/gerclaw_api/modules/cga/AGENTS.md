@@ -2,7 +2,7 @@
 
 ## Responsibility
 
-This module owns versioned, deterministic screening-scale definitions and scoring only.  PHQ-9 and SAS have complete server workflows; PSQI currently has a tested scoring core only and must not be exposed until the mixed time/duration input contract is implemented.  The service layer owns the authenticated, persisted state machine; routes own HTTP concerns.
+This module owns versioned, deterministic screening-scale definitions and scoring only.  PHQ-9, SAS and the score-bearing PSQI self-report items have server workflows; PSQI's optional free-text detail for item 5J is not yet persisted and must not be represented as complete narrative capture.  The service layer owns the authenticated, persisted state machine; routes own HTTP concerns.
 
 ## Invariants
 

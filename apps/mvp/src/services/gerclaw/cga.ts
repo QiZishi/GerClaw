@@ -13,8 +13,8 @@ const assessmentIdSchema = z.string().uuid();
 const answerRequestSchema = z
   .object({
     expected_revision: z.number().int().positive(),
-    question_id: z.string().regex(/^(?:phq9_[1-9]|sas_(?:[1-9]|1[0-9]|20))$/),
-    score: z.number().int().min(0).max(4),
+    question_id: z.string().regex(/^(?:phq9_[1-9]|sas_(?:[1-9]|1[0-9]|20)|psqi_(?:[1-9]|10|5[a-j]))$/),
+    score: z.number().int().min(0).max(1439),
   })
   .strict();
 

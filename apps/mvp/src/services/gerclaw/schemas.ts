@@ -81,15 +81,16 @@ export const approvalSchema = z
 
 export type RuntimeApproval = z.infer<typeof approvalSchema>;
 
-export const cgaScaleIdSchema = z.enum(["phq9", "sas"]);
-const cgaOptionSchema = z.tuple([z.number().int().min(0).max(4), z.string().min(1).max(80)]);
+export const cgaScaleIdSchema = z.enum(["phq9", "sas", "psqi"]);
+const cgaOptionSchema = z.tuple([z.number().int().min(0).max(1439), z.string().min(1).max(80)]);
 export const cgaQuestionSchema = z
   .object({
-    id: z.string().regex(/^(?:phq9_[1-9]|sas_(?:[1-9]|1[0-9]|20))$/),
+    id: z.string().regex(/^(?:phq9_[1-9]|sas_(?:[1-9]|1[0-9]|20)|psqi_(?:[1-9]|10|5[a-j]))$/),
     position: z.number().int().min(1).max(30),
     text: z.string().min(1).max(500),
     sensitive_prefix: z.string().min(1).max(200).nullable(),
-    options: z.array(cgaOptionSchema).length(4),
+    input_kind: z.enum(["ordinal", "clock_minutes", "duration_minutes"]),
+    options: z.array(cgaOptionSchema).max(4),
   })
   .strict();
 const cgaRiskSchema = z
@@ -118,13 +119,13 @@ export const cgaScalesSchema = z
         .object({
           id: cgaScaleIdSchema,
           version: z.string().min(1).max(32),
-          name: z.enum(["PHQ-9", "SAS"]),
+          name: z.enum(["PHQ-9", "SAS", "PSQI"]),
           description: z.string().min(1).max(200),
           question_count: z.number().int().min(1).max(30),
           questions: z.array(cgaQuestionSchema).min(1).max(30),
         })
         .strict()
-    ).min(1).max(2),
+    ).min(1).max(3),
   })
   .strict();
 export const cgaReportSchema = z
@@ -133,11 +134,12 @@ export const cgaReportSchema = z
     score_max: z.number().int().min(1).max(100),
     raw_score: z.number().int().min(0).max(100).nullable(),
     standard_score: z.number().int().min(0).max(100).nullable(),
-    severity: z.enum(["none", "minimal", "mild", "moderate", "moderately_severe", "severe"]),
+    severity: z.enum(["none", "minimal", "mild", "moderate", "moderately_severe", "severe", "good", "fair", "average", "poor"]),
     self_harm_signal: z.boolean(),
     requires_immediate_safety_assessment: z.boolean(),
     high_severity_follow_up: z.boolean(),
     safety_messages: z.array(z.string().min(1).max(500)).max(2),
+    component_scores: z.record(z.string().min(1).max(64), z.number().int().min(0).max(3)),
     disclaimer: z.string().min(1).max(200),
   })
   .strict();

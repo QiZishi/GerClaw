@@ -21,6 +21,16 @@ from gerclaw_api.modules.cga.phq9 import (
     risk_for_answer,
     score_phq9,
 )
+from gerclaw_api.modules.cga.psqi import (
+    PSQI_HIGH_SCORE_MESSAGE,
+    PSQI_QUESTIONS,
+    PSQI_SCALE_ID,
+    PSQI_VERSION,
+    psqi_options_for,
+    score_psqi,
+    validate_psqi_answer,
+    validate_psqi_timing,
+)
 from gerclaw_api.modules.cga.sas import (
     SAS_HIGH_SCORE_MESSAGE,
     SAS_OPTIONS,
@@ -41,9 +51,17 @@ class CgaService:
         self._repository = repository
 
     async def start(
-        self, *, tenant_id: str, actor_id: str, scale_id: Literal["phq9", "sas"] = "phq9"
+        self,
+        *,
+        tenant_id: str,
+        actor_id: str,
+        scale_id: Literal["phq9", "sas", "psqi"] = "phq9",
     ) -> CgaAssessmentRead:
-        version = PHQ9_VERSION if scale_id == PHQ9_SCALE_ID else SAS_VERSION
+        version = {
+            PHQ9_SCALE_ID: PHQ9_VERSION,
+            SAS_SCALE_ID: SAS_VERSION,
+            PSQI_SCALE_ID: PSQI_VERSION,
+        }[scale_id]
         record = await self._repository.create(
             tenant_id=tenant_id,
             actor_id=actor_id,
@@ -74,13 +92,14 @@ class CgaService:
         if record.status != "active":
             raise CgaAssessmentConflictError("completed assessments cannot accept more answers")
         answers = self._answers(record)
-        self._validate_score(record.scale_id, score)
+        self._validate_score(record.scale_id, question_id, score)
         if question_id in answers:
             if answers[question_id] == score:
                 return self._read(record)
             if record.revision != expected_revision:
                 raise CgaAssessmentConflictError("assessment has changed; refresh before editing")
             answers[question_id] = score
+            self._validate_candidate_answers(record.scale_id, answers)
             if record.scale_id == PHQ9_SCALE_ID:
                 risk_for_answer(question_id, score)
             record.answers = answers
@@ -94,6 +113,7 @@ class CgaService:
                 "answer must match the server-provided current question"
             )
         answers[question_id] = score
+        self._validate_candidate_answers(record.scale_id, answers)
         if record.scale_id == PHQ9_SCALE_ID:
             risk_for_answer(question_id, score)
         record.answers = answers
@@ -138,11 +158,13 @@ class CgaService:
             else ()
         )
         high_follow_up = report.get("high_severity_follow_up") is True
-        high_score_message = (
-            HIGH_SCORE_SAFETY_MESSAGE
-            if record.scale_id == PHQ9_SCALE_ID
-            else SAS_HIGH_SCORE_MESSAGE
-        )
+        high_score_message = {
+            PHQ9_SCALE_ID: HIGH_SCORE_SAFETY_MESSAGE,
+            SAS_SCALE_ID: SAS_HIGH_SCORE_MESSAGE,
+            PSQI_SCALE_ID: PSQI_HIGH_SCORE_MESSAGE,
+        }.get(record.scale_id)
+        if high_score_message is None:
+            raise CgaAssessmentConflictError("assessment uses an unsupported scale")
         if high_follow_up and high_score_message not in messages:
             messages += (high_score_message,)
         next_question = None
@@ -173,7 +195,8 @@ class CgaService:
             position=question.position,
             text=question.text,
             sensitive_prefix=getattr(question, "sensitive_prefix", None),
-            options=list(CgaService._options(scale_id)),
+            input_kind=getattr(question, "input_kind", "ordinal"),
+            options=list(CgaService._options(scale_id, question.id)),
         )
 
     @staticmethod
@@ -182,23 +205,51 @@ class CgaService:
             return PHQ9_QUESTIONS
         if scale_id == SAS_SCALE_ID:
             return SAS_QUESTIONS
+        if scale_id == PSQI_SCALE_ID:
+            return PSQI_QUESTIONS
         raise CgaAssessmentConflictError("assessment uses an unsupported scale")
 
     @staticmethod
-    def _options(scale_id: str) -> tuple[tuple[int, str], ...]:
+    def _options(scale_id: str, question_id: str) -> tuple[tuple[int, str], ...]:
         if scale_id == PHQ9_SCALE_ID:
             return PHQ9_OPTIONS
         if scale_id == SAS_SCALE_ID:
             return SAS_OPTIONS
+        if scale_id == PSQI_SCALE_ID:
+            try:
+                return psqi_options_for(question_id)
+            except ValueError as error:
+                raise CgaAssessmentConflictError(
+                    "assessment uses an unsupported question"
+                ) from error
         raise CgaAssessmentConflictError("assessment uses an unsupported scale")
 
     @classmethod
-    def _validate_score(cls, scale_id: str, score: int) -> None:
-        valid_scores = {value for value, _label in cls._options(scale_id)}
+    def _validate_score(cls, scale_id: str, question_id: str, score: int) -> None:
+        if scale_id == PSQI_SCALE_ID:
+            try:
+                validate_psqi_answer(question_id, score)
+            except ValueError as error:
+                raise CgaAssessmentConflictError(
+                    "answer score is invalid for this server-defined question"
+                ) from error
+            return
+        valid_scores = {value for value, _label in cls._options(scale_id, question_id)}
         if isinstance(score, bool) or score not in valid_scores:
             raise CgaAssessmentConflictError(
                 "answer score is invalid for this server-defined question"
             )
+
+    @staticmethod
+    def _validate_candidate_answers(scale_id: str, answers: dict[str, int]) -> None:
+        if scale_id != PSQI_SCALE_ID:
+            return
+        try:
+            validate_psqi_timing(answers)
+        except ValueError as error:
+            raise CgaAssessmentConflictError(
+                "answer is inconsistent with previously saved assessment answers"
+            ) from error
 
     def _report(self, record: CgaAssessment) -> CgaReportRead:
         if record.scale_id == PHQ9_SCALE_ID:
@@ -224,6 +275,17 @@ class CgaService:
                 high_severity_follow_up=sas_result.high_severity_follow_up,
                 safety_messages=list(sas_result.safety_messages),
                 disclaimer=sas_result.disclaimer,
+            )
+        if record.scale_id == PSQI_SCALE_ID:
+            psqi_result = score_psqi(self._answers(record))
+            return CgaReportRead(
+                total_score=psqi_result.total_score,
+                score_max=21,
+                severity=psqi_result.severity,
+                high_severity_follow_up=psqi_result.high_severity_follow_up,
+                safety_messages=list(psqi_result.safety_messages),
+                component_scores=psqi_result.component_scores,
+                disclaimer=psqi_result.disclaimer,
             )
         raise CgaAssessmentConflictError("assessment uses an unsupported scale")
 

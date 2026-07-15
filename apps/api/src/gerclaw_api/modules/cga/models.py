@@ -15,13 +15,14 @@ class CgaQuestionRead(BaseModel):
     position: int = Field(ge=1, le=30)
     text: str
     sensitive_prefix: str | None = None
-    options: list[tuple[int, str]]
+    input_kind: Literal["ordinal", "clock_minutes", "duration_minutes"] = "ordinal"
+    options: list[tuple[int, str]] = Field(default_factory=list)
 
 
 class CgaScaleRead(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
-    id: Literal["phq9", "sas"]
+    id: Literal["phq9", "sas", "psqi"]
     version: str
     name: str
     description: str
@@ -38,15 +39,17 @@ class CgaScalesRead(BaseModel):
 class CgaStartRequest(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
-    scale_id: Literal["phq9", "sas"]
+    scale_id: Literal["phq9", "sas", "psqi"]
 
 
 class CgaAnswerRequest(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     expected_revision: int = Field(ge=1)
-    question_id: str = Field(pattern=r"^(?:phq9_[1-9]|sas_(?:[1-9]|1[0-9]|20))$")
-    score: int = Field(ge=0, le=4)
+    question_id: str = Field(
+        pattern=r"^(?:phq9_[1-9]|sas_(?:[1-9]|1[0-9]|20)|psqi_(?:[1-9]|10|5[a-j]))$"
+    )
+    score: int = Field(ge=0, le=1_439)
 
 
 class CgaCompleteRequest(BaseModel):
@@ -67,7 +70,7 @@ class CgaAssessmentRead(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     assessment_id: uuid.UUID
-    scale_id: Literal["phq9", "sas"]
+    scale_id: Literal["phq9", "sas", "psqi"]
     definition_version: str
     status: Literal["active", "completed", "abandoned"]
     revision: int
@@ -87,10 +90,20 @@ class CgaReportRead(BaseModel):
     raw_score: int | None = Field(default=None, ge=0, le=100)
     standard_score: int | None = Field(default=None, ge=0, le=100)
     severity: Literal[
-        "none", "minimal", "mild", "moderate", "moderately_severe", "severe"
+        "none",
+        "minimal",
+        "mild",
+        "moderate",
+        "moderately_severe",
+        "severe",
+        "good",
+        "fair",
+        "average",
+        "poor",
     ]
     self_harm_signal: bool = False
     requires_immediate_safety_assessment: bool = False
     high_severity_follow_up: bool = False
     safety_messages: list[str] = Field(default_factory=list)
+    component_scores: dict[str, int] = Field(default_factory=dict)
     disclaimer: str

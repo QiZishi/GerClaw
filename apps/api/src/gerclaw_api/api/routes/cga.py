@@ -21,6 +21,7 @@ from gerclaw_api.modules.cga.models import (
     CgaStartRequest,
 )
 from gerclaw_api.modules.cga.phq9 import PHQ9_OPTIONS, PHQ9_QUESTIONS, PHQ9_VERSION
+from gerclaw_api.modules.cga.psqi import PSQI_QUESTIONS, PSQI_VERSION, psqi_options_for
 from gerclaw_api.modules.cga.sas import SAS_OPTIONS, SAS_QUESTIONS, SAS_VERSION
 from gerclaw_api.repositories.cga import CgaAssessmentNotFoundError, SqlAlchemyCgaRepository
 from gerclaw_api.services.cga_service import CgaAssessmentConflictError, CgaService
@@ -55,6 +56,16 @@ async def list_scales(identity: ReadIdentity) -> CgaScalesRead:
         )
         for item in SAS_QUESTIONS
     ]
+    psqi_questions = [
+        CgaQuestionRead(
+            id=item.id,
+            position=item.position,
+            text=item.text,
+            input_kind=item.input_kind,
+            options=list(psqi_options_for(item.id)),
+        )
+        for item in PSQI_QUESTIONS
+    ]
     return CgaScalesRead(
         scales=[
             CgaScaleRead(
@@ -72,6 +83,14 @@ async def list_scales(identity: ReadIdentity) -> CgaScalesRead:
                 description="最近一周焦虑症状筛查量表",
                 question_count=len(sas_questions),
                 questions=sas_questions,
+            ),
+            CgaScaleRead(
+                id="psqi",
+                version=PSQI_VERSION,
+                name="PSQI",
+                description="过去一个月睡眠质量筛查量表",
+                question_count=len(psqi_questions),
+                questions=psqi_questions,
             ),
         ]
     )
