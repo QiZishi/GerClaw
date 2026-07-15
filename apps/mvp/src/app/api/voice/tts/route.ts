@@ -1,36 +1,41 @@
 import { NextRequest } from "next/server";
+import { z } from "zod";
+import { getVoiceProvider, mimoAuthorizationHeaders } from "@/server/voice-provider";
+import {
+  parseTtsRequest,
+  takeVoiceRequestSlot,
+  voiceErrorResponse,
+} from "@/server/voice-request";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
-const TTS_URL = process.env.NEXT_PUBLIC_TTS_URL || "";
-const TTS_API_KEY = process.env.NEXT_PUBLIC_TTS_API_KEY || "";
-const TTS_MODEL = process.env.NEXT_PUBLIC_TTS_MODEL || "mimo-v2.5-tts";
-const TTS_VOICE = process.env.NEXT_PUBLIC_TTS_VOICE || "冰糖";
+const ttsResponseSchema = z.object({
+  choices: z.array(
+    z.object({
+      message: z.object({
+        audio: z.object({
+          data: z.string().min(1).max(24 * 1024 * 1024).regex(/^[A-Za-z0-9+/]+={0,2}$/),
+        }).passthrough(),
+      }).passthrough(),
+    }).passthrough()
+  ).min(1),
+}).passthrough();
 
 export async function POST(request: NextRequest) {
-  if (!TTS_URL || !TTS_API_KEY) {
-    return Response.json(
-      { error: "TTS 服务未配置，请检查环境变量" },
-      { status: 503 }
-    );
-  }
-
   try {
-    const body = await request.json();
-    const { text, voice } = body;
-
-    if (!text || typeof text !== "string") {
-      return Response.json(
-        { error: "缺少要合成的文本" },
-        { status: 400 }
-      );
+    takeVoiceRequestSlot(request);
+    const operationSignal = AbortSignal.any([request.signal, AbortSignal.timeout(10_000)]);
+    const { text, voice } = await parseTtsRequest(request, operationSignal);
+    const { url: ttsUrl, apiKey: ttsApiKey, model: ttsModel, voice: ttsVoice } = getVoiceProvider("tts");
+    if (!ttsUrl || !ttsApiKey) {
+      return Response.json({ error: "语音合成服务暂时不可用。" }, { status: 503 });
     }
 
-    const url = TTS_URL.replace(/\/+$/, "") + "/chat/completions";
+    const url = ttsUrl.replace(/\/+$/, "") + "/chat/completions";
 
     const requestBody: Record<string, unknown> = {
-      model: TTS_MODEL,
+      model: ttsModel,
       messages: [
         {
           role: "assistant",
@@ -39,7 +44,7 @@ export async function POST(request: NextRequest) {
       ],
       audio: {
         format: "wav",
-        voice: voice || TTS_VOICE,
+        voice: voice || ttsVoice,
       },
       stream: false,
     };
@@ -48,28 +53,24 @@ export async function POST(request: NextRequest) {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
-        Authorization: `Bearer ${TTS_API_KEY}`,
+        ...mimoAuthorizationHeaders(ttsApiKey),
       },
       body: JSON.stringify(requestBody),
+      signal: operationSignal,
     });
 
     if (!response.ok) {
-      const errText = await response.text();
-      return Response.json(
-        { error: `TTS 请求失败: HTTP ${response.status} ${errText}` },
-        { status: response.status }
-      );
+      return Response.json({ error: "语音合成服务暂时不可用，请稍后重试。" }, { status: 502 });
     }
 
-    const json = await response.json();
-    const audioBase64 = json?.choices?.[0]?.message?.audio?.data;
-
-    if (!audioBase64 || typeof audioBase64 !== "string") {
+    const parsedResponse = ttsResponseSchema.safeParse(await response.json().catch(() => null));
+    if (!parsedResponse.success) {
       return Response.json(
         { error: "TTS 响应格式异常，未获取到音频数据" },
         { status: 502 }
       );
     }
+    const audioBase64 = parsedResponse.data.choices[0].message.audio.data;
 
     const audioBuffer = Buffer.from(audioBase64, "base64");
 
@@ -81,10 +82,6 @@ export async function POST(request: NextRequest) {
       },
     });
   } catch (error) {
-    const message = error instanceof Error ? error.message : String(error);
-    return Response.json(
-      { error: `TTS 服务异常: ${message}` },
-      { status: 500 }
-    );
+    return voiceErrorResponse(error);
   }
 }

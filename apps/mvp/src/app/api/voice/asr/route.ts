@@ -1,58 +1,37 @@
 import { NextRequest } from "next/server";
+import { z } from "zod";
+import { getVoiceProvider, mimoAuthorizationHeaders } from "@/server/voice-provider";
+import {
+  parseAsrRequest,
+  takeVoiceRequestSlot,
+  voiceErrorResponse,
+} from "@/server/voice-request";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
-const ASR_URL = process.env.NEXT_PUBLIC_ASR_URL || "";
-const ASR_API_KEY = process.env.NEXT_PUBLIC_ASR_API_KEY || "";
-const ASR_MODEL = process.env.NEXT_PUBLIC_ASR_MODEL || "mimo-v2.5-asr";
+const asrResponseSchema = z.object({
+  choices: z.array(
+    z.object({
+      message: z.object({ content: z.string().max(4_000) }).passthrough(),
+    }).passthrough()
+  ).min(1),
+}).passthrough();
 
 export async function POST(request: NextRequest) {
-  if (!ASR_URL || !ASR_API_KEY) {
-    return Response.json(
-      { error: "ASR 服务未配置，请检查环境变量" },
-      { status: 503 }
-    );
-  }
-
   try {
-    const body = await request.json();
-    let { audio, format } = body;
-
-    if (!audio || typeof audio !== "string") {
-      return Response.json(
-        { error: "缺少音频数据" },
-        { status: 400 }
-      );
+    takeVoiceRequestSlot(request);
+    const operationSignal = AbortSignal.any([request.signal, AbortSignal.timeout(30_000)]);
+    const { audio, format } = await parseAsrRequest(request, operationSignal);
+    const { url: asrUrl, apiKey: asrApiKey, model: asrModel } = getVoiceProvider("asr");
+    if (!asrUrl || !asrApiKey) {
+      return Response.json({ error: "语音识别服务暂时不可用，请改用文字输入。" }, { status: 503 });
     }
 
-    // 处理 data URL 格式（data:audio/xxx;base64,...），提取纯 base64
-    if (audio.startsWith("data:")) {
-      const commaIndex = audio.indexOf(",");
-      if (commaIndex === -1) {
-        return Response.json(
-          { error: "音频数据格式无效" },
-          { status: 400 }
-        );
-      }
-      // 从 MIME type 推断格式
-      const mimeHeader = audio.slice(5, commaIndex);
-      if (!format) {
-        if (mimeHeader.includes("wav")) format = "wav";
-        else if (mimeHeader.includes("webm")) format = "webm";
-        else if (mimeHeader.includes("mp4") || mimeHeader.includes("m4a")) format = "mp4";
-        else if (mimeHeader.includes("ogg")) format = "ogg";
-        else if (mimeHeader.includes("mpeg") || mimeHeader.includes("mp3")) format = "mp3";
-      }
-      audio = audio.slice(commaIndex + 1);
-    }
-
-    const url = ASR_URL.replace(/\/+$/, "") + "/chat/completions";
-
-    const audioFormat = format || "wav";
+    const url = asrUrl.replace(/\/+$/, "") + "/chat/completions";
 
     const requestBody: Record<string, unknown> = {
-      model: ASR_MODEL,
+      model: asrModel,
       messages: [
         {
           role: "user",
@@ -61,7 +40,7 @@ export async function POST(request: NextRequest) {
               type: "input_audio",
               input_audio: {
                 data: audio,
-                format: audioFormat,
+                format,
               },
             },
           ],
@@ -74,35 +53,29 @@ export async function POST(request: NextRequest) {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
-        Authorization: `Bearer ${ASR_API_KEY}`,
+        ...mimoAuthorizationHeaders(asrApiKey),
       },
       body: JSON.stringify(requestBody),
+      signal: operationSignal,
     });
 
     if (!response.ok) {
-      const errText = await response.text();
-      return Response.json(
-        { error: `ASR 请求失败: HTTP ${response.status} ${errText}` },
-        { status: response.status }
-      );
+      return Response.json({ error: "语音识别服务暂时不可用，请改用文字输入。" }, { status: 502 });
     }
 
-    const json = await response.json();
-    const text = json?.choices?.[0]?.message?.content;
-
-    if (typeof text !== "string") {
+    const parsedResponse = asrResponseSchema.safeParse(await response.json().catch(() => null));
+    if (!parsedResponse.success) {
       return Response.json(
         { error: "ASR 响应格式异常，未获取到识别文本" },
         { status: 502 }
       );
     }
+    const text = parsedResponse.data.choices[0].message.content;
 
-    return Response.json({ text: text.trim() });
+    const trimmed = text.trim();
+    if (!trimmed) return Response.json({ error: "未能识别到语音内容，请重新说话或改用文字输入。" }, { status: 422 });
+    return Response.json({ text: trimmed });
   } catch (error) {
-    const message = error instanceof Error ? error.message : String(error);
-    return Response.json(
-      { error: `ASR 服务异常: ${message}` },
-      { status: 500 }
-    );
+    return voiceErrorResponse(error);
   }
 }

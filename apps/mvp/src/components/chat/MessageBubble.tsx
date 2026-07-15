@@ -105,7 +105,7 @@ interface MessageBubbleProps {
 }
 
 function VoiceReadButton({ text, seniorMode }: { text: string; seniorMode: boolean }) {
-  const { isPlaying, isPaused, isLoading, play, pause, resume, stop } = useAudioPlayer();
+  const { isPlaying, isPaused, isLoading, progress, play, pause, resume, stop } = useAudioPlayer();
 
   const reportPlaybackError = () => toast.show("语音播放失败，请稍后重试");
   const start = () => void play(text).catch(reportPlaybackError);
@@ -129,27 +129,42 @@ function VoiceReadButton({ text, seniorMode }: { text: string; seniorMode: boole
 
   if (isPlaying || isPaused) {
     return (
-      <div className="inline-flex items-center gap-1" role="group" aria-label="语音播放控制">
-        <Button
-          variant="ghost"
-          size={seniorMode ? "default" : "icon-sm"}
-          className={cn("text-primary bg-primary/10", seniorMode && "min-h-12 gap-1.5 px-3 text-base")}
-          onClick={isPlaying ? pause : continuePlayback}
-          aria-label={isPlaying ? "暂停语音" : "继续播放语音"}
+      <div className="inline-flex items-center gap-1.5" role="group" aria-label="语音播放控制">
+        <div className="inline-flex items-center gap-1">
+          <Button
+            variant="ghost"
+            size={seniorMode ? "default" : "icon-sm"}
+            className={cn("text-primary bg-primary/10", seniorMode && "min-h-12 gap-1.5 px-3 text-base")}
+            onClick={isPlaying ? pause : continuePlayback}
+            aria-label={isPlaying ? "暂停语音" : "继续播放语音"}
+          >
+            {isPlaying ? <Pause className="size-4" /> : <Play className="size-4" />}
+            {seniorMode && <span>{isPlaying ? "暂停" : "继续"}</span>}
+          </Button>
+          <Button
+            variant="ghost"
+            size={seniorMode ? "default" : "icon-sm"}
+            className={cn(seniorMode && "min-h-12 gap-1.5 px-3 text-base")}
+            onClick={stop}
+            aria-label="停止语音"
+          >
+            <Square className="size-4" />
+            {seniorMode && <span>停止</span>}
+          </Button>
+        </div>
+        <div
+          className={cn("h-1.5 w-16 overflow-hidden rounded-full bg-muted", seniorMode && "w-20")}
+          role="progressbar"
+          aria-label="语音播放进度"
+          aria-valuemin={0}
+          aria-valuemax={100}
+          aria-valuenow={Math.round(progress * 100)}
         >
-          {isPlaying ? <Pause className="size-4" /> : <Play className="size-4" />}
-          {seniorMode && <span>{isPlaying ? "暂停" : "继续"}</span>}
-        </Button>
-        <Button
-          variant="ghost"
-          size={seniorMode ? "default" : "icon-sm"}
-          className={cn(seniorMode && "min-h-12 gap-1.5 px-3 text-base")}
-          onClick={stop}
-          aria-label="停止语音"
-        >
-          <Square className="size-4" />
-          {seniorMode && <span>停止</span>}
-        </Button>
+          <div
+            className="h-full rounded-full bg-primary motion-reduce:transition-none transition-[width] duration-150"
+            style={{ width: `${Math.round(progress * 100)}%` }}
+          />
+        </div>
       </div>
     );
   }

@@ -20,7 +20,7 @@
 | AI-02 | Memory/健康画像引擎 | `modules/memory` | 加密、跨会话、冲突、无 PHI vector | ✅ 0017 独立 PASS |
 | AI-03 | Skill 生命周期 | `modules/skill`、Skill UI | 注册/版本/隔离/viewer/安全/真实模型 | ✅ 0019 独立 PASS |
 | AI-04 | AnySearch→Tavily | `modules/search` | provider failover、网页隔离、引用 | ✅ 0018 独立 PASS |
-| AI-05 | Voice 后端 | `modules/input_output` 或 voice | ASR/TTS schema、PCM16 流、取消、故障 | ❌ 仅前端 Next route 和 Protocol |
+| AI-05 | Voice 后端 | `modules/input_output` 或 voice | ASR/TTS schema、PCM16 流、取消、故障 | 🚧 Next.js 服务端 BFF 已以非公开环境变量调用真实 MiMo ASR/TTS，并有 Zod/大小格式/音色约束、超时取消、安全阀和稳定错误；TTS WAV 实测成功。缺 FastAPI Runtime Harness adapter、PCM16 流、统一 schema/version、审计和完整故障评测 |
 | AI-06 | Privacy | security、harness safety | PHI/凭证、注入、诊断、红旗、自伤、免责声明 | 🚧 核心规则分散，缺独立完整模块 |
 | AI-07 | MinerU Document | document module、上传 UI | PDF/Office/MD/TXT 真实解析、轮询、重试 | ❌ Next route 仍返回 mock |
 | AI-08 | Provider capability/version | services/adapters | schema/version/能力协商与不兼容拒绝 | 🚧 AgentScope 版本固定，其他 adapter 合同未统一 |

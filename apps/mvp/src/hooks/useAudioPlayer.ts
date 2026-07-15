@@ -11,6 +11,8 @@ interface UseAudioPlayerReturn {
   isPlaying: boolean;
   isPaused: boolean;
   isLoading: boolean;
+  /** A normalized, best-effort position from the browser media element. */
+  progress: number;
   play: (text: string) => Promise<void>;
   playSource: (sourceUrl: string) => Promise<void>;
   pause: () => void;
@@ -22,6 +24,7 @@ export function useAudioPlayer(): UseAudioPlayerReturn {
   const [isPlaying, setIsPlaying] = useState(false);
   const [isPaused, setIsPaused] = useState(false);
   const [isLoading, setIsLoading] = useState(false);
+  const [progress, setProgress] = useState(0);
   const audioRef = useRef<HTMLAudioElement | null>(null);
   const objectUrlRef = useRef<string | null>(null);
   const abortControllerRef = useRef<AbortController | null>(null);
@@ -34,6 +37,10 @@ export function useAudioPlayer(): UseAudioPlayerReturn {
       const audio = audioRef.current;
       audio.onended = null;
       audio.onerror = null;
+      audio.onpause = null;
+      audio.onplay = null;
+      audio.ontimeupdate = null;
+      audio.ondurationchange = null;
       audio.pause();
       audio.removeAttribute("src");
       audio.load();
@@ -51,6 +58,7 @@ export function useAudioPlayer(): UseAudioPlayerReturn {
     setIsPlaying(false);
     setIsPaused(false);
     setIsLoading(false);
+    setProgress(0);
   }, [releaseMedia]);
 
   useEffect(() => stop, [stop]);
@@ -67,11 +75,28 @@ export function useAudioPlayer(): UseAudioPlayerReturn {
     audioRef.current = audio;
     audio.onended = () => stop();
     audio.onerror = () => stop();
+    audio.onplay = () => {
+      if (audioRef.current !== audio) return;
+      setIsLoading(false);
+      setIsPlaying(true);
+      setIsPaused(false);
+    };
+    audio.onpause = () => {
+      if (audioRef.current !== audio || audio.ended) return;
+      setIsPlaying(false);
+      setIsPaused(true);
+    };
+    const syncProgress = () => {
+      if (audioRef.current !== audio || !Number.isFinite(audio.duration) || audio.duration <= 0) {
+        return;
+      }
+      setProgress(Math.max(0, Math.min(1, audio.currentTime / audio.duration)));
+    };
+    audio.ontimeupdate = syncProgress;
+    audio.ondurationchange = syncProgress;
     await audio.play();
     if (audioRef.current !== audio) return;
-    setIsLoading(false);
-    setIsPlaying(true);
-    setIsPaused(false);
+    syncProgress();
   }, [stop]);
 
   const play = useCallback(async (text: string) => {
@@ -109,8 +134,6 @@ export function useAudioPlayer(): UseAudioPlayerReturn {
     const audio = audioRef.current;
     if (!audio || audio.paused) return;
     audio.pause();
-    setIsPlaying(false);
-    setIsPaused(true);
   }, []);
 
   const resume = useCallback(async () => {
@@ -126,5 +149,5 @@ export function useAudioPlayer(): UseAudioPlayerReturn {
     }
   }, [isPaused, stop]);
 
-  return { isPlaying, isPaused, isLoading, play, playSource, pause, resume, stop };
+  return { isPlaying, isPaused, isLoading, progress, play, playSource, pause, resume, stop };
 }
