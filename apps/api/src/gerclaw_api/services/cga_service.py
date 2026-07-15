@@ -82,7 +82,12 @@ class CgaService:
         record = await self._repository.lock(assessment_id, tenant_id=tenant_id, actor_id=actor_id)
         if record.status != "active" or record.revision != expected_revision:
             raise CgaAssessmentConflictError("assessment has changed; refresh before completing")
-        result = score_phq9(self._answers(record))
+        try:
+            result = score_phq9(self._answers(record))
+        except ValueError as error:
+            raise CgaAssessmentConflictError(
+                "all server-defined PHQ-9 answers are required before completing"
+            ) from error
         record.status = "completed"
         record.report = CgaReportRead(
             total_score=result.total_score,

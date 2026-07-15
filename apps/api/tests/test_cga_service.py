@@ -65,6 +65,25 @@ async def test_phq9_state_machine_rejects_skips_and_preserves_resume_position() 
 
 
 @pytest.mark.asyncio
+async def test_phq9_cannot_complete_before_all_server_defined_answers_exist() -> None:
+    service = CgaService(_Repository())  # type: ignore[arg-type]
+    started = await service.start(tenant_id="tenant_public0001", actor_id="usr_patient_test0001")
+
+    with pytest.raises(CgaAssessmentConflictError):
+        await service.complete(
+            started.assessment_id,
+            tenant_id="tenant_public0001",
+            actor_id="usr_patient_test0001",
+            expected_revision=started.revision,
+        )
+    unchanged = await service.get(
+        started.assessment_id, tenant_id="tenant_public0001", actor_id="usr_patient_test0001"
+    )
+    assert unchanged.status == "active"
+    assert unchanged.revision == started.revision
+
+
+@pytest.mark.asyncio
 async def test_phq9_item_nine_signal_and_completion_report_are_server_calculated() -> None:
     service = CgaService(_Repository())  # type: ignore[arg-type]
     state = await service.start(tenant_id="tenant_public0001", actor_id="usr_patient_test0001")
