@@ -1,7 +1,7 @@
 """add encrypted CGA assessments
 
 Revision ID: a72c814f2021
-Revises: e31c814f2019
+Revises: a62c814f2021
 Create Date: 2026-07-16
 """
 
@@ -12,7 +12,7 @@ from alembic import op
 from sqlalchemy.dialects import postgresql
 
 revision: str = "a72c814f2021"
-down_revision: str | None = "e31c814f2019"
+down_revision: str | None = "a62c814f2021"
 branch_labels: str | Sequence[str] | None = None
 depends_on: str | Sequence[str] | None = None
 

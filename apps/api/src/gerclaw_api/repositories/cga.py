@@ -29,6 +29,9 @@ class SqlAlchemyCgaRepository:
             actor_id=actor_id,
             scale_id=scale_id,
             definition_version=definition_version,
+            status="active",
+            current_position=1,
+            revision=1,
             answers={},
         )
         self._session.add(record)

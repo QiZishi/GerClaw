@@ -183,6 +183,22 @@ async def require_memory_write(
     return authorize_scope(identity, "memory:write")
 
 
+async def require_cga_read(
+    identity: Annotated[AuthContext, Depends(authenticate)],
+) -> AuthContext:
+    """Require access to the caller's own CGA screening state."""
+
+    return authorize_scope(identity, "cga:read")
+
+
+async def require_cga_write(
+    identity: Annotated[AuthContext, Depends(authenticate)],
+) -> AuthContext:
+    """Require mutation access to the caller's own CGA screening state."""
+
+    return authorize_scope(identity, "cga:write")
+
+
 async def require_search_read(
     identity: Annotated[AuthContext, Depends(authenticate)],
 ) -> AuthContext:

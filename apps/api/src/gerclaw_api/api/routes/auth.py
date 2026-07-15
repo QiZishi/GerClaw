@@ -20,6 +20,8 @@ _GUEST_SCOPES = {
     "approval:write",
     "chat:read",
     "chat:write",
+    "cga:read",
+    "cga:write",
     "feedback:write",
     "memory:read",
     "memory:write",
