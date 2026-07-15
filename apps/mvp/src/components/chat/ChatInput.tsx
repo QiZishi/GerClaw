@@ -454,7 +454,7 @@ export function ChatInput({
       toast.show(
         serverDocumentId
           ? `${file.name} 已解析并安全加入本次对话`
-          : `${file.name} 已解析。发送第一条消息时会安全加入新对话`
+          : `${file.name} 已解析。请提出问题后发送，系统才会安全加入新对话`
       );
     } catch (error) {
       const errorMessage = error instanceof Error ? error.message : "文档解析失败，请稍后重试";
@@ -644,11 +644,17 @@ export function ChatInput({
       : seniorMode
         ? "请描述您的不适或健康问题，例如：我最近血压偏高…"
         : "描述您的健康问题…";
+  const hasUnboundParsedDocuments = pendingDocuments.some(
+    (document) =>
+      document.status === "done" &&
+      Boolean(document.parsedMarkdown) &&
+      !document.serverDocumentId,
+  );
 
   const handleSend = async () => {
     const trimmed = text.trim();
     if (
-      (!trimmed && pendingImages.length === 0) ||
+      (!trimmed && (pendingImages.length === 0 || hasUnboundParsedDocuments)) ||
       isGenerating ||
       isTranscribing ||
       contextLoading ||
@@ -877,6 +883,11 @@ export function ChatInput({
             ))}
           </div>
         )}
+        {hasUnboundParsedDocuments && (
+          <p className={cn("mb-2 rounded-lg border border-primary/20 bg-primary/5 px-3 py-2 text-muted-foreground", seniorMode ? "text-lg leading-8" : "text-sm")} role="status">
+            文档已准备好。请在下方提出您想了解的问题，发送后才会安全加入本次对话。
+          </p>
+        )}
 
         <input
           ref={imageInputRef}
@@ -901,7 +912,7 @@ export function ChatInput({
             value={text}
             onChange={handleInput}
             onKeyDown={handleKeyDown}
-            placeholder={isTranscribing ? (seniorMode ? "正在识别语音…" : "识别中…") : placeholder}
+          placeholder={isTranscribing ? (seniorMode ? "正在识别语音…" : "识别中…") : hasUnboundParsedDocuments ? (seniorMode ? "请说出您想了解的问题…" : "请输入您想了解的问题…") : placeholder}
             rows={1}
             disabled={isTranscribing || contextLoading}
             className={cn(
@@ -956,7 +967,7 @@ export function ChatInput({
                     取消识别
                   </Button>
                 </div>
-              ) : text.trim() || pendingImages.length > 0 ? (
+              ) : text.trim() || (pendingImages.length > 0 && !hasUnboundParsedDocuments) ? (
                 <Tooltip>
                   <TooltipTrigger
                     render={

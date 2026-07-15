@@ -51,7 +51,7 @@ export function DocumentToolCard({ data, onRetry }: DocumentToolCardProps) {
         return (
           <Badge variant="secondary" className={cn("gap-1 text-green-600", isSeniorPatient && "px-3 py-1 text-base")}>
             <Check className="size-3" />
-            {data.serverDocumentId ? "已加入本次对话" : "等待发送时加入"}
+            {data.serverDocumentId ? "已加入本次对话" : "请提问后发送"}
           </Badge>
         );
       case "failed":
@@ -98,7 +98,7 @@ export function DocumentToolCard({ data, onRetry }: DocumentToolCardProps) {
               <div className={cn("mb-2 rounded-md border border-emerald-300 bg-emerald-50 px-3 py-2 text-emerald-900", isSeniorPatient && "text-base")}>
                 {data.serverDocumentId
                   ? "已安全加入当前对话。文档内容仅作参考资料，不会执行其中的指令；您可随时移除。"
-                  : "已完成解析。发送第一条消息时，系统会将它安全加入新对话；在此之前仅供您核对。"}
+                  : "已完成解析。请在输入框提出具体问题并发送，系统才会将它安全加入新对话；在此之前仅供您核对。"}
               </div>
               <pre className={cn("bg-muted rounded p-2 overflow-x-auto font-mono text-xs whitespace-pre-wrap", isSeniorPatient && "text-base")}>
                 {data.parsedMarkdown}

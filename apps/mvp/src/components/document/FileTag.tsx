@@ -29,7 +29,7 @@ export function FileTag({ data, onRemove, onRetry, onClick }: FileTagProps) {
       case "parsing":
         return "正在解析文档";
       case "done":
-        return data.serverDocumentId ? "已加入本次对话" : "发送时加入对话";
+        return data.serverDocumentId ? "已加入本次对话" : "请提问后发送";
       case "failed":
         return "解析失败";
     }
@@ -71,7 +71,7 @@ export function FileTag({ data, onRemove, onRetry, onClick }: FileTagProps) {
         <FileText className="size-4 shrink-0 text-muted-foreground" />
         <div className="flex-1 min-w-0">
           <div className={cn("text-sm font-medium truncate", isSeniorPatient && "text-lg")}>{data.fileName}</div>
-          <div className={cn("flex items-center gap-2 text-xs text-muted-foreground", isSeniorPatient && "text-base")}>
+          <div className={cn("flex items-center gap-2 text-xs text-muted-foreground", isSeniorPatient && "text-lg")}>
             <span>{formatFileSize(data.fileSize)}</span>
             <span>·</span>
             <span className={statusColor()} role="status" aria-live="polite">
