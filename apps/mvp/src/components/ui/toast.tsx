@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState, useCallback, useSyncExternalStore } from "react";
+import { useEffect, useState, useCallback, useRef, useSyncExternalStore } from "react";
 import { createPortal } from "react-dom";
 import { X } from "lucide-react";
 import { useAppStore } from "@/stores/appStore";
@@ -14,12 +14,28 @@ interface ToastItem {
 
 let toastListeners: ((item: ToastItem) => void)[] = [];
 let toastCounter = 0;
+const activeToastByMessage = new Map<string, { id: string; expiresAt: number }>();
+
+function clearActiveToast(id: string) {
+  for (const [message, activeToast] of activeToastByMessage) {
+    if (activeToast.id === id) {
+      activeToastByMessage.delete(message);
+      return;
+    }
+  }
+}
 
 /** 轻量级 toast 工具（无第三方依赖） */
 export const toast = {
   show(message: string, duration?: number) {
     const readableDuration = duration ?? Math.max(4500, Math.min(8000, message.length * 120));
-    const item: ToastItem = { id: `toast-${++toastCounter}`, message, duration: readableDuration };
+    const now = Date.now();
+    const activeToast = activeToastByMessage.get(message);
+    const id = activeToast && activeToast.expiresAt > now
+      ? activeToast.id
+      : `toast-${++toastCounter}`;
+    activeToastByMessage.set(message, { id, expiresAt: now + readableDuration });
+    const item: ToastItem = { id, message, duration: readableDuration };
     toastListeners.forEach((l) => l(item));
   },
 };
@@ -32,6 +48,7 @@ const serverSnapshot = () => false;
 /** Toast 容器，挂载在应用根部 */
 export function Toaster() {
   const [items, setItems] = useState<ToastItem[]>([]);
+  const timersRef = useRef(new Map<string, number>());
   const seniorMode = useAppStore((state) => state.seniorMode);
   const mounted = useSyncExternalStore(
     emptySubscribe,
@@ -40,17 +57,34 @@ export function Toaster() {
   );
 
   const removeItem = useCallback((id: string) => {
+    const timer = timersRef.current.get(id);
+    if (timer) window.clearTimeout(timer);
+    timersRef.current.delete(id);
+    clearActiveToast(id);
     setItems((prev) => prev.filter((i) => i.id !== id));
   }, []);
 
   useEffect(() => {
+    const timers = timersRef.current;
     const listener = (item: ToastItem) => {
-      setItems((prev) => [...prev, item]);
-      window.setTimeout(() => removeItem(item.id), item.duration);
+      const existingTimer = timers.get(item.id);
+      if (existingTimer) window.clearTimeout(existingTimer);
+      setItems((prev) => {
+        const hasSameToast = prev.some((existing) => existing.id === item.id);
+        return hasSameToast
+          ? prev.map((existing) => (existing.id === item.id ? item : existing))
+          : [...prev, item];
+      });
+      timers.set(
+        item.id,
+        window.setTimeout(() => removeItem(item.id), item.duration)
+      );
     };
     toastListeners.push(listener);
     return () => {
       toastListeners = toastListeners.filter((l) => l !== listener);
+      timers.forEach((timer) => window.clearTimeout(timer));
+      timers.clear();
     };
   }, [removeItem]);
 
