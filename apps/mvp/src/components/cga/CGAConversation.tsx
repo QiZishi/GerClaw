@@ -49,7 +49,7 @@ function formatDuration(seconds: number): string {
   return `${m}:${s.toString().padStart(2, "0")}`;
 }
 
-function WaveformBars({ audioLevel, recordingDuration, seniorMode }: { audioLevel: number; recordingDuration: number; seniorMode: boolean }) {
+function WaveformBars({ audioLevel, seniorMode }: { audioLevel: number; seniorMode: boolean }) {
   const barCount = seniorMode ? 20 : 28;
   return (
     <div className="flex items-center justify-center gap-[3px] flex-1 px-4 overflow-hidden">
@@ -58,7 +58,7 @@ function WaveformBars({ audioLevel, recordingDuration, seniorMode }: { audioLeve
         const baseHeight = 4 + (1 - centerDist) * (seniorMode ? 10 : 8);
         const levelMultiplier = 0.4 + audioLevel * 1.8;
         const height = Math.min(baseHeight * levelMultiplier, seniorMode ? 36 : 28);
-        const isActive = audioLevel > 0.05 || (i % 3 === 0 && recordingDuration % 2 === 0);
+        const isActive = audioLevel > 0.05;
         return (
           <div
             key={i}
@@ -502,7 +502,7 @@ export function CGAConversation({
               <X className={cn(seniorMode ? "size-6" : "size-5")} />
             </button>
 
-            <WaveformBars audioLevel={audioLevel} recordingDuration={recordingDuration} seniorMode={seniorMode} />
+            <WaveformBars audioLevel={audioLevel} seniorMode={seniorMode} />
 
             <span className={cn(
               "shrink-0 tabular-nums font-medium text-gray-700 dark:text-gray-300 min-w-[48px] text-center",

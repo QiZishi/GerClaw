@@ -152,7 +152,7 @@ export function useAudioRecorder(): UseAudioRecorderReturn {
       setRecordingDuration(0);
       durationIntervalRef.current = setInterval(() => {
         setRecordingDuration(Math.floor((Date.now() - startTimeRef.current) / 1000));
-      }, 100);
+      }, 1000);
 
       mediaRecorder.start(100);
       setIsRecording(true);

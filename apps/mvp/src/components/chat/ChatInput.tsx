@@ -62,7 +62,7 @@ interface ChatInputProps {
   contextLoading?: boolean;
 }
 
-function WaveformBars({ audioLevel, recordingDuration }: { audioLevel: number; recordingDuration: number }) {
+function WaveformBars({ audioLevel }: { audioLevel: number }) {
   const barCount = 28;
   return (
     <div className="flex items-center justify-center gap-[3px] flex-1 px-4 overflow-hidden">
@@ -71,7 +71,7 @@ function WaveformBars({ audioLevel, recordingDuration }: { audioLevel: number; r
         const baseHeight = 4 + (1 - centerDist) * 8;
         const levelMultiplier = 0.4 + audioLevel * 1.8;
         const height = Math.min(baseHeight * levelMultiplier, 28);
-        const isActive = audioLevel > 0.05 || (i % 3 === 0 && recordingDuration % 2 === 0);
+        const isActive = audioLevel > 0.05;
         return (
           <div
             key={i}
@@ -677,7 +677,7 @@ export function ChatInput({
               <X className={cn(seniorMode ? "size-6" : "size-5")} />
             </button>
 
-            <WaveformBars audioLevel={audioLevel} recordingDuration={recordingDuration} />
+            <WaveformBars audioLevel={audioLevel} />
 
             <span className={cn(
               "shrink-0 tabular-nums font-medium text-gray-700 dark:text-gray-300 min-w-[48px] text-center",
