@@ -12,6 +12,7 @@ import {
   startPhq9Assessment,
   submitCgaAnswer,
 } from "@/services/gerclaw/cga";
+import { GerclawApiError } from "@/services/gerclaw/client";
 import type { CgaAssessment, CgaReport } from "@/services/gerclaw/schemas";
 
 const ACTIVE_ASSESSMENT_KEY = "gerclaw:cga:phq9:assessment";
@@ -25,14 +26,30 @@ export function Phq9Assessment({ onExit }: Phq9AssessmentProps) {
   const [assessment, setAssessment] = useState<CgaAssessment | null>(null);
   const [report, setReport] = useState<CgaReport | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [notice, setNotice] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
 
   const load = useCallback(async (newAssessment = false) => {
     setError(null);
+    setNotice(null);
     setSaving(true);
     try {
       const storedId = !newAssessment ? localStorage.getItem(ACTIVE_ASSESSMENT_KEY) : null;
-      const next = storedId ? await getCgaAssessment(storedId) : await startPhq9Assessment();
+      let next: CgaAssessment;
+      if (storedId) {
+        try {
+          next = await getCgaAssessment(storedId);
+        } catch (error) {
+          if (!(error instanceof GerclawApiError) || error.code !== "CGA_NOT_FOUND") {
+            throw error;
+          }
+          localStorage.removeItem(ACTIVE_ASSESSMENT_KEY);
+          next = await startPhq9Assessment();
+          setNotice("上次评估记录已无法恢复，已为您开始一份新的评估。");
+        }
+      } else {
+        next = await startPhq9Assessment();
+      }
       localStorage.setItem(ACTIVE_ASSESSMENT_KEY, next.assessment_id);
       setAssessment(next);
       setReport(next.status === "completed" ? await getCgaReport(next.assessment_id) : null);
@@ -106,6 +123,8 @@ export function Phq9Assessment({ onExit }: Phq9AssessmentProps) {
           </Button>
         </div>
       )}
+
+      {notice && <p className={cn("mb-4 rounded-lg border bg-muted p-4", textClass)}>{notice}</p>}
 
       {!assessment && !error && <p className={cn("rounded-lg border p-5 text-muted-foreground", textClass)}>正在准备评估…</p>}
 
