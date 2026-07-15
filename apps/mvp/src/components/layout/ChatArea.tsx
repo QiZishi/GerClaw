@@ -1224,6 +1224,10 @@ const handleExampleClick = (text: string) => {
 
   const handleStartAction = (action: ChatActionType) => {
     if (action === "none") return;
+    if (action === "health-profile") {
+      setRightPanel("health-profile");
+      return;
+    }
     if (action === "cga") {
       setChatAction("cga");
       return;

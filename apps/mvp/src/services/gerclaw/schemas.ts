@@ -164,6 +164,56 @@ export type CgaHistoryItem = z.infer<typeof cgaHistorySchema>["items"][number];
 export type CgaScale = z.infer<typeof cgaScalesSchema>["scales"][number];
 export type CgaScaleId = z.infer<typeof cgaScaleIdSchema>;
 
+const memoryCategorySchema = z.enum([
+  "basic_info",
+  "allergy",
+  "condition",
+  "medication",
+  "vital_sign",
+  "assessment",
+  "event",
+  "social",
+  "preference",
+  "goal",
+]);
+
+export const memoryFactSchema = z
+  .object({
+    id: z.string().uuid(),
+    category: memoryCategorySchema,
+    memory_type: z.enum(["stable", "evolving", "event"]),
+    status: z.enum(["confirmed", "pending", "inactive"]),
+    statement: z.string().min(1).max(1_000),
+    details: z.record(z.string(), z.unknown()),
+    confidence: z.number().min(0).max(1),
+    revision: z.number().int().positive(),
+    source_trace_id: z.string().min(1).max(64).nullable(),
+    occurred_at: z.string().datetime().nullable(),
+    confirmed_at: z.string().datetime().nullable(),
+    updated_at: z.string().datetime(),
+    relevance_score: z.number().min(0).max(1).nullable(),
+  })
+  .strict();
+
+export const healthProfileSchema = z
+  .object({
+    schema_version: z.number().int().min(1),
+    version: z.number().int().min(0),
+    profile: z.record(z.string(), z.unknown()),
+    facts: z.array(memoryFactSchema).max(200),
+  })
+  .strict();
+
+export const memoryFactDecisionSchema = z
+  .object({
+    fact: memoryFactSchema,
+    profile_version: z.number().int().positive(),
+  })
+  .strict();
+
+export type HealthProfile = z.infer<typeof healthProfileSchema>;
+export type MemoryFact = z.infer<typeof memoryFactSchema>;
+
 export const uploadedDocumentSchema = z
   .object({
     document_id: z.string().uuid(),

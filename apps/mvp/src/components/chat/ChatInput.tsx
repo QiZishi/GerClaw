@@ -255,7 +255,7 @@ function FunctionButtonGroup({
           <TooltipContent>用药审查</TooltipContent>
         </Tooltip>
       )}
-      {isDoctor && (
+      {(isDoctor || (mounted && role === "patient")) && (
         <Tooltip>
           <TooltipTrigger
             render={
@@ -264,7 +264,7 @@ function FunctionButtonGroup({
                 size={seniorMode ? "default" : "icon"}
                 className={cn("btn-icon shrink-0", seniorMode && "h-12 gap-2 px-3 text-base")}
                 onClick={() => onSetChatAction("health-profile")}
-                aria-label="查看健康画像"
+                aria-label="查看我的健康记录"
                 disabled={disabled}
               />
             }
@@ -272,7 +272,7 @@ function FunctionButtonGroup({
             <UserRound className="size-4" />
             {seniorMode && <span>档案</span>}
           </TooltipTrigger>
-          <TooltipContent>查看健康画像</TooltipContent>
+          <TooltipContent>查看我的健康记录</TooltipContent>
         </Tooltip>
       )}
     </div>

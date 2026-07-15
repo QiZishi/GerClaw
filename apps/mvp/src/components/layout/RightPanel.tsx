@@ -22,6 +22,7 @@ import { toast } from "@/components/ui/toast";
 import type { FileTag as FileTagData, RightPanelType } from "@/types";
 import { useReducedMotion } from "@/hooks/useReducedMotion";
 import { SettingsPanel } from "@/components/settings/SettingsPanel";
+import { HealthProfilePanel } from "@/components/health/HealthProfilePanel";
 import { LAYOUT } from "@/lib/constants";
 
 // 注：技能管理（skills）已迁移至中间栏显示，不再占用右侧面板
@@ -374,15 +375,6 @@ function FilePreviewPanel() {
   }
 
   return <FileUpload onFileParsed={(f) => setSelected(f)} />;
-}
-
-function HealthProfilePanel() {
-  return (
-    <UnavailablePanel
-      title="还没有健康画像"
-      description="当前访客身份没有可读取的个人健康档案。真实账号与患者授权将在账号/RBAC 阶段接入。"
-    />
-  );
 }
 
 /** 用药审查结果面板（医生端专用，Phase 2 提供真实数据） */

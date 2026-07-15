@@ -76,6 +76,12 @@ export function WelcomePage({
       desc: "CGA 多维度健康评估",
       action: "cga" as const,
     },
+    {
+      icon: UserRound,
+      label: "我的健康记录",
+      desc: "查看已确认的个人健康信息",
+      action: "health-profile" as const,
+    },
   ];
 
   // 医生端快捷卡片：四大功能
@@ -100,8 +106,8 @@ export function WelcomePage({
     },
     {
       icon: UserRound,
-      label: "查看健康画像",
-      desc: "查询患者健康档案",
+      label: "我的健康记录",
+      desc: "查看本人已确认的健康信息",
       action: "health-profile" as const,
     },
   ];
