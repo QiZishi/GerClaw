@@ -7,7 +7,6 @@ import {
   ClipboardCheck,
   FileSearch,
   ImageIcon,
-  Loader2,
   Mic,
   Paperclip,
   Pill,
@@ -319,6 +318,7 @@ export function ChatInput({
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const imageInputRef = useRef<HTMLInputElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const transcriptionAbortRef = useRef<AbortController | null>(null);
 
   const handleRemoveLoadedSkill = async (id: string) => {
     const next = loadedSkillIds.filter((skillId) => skillId !== id);
@@ -366,6 +366,7 @@ export function ChatInput({
   useEffect(() => {
     return () => {
       pendingImages.forEach((img) => URL.revokeObjectURL(img.previewUrl));
+      transcriptionAbortRef.current?.abort();
     };
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
@@ -731,13 +732,24 @@ export function ChatInput({
     }
   };
 
+  const handleTranscriptionCancel = () => {
+    const controller = transcriptionAbortRef.current;
+    if (!controller) return;
+    controller.abort();
+    transcriptionAbortRef.current = null;
+    setIsTranscribing(false);
+    toast.show("已取消语音识别，您可以继续编辑或重新录音。");
+  };
+
   const handleRecordingFinish = async () => {
     try {
       const blob = await stopRecording();
+      const controller = new AbortController();
+      transcriptionAbortRef.current = controller;
       setIsTranscribing(true);
       try {
-        const recognizedText = await recognizeAudio(blob);
-        if (recognizedText) {
+        const recognizedText = await recognizeAudio(blob, controller.signal);
+        if (!controller.signal.aborted && recognizedText) {
           setText((prev) => {
             const newText = prev ? prev + " " + recognizedText : recognizedText;
             return newText.slice(0, INPUT_LIMITS.maxMessageLength);
@@ -751,9 +763,14 @@ export function ChatInput({
           }, 50);
         }
       } catch {
-        toast.show("语音识别失败，请重试");
+        if (!controller.signal.aborted) {
+          toast.show("语音识别失败，请重试");
+        }
       } finally {
-        setIsTranscribing(false);
+        if (transcriptionAbortRef.current === controller) {
+          transcriptionAbortRef.current = null;
+          setIsTranscribing(false);
+        }
       }
     } catch {
       toast.show("录音失败，请重试");
@@ -924,6 +941,21 @@ export function ChatInput({
                   </TooltipTrigger>
                   <TooltipContent>停止生成</TooltipContent>
                 </Tooltip>
+              ) : isTranscribing ? (
+                <div className="flex items-center gap-2 px-1" role="status" aria-live="polite">
+                  <span className={cn("whitespace-nowrap text-primary", seniorMode ? "text-lg" : "text-sm")}>
+                    正在识别语音
+                  </span>
+                  <Button
+                    type="button"
+                    variant="outline"
+                    size={seniorMode ? "default" : "sm"}
+                    className={cn("shrink-0", seniorMode && "min-h-12 px-3 text-base")}
+                    onClick={handleTranscriptionCancel}
+                  >
+                    取消识别
+                  </Button>
+                </div>
               ) : text.trim() || pendingImages.length > 0 ? (
                 <Tooltip>
                   <TooltipTrigger
@@ -945,13 +977,6 @@ export function ChatInput({
                     {!isOnline ? "网络已断开，请检查网络连接" : "发送"}
                   </TooltipContent>
                 </Tooltip>
-              ) : isTranscribing ? (
-                <div className="flex items-center gap-2 px-2">
-                  <Loader2 className={cn("animate-spin text-primary", seniorMode ? "size-5" : "size-4")} />
-                  <span className={cn("text-primary", seniorMode ? "text-base" : "text-sm")}>
-                    {seniorMode ? "正在识别…" : "识别中…"}
-                  </span>
-                </div>
               ) : (
                 <Tooltip>
                   <TooltipTrigger

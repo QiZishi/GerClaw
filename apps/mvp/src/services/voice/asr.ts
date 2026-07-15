@@ -1,11 +1,19 @@
 import { generateTraceId, classifyError } from "../api-client";
 import { convertBlobToWavBase64 } from "./audio-convert";
 
-export async function recognizeAudio(audioBlob: Blob): Promise<string> {
+function throwIfAborted(signal?: AbortSignal) {
+  if (signal?.aborted) {
+    throw signal.reason ?? new DOMException("语音识别已取消", "AbortError");
+  }
+}
+
+export async function recognizeAudio(audioBlob: Blob, signal?: AbortSignal): Promise<string> {
   const traceId = generateTraceId();
 
   try {
+    throwIfAborted(signal);
     const { base64: wavBase64 } = await convertBlobToWavBase64(audioBlob);
+    throwIfAborted(signal);
 
     const response = await fetch("/api/voice/asr", {
       method: "POST",
@@ -17,6 +25,7 @@ export async function recognizeAudio(audioBlob: Blob): Promise<string> {
         audio: wavBase64,
         format: "wav",
       }),
+      signal,
     });
 
     if (!response.ok) {
@@ -51,6 +60,9 @@ export async function recognizeAudio(audioBlob: Blob): Promise<string> {
 
     return text.trim();
   } catch (error) {
+    if (signal?.aborted) {
+      throw signal.reason ?? new DOMException("语音识别已取消", "AbortError");
+    }
     throw classifyError(error, traceId);
   }
 }
