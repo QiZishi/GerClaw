@@ -7,7 +7,6 @@ import { Separator } from "@/components/ui/separator";
 import { useAppStore } from "@/stores/appStore";
 import { cn } from "@/lib/utils";
 import { MarkdownEditor } from "@/components/editor/MarkdownEditor";
-import { PrescriptionEntry } from "@/components/prescription/PrescriptionEntry";
 import { FileUpload } from "@/components/document/FileUpload";
 import { DocumentPreview } from "@/components/document/DocumentPreview";
 import { CitationList } from "@/components/search/CitationList";
@@ -15,6 +14,7 @@ import { ExportButton } from "@/components/prescription/ExportButton";
 import { toast } from "@/components/ui/toast";
 import type { FileTag as FileTagData, RightPanelType } from "@/types";
 import { useReducedMotion } from "@/hooks/useReducedMotion";
+import { SettingsPanel } from "@/components/settings/SettingsPanel";
 
 // 注：技能管理（skills）已迁移至中间栏显示，不再占用右侧面板
 const PANEL_TITLES: Record<NonNullable<RightPanelType>, string> = {
@@ -233,9 +233,10 @@ function PanelContent({
         );
       }
       return (
-        <div className="flex-1 min-h-0 flex flex-col">
-          <PrescriptionEntry initialStage="done" />
-        </div>
+        <UnavailablePanel
+          title="还没有处方报告"
+          description="处方工作流尚未接入生产后端。您可以先在对话中描述健康情况，系统不会生成伪报告。"
+        />
       );
 
     case "cga": {
@@ -287,11 +288,7 @@ function PanelContent({
       );
 
     case "settings":
-      return (
-        <div className="flex-1 min-h-0 overflow-y-auto">
-          <SettingsPlaceholder />
-        </div>
-      );
+      return <SettingsPanel />;
 
     case "doc-editor":
       return (
@@ -333,117 +330,12 @@ function FilePreviewPanel() {
   return <FileUpload onFileParsed={(f) => setSelected(f)} />;
 }
 
-/** 健康画像面板：mock 患者基本信息 */
 function HealthProfilePanel() {
-  const seniorMode = useAppStore((s) => s.seniorMode);
-  const p = {
-    name: "",
-    age: undefined as number | undefined,
-    gender: undefined as "male" | "female" | undefined,
-    chiefComplaint: "",
-    history: [] as string[],
-    allergies: [] as string[],
-    currentMedications: [] as string[],
-    vitals: {} as Record<string, string>,
-  };
   return (
-    <div className="flex flex-col h-full overflow-y-auto p-3 space-y-3">
-      <header className="flex items-center gap-2">
-        <div className="flex size-10 items-center justify-center rounded-full bg-primary/10 text-primary">
-          <span className="text-base font-semibold">
-            {p.name?.slice(0, 1) ?? "?"}
-          </span>
-        </div>
-        <div>
-          <div className={cn("font-medium", seniorMode ? "text-base" : "text-sm")}>
-            {p.name ?? "未命名"}
-          </div>
-          <div className="text-xs text-muted-foreground">
-            {p.gender === "female" ? "女" : "男"} · {p.age ?? "?"} 岁
-          </div>
-        </div>
-      </header>
-
-      <section>
-        <h4 className="text-xs font-semibold text-muted-foreground uppercase mb-1.5">
-          主诉
-        </h4>
-        <p className={cn("text-sm leading-relaxed", seniorMode && "text-base")}>
-          {p.chiefComplaint ?? "—"}
-        </p>
-      </section>
-
-      <section>
-        <h4 className="text-xs font-semibold text-muted-foreground uppercase mb-1.5">
-          病史
-        </h4>
-        <ul className="space-y-1">
-          {(p.history ?? []).map((h) => (
-            <li key={h} className="text-xs flex items-start gap-1.5">
-              <span className="text-primary mt-0.5">•</span>
-              <span>{h}</span>
-            </li>
-          ))}
-        </ul>
-      </section>
-
-      <section>
-        <h4 className="text-xs font-semibold text-muted-foreground uppercase mb-1.5">
-          当前用药
-        </h4>
-        <ul className="space-y-1">
-          {(p.currentMedications ?? []).map((m) => (
-            <li
-              key={m}
-              className="text-xs rounded-md border border-border bg-card px-2 py-1"
-            >
-              {m}
-            </li>
-          ))}
-        </ul>
-      </section>
-
-      {p.allergies && p.allergies.length > 0 && (
-        <section>
-          <h4 className="text-xs font-semibold text-muted-foreground uppercase mb-1.5">
-            过敏史
-          </h4>
-          <div className="flex flex-wrap gap-1">
-            {p.allergies.map((a) => (
-              <span
-                key={a}
-                className="text-xs px-2 py-0.5 rounded-full bg-red-100 text-red-700 dark:bg-red-950/30 dark:text-red-300"
-              >
-                {a}
-              </span>
-            ))}
-          </div>
-        </section>
-      )}
-
-      {p.vitals && Object.keys(p.vitals).length > 0 && (
-        <section>
-          <h4 className="text-xs font-semibold text-muted-foreground uppercase mb-1.5">
-            生命体征
-          </h4>
-          <div className="grid grid-cols-2 gap-1.5">
-            {Object.entries(p.vitals).map(([k, v]) => (
-              <div
-                key={k}
-                className="rounded-md border border-border bg-muted/30 px-2 py-1.5"
-              >
-                <div className="text-[11px] text-muted-foreground">{k}</div>
-                <div className="text-sm font-medium">{v}</div>
-              </div>
-            ))}
-          </div>
-        </section>
-      )}
-
-      <div className="rounded-md border border-amber-200 bg-amber-50 dark:border-amber-900/40 dark:bg-amber-950/30 px-3 py-2 text-xs text-amber-800 dark:text-amber-200">
-        内容由 AI 生成，仅供参考。身体不适请及时就医。
-      </div>
-    </div>
+    <UnavailablePanel
+      title="还没有健康画像"
+      description="当前访客身份没有可读取的个人健康档案。真实账号与患者授权将在账号/RBAC 阶段接入。"
+    />
   );
 }
 
@@ -468,17 +360,12 @@ function DrugReviewPanel() {
   );
 }
 
-/** 设置面板占位（Phase 6 提供） */
-function SettingsPlaceholder() {
+function UnavailablePanel({ title, description }: { title: string; description: string }) {
+  const seniorMode = useAppStore((state) => state.seniorMode);
   return (
-    <div className="flex flex-col items-center justify-center gap-2 h-full text-center p-4">
-      <div className="text-sm text-muted-foreground">
-        设置面板将在 Phase 6 提供
-      </div>
-      <div className="text-xs text-muted-foreground">
-        包含：模型配置、API Key、主题、字号等
-      </div>
+    <div className="flex h-full flex-col items-center justify-center gap-2 p-6 text-center">
+      <div className={cn("font-medium", seniorMode && "text-xl")}>{title}</div>
+      <p className={cn("max-w-sm text-sm leading-relaxed text-muted-foreground", seniorMode && "text-base leading-8")}>{description}</p>
     </div>
   );
 }
-

@@ -15,6 +15,7 @@ import {
   type ReactNode,
 } from "react";
 import type { Theme } from "@/types";
+import { useAppStore } from "@/stores/appStore";
 
 interface ThemeContextValue {
   theme: Theme;
@@ -46,6 +47,8 @@ function applyThemeClass(theme: "light" | "dark"): void {
 }
 
 export function ThemeProvider({ children }: { children: ReactNode }) {
+  const role = useAppStore((state) => state.role);
+  const seniorMode = useAppStore((state) => state.seniorMode);
   // 使用 lazy initializer 从 localStorage 读取初始主题，避免在 effect 中同步 setState
   const [theme, setThemeState] = useState<Theme>(() => {
     if (typeof window === "undefined") return "system";
@@ -64,7 +67,8 @@ export function ThemeProvider({ children }: { children: ReactNode }) {
     return () => mql.removeEventListener("change", handler);
   }, []);
 
-  const resolvedTheme = theme === "system" ? systemTheme : theme;
+  const requestedTheme = theme === "system" ? systemTheme : theme;
+  const resolvedTheme = role === "patient" && seniorMode ? "light" : requestedTheme;
 
   // 应用主题 class
   useEffect(() => {
