@@ -127,6 +127,19 @@ async def test_phq9_item_nine_signal_and_completion_report_are_server_calculated
     )
     assert completed.status == "completed"
     assert completed.next_question is None
+    with pytest.raises(CgaAssessmentConflictError):
+        await service.answer(
+            state.assessment_id,
+            tenant_id="tenant_public0001",
+            actor_id="usr_patient_test0001",
+            expected_revision=completed.revision,
+            question_id="phq9_9",
+            score=1,
+        )
+    unchanged = await service.get(
+        state.assessment_id, tenant_id="tenant_public0001", actor_id="usr_patient_test0001"
+    )
+    assert unchanged.revision == completed.revision
     report = await service.report(
         state.assessment_id, tenant_id="tenant_public0001", actor_id="usr_patient_test0001"
     )
