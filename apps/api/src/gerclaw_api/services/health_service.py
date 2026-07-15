@@ -15,6 +15,7 @@ from gerclaw_api.config import Settings
 from gerclaw_api.database.session import Database
 from gerclaw_api.modules.memory.store import QdrantMemoryStore
 from gerclaw_api.modules.rag.protocols import RAGModule
+from gerclaw_api.modules.search.runtime import SearchRuntime
 
 
 class DependencyHealthService:
@@ -29,6 +30,7 @@ class DependencyHealthService:
         qdrant_client: AsyncQdrantClient,
         rag_module: RAGModule,
         memory_store: QdrantMemoryStore,
+        search_runtime: SearchRuntime | None = None,
     ) -> None:
         self._settings = settings
         self._database = database
@@ -36,6 +38,7 @@ class DependencyHealthService:
         self._qdrant = qdrant_client
         self._rag = rag_module
         self._memory = memory_store
+        self._search = search_runtime
         self._cache: tuple[float, dict[str, Any]] | None = None
         self._lock = asyncio.Lock()
 
@@ -71,6 +74,7 @@ class DependencyHealthService:
                 self._probe("knowledge_base", self._check_knowledge_base),
                 self._probe("rag_index", self._check_rag_index),
                 self._probe("memory_index", self._check_memory_index),
+                self._probe("online_search", self._check_search),
                 self._probe("agentscope", self._check_agentscope),
             )
             checks = {name: state for name, state in results}
@@ -130,6 +134,21 @@ class DependencyHealthService:
             "collection": self._memory.collection,
             "vector_points": await self._memory.count(),
             "payload_contains_phi": False,
+        }
+
+    async def _check_search(self) -> dict[str, Any]:
+        if self._search is not None:
+            return self._search.status().model_dump(mode="json")
+        primary_configured = self._settings.anysearch_url is not None
+        fallback_configured = (
+            self._settings.tavily_url is not None and self._settings.tavily_api_key is not None
+        )
+        return {
+            "ready": primary_configured and fallback_configured,
+            "primary": "anysearch",
+            "fallback": "tavily",
+            "primary_configured": primary_configured,
+            "fallback_configured": fallback_configured,
         }
 
     @staticmethod

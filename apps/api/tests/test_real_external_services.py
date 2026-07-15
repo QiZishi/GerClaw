@@ -18,6 +18,9 @@ from sqlalchemy import text
 from gerclaw_api.config import Settings
 from gerclaw_api.modules.memory.store import memory_point_id
 from gerclaw_api.modules.rag.providers import SiliconFlowEmbeddingModel, SiliconFlowReranker
+from gerclaw_api.modules.search import capture_search_attempts, create_search_runtime
+from gerclaw_api.modules.search.module import ProductionSearchModule
+from gerclaw_api.modules.search.providers import SearchProviderUnavailable
 from gerclaw_api.services.model_factory import build_agentscope_model, close_agentscope_model
 
 pytestmark = pytest.mark.external
@@ -49,6 +52,17 @@ def _auth_headers(settings: Settings) -> dict[str, str]:
     if settings.mimo_auth_header == "api-key":
         return {"api-key": secret, "Content-Type": "application/json"}
     return {"Authorization": f"Bearer {secret}", "Content-Type": "application/json"}
+
+
+class _AlwaysUnavailableSearchProvider:
+    async def search(self, *_args: object, **_kwargs: object) -> list[object]:
+        raise SearchProviderUnavailable("injected primary outage")
+
+    async def extract_content(self, _url: str) -> str:
+        raise SearchProviderUnavailable("injected primary outage")
+
+    async def aclose(self) -> None:
+        return None
 
 
 @pytest.mark.asyncio
@@ -186,6 +200,70 @@ async def test_real_chat_sse_agentic_rag_persistence_and_replay(
     assert len(encrypted) == 2
     assert all(row.content.startswith("enc:v1:") for row in encrypted)
     assert all(row.metadata.startswith("enc:v1:") for row in encrypted)
+
+
+@pytest.mark.integration
+@pytest.mark.asyncio
+async def test_real_chat_agentscope_web_search_results_citations_and_trace(
+    integration_client: tuple[AsyncClient, object],
+) -> None:
+    """Prove a real model selects the production web tool and emits auditable sources."""
+
+    client, _app = integration_client
+    session_id = uuid.uuid4()
+    trace_id = "trace_real_web_search_0001"
+    assert (
+        await client.post("/api/v1/sessions", json={"session_id": str(session_id)})
+    ).status_code == 201
+    response = await client.post(
+        "/api/v1/chat",
+        headers={"X-Trace-ID": trace_id, "X-Request-ID": "request_real_web_search_0001"},
+        json={
+            "session_id": str(session_id),
+            "message": (
+                "请调用 web_search 搜索 WHO healthy ageing，"
+                "只用一句话列出一个联网来源 [W1]；不要跳过工具调用。"
+            ),
+            "channel": "web",
+            "workflow": "standard",
+        },
+        timeout=240,
+    )
+    assert response.status_code == 200, response.text
+    events = _sse_events(response.text)
+    assert events[-1][0] == "done", events[-2:]
+    search_tool_results = [
+        data
+        for name, data in events
+        if name == "tool_result" and data.get("tool_name") == "web_search"
+    ]
+    assert search_tool_results
+    results = search_tool_results[0].get("results")
+    assert isinstance(results, list) and results
+    assert all(
+        isinstance(item, dict)
+        and item.get("provider") in {"anysearch", "tavily"}
+        and item.get("authority_level") in {"S", "A", "B", "C"}
+        and str(item.get("url", "")).startswith("https://")
+        for item in results
+    )
+    references = events[-1][1]["references"]
+    assert isinstance(references, list)
+    assert any(isinstance(item, dict) and item.get("corpus") == "web" for item in references)
+    assert any(
+        isinstance(item, dict) and item.get("corpus") == "local_knowledge_base"
+        for item in references
+    )
+
+    trace = await client.get(f"/api/v1/traces/{trace_id}?limit=100")
+    assert trace.status_code == 200
+    search_events = [
+        item for item in trace.json()["events"] if item["event_type"] == "search.query"
+    ]
+    assert search_events
+    telemetry = json.dumps(trace.json(), ensure_ascii=False)
+    assert "healthy ageing" not in telemetry.casefold()
+    assert all("snippet" not in item["payload"] for item in search_events)
 
 
 @pytest.mark.integration
@@ -455,3 +533,66 @@ async def test_real_tavily_search() -> None:
         )
         response.raise_for_status()
         assert len(response.json().get("results", [])) > 0
+
+
+@pytest.mark.asyncio
+async def test_real_anysearch_jsonrpc_search_and_extract() -> None:
+    """Use the root .env AnySearch endpoint through the production adapter."""
+
+    settings = _settings()
+    if settings.anysearch_url is None:
+        pytest.skip("AnySearch configuration is not provided")
+    runtime = create_search_runtime(settings)
+    try:
+        results = await runtime.primary.search(
+            "WHO healthy ageing older adults",
+            max_results=2,
+            domain="health",
+        )
+        assert results
+        assert all(str(item.url).startswith("https://") for item in results)
+        assert all(item.title and item.snippet for item in results)
+        content = await runtime.primary.extract_content(
+            "https://www.who.int/news-room/questions-and-answers/item/healthy-ageing-and-functional-ability"
+        )
+        assert len(content) > 100
+        assert "age" in content.casefold()
+    finally:
+        await runtime.aclose()
+
+
+@pytest.mark.asyncio
+async def test_real_tavily_fallback_through_production_router() -> None:
+    """Inject only the primary failure; the successful fallback is the real Tavily service."""
+
+    settings = _settings()
+    runtime = create_search_runtime(settings)
+    if runtime.fallback is None:
+        await runtime.aclose()
+        pytest.skip("Tavily fallback configuration is not provided")
+    module = ProductionSearchModule(
+        primary=_AlwaysUnavailableSearchProvider(),  # type: ignore[arg-type]
+        fallback=runtime.fallback,
+        max_retries=1,
+    )
+    try:
+        with capture_search_attempts() as attempts:
+            results = await module.search(
+                "WHO healthy ageing older adults",
+                max_results=2,
+                domain="health",
+            )
+        assert results
+        assert all(item.provider == "tavily" for item in results)
+        assert [item.provider for item in attempts] == [
+            "anysearch",
+            "anysearch",
+            "tavily",
+        ]
+        assert attempts[-1].outcome == "success"
+        content = await runtime.fallback.extract_content(
+            "https://www.who.int/news-room/questions-and-answers/item/healthy-ageing-and-functional-ability"
+        )
+        assert len(content) > 100
+    finally:
+        await runtime.aclose()

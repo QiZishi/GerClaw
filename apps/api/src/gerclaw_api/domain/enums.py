@@ -30,6 +30,7 @@ class TraceEventType(StrEnum):
     AGENT_FINISH = "agent.finish"
     MODEL_CALL = "model.call"
     RAG_RETRIEVE = "rag.retrieve"
+    SEARCH_QUERY = "search.query"
     TOOL_CALL = "tool.call"
     SKILL_EXECUTE = "skill.execute"
     MEMORY_UPDATE = "memory.update"

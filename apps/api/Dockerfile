@@ -11,11 +11,16 @@ ENV PYTHONDONTWRITEBYTECODE=1 \
 
 RUN pip install --no-cache-dir uv==0.11.17
 
+ENV UV_HTTP_RETRIES=5 \
+    UV_HTTP_TIMEOUT=120 \
+    UV_LINK_MODE=copy
+
 WORKDIR /app
 COPY pyproject.toml uv.lock README.md alembic.ini ./
 COPY migrations ./migrations
 COPY src ./src
-RUN uv sync --frozen --no-dev --no-cache
+RUN --mount=type=cache,target=/root/.cache/uv \
+    uv sync --frozen --no-dev
 
 RUN addgroup --system gerclaw \
     && adduser --system --ingroup gerclaw --home /app gerclaw \

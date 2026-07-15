@@ -80,6 +80,18 @@ EVENT_AUDIT_KEYS: dict[TraceEventType, frozenset[str]] = {
             "success",
         }
     ),
+    TraceEventType.SEARCH_QUERY: frozenset(
+        {
+            "duration_ms",
+            "module",
+            "operation",
+            "outcome",
+            "provider",
+            "result_count",
+            "retry_index",
+            "success",
+        }
+    ),
     TraceEventType.TOOL_CALL: frozenset(
         {"duration_ms", "error_code", "operation", "outcome", "success", "tool", "tool_name"}
     ),

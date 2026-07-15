@@ -60,6 +60,27 @@ AGENT_MODEL_ATTEMPTS = Counter(
     "Real agent model attempts by configured slot and bounded outcome",
     ("preference", "outcome"),
 )
+SEARCH_EXECUTIONS = Counter(
+    "gerclaw_search_executions_total",
+    "Online evidence searches by bounded terminal outcome",
+    ("outcome",),
+)
+SEARCH_LATENCY = Histogram(
+    "gerclaw_search_duration_seconds",
+    "End-to-end online evidence search latency including fallback",
+    buckets=(0.05, 0.1, 0.25, 0.5, 1, 2.5, 5, 10, 15, 30),
+)
+SEARCH_PROVIDER_REQUESTS = Counter(
+    "gerclaw_search_provider_requests_total",
+    "Online search provider requests by bounded outcome",
+    ("provider", "operation", "outcome"),
+)
+SEARCH_PROVIDER_LATENCY = Histogram(
+    "gerclaw_search_provider_request_duration_seconds",
+    "Online search provider request latency",
+    ("provider", "operation"),
+    buckets=(0.05, 0.1, 0.25, 0.5, 1, 2.5, 5, 10, 30),
+)
 
 
 def render_metrics() -> tuple[bytes, str]:

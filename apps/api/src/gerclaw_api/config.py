@@ -108,6 +108,12 @@ class Settings(BaseSettings):
     memory_context_budget_ratio: float = Field(default=0.55, ge=0.2, le=0.8)
     memory_extraction_min_confidence: float = Field(default=0.8, ge=0.5, le=1)
     memory_max_facts_per_turn: int = Field(default=12, ge=1, le=30)
+    search_timeout_seconds: float = Field(default=10.0, gt=0, le=30)
+    search_max_retries: int = Field(default=1, ge=0, le=1)
+    search_max_response_bytes: int = Field(
+        default=2 * 1024 * 1024, ge=64 * 1024, le=8 * 1024 * 1024
+    )
+    search_max_content_characters: int = Field(default=50_000, ge=1_000, le=100_000)
 
     auth_jwt_secret: SecretStr = Field(
         default_factory=lambda: _load_or_create_local_secret("jwt.key"), min_length=32

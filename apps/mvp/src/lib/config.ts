@@ -1,7 +1,7 @@
 /**
  * 环境变量加载与 Zod 校验
  * 对齐 gerclaw设计要求.md §4.5 配置管理 / §15.1 安全约束 / FRONTEND.md §8
- * 所有外部 API Key/模型名/URL 通过 NEXT_PUBLIC_ 环境变量配置，禁止硬编码
+ * 浏览器可见配置才使用 NEXT_PUBLIC_；Provider API Key 必须只由服务端模块读取。
  */
 import { z } from "zod";
 
@@ -34,9 +34,6 @@ const envSchema = z.object({
   NEXT_PUBLIC_TTS_API_KEY: z.string().default(""),
   NEXT_PUBLIC_TTS_MODEL: z.string().default("mimo-v2.5-tts"),
   NEXT_PUBLIC_TTS_VOICE: z.string().default("冰糖"),
-
-  NEXT_PUBLIC_ANYSEARCH_API_KEY: z.string().default(""),
-  NEXT_PUBLIC_TAVILY_API_KEY: z.string().default(""),
 
   NEXT_PUBLIC_MINERU_URL: z.string().default(""),
   NEXT_PUBLIC_MINERU_API_KEY: z.string().default(""),
@@ -73,9 +70,6 @@ function loadEnv(): EnvConfig {
     NEXT_PUBLIC_TTS_API_KEY: process.env.NEXT_PUBLIC_TTS_API_KEY,
     NEXT_PUBLIC_TTS_MODEL: process.env.NEXT_PUBLIC_TTS_MODEL,
     NEXT_PUBLIC_TTS_VOICE: process.env.NEXT_PUBLIC_TTS_VOICE,
-
-    NEXT_PUBLIC_ANYSEARCH_API_KEY: process.env.NEXT_PUBLIC_ANYSEARCH_API_KEY,
-    NEXT_PUBLIC_TAVILY_API_KEY: process.env.NEXT_PUBLIC_TAVILY_API_KEY,
 
     NEXT_PUBLIC_MINERU_URL: process.env.NEXT_PUBLIC_MINERU_URL,
     NEXT_PUBLIC_MINERU_API_KEY: process.env.NEXT_PUBLIC_MINERU_API_KEY,
@@ -155,11 +149,6 @@ export const voiceConfig = {
   ttsVoice: env.NEXT_PUBLIC_TTS_VOICE,
 };
 
-export const searchConfig = {
-  anysearchApiKey: env.NEXT_PUBLIC_ANYSEARCH_API_KEY,
-  tavilyApiKey: env.NEXT_PUBLIC_TAVILY_API_KEY,
-};
-
 export const documentConfig = {
   mineruUrl: env.NEXT_PUBLIC_MINERU_URL,
   mineruApiKey: env.NEXT_PUBLIC_MINERU_API_KEY,
@@ -173,8 +162,4 @@ export function hasRealVoiceConfig(): boolean {
   return Boolean(
     voiceConfig.asrApiKey && voiceConfig.asrUrl && voiceConfig.ttsUrl
   );
-}
-
-export function hasRealSearchConfig(): boolean {
-  return Boolean(searchConfig.anysearchApiKey || searchConfig.tavilyApiKey);
 }

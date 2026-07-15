@@ -180,6 +180,7 @@ async def chat(
                     model=request.app.state.agent_model,
                     rag_module=request.app.state.rag_runtime.module,
                     memory_factory=memory_factory,
+                    search_module=request.app.state.search_runtime.module,
                 )
                 await service.process(
                     payload,

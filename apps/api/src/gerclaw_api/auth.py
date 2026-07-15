@@ -179,3 +179,11 @@ async def require_memory_write(
     """Require confirmation or retirement of the caller's memory facts."""
 
     return _authorize(identity, "memory:write")
+
+
+async def require_search_read(
+    identity: Annotated[AuthContext, Depends(authenticate)],
+) -> AuthContext:
+    """Require access to provider-backed online evidence search."""
+
+    return _authorize(identity, "search:read")

@@ -1,4 +1,10 @@
 import type { NextConfig } from "next";
+import { loadEnvConfig } from "@next/env";
+import path from "node:path";
+
+// 全栈开发统一使用仓库根 .env。只有显式 NEXT_PUBLIC_ 变量会进入浏览器包；
+// Provider key 仅供 Node.js API Route 使用。
+loadEnvConfig(path.resolve(process.cwd(), "../.."));
 
 const nextConfig: NextConfig = {
   // 使用服务端运行时以支持 API Routes（LLM/ASR/TTS/搜索代理）

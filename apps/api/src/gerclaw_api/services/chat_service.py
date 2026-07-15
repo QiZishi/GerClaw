@@ -31,6 +31,7 @@ from gerclaw_api.modules.contracts import AgentResponse, ExecutionContext
 from gerclaw_api.modules.memory.memory_module import ProductionMemoryModule
 from gerclaw_api.modules.memory.models import MemoryUpdateResult
 from gerclaw_api.modules.rag import HybridRAGModule
+from gerclaw_api.modules.search.protocols import SearchModule
 from gerclaw_api.security import JsonValue
 from gerclaw_api.services.conversation_service import ConversationService
 from gerclaw_api.services.model_router import FailoverChatModel
@@ -93,6 +94,7 @@ class ChatService:
         model: FailoverChatModel,
         rag_module: HybridRAGModule,
         memory_factory: MemoryModuleFactory,
+        search_module: SearchModule | None = None,
     ) -> None:
         self._settings = settings
         self._conversation = conversation
@@ -101,6 +103,7 @@ class ChatService:
         self._model = model
         self._rag_module = rag_module
         self._memory_factory = memory_factory
+        self._search_module = search_module
 
     async def process(
         self,
@@ -314,6 +317,8 @@ class ChatService:
             profile_version=profile_version,
             memory_refs=memory_refs,
             session_summary=session_summary,
+            search_module=self._search_module,
+            search_enabled=payload.workflow != "cga",
         )
         context = await harness.assemble_context(
             str(payload.session_id),
@@ -453,6 +458,44 @@ class ChatService:
         output_tokens = output_tokens if isinstance(output_tokens, int) else 0
         retry_count = structured.get("model_failures")
         retry_count = retry_count if isinstance(retry_count, int) else 0
+        raw_search_attempts = structured.get("search_attempts")
+        search_attempts = raw_search_attempts if isinstance(raw_search_attempts, list) else []
+        for raw_attempt in search_attempts:
+            if not isinstance(raw_attempt, dict):
+                continue
+            provider = raw_attempt.get("provider")
+            outcome = raw_attempt.get("outcome")
+            operation = raw_attempt.get("operation")
+            retry_index = raw_attempt.get("retry_index")
+            result_count = raw_attempt.get("result_count")
+            duration_ms = raw_attempt.get("duration_ms")
+            if not (
+                isinstance(provider, str)
+                and isinstance(outcome, str)
+                and isinstance(operation, str)
+                and isinstance(retry_index, int)
+                and isinstance(result_count, int)
+                and isinstance(duration_ms, int)
+            ):
+                continue
+            attempt_success = outcome in {"success", "empty"}
+            await self._append_event(
+                tenant_id,
+                trace_id,
+                TraceEventType.SEARCH_QUERY,
+                TraceEventStatus.SUCCEEDED if attempt_success else TraceEventStatus.FAILED,
+                {
+                    "duration_ms": duration_ms,
+                    "operation": operation,
+                    "outcome": outcome,
+                    "provider": provider,
+                    "result_count": result_count,
+                    "retry_index": retry_index,
+                    "success": attempt_success,
+                },
+                duration_ms=duration_ms,
+                commit=commit,
+            )
         await self._append_event(
             tenant_id,
             trace_id,

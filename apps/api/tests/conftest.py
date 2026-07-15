@@ -33,6 +33,10 @@ def make_settings(**overrides: object) -> Settings:
         "siliconflow_api_key": "tests-only-siliconflow-key",
         "embedding_model": "BAAI/bge-m3",
         "rerank_model": "BAAI/bge-reranker-v2-m3",
+        "anysearch_url": "http://127.0.0.1:9",
+        "anysearch_api_key": "tests-only-anysearch-key",
+        "tavily_url": "http://127.0.0.1:9",
+        "tavily_api_key": "tests-only-tavily-key",
         "cors_origins": ["http://localhost:3000"],
         "readiness_cache_seconds": 0,
         "auth_jwt_secret": TEST_JWT_SECRET,
@@ -95,6 +99,18 @@ def integration_settings() -> Settings:
         siliconflow_api_key=real_services.siliconflow_api_key.get_secret_value(),
         embedding_model=real_services.embedding_model,
         rerank_model=real_services.rerank_model,
+        anysearch_url=real_services.anysearch_url,
+        anysearch_api_key=(
+            real_services.anysearch_api_key.get_secret_value()
+            if real_services.anysearch_api_key is not None
+            else None
+        ),
+        tavily_url=real_services.tavily_url,
+        tavily_api_key=(
+            real_services.tavily_api_key.get_secret_value()
+            if real_services.tavily_api_key is not None
+            else None
+        ),
         agent_primary_url=real_services.agent_primary_url,
         agent_primary_api_key=real_services.agent_primary_api_key.get_secret_value()
         if real_services.agent_primary_api_key is not None
@@ -150,6 +166,7 @@ async def integration_client(
                 "chat:write",
                 "memory:read",
                 "memory:write",
+                "search:read",
             },
         )
         async with AsyncClient(

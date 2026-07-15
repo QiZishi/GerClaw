@@ -1,4 +1,5 @@
 import { NextRequest } from "next/server";
+import { searchWeb } from "@/server/search";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -18,9 +19,6 @@ const BACKUP1_MODEL = process.env.NEXT_PUBLIC_BACKUP1_MODEL || "";
 const BACKUP2_URL = process.env.NEXT_PUBLIC_BACKUP2_URL || "";
 const BACKUP2_API_KEY = getApiKey("BACKUP2_API_KEY", "NEXT_PUBLIC_BACKUP2_API_KEY");
 const BACKUP2_MODEL = process.env.NEXT_PUBLIC_BACKUP2_MODEL || "";
-
-const TAVILY_API_KEY = process.env.NEXT_PUBLIC_TAVILY_API_KEY || "";
-const ANYSEARCH_API_KEY = process.env.NEXT_PUBLIC_ANYSEARCH_API_KEY || "";
 
 interface ModelConfig {
   url: string;
@@ -174,85 +172,11 @@ async function executeLocalKnowledgeSearch(_query: string, _category?: string): 
 }
 
 async function executeWebSearch(query: string): Promise<unknown> {
-  const maxResults = 6;
-
-  const medicalKeywords = /(药|医学|医疗|医院|疾病|症状|治疗|诊断|指南|处方|老年|高血压|糖尿病|冠心病|药物|保健|健康|医|症|病|痛|炎|癌|瘤|感染|手术|护理|康复|营养|运动|心理)/i;
-  const isMedicalQuery = medicalKeywords.test(query);
-
-  if (TAVILY_API_KEY) {
-    try {
-      const requestBody: Record<string, unknown> = {
-        api_key: TAVILY_API_KEY,
-        query,
-        max_results: maxResults,
-        include_answer: true,
-      };
-      if (isMedicalQuery) {
-        requestBody.topic = "general";
-      }
-      const response = await fetch("https://api.tavily.com/search", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(requestBody),
-      });
-
-      if (response.ok) {
-        const data = await response.json();
-        const results = (data.results || []).map((r: { title: string; url: string; content: string; published_date?: string }) => ({
-          title: r.title,
-          url: r.url,
-          content: r.content,
-          published_date: r.published_date,
-        }));
-        return {
-          answer: data.answer || "",
-          results,
-          source: "tavily",
-        };
-      }
-    } catch {
-      // fall through
-    }
+  try {
+    return await searchWeb(query, 6);
+  } catch {
+    return { results: [], error: "搜索服务不可用" };
   }
-
-  if (ANYSEARCH_API_KEY) {
-    try {
-      const response = await fetch("https://api.anysearch.com/v1/search", {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          Authorization: `Bearer ${ANYSEARCH_API_KEY}`,
-        },
-        body: JSON.stringify({
-          query,
-          max_results: maxResults,
-        }),
-      });
-
-      if (response.ok) {
-        const data = await response.json();
-        const results = (data.results || []).map((r: { title: string; url: string; content: string; published_date?: string }) => ({
-          title: r.title,
-          url: r.url,
-          content: r.content,
-          published_date: r.published_date,
-        }));
-        return {
-          answer: data.answer || "",
-          results,
-          source: "anysearch",
-        };
-      }
-    } catch {
-      // fall through
-    }
-  }
-
-  return {
-    answer: "",
-    results: [],
-    error: "搜索服务不可用",
-  };
 }
 
 async function executeTool(name: string, args: Record<string, unknown>): Promise<unknown> {

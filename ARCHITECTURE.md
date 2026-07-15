@@ -75,6 +75,7 @@ POST /api/v1/chat
   → AgentScope Agent/ReAct
        ├── primary → backup1 → backup2 model router
        ├── agentic search_knowledge → 同一 production RAG
+       ├── read-only web_search → AnySearch JSON-RPC → Tavily fallback
        └── Mem0Middleware → search_memory/add_memory → GerClaw Memory adapter
   → 按句医疗安全后处理 + citation + 免责声明
   → Redis owner + PostgreSQL token 复验
@@ -267,3 +268,4 @@ types → config → providers → repositories → services → agents → rout
 | ADR-009 | 三模型仅在未产生可见/工具输出前 failover | 保证 primary→backup1→backup2 可用性，同时避免流中断后重放造成重复或相互矛盾的医疗正文 | 任意时刻切模型→用户可能收到两套冲突建议；完全不切换→单 provider 故障直接中断 | 2026-07-15 |
 | ADR-010 | Redis owner lease + PostgreSQL 单调 fencing token/Trace 绑定 + terminal 原子事务 | Redis 负责长模型调用期间低成本互斥；新 owner 通过 session 行发布更高 token 与当前 Trace，成功和失败终态均在 lease 内以 session 行锁加 Redis compare-and-renew 双重校验；assistant/成功 Trace 一次提交，SYSTEM_ERROR/失败 Trace/Bad Case 一次提交，避免租约丢失或提交故障形成矛盾终态 | 仅 owner-token→丢锁检测存在窗口；长事务数据库锁→占用连接；多次独立 commit→消息、Trace 与 Bad Case 状态可分裂 | 2026-07-15 |
 | ADR-011 | AgentScope Mem0Middleware 生命周期 + 加密 PostgreSQL Memory authority/revision audit + PHI-free Qdrant reference vectors | 保留 AgentScope 自动/工具式记忆控制，同时满足医疗 evidence、用户确认、tenant 隔离、加密和 Trace 原子性；当前事实投影与变更前密文快照分离，重大事件按发生时间或 source Trace/evidence hash 保持可追溯；revision-fenced point ID 与 PostgreSQL allowlist 排除 stale/rollback vector | mem0 默认 SQLite/Qdrant 明文→隐私与事务不满足；原地覆盖且无历史→停药/剂量/事件来源不可审计；纯 PG 关键词检索→跨会话语义召回不足；自研 agent loop→重复框架能力 | 2026-07-15 |
+| ADR-012 | AnySearch-first SearchModule + AgentScope read-only web_search + 不可信证据隔离 | 符合指定 JSON-RPC 协议与主备顺序；统一 query 脱敏、来源分级、SSRF、Trace 和 SSE 卡片边界；普通 Chat 复用同一 async runtime，CGA 不注册工具 | 浏览器直连 Provider→密钥泄漏且无租户审计；只用 Tavily→违反设计优先级；网页正文当指令→prompt injection；自研 Agent loop→重复框架能力 | 2026-07-15 |

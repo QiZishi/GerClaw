@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import json
 
 import pytest
 from httpx import AsyncClient
@@ -11,6 +12,9 @@ from sqlalchemy import func, select, text
 from gerclaw_api.auth import create_access_token
 from gerclaw_api.database.models import BadCase, ExecutionTrace, TraceEvent, UserFeedback
 from gerclaw_api.modules.rag.locking import PostgresAdvisoryRAGIndexLock
+from gerclaw_api.modules.search.models import ProviderSearchResult
+from gerclaw_api.modules.search.module import ProductionSearchModule
+from gerclaw_api.modules.search.security import PublicURLGuard
 from gerclaw_api.services.rate_limit import RateLimiter
 
 TRACE_ID = "trace_integration_0001"
@@ -19,6 +23,38 @@ TRACE_ID = "trace_integration_0001"
 class _FailingRAGModule:
     async def retrieve(self, *_args: object, **_kwargs: object) -> list[object]:
         raise RuntimeError("injected provider failure")
+
+
+class _StaticSearchProvider:
+    def __init__(self) -> None:
+        self.queries: list[str] = []
+        self.extract_calls: list[str] = []
+
+    async def search(
+        self, query: str, *, max_results: int, domain: str
+    ) -> list[ProviderSearchResult]:
+        del max_results, domain
+        self.queries.append(query)
+        return [
+            ProviderSearchResult(
+                title="WHO healthy ageing",
+                snippet="WHO healthy ageing evidence.",
+                url="https://www.who.int/healthy-ageing",
+                published_date="2024-03-15",
+                score=0.9,
+            )
+        ]
+
+    async def extract_content(self, url: str) -> str:
+        self.extract_calls.append(url)
+        return "# WHO evidence"
+
+    async def aclose(self) -> None:
+        return None
+
+
+async def _public_resolver(_host: str, _port: int) -> list[str]:
+    return ["93.184.216.34"]
 
 
 @pytest.mark.integration
@@ -156,6 +192,82 @@ async def test_real_agentic_rag_api_trace_and_agentscope_tool(
     assert any(
         "medical-knowledge-evidence" in getattr(block, "text", "") for block in tool_result.content
     )
+
+
+@pytest.mark.integration
+@pytest.mark.asyncio
+async def test_search_api_redacts_phi_enforces_scope_and_persists_safe_trace(
+    integration_client: tuple[AsyncClient, object],
+) -> None:
+    client, app = integration_client
+    provider = _StaticSearchProvider()
+    runtime = app.state.search_runtime
+    working_module = runtime.module
+    runtime.module = ProductionSearchModule(
+        primary=provider,
+        fallback=None,
+        url_guard=PublicURLGuard(_public_resolver),
+    )
+    try:
+        response = await client.post(
+            "/api/v1/search/query",
+            headers={"X-Trace-ID": "trace_search_integration_0001"},
+            json={
+                "query": "患者姓名:张三, 手机号13800138000 老年健康最新指南",
+                "max_results": 3,
+                "domain": "health",
+            },
+        )
+        assert response.status_code == 200, response.text
+        payload = response.json()
+        assert payload["results"][0]["provider"] == "anysearch"
+        assert payload["results"][0]["authority_level"] == "S"
+        assert "张三" not in provider.queries[0]
+        assert "13800138000" not in provider.queries[0]
+
+        trace = await client.get("/api/v1/traces/trace_search_integration_0001")
+        assert trace.status_code == 200
+        trace_payload = trace.json()
+        assert trace_payload["status"] == "completed"
+        assert trace_payload["events"][0]["event_type"] == "search.query"
+        assert trace_payload["events"][0]["payload"] == {
+            "module": "search",
+            "operation": "search",
+            "provider": "anysearch",
+            "outcome": "success",
+            "retry_index": 0,
+            "result_count": 1,
+            "success": True,
+        }
+        telemetry = json.dumps(trace_payload, ensure_ascii=False)
+        assert "张三" not in telemetry
+        assert "13800138000" not in telemetry
+        assert "WHO healthy ageing evidence" not in telemetry
+
+        rejected = await client.post(
+            "/api/v1/search/extract",
+            headers={"X-Trace-ID": "trace_search_ssrf_0001"},
+            json={"url": "https://127.0.0.1/latest/meta-data"},
+        )
+        assert rejected.status_code == 400
+        assert rejected.json()["error"]["code"] == "SEARCH_URL_REJECTED"
+        rejected_trace = await client.get("/api/v1/traces/trace_search_ssrf_0001")
+        assert rejected_trace.json()["status"] == "failed"
+        assert provider.extract_calls == []
+
+        no_scope = create_access_token(
+            app.state.settings,
+            actor_id="usr_patient_integration0001",
+            tenant_id="tenant_public0001",
+            scopes={"trace:read"},
+        )
+        forbidden = await client.get(
+            "/api/v1/search/status",
+            headers={"Authorization": f"Bearer {no_scope}"},
+        )
+        assert forbidden.status_code == 403
+    finally:
+        runtime.module = working_module
 
 
 @pytest.mark.integration

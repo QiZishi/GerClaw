@@ -2,7 +2,7 @@
 
 GerClaw 二阶段生产后端。当前里程碑提供真实 PostgreSQL、Redis、Qdrant，JWT scope/tenant 隔离，Redis 原子限流，Trace/反馈/bad-case 数据闭环，以及按设计要求第四章拆分的 Agent Harness、Memory、Agentic RAG、Skill、Input/Output、Tool Protocol 边界。
 
-本地医学 Agentic RAG 已使用 AgentScope 2.0.4 `RAGMiddleware(mode="agentic")` 真实接入；长期健康记忆已使用 `Mem0Middleware(mode="both")` + GerClaw adapter 接入，并以加密 PostgreSQL 为事实源、PHI-free Qdrant revision vector 为语义索引。生产对话 Harness 已形成三模型依次兜底、安全 SSE、加密会话/画像、Redis session lease 和幂等 Trace 重放闭环。CGA、处方、Skill、上传文档与 Voice 业务仍在后续独立变更集实现。本阶段不伪造医疗对话、检索或记忆结果。
+本地医学 Agentic RAG 已使用 AgentScope 2.0.4 `RAGMiddleware(mode="agentic")` 真实接入；长期健康记忆已使用 `Mem0Middleware(mode="both")` + GerClaw adapter 接入，并以加密 PostgreSQL 为事实源、PHI-free Qdrant revision vector 为语义索引。联网医疗证据由 AgentScope 只读 `web_search` 工具调用生产 `SearchModule`，严格执行 AnySearch `/mcp` JSON-RPC 主通道、Tavily 备用通道和 S/A/B/C 来源分级。生产对话 Harness 已形成三模型依次兜底、安全 SSE、加密会话/画像、Redis session lease 和幂等 Trace 重放闭环。CGA、处方、Skill、上传文档与 Voice 业务仍在后续独立变更集实现。本阶段不伪造医疗对话、检索、联网来源或记忆结果。
 
 ## 配置与安全
 
@@ -42,6 +42,14 @@ docker compose -f docker-compose.yml -f docker-compose.dev.yml \
 
 2026-07-15 的真实全量结果为 436/436 文档、39,837 chunks、失败 0；第二次同步为 `indexed=0, skipped=436, chunks_written=0`。跌倒、压疮、焦虑、肌少症、冠心病五类代表查询均在 top-3 命中对应本地目录文献。
 
+## 联网医疗证据 Search
+
+`ProductionSearchModule` 是后端唯一联网证据入口。它在 query 出站前脱敏手机号、证件号、邮箱和显式姓名；AnySearch 瞬态失败最多重试一次，随后才切换 Tavily，认证或 schema 错误直接降级。双 Provider 都失败时返回 `SEARCH_UNAVAILABLE`，不允许模型记忆冒充最新信息。
+
+结果只接受 HTTPS 来源，按 WHO/FDA/NIH/政府（S）、权威学会与期刊（A）、专业平台（B）、通用来源（C）分级，论坛、广告和推广来源作为 D 级过滤。AgentScope 收到的正文用 `<untrusted-web-evidence>` 隔离，`tool_result` SSE 同时提供卡片所需结构化结果；最终 citation 的 `corpus` 为 `web`。本地 RAG 仍是医学事实第一证据来源，`workflow=cga` 时 Toolkit 不注册 `web_search`。
+
+`extract_content` 只允许标准 443 公网 HTTPS URL；调用 Provider 前校验全部 DNS 地址，并以 HEAD 探针逐跳重新校验最多 5 次 redirect，阻断 loopback、私网、link-local、metadata 和重绑定到非公网地址。搜索 Trace 只保存 Provider、结果数、重试序号、耗时和权威级别，不保存 query、snippet 或网页正文。
+
 ## 验证
 
 静态检查与不依赖容器的测试：
@@ -80,7 +88,7 @@ GERCLAW_RUN_EXTERNAL=1 uv run pytest tests/test_real_external_services.py -m ext
 ## API
 
 - `GET /health/live`：公开进程存活探针。
-- `GET /health/ready`：公开 PostgreSQL、Redis、Qdrant、AgentScope、知识库、RAG 索引及 Memory collection 状态，不返回连接信息或健康文本。
+- `GET /health/ready`：公开 PostgreSQL、Redis、Qdrant、AgentScope、知识库、RAG 索引、Memory collection 及 Search 双通道配置状态，不返回连接信息或健康文本。
 - `GET /metrics`：要求 `metrics:read` scope。
 - `POST /api/v1/traces`：要求 `trace:write`；durable Trace ID 来自合法 `X-Trace-ID` 或服务端生成值。
 - `GET /api/v1/traces/{trace_id}`：要求 `trace:read`；使用 `after_sequence`/`limit≤100` 分页。
@@ -92,6 +100,9 @@ GERCLAW_RUN_EXTERNAL=1 uv run pytest tests/test_real_external_services.py -m ext
 - `POST /api/v1/sessions`：要求 `chat:write`；创建或幂等返回当前 tenant/actor 所属会话。
 - `GET /api/v1/sessions/{session_id}/messages`：要求 `chat:read`；只返回当前 tenant/actor 的有界解密历史，其他主体统一返回 404。
 - `POST /api/v1/chat`：要求 `chat:write`；运行 AgentScope ReAct + 本地 Agentic RAG，返回 `agent_start/thinking/tool_call/tool_result/text_delta/done` SSE。医疗请求无本地证据时 fail closed；`done` 仅在加密消息和 completed Trace 已提交后发送。
+- `POST /api/v1/search/query`：要求 `search:read`；执行脱敏后的 AnySearch→Tavily 联网证据查询并生成 PHI-free Trace。
+- `POST /api/v1/search/extract`：要求 `search:read`；只提取经 DNS/redirect SSRF 校验的公网 HTTPS 正文。
+- `GET /api/v1/search/status`：要求 `search:read`；仅返回主备通道是否配置，不执行计费搜索。
 - `GET /api/v1/memory/profile`：要求 `memory:read`；返回当前 actor 的加密健康画像投影和 evidenced facts，未建档访客返回空画像。
 - `POST /api/v1/memory/facts/{fact_id}/decision`：要求 `memory:write`；用 expected revision 确认或拒绝当前 actor 的事实，跨主体统一 404。
 

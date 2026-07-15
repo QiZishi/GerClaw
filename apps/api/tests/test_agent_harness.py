@@ -27,6 +27,7 @@ from gerclaw_api.modules.contracts import ExecutionContext
 from gerclaw_api.modules.memory.models import MemoryUpdateResult
 from gerclaw_api.modules.memory.protocols import MemoryMessage, UserProfile
 from gerclaw_api.modules.rag.protocols import RetrievalResult
+from gerclaw_api.modules.search.models import SearchResult
 from gerclaw_api.services.model_router import FailoverChatModel
 
 
@@ -41,11 +42,15 @@ class _HarnessModel(ChatModelBase):
         text: str = "",
         final_only: bool = False,
         final_text: str | None = None,
+        tool_name: str = "search_knowledge",
+        tool_input: str = '{"query":"老年跌倒预防"}',
     ) -> None:
         self.use_tool = use_tool
         self.text = text or "您已经确诊为高血压。建议请医生复核。"
         self.final_only = final_only
         self.final_text = final_text
+        self.tool_name = tool_name
+        self.tool_input = tool_input
         self.calls = 0
         super().__init__(
             credential=CredentialBase(name="test"),
@@ -71,8 +76,8 @@ class _HarnessModel(ChatModelBase):
                 content=[
                     ToolCallBlock(
                         id="tool_call_001",
-                        name="search_knowledge",
-                        input='{"query":"老年跌倒预防"}',
+                        name=self.tool_name,
+                        input=self.tool_input,
                     )
                 ],
                 is_last=True,
@@ -124,6 +129,31 @@ class _HarnessMemory:
         self.sources.extend(message.text() for message in conversation)
 
 
+class _HarnessSearch:
+    def __init__(self) -> None:
+        self.calls: list[tuple[str, int, str]] = []
+
+    async def search(
+        self, query: str, max_results: int = 5, domain: str = "health"
+    ) -> list[SearchResult]:
+        self.calls.append((query, max_results, domain))
+        return [
+            SearchResult(
+                id="web_1234567890abcdef",
+                title="WHO healthy ageing",
+                snippet="WHO 发布的健康老龄化循证资料。",
+                url="https://www.who.int/healthy-ageing",
+                source="who.int",
+                authority_level="S",
+                provider="anysearch",
+                score=0.9,
+            )
+        ]
+
+    async def extract_content(self, _url: str) -> str:
+        return "unused"
+
+
 def _evidence() -> RetrievalResult:
     return RetrievalResult(
         content="老年高血压管理需结合血压测量、合并症与用药情况综合评估。",
@@ -156,6 +186,8 @@ def _harness(
     model: _HarnessModel,
     rag: _HarnessRAG,
     history: list[ConversationHistoryMessage] | None = None,
+    search: _HarnessSearch | None = None,
+    search_enabled: bool = True,
 ) -> ProductionAgentHarness:
     return ProductionAgentHarness(
         settings=settings,
@@ -164,6 +196,8 @@ def _harness(
         memory_module=cast(Any, _HarnessMemory()),
         execution=_execution(),
         history=history or [],
+        search_module=cast(Any, search),
+        search_enabled=search_enabled,
     )
 
 
@@ -243,6 +277,69 @@ async def test_agentic_search_tool_projects_tool_events(unit_settings: Settings)
     assert [event.event_type for event in events].count("tool_call") == 1
     assert [event.event_type for event in events].count("tool_result") == 1
     assert len(response.citations) == 1
+
+
+@pytest.mark.asyncio
+async def test_web_search_tool_projects_structured_results_and_web_citation(
+    unit_settings: Settings,
+) -> None:
+    search = _HarnessSearch()
+    model = _HarnessModel(
+        use_tool=True,
+        tool_name="web_search",
+        tool_input='{"query":"WHO 2025 healthy ageing guidance","max_results":1,"domain":"health"}',
+        text="本地证据需结合最新 WHO 资料核验 [W1]。",
+    )
+    harness = _harness(
+        unit_settings,
+        model=model,
+        rag=_HarnessRAG([_evidence()]),
+        search=search,
+    )
+    context = await harness.assemble_context(
+        "108815d7-05bf-4c2a-a977-cd034f390fab",
+        "usr_patient00000001",
+        [],
+        [],
+    )
+    assert context.tool_names[-1] == "web_search"
+    events: list[StreamEvent] = []
+    response = await harness.process_message(
+        "请搜索最新健康老龄化指南",
+        "108815d7-05bf-4c2a-a977-cd034f390fab",
+        context,
+        events.append,
+    )
+
+    assert search.calls == [("WHO 2025 healthy ageing guidance", 1, "health")]
+    result_event = next(
+        event
+        for event in events
+        if event.event_type == "tool_result" and event.data["tool_name"] == "web_search"
+    )
+    results = cast(list[dict[str, Any]], result_event.data["results"])
+    assert results[0]["authority_level"] == "S"
+    assert results[0]["provider"] == "anysearch"
+    assert {item.corpus for item in response.citations} == {"local_knowledge_base", "web"}
+    assert any(item.source_id == "web_1234567890abcdef" for item in response.citations)
+
+
+@pytest.mark.asyncio
+async def test_cga_context_does_not_register_web_search(unit_settings: Settings) -> None:
+    harness = _harness(
+        unit_settings,
+        model=_HarnessModel(),
+        rag=_HarnessRAG([_evidence()]),
+        search=_HarnessSearch(),
+        search_enabled=False,
+    )
+    context = await harness.assemble_context(
+        "108815d7-05bf-4c2a-a977-cd034f390fab",
+        "usr_patient00000001",
+        [],
+        [],
+    )
+    assert "web_search" not in context.tool_names
 
 
 @pytest.mark.asyncio

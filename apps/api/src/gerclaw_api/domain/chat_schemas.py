@@ -24,6 +24,7 @@ class ChatRequest(BaseModel):
     loaded_skills: list[SkillId] = Field(default_factory=list, max_length=20)
     uploaded_files: list[uuid.UUID] = Field(default_factory=list, max_length=10)
     channel: Literal["web"] = "web"
+    workflow: Literal["standard", "cga"] = "standard"
 
     @field_validator("message")
     @classmethod
