@@ -1,10 +1,11 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { AlertTriangle, ArrowLeft, CheckCircle2, ClipboardList, RefreshCw } from "lucide-react";
+import { AlertTriangle, ArrowLeft, CheckCircle2, ClipboardList, Download, RefreshCw } from "lucide-react";
 import { z } from "zod";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
+import { exportToMarkdown } from "@/lib/export";
 import { useAppStore } from "@/stores/appStore";
 import {
   completeCgaAssessment,
@@ -49,6 +50,29 @@ function assessmentKey(scaleId: CgaScaleId) {
 }
 
 const storedAssessmentIdSchema = z.string().uuid();
+
+function buildReportExportContent(report: CgaReport): string {
+  const lines = [
+    "## 筛查结果",
+    "",
+    `- 得分：${report.total_score} / ${report.score_max}`,
+    ...(report.raw_score !== null && report.standard_score !== null
+      ? [`- 粗分：${report.raw_score}`, `- 标准分：${report.standard_score}`]
+      : []),
+    `- 分级：${SEVERITY_LABEL[report.severity]}`,
+  ];
+  if (Object.keys(report.component_scores).length > 0) {
+    lines.push("", "## 各项得分", "");
+    for (const [key, score] of Object.entries(report.component_scores)) {
+      lines.push(`- ${COMPONENT_LABEL[key] ?? key}：${score} / 3`);
+    }
+  }
+  if (report.safety_messages.length > 0) {
+    lines.push("", "## 安全提示", "", ...report.safety_messages.map((message) => `- ${message}`));
+  }
+  lines.push("", "## 筛查说明", "", report.disclaimer);
+  return lines.join("\n");
+}
 
 export function CgaAssessment({ onExit }: CgaAssessmentProps) {
   const seniorMode = useAppStore((state) => state.seniorMode);
@@ -158,6 +182,16 @@ export function CgaAssessment({ onExit }: CgaAssessmentProps) {
     setAssessment(null);
     setReport(null);
     void begin(selectedScale);
+  };
+
+  const exportReport = () => {
+    if (!report || !selectedScale) return;
+    exportToMarkdown({
+      title: `${selectedScale.name}筛查报告`,
+      subtitle: "结果由服务端确定性规则生成",
+      content: buildReportExportContent(report),
+    });
+    setNotice("筛查报告已导出为 Markdown 文件。报告仅供筛查参考，不能替代医生诊断。");
   };
 
   const backToDirectory = () => {
@@ -325,7 +359,12 @@ export function CgaAssessment({ onExit }: CgaAssessmentProps) {
               )}
               {report.safety_messages.map((message) => <p className={cn("mt-3", textClass)} key={message}>{message}</p>)}
               <p className={cn("mt-5 rounded-md bg-muted p-3 text-muted-foreground", textClass)}>{report.disclaimer}</p>
-              <Button className={cn("mt-4", actionClass)} variant="outline" onClick={reset}>重新开始此量表</Button>
+              <div className="mt-4 flex flex-wrap gap-3">
+                <Button className={actionClass} variant="outline" onClick={exportReport}>
+                  <Download className="mr-2 size-4" />导出筛查报告
+                </Button>
+                <Button className={actionClass} variant="outline" onClick={reset}>重新开始此量表</Button>
+              </div>
             </div>
           )}
         </>
