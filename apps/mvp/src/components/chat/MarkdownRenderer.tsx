@@ -14,6 +14,7 @@ interface MarkdownRendererProps {
   content: string;
   citations?: Citation[];
   className?: string;
+  style?: React.CSSProperties;
 }
 
 let highlighterPromise: Promise<Highlighter> | null = null;
@@ -523,6 +524,7 @@ export function MarkdownRenderer({
   content,
   citations,
   className,
+  style,
 }: MarkdownRendererProps) {
   const seniorMode = useAppStore((s) => s.seniorMode);
 
@@ -538,6 +540,7 @@ export function MarkdownRenderer({
         seniorMode ? "text-lg leading-[1.8]" : "text-sm leading-relaxed",
         className
       )}
+      style={style}
     >
       <ReactMarkdown
         remarkPlugins={[remarkGfm]}

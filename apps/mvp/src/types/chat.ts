@@ -127,6 +127,8 @@ export interface FileTag {
   errorMessage?: string;
   thumbnailUrl?: string;
   parsedMarkdown?: string;
+  /** 解析完成时间；未记录时 UI 不得用组件挂载时间冒充 */
+  parsedAt?: number;
 }
 
 /** 图片附件 */

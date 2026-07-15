@@ -370,6 +370,7 @@ export function ChatInput({
         status: "done",
         progress: 100,
         parsedMarkdown: result.markdown,
+        parsedAt: Date.now(),
       };
       setPendingDocuments((previous) =>
         previous.map((item) => (item.id === fileData.id ? completed : item))
@@ -403,7 +404,7 @@ export function ChatInput({
     setPendingDocuments((previous) =>
       previous.map((item) =>
         item.id === id
-          ? { ...item, status: "uploading", progress: 30, errorMessage: undefined }
+          ? { ...item, status: "parsing", progress: 50, errorMessage: undefined }
           : item
       )
     );
@@ -491,12 +492,11 @@ export function ChatInput({
           fileName: file.name,
           fileType: ext.slice(1),
           fileSize: file.size,
-          status: "uploading",
-          progress: 30,
+          status: "parsing",
+          progress: 50,
         };
         rawDocumentsRef.current.set(id, file);
         setPendingDocuments((previous) => [...previous, fileData]);
-        toast.show(`正在解析文件：${file.name}...`);
         void parsePendingDocument(fileData, file);
       }
     }

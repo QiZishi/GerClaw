@@ -418,6 +418,23 @@
   animation-duration: 1.8s !important;
 }
 
+/* 文档预览缩放覆盖 Markdown 子节点的固定字号；根字号由组件直接设置。 */
+.document-preview-markdown :where(p, ul, ol, li, blockquote, table, th, td, pre, code) {
+  font-size: inherit !important;
+}
+
+.document-preview-markdown h1 {
+  font-size: 1.5em !important;
+}
+
+.document-preview-markdown h2 {
+  font-size: 1.35em !important;
+}
+
+.document-preview-markdown :where(h3, h4, h5, h6) {
+  font-size: 1.15em !important;
+}
+
 /* ====== 导出截图时隐藏操作按钮 ====== */
 .exporting-screenshot [data-message-actions] {
   display: none !important;

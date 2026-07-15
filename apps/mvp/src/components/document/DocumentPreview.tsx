@@ -15,6 +15,7 @@ import { ScrollArea } from "@/components/ui/scroll-area";
 import { Separator } from "@/components/ui/separator";
 import { MarkdownRenderer } from "@/components/chat/MarkdownRenderer";
 import { useAppStore } from "@/stores/appStore";
+import { toast } from "@/components/ui/toast";
 import { formatFileSize, formatDateTime } from "@/lib/format";
 import { cn } from "@/lib/utils";
 import type { FileTag as FileTagData } from "@/types";
@@ -30,11 +31,12 @@ interface DocumentPreviewProps {
  * 支持复制原文 / 缩放字号
  */
 export function DocumentPreview({ file, className }: DocumentPreviewProps) {
+  const role = useAppStore((s) => s.role);
   const seniorMode = useAppStore((s) => s.seniorMode);
+  const isSeniorPatient = role === "patient" && seniorMode;
   const [copied, setCopied] = useState(false);
   const [zoom, setZoom] = useState(0); // -2 ~ +2
-  // 解析时间在组件挂载时确定一次（避免渲染中调用 Date.now 不纯）
-  const [parsedAt] = useState(() => Date.now());
+  const previewFontSize = (isSeniorPatient ? 22 : 16) + zoom * 2;
 
   const handleCopy = async () => {
     try {
@@ -42,17 +44,9 @@ export function DocumentPreview({ file, className }: DocumentPreviewProps) {
       setCopied(true);
       setTimeout(() => setCopied(false), 1500);
     } catch {
-      // 剪贴板 API 不可用 — 静默失败
+      toast.show("复制失败，请长按或选择文字后复制");
     }
   };
-
-  const zoomClass = [
-    "text-xs",
-    "text-sm",
-    "text-base",
-    "text-lg",
-    "text-xl",
-  ][Math.max(0, Math.min(4, zoom + 2))];
 
   return (
     <div className={cn("flex flex-col h-full", className)}>
@@ -66,19 +60,19 @@ export function DocumentPreview({ file, className }: DocumentPreviewProps) {
             <div
               className={cn(
                 "text-sm font-medium truncate",
-                seniorMode && "text-base"
+                isSeniorPatient && "text-lg"
               )}
               title={file.fileName}
             >
               {file.fileName}
             </div>
-            <div className="flex items-center gap-2 text-xs text-muted-foreground mt-0.5">
+            <div className={cn("flex items-center gap-2 text-xs text-muted-foreground mt-0.5", isSeniorPatient && "text-lg")}>
               <span>{formatFileSize(file.fileSize)}</span>
               <span>·</span>
               <span className="uppercase">{file.fileType}</span>
               <Badge
                 variant={file.status === "done" ? "secondary" : "outline"}
-                className="text-[10px] py-0"
+                className={cn("text-[10px] py-0", isSeniorPatient && "px-3 py-1 text-lg")}
               >
                 {statusLabel(file.status)}
               </Badge>
@@ -88,28 +82,37 @@ export function DocumentPreview({ file, className }: DocumentPreviewProps) {
         <div className="flex items-center justify-end gap-1">
           <Button
             variant="ghost"
-            size="icon-sm"
-            className="btn-icon"
+            size={isSeniorPatient ? "default" : "icon-sm"}
+            className={cn("btn-icon", isSeniorPatient && "min-h-12 gap-1.5 px-3 text-base")}
             onClick={() => setZoom((z) => Math.max(-2, z - 1))}
             disabled={zoom <= -2}
             aria-label="缩小字号"
           >
             <ZoomOut className="size-3.5" />
+            {isSeniorPatient && <span>缩小</span>}
           </Button>
           <Button
             variant="ghost"
-            size="icon-sm"
-            className="btn-icon"
+            size={isSeniorPatient ? "default" : "icon-sm"}
+            className={cn("btn-icon", isSeniorPatient && "min-h-12 gap-1.5 px-3 text-base")}
             onClick={() => setZoom((z) => Math.min(2, z + 1))}
             disabled={zoom >= 2}
             aria-label="放大字号"
           >
             <ZoomIn className="size-3.5" />
+            {isSeniorPatient && <span>放大</span>}
           </Button>
+          <output
+            className={cn("min-w-10 text-center text-xs text-muted-foreground", isSeniorPatient && "text-lg")}
+            aria-live="polite"
+            aria-label={`当前预览字号 ${previewFontSize} 像素`}
+          >
+            {previewFontSize}px
+          </output>
           <Button
             variant="ghost"
-            size="icon-sm"
-            className="btn-icon"
+            size={isSeniorPatient ? "default" : "icon-sm"}
+            className={cn("btn-icon", isSeniorPatient && "min-h-12 gap-1.5 px-3 text-base")}
             onClick={handleCopy}
             disabled={!file.parsedMarkdown}
             aria-label="复制解析结果"
@@ -119,6 +122,7 @@ export function DocumentPreview({ file, className }: DocumentPreviewProps) {
             ) : (
               <Copy className="size-3.5" />
             )}
+            {isSeniorPatient && <span>{copied ? "已复制" : "复制"}</span>}
           </Button>
         </div>
       </div>
@@ -129,7 +133,7 @@ export function DocumentPreview({ file, className }: DocumentPreviewProps) {
       <ScrollArea className="flex-1 min-h-0">
         <div className="p-3">
           {file.status !== "done" && (
-            <div className="text-center text-xs text-muted-foreground py-8">
+            <div className={cn("text-center text-xs text-muted-foreground py-8", isSeniorPatient && "text-lg")}>
               {file.status === "uploading" && "文件上传中…"}
               {file.status === "parsing" && "正在解析文档…"}
               {file.status === "failed" && (
@@ -142,11 +146,12 @@ export function DocumentPreview({ file, className }: DocumentPreviewProps) {
           {file.status === "done" && file.parsedMarkdown && (
             <MarkdownRenderer
               content={file.parsedMarkdown}
-              className={zoomClass}
+              className="document-preview-markdown"
+              style={{ fontSize: `${previewFontSize}px` }}
             />
           )}
           {file.status === "done" && !file.parsedMarkdown && (
-            <div className="text-center text-xs text-muted-foreground py-8">
+            <div className={cn("text-center text-xs text-muted-foreground py-8", isSeniorPatient && "text-lg")}>
               文档已解析，但未返回可显示内容
             </div>
           )}
@@ -154,11 +159,11 @@ export function DocumentPreview({ file, className }: DocumentPreviewProps) {
       </ScrollArea>
 
       {/* 底部信息条 */}
-      <div className="border-t border-border px-3 py-2 flex items-center justify-between text-[11px] text-muted-foreground">
-        <span>解析时间：{formatDateTime(parsedAt)}</span>
+      <div className={cn("border-t border-border px-3 py-2 flex items-center justify-between gap-3 text-[11px] text-muted-foreground", isSeniorPatient && "text-lg")}>
+        <span>{file.parsedAt ? `解析时间：${formatDateTime(file.parsedAt)}` : "解析完成时间未记录"}</span>
         <span className="inline-flex items-center gap-1 text-muted-foreground/50">
           <ExternalLink className="size-3" />
-          原文（暂不可用）
+          原文件链接未提供
         </span>
       </div>
     </div>

@@ -54,7 +54,6 @@ export function FileUpload({ className, onFileParsed }: FileUploadProps) {
 
   const showError = (msg: string) => {
     setError(msg);
-    setTimeout(() => setError(null), 3000);
   };
 
   const performParse = useCallback(
@@ -74,17 +73,7 @@ export function FileUpload({ className, onFileParsed }: FileUploadProps) {
       setFiles((prev) =>
         prev.map((f) =>
           f.id === fileData.id
-            ? { ...f, status: "uploading" as FileStatus, progress: 30 }
-            : f
-        )
-      );
-
-      await new Promise((resolve) => setTimeout(resolve, 300));
-
-      setFiles((prev) =>
-        prev.map((f) =>
-          f.id === fileData.id
-            ? { ...f, status: "parsing" as FileStatus, progress: 70 }
+            ? { ...f, status: "parsing" as FileStatus, progress: 50 }
             : f
         )
       );
@@ -96,6 +85,7 @@ export function FileUpload({ className, onFileParsed }: FileUploadProps) {
           status: "done" as FileStatus,
           progress: 100,
           parsedMarkdown: result.markdown,
+          parsedAt: Date.now(),
         };
         setFiles((prev) =>
           prev.map((f) => (f.id === fileData.id ? completedFile : f))
@@ -152,8 +142,8 @@ export function FileUpload({ className, onFileParsed }: FileUploadProps) {
           fileName: raw.name,
           fileType: ext.slice(1),
           fileSize: raw.size,
-          status: "uploading",
-          progress: 0,
+          status: "parsing",
+          progress: 50,
         };
         rawFilesRef.current.set(id, raw);
         setFiles((prev) => [...prev, newFile]);
@@ -185,7 +175,7 @@ export function FileUpload({ className, onFileParsed }: FileUploadProps) {
     if (!file) return;
     setFiles((prev) =>
       prev.map((f) =>
-        f.id === id ? { ...f, status: "uploading", progress: 0, errorMessage: undefined } : f
+        f.id === id ? { ...f, status: "parsing", progress: 50, errorMessage: undefined } : f
       )
     );
     performParse(file);
@@ -260,11 +250,20 @@ export function FileUpload({ className, onFileParsed }: FileUploadProps) {
         <div
           role="alert"
           className={cn(
-            "mx-3 mb-2 rounded-md border border-destructive/30 bg-destructive/5 px-3 py-2 text-xs text-destructive",
+            "mx-3 mb-2 flex items-center justify-between gap-3 rounded-md border border-destructive/30 bg-destructive/5 px-3 py-2 text-xs text-destructive",
             seniorMode && "px-4 py-3 text-base"
           )}
         >
-          {error}
+          <span>{error}</span>
+          <Button
+            type="button"
+            variant="ghost"
+            size={seniorMode ? "default" : "sm"}
+            className={cn("shrink-0", seniorMode && "min-h-12 px-3 text-base")}
+            onClick={() => setError(null)}
+          >
+            关闭
+          </Button>
         </div>
       )}
 
