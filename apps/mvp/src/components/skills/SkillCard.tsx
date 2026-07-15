@@ -1,6 +1,6 @@
 "use client";
 
-import { Check, Eye, Loader2, LockKeyhole, Pencil, Power, Trash2, Workflow } from "lucide-react";
+import { Check, Eye, LockKeyhole, Pencil, Power, Trash2, Workflow } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Switch } from "@/components/ui/switch";
@@ -141,8 +141,8 @@ export function SkillCard({
               disabled={busy || !skill.enabled}
               className={cn("min-w-24", seniorMode && "h-12 min-w-32 px-4 text-lg")}
             >
-              {busy ? <Loader2 className="size-4 animate-spin" aria-hidden="true" /> : loaded ? <Check className="size-4" aria-hidden="true" /> : <Power className="size-4" aria-hidden="true" />}
-              {loaded ? "已加载" : "加载到对话"}
+              {busy ? <span className="text-base leading-none" aria-hidden="true">…</span> : loaded ? <Check className="size-4" aria-hidden="true" /> : <Power className="size-4" aria-hidden="true" />}
+              {busy ? "正在保存" : loaded ? "已加载" : "加载到对话"}
             </Button>
           </div>
         </div>

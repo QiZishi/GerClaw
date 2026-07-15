@@ -1,7 +1,7 @@
 "use client";
 
 import { useState } from "react";
-import { Bot, Loader2, ShieldCheck } from "lucide-react";
+import { Bot, ShieldCheck } from "lucide-react";
 import { MarkdownEditor } from "@/components/editor/MarkdownEditor";
 import { Button } from "@/components/ui/button";
 import {
@@ -181,8 +181,8 @@ export function SkillEditorDialog({
                 disabled={busy !== null}
                 className={cn(seniorMode && "h-12 px-4 text-lg")}
               >
-                {busy === "generate" ? <Loader2 className="size-5 animate-spin" /> : <Bot className="size-5" />}
-                生成可审阅草稿
+                {busy === "generate" ? <span className="text-base leading-none" aria-hidden="true">…</span> : <Bot className="size-5" />}
+                {busy === "generate" ? "正在生成草稿" : "生成可审阅草稿"}
               </Button>
             </div>
           </section>
@@ -227,8 +227,8 @@ export function SkillEditorDialog({
               disabled={busy !== null || !markdown.trim()}
               className={cn(seniorMode && "h-12 px-4 text-lg")}
             >
-              {busy === "save" && <Loader2 className="size-5 animate-spin" />}
-              {copy.saveLabel}
+              {busy === "save" && <span className="text-base leading-none" aria-hidden="true">…</span>}
+              {busy === "save" ? "正在保存" : copy.saveLabel}
             </Button>
           )}
         </DialogFooter>

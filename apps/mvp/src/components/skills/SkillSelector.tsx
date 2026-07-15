@@ -1,7 +1,7 @@
 "use client";
 
 import { useMemo, useState } from "react";
-import { Check, Loader2, Search, Workflow } from "lucide-react";
+import { AlertCircle, Check, RefreshCw, Search, Workflow } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import {
   DropdownMenu,
@@ -30,6 +30,7 @@ export function SkillSelector({ children, className, showLabel = false }: SkillS
   const setLoadedSkills = useAppStore((state) => state.setLoadedSkills);
   const skills = useSkillStore((state) => state.skills);
   const status = useSkillStore((state) => state.status);
+  const error = useSkillStore((state) => state.error);
   const refresh = useSkillStore((state) => state.refresh);
   const [query, setQuery] = useState("");
   const [open, setOpen] = useState(false);
@@ -117,8 +118,34 @@ export function SkillSelector({ children, className, showLabel = false }: SkillS
 
         <ScrollArea className="h-72">
           {status === "loading" && skills.length === 0 ? (
-            <div className={cn("flex h-32 items-center justify-center gap-2 text-sm text-muted-foreground", seniorMode && "text-lg")}>
-              <Loader2 className="size-4 animate-spin" /> 正在读取技能
+            <div
+              className={cn("flex h-32 flex-col items-center justify-center gap-1 text-sm text-muted-foreground", seniorMode && "text-lg")}
+              role="status"
+              aria-live="polite"
+            >
+              <Workflow className="size-4 text-primary" aria-hidden="true" />
+              正在读取技能
+            </div>
+          ) : status === "error" && skills.length === 0 ? (
+            <div
+              className={cn("flex min-h-40 flex-col items-center justify-center gap-2 px-5 py-4 text-center", seniorMode && "text-lg leading-8")}
+              role="alert"
+            >
+              <AlertCircle className="size-5 text-destructive" aria-hidden="true" />
+              <p className="font-medium text-foreground">技能暂时无法读取</p>
+              <p className={cn("text-xs text-muted-foreground", seniorMode && "text-lg leading-8")}>
+                {error ?? "请检查网络后重新加载。"}
+              </p>
+              <Button
+                type="button"
+                variant="outline"
+                size={seniorMode ? "default" : "sm"}
+                className={cn(seniorMode && "min-h-12 px-3 text-base")}
+                onClick={() => void refresh()}
+              >
+                <RefreshCw className="size-4" aria-hidden="true" />
+                重新加载
+              </Button>
             </div>
           ) : filtered.length === 0 ? (
             <div className={cn("px-5 py-10 text-center text-sm text-muted-foreground", seniorMode && "text-lg")}>
@@ -139,12 +166,21 @@ export function SkillSelector({ children, className, showLabel = false }: SkillS
                         seniorMode && "min-h-16 py-3"
                       )}
                       aria-pressed={loaded}
+                      aria-label={
+                        busy === skill.skill_id
+                          ? `正在保存${skill.name}的选择`
+                          : loaded
+                            ? `从当前对话移除${skill.name}`
+                            : `加载${skill.name}到当前对话`
+                      }
                     >
                       <span className={cn("mt-0.5 flex size-5 shrink-0 items-center justify-center rounded border", loaded ? "border-primary bg-primary text-primary-foreground" : "border-border")}>
-                        {busy === skill.skill_id ? <Loader2 className="size-3 animate-spin" /> : loaded ? <Check className="size-3" /> : null}
+                        {busy === skill.skill_id ? <span className="text-xs font-semibold" aria-hidden="true">…</span> : loaded ? <Check className="size-3" /> : null}
                       </span>
                       <span className="min-w-0 flex-1">
-                        <span className={cn("block truncate text-sm font-medium", seniorMode && "text-lg")}>{skill.name}</span>
+                        <span className={cn("block truncate text-sm font-medium", seniorMode && "text-lg")}>
+                          {skill.name}{busy === skill.skill_id ? "（正在保存）" : ""}
+                        </span>
                         <span className={cn("mt-0.5 block line-clamp-2 text-xs leading-5 text-muted-foreground", seniorMode && "text-lg leading-8")}>
                           {skill.description}
                         </span>

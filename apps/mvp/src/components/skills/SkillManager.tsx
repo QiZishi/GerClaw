@@ -284,10 +284,16 @@ function SkillSection({ title, description, children, seniorMode }: { title: str
 
 function SkillSkeleton() {
   return (
-    <div className="grid gap-3 lg:grid-cols-2" aria-label="正在加载技能">
-      {[0, 1, 2, 3].map((index) => (
-        <div key={index} className="h-40 animate-pulse rounded-xl border border-border bg-muted/45" />
-      ))}
+    <div
+      className="flex min-h-52 flex-col items-center justify-center rounded-xl border border-dashed border-border bg-muted/20 px-6 text-center"
+      role="status"
+      aria-live="polite"
+    >
+      <Bot className="mb-3 size-6 text-primary" aria-hidden="true" />
+      <p className="font-medium">正在读取可用技能</p>
+      <p className="mt-1 text-sm text-muted-foreground">
+        请稍候。技能列表准备完成后会显示在这里。
+      </p>
     </div>
   );
 }
