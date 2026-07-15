@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { BookOpen, Check, ChevronDown, Loader2, RotateCw, Search, Wrench, X, AlertTriangle } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -80,12 +80,28 @@ function getLocalKBChunks(data: ToolCallBlockData): LocalKBChunk[] {
   }
 }
 
-function StatusBadge({ status, isLocalKB }: { status: ToolCallBlockData["status"]; isLocalKB?: boolean }) {
+function useToolElapsed(data: ToolCallBlockData): number | undefined {
+  const [now, setNow] = useState(() => Date.now());
+  const isRunning = data.status === "running";
+
+  useEffect(() => {
+    if (!isRunning) return;
+    const timer = window.setInterval(() => setNow(Date.now()), 1000);
+    return () => window.clearInterval(timer);
+  }, [data.startedAt, isRunning]);
+
+  if (data.durationMs !== undefined) return data.durationMs;
+  if (isRunning) return Math.max(0, now - data.startedAt);
+  if (data.endedAt !== undefined) return Math.max(0, data.endedAt - data.startedAt);
+  return undefined;
+}
+
+function StatusBadge({ status, isLocalKB, reducedMotion }: { status: ToolCallBlockData["status"]; isLocalKB?: boolean; reducedMotion: boolean }) {
   switch (status) {
     case "running":
       return (
         <Badge variant="secondary" className={cn("gap-1", isLocalKB ? "text-emerald-600" : "text-blue-600")}>
-          <Loader2 className="size-3 animate-spin" />
+          <Loader2 className={cn("size-3", !reducedMotion && "animate-spin")} />
           {isLocalKB ? "检索中" : "搜索中"}
         </Badge>
       );
@@ -111,12 +127,14 @@ function WebSearchBlock({
   expanded,
   setExpanded,
   reducedMotion,
+  elapsedMs,
   onRetry,
 }: {
   data: ToolCallBlockData;
   expanded: boolean;
   setExpanded: (v: boolean) => void;
   reducedMotion: boolean;
+  elapsedMs?: number;
   onRetry?: (id: string) => void;
 }) {
   const isRunning = data.status === "running";
@@ -136,7 +154,7 @@ function WebSearchBlock({
   const chevronTransition = reducedMotion ? "" : "transition-transform duration-200 ease-out";
 
   const toolIconEl = isRunning ? (
-    <Loader2 className="size-4 shrink-0 animate-spin" />
+    <Loader2 className={cn("size-4 shrink-0", !reducedMotion && "animate-spin")} />
   ) : (
     <Search className="size-4 shrink-0" />
   );
@@ -157,7 +175,7 @@ function WebSearchBlock({
           <span className="font-medium shrink-0">联网搜索</span>
           {isRunning && searchQuery ? (
             <span className="truncate text-foreground/80">
-              正在搜索「{searchQuery}」...
+              正在搜索「{searchQuery}」{elapsedMs !== undefined ? ` · ${formatDuration(elapsedMs)}` : ""}
             </span>
           ) : isDone && searchQuery ? (
             <span className="truncate text-foreground/80">
@@ -173,7 +191,7 @@ function WebSearchBlock({
           ) : null}
         </span>
         <span className="flex items-center gap-1 shrink-0">
-          <StatusBadge status={data.status} />
+          <StatusBadge status={data.status} reducedMotion={reducedMotion} />
           {isFailed && onRetry && (
             <Button
               size="sm"
@@ -265,12 +283,14 @@ function LocalKnowledgeSearchBlock({
   expanded,
   setExpanded,
   reducedMotion,
+  elapsedMs,
   onRetry,
 }: {
   data: ToolCallBlockData;
   expanded: boolean;
   setExpanded: (v: boolean) => void;
   reducedMotion: boolean;
+  elapsedMs?: number;
   onRetry?: (id: string) => void;
 }) {
   const isRunning = data.status === "running";
@@ -286,7 +306,7 @@ function LocalKnowledgeSearchBlock({
   const chevronTransition = reducedMotion ? "" : "transition-transform duration-200 ease-out";
 
   const toolIconEl = isRunning ? (
-    <Loader2 className="size-4 shrink-0 animate-spin text-emerald-600" />
+    <Loader2 className={cn("size-4 shrink-0 text-emerald-600", !reducedMotion && "animate-spin")} />
   ) : (
     <BookOpen className="size-4 shrink-0 text-emerald-600" />
   );
@@ -307,7 +327,7 @@ function LocalKnowledgeSearchBlock({
           <span className="font-medium shrink-0 text-emerald-700 dark:text-emerald-400">本地知识库</span>
           {isRunning && searchQuery ? (
             <span className="truncate text-foreground/80">
-              正在检索本地知识库{kbCategory ? `（${kbCategory}）` : ""}「{searchQuery}」...
+              正在检索本地知识库{kbCategory ? `（${kbCategory}）` : ""}「{searchQuery}」{elapsedMs !== undefined ? ` · ${formatDuration(elapsedMs)}` : ""}
             </span>
           ) : isDone && searchQuery ? (
             <span className="truncate text-foreground/80">
@@ -323,7 +343,7 @@ function LocalKnowledgeSearchBlock({
           ) : null}
         </span>
         <span className="flex items-center gap-1 shrink-0">
-          <StatusBadge status={data.status} isLocalKB />
+          <StatusBadge status={data.status} isLocalKB reducedMotion={reducedMotion} />
           {isFailed && onRetry && (
             <Button
               size="sm"
@@ -403,9 +423,11 @@ function LocalKnowledgeSearchBlock({
 export function ToolCallBlock({ data, onRetry }: ToolCallBlockProps) {
   const [expanded, setExpanded] = useState(false);
   const reducedMotion = useReducedMotion();
+  const elapsedMs = useToolElapsed(data);
   const isSearch = isWebSearch(data.toolName);
   const isLocalKB = isLocalKnowledgeSearch(data.toolName);
   const hasContent = (data.params && Object.keys(data.params).length > 0) || data.result !== undefined;
+  const hasDetails = hasContent || (data.status === "failed" && Boolean(data.errorMessage));
 
   const displayName = getToolDisplayName(data.toolName);
   const expandTransition = reducedMotion ? "" : "transition-[grid-template-rows] duration-200 ease-out";
@@ -418,6 +440,7 @@ export function ToolCallBlock({ data, onRetry }: ToolCallBlockProps) {
         expanded={expanded}
         setExpanded={setExpanded}
         reducedMotion={reducedMotion}
+        elapsedMs={elapsedMs}
         onRetry={onRetry}
       />
     );
@@ -430,6 +453,7 @@ export function ToolCallBlock({ data, onRetry }: ToolCallBlockProps) {
         expanded={expanded}
         setExpanded={setExpanded}
         reducedMotion={reducedMotion}
+        elapsedMs={elapsedMs}
         onRetry={onRetry}
       />
     );
@@ -438,7 +462,7 @@ export function ToolCallBlock({ data, onRetry }: ToolCallBlockProps) {
   const isRunning = data.status === "running";
 
   const toolIconEl = isRunning ? (
-    <Loader2 className="size-4 shrink-0 animate-spin" />
+    <Loader2 className={cn("size-4 shrink-0", !reducedMotion && "animate-spin")} />
   ) : (
     <Wrench className="size-4 shrink-0" />
   );
@@ -448,20 +472,24 @@ export function ToolCallBlock({ data, onRetry }: ToolCallBlockProps) {
       <button
         type="button"
         onClick={() => setExpanded((v) => !v)}
-        className="flex w-full items-center justify-between gap-2 px-3 py-2 text-left hover:bg-muted/50 transition-colors"
+        className={cn("flex w-full items-center justify-between gap-2 px-3 py-2 text-left", hasDetails && "hover:bg-muted/50 transition-colors")}
         aria-expanded={expanded}
+        disabled={!hasDetails}
       >
-        <span className="flex items-center gap-2 text-sm text-muted-foreground/80">
+        <span className="flex min-w-0 items-center gap-2 text-sm text-muted-foreground/80">
           {toolIconEl}
           <span className="font-medium">{displayName}</span>
-          <StatusBadge status={data.status} />
-          {data.durationMs !== undefined && (
+          <StatusBadge status={data.status} reducedMotion={reducedMotion} />
+          {data.status === "failed" && data.errorMessage && (
+            <span className="truncate text-xs text-destructive">{data.errorMessage}</span>
+          )}
+          {elapsedMs !== undefined && (
             <span className="text-xs text-muted-foreground/60">
-              · {formatDuration(data.durationMs)}
+              · {formatDuration(elapsedMs)}
             </span>
           )}
         </span>
-        {hasContent && (
+        {hasDetails && (
           <ChevronDown
             className={cn(
               "size-4 shrink-0 text-muted-foreground/60",
@@ -471,7 +499,7 @@ export function ToolCallBlock({ data, onRetry }: ToolCallBlockProps) {
           />
         )}
       </button>
-      {hasContent && (
+      {hasDetails && (
         <div
           className={cn(
             "grid",
