@@ -1,11 +1,10 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 
 import {
   ArrowLeft,
   AlertTriangle,
-  Loader2,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import {
@@ -21,12 +20,9 @@ import { MessageList } from "@/components/chat/MessageList";
 import { ExportDialog } from "@/components/chat/ExportDialog";
 import { WelcomePage } from "@/components/chat/WelcomePage";
 import { SkillManager } from "@/components/skills/SkillManager";
-import { ScaleSelector } from "@/components/cga/ScaleSelector";
-import { CGAConversation } from "@/components/cga/CGAConversation";
 import { CgaAssessment } from "@/components/cga/CgaAssessment";
 import { useAppStore } from "@/stores/appStore";
 import { useChatStore } from "@/stores/chatStore";
-import { scales } from "@/data/scales";
 import { cn } from "@/lib/utils";
 import { postprocessMedicalText } from "@/lib/security-postprocess";
 import { desensitizeForLLM } from "@/lib/security";
@@ -37,7 +33,7 @@ import { registerParsedDocument } from "@/services/gerclaw/documents";
 import { generateId } from "@/lib/format";
 import { toast } from "@/components/ui/toast";
 import { stopActiveAudioPlayer } from "@/lib/audioPlaybackCoordinator";
-import type { ChatActionType, ImageAttachment, Message, MessageBlock, Scale, ScaleResult } from "@/types";
+import type { ChatActionType, ImageAttachment, Message, MessageBlock } from "@/types";
 
 /**
  * §3.3 中间聊天区
@@ -270,16 +266,6 @@ export function ChatArea() {
     setMounted(true);
   }, []);
 
-  // CGA：当前会话已选择的评估量表ID列表（sessionId -> string[]）
-  const [cgaSelectedScales, setCgaSelectedScales] = useState<
-    Record<string, string[]>
-  >({});
-  // CGA：已完成的量表结果（sessionId -> ScaleResult[]）
-  const [cgaResults, setCgaResults] = useState<
-    Record<string, ScaleResult[]>
-  >({});
-  // CGA：是否处于答题阶段（sessionId -> boolean）
-  const [cgaShowQuiz, setCgaShowQuiz] = useState<Record<string, boolean>>({});
   // 老年模式退出功能二次确认弹窗
   const [showExitConfirm, setShowExitConfirm] = useState(false);
   const [exitConfirmType, setExitConfirmType] = useState<'default' | 'cga-in-progress' | 'cga-has-result' | 'cga-server'>('default');
@@ -1251,177 +1237,6 @@ const handleExampleClick = (text: string) => {
     toast.show(`${labels[action]}的生产工作流正在接入。您仍可在对话中描述情况，GerClaw 会基于真实后端证据提供一般健康咨询。`);
   };
 
-  // CGA多选：当前选择的量表ID
-  const [cgaTempSelectedIds, setCgaTempSelectedIds] = useState<string[]>([]);
-  const [cgaActiveScales, setCgaActiveScales] = useState<Scale[]>([]);
-
-  const cgaSessionSelectedIds = useMemo(
-    () => currentSessionId ? cgaSelectedScales[currentSessionId] ?? [] : [],
-    [currentSessionId, cgaSelectedScales]
-  );
-  const cgaSessionResults = useMemo(
-    () => currentSessionId ? cgaResults[currentSessionId] ?? [] : [],
-    [currentSessionId, cgaResults]
-  );
-  const cgaSessionShowQuiz = useMemo(
-    () => currentSessionId ? cgaShowQuiz[currentSessionId] ?? false : false,
-    [currentSessionId, cgaShowQuiz]
-  );
-  const cgaCompletedScaleIds = useMemo(
-    () => cgaSessionResults.map(r => r.scaleId),
-    [cgaSessionResults]
-  );
-
-  const cgaInitialAnswers = useMemo(() => {
-    const record: Record<string, number | string> = {};
-    for (const r of cgaSessionResults) {
-      if (!cgaSessionSelectedIds.includes(r.scaleId)) continue;
-      Object.assign(record, r.answers);
-    }
-    return record;
-  }, [cgaSessionResults, cgaSessionSelectedIds]);
-
-  const showScaleSelector = chatAction === "cga" && !!currentSessionId && !cgaSessionShowQuiz;
-  const showCgaQuiz = chatAction === "cga" && !!currentSessionId && cgaSessionShowQuiz && cgaActiveScales.length > 0;
-
-  const handleCgaStartQuiz = () => {
-    if (!currentSessionId || cgaTempSelectedIds.length === 0) return;
-    const existing = cgaSelectedScales[currentSessionId] ?? [];
-    const merged = Array.from(new Set([...existing, ...cgaTempSelectedIds]));
-    setCgaSelectedScales(prev => ({ ...prev, [currentSessionId]: merged }));
-    const activeScales = scales.filter(s => cgaTempSelectedIds.includes(s.id));
-    setCgaActiveScales(activeScales);
-    setCgaShowQuiz(prev => ({ ...prev, [currentSessionId]: true }));
-  };
-
-  const handleCgaComplete = (results: ScaleResult[]) => {
-    if (!currentSessionId) return;
-    setCgaResults(prev => {
-      const existing = prev[currentSessionId] ?? [];
-      const existingIds = new Set(existing.map(r => r.scaleId));
-      const merged = [...existing];
-      for (const r of results) {
-        if (!existingIds.has(r.scaleId)) {
-          merged.push(r);
-        } else {
-          const idx = merged.findIndex(x => x.scaleId === r.scaleId);
-          if (idx >= 0) merged[idx] = r;
-        }
-      }
-      return { ...prev, [currentSessionId]: merged };
-    });
-  };
-
-  const handleCgaContinue = () => {
-    if (!currentSessionId) return;
-    setCgaShowQuiz(prev => ({ ...prev, [currentSessionId]: false }));
-    setCgaTempSelectedIds([]);
-    setCgaActiveScales([]);
-  };
-
-  const exitCgaQuiz = useCallback(() => {
-    if (currentSessionId) {
-      setCgaShowQuiz(prev => ({ ...prev, [currentSessionId]: false }));
-      setCgaTempSelectedIds([]);
-      setCgaActiveScales([]);
-    }
-  }, [currentSessionId]);
-
-  const generateCGAReport = useCallback((scaleResults: ScaleResult[]) => {
-    if (!currentSessionId) return;
-    setPanelContent("");
-    setGenerating(true);
-
-    const resultsText = scaleResults.map(r => {
-      const scale = scales.find(s => s.id === r.scaleId);
-      const answerDetails = Object.entries(r.answers).map(([qId, val]) => {
-        const question = scale?.questions.find(q => q.id === qId);
-        const opt = question?.options?.find(o => o.value === val);
-        return `- ${question?.text ?? qId}: ${opt?.label ?? val}（${val}分）`;
-      }).join("\n");
-      return `## ${r.scaleName}\n- 总分：${r.totalScore}/${r.maxScore}\n- 分级：${r.level}（${r.interpretation}）\n- 详细回答：\n${answerDetails}`;
-    }).join("\n\n");
-
-    const hasSuicideRisk = scaleResults.some(r => {
-      const phq9Answer = r.answers["phq9_9"];
-      return phq9Answer !== undefined && typeof phq9Answer === "number" && phq9Answer > 0;
-    });
-
-    const systemPrompt = role === "doctor"
-      ? `你是GerClaw老年科医生AI助手，正在综合解读CGA老年综合评估结果。请基于以下量表结果，给出专业的综合评估解读：
-1. 各量表得分与分级说明
-2. 综合健康状况分析
-3. 针对性的临床建议
-4. 随访建议
-${hasSuicideRisk ? "⚠️ 重要：PHQ-9第9题（自杀意念）得分>0，必须强烈建议立即就医评估，并给出心理危机干预热线：全国心理危机干预热线 400-161-9995，北京心理危机研究与干预中心 010-82951332。" : ""}
-请用Markdown格式输出，结构清晰。不要在报告末尾添加免责声明，系统会自动显示。`
-      : `你是GerClaw老年科AI医生助手，正在为老年患者解读CGA老年综合评估结果。
-请用亲切、易懂的语言解释评估结果：
-1. 您的各项得分情况
-2. 整体健康状况分析（简单的话讲）
-3. 给您的具体建议
-4. 什么时候需要看医生
-${hasSuicideRisk ? "⚠️ 重要：您在评估中提到了伤害自己的想法，请务必立即告诉家人或医生，也可以拨打心理危机干预热线：400-161-9995（全国）或 010-82951332（北京），会有人24小时帮助您。" : ""}
-请用Markdown格式输出，语言温暖易懂。不要在报告末尾添加免责声明，系统会自动显示。`;
-
-    const promptText = `# CGA老年综合评估结果\n\n${resultsText}\n\n请基于以上结果生成综合评估报告。`;
-
-    const messages: LLMMessage[] = [
-      { role: "system", content: systemPrompt },
-      { role: "user", content: promptText },
-    ];
-
-    abortControllerRef.current = new AbortController();
-
-    const finishReport = () => {
-      abortControllerRef.current = null;
-      setGenerating(false);
-      exitCgaQuiz();
-    };
-
-    streamChat(
-      messages,
-      { signal: abortControllerRef.current.signal, tools: [], modelPreference: selectedModelId },
-      {
-        onFallback: (message) => {
-          toast.show(message);
-        },
-        onDone: (fullText) => {
-          const finalReport = postprocessMedicalText(fullText, { isSuicideRisk: hasSuicideRisk });
-          setRightPanel("cga");
-          setPanelContent(finalReport);
-          updateSession(currentSessionId, {
-            panelType: "cga",
-            panelContent: finalReport,
-          });
-          finishReport();
-        },
-        onError: () => {
-          const fallbackReport = `# CGA量表计分结果（解读未生成）\n\n> 解读服务连接失败。以下内容仅为您刚完成量表的本地计分记录，不是诊断，也不是 AI 生成的综合报告。\n\n${resultsText}\n\n## 安全提示\n${hasSuicideRisk
-            ? "⚠️ **重要提示**：您在评估中提到了伤害自己的想法，请立即告诉家人或医生，或拨打心理危机干预热线：\n- 全国心理危机干预热线：400-161-9995\n- 北京心理危机研究与干预中心：010-82951332"
-            : "建议您携带评估结果咨询专业医生，获取个性化建议。"}`;
-          const finalReport = postprocessMedicalText(fallbackReport);
-          setRightPanel("cga");
-          setPanelContent(finalReport);
-          updateSession(currentSessionId, {
-            panelType: "cga",
-            panelContent: finalReport,
-          });
-          finishReport();
-        },
-      }
-    );
-  }, [currentSessionId, role, selectedModelId, setGenerating, setPanelContent, setRightPanel, updateSession, exitCgaQuiz]);
-
-  const handleCgaGenerateReport = () => {
-    const results = currentSessionId ? cgaResults[currentSessionId] ?? [] : [];
-    if (results.length > 0) {
-      generateCGAReport(results);
-    } else {
-      exitCgaQuiz();
-    }
-  };
-
   /** 退出当前功能模式，清理相关状态（所有模式下二次确认）*/
   const handleExitAction = () => {
     if (chatAction === "cga") {
@@ -1442,30 +1257,6 @@ ${hasSuicideRisk ? "⚠️ 重要：您在评估中提到了伤害自己的想�
     if (chatAction === "cga") {
       setChatAction("none");
       return;
-    }
-    if (currentSessionId) {
-      setCgaSelectedScales(prev => {
-        const next = { ...prev };
-        delete next[currentSessionId];
-        return next;
-      });
-      setCgaResults(prev => {
-        const next = { ...prev };
-        delete next[currentSessionId];
-        return next;
-      });
-      setCgaShowQuiz(prev => {
-        const next = { ...prev };
-        delete next[currentSessionId];
-        return next;
-      });
-      setCgaTempSelectedIds([]);
-      setCgaActiveScales([]);
-      setCollectRounds((prev) => {
-        const next = { ...prev };
-        delete next[currentSessionId];
-        return next;
-      });
     }
     setChatAction("none");
   };
@@ -1525,7 +1316,7 @@ ${hasSuicideRisk ? "⚠️ 重要：您在评估中提到了伤害自己的想�
   return (
     <main className="flex-1 flex flex-col min-w-0 min-h-0 bg-background">
       {/* 粘性头部 — 功能模式下始终显示功能标题栏 */}
-      {(chatAction !== "none" || (currentSessionId && messages.length > 0)) && (
+      {(chatAction !== "cga" && (chatAction !== "none" || (currentSessionId && messages.length > 0))) && (
         <header
           className="sticky top-0 z-10 flex items-center justify-between px-4 h-12 border-b border-border bg-background/95 backdrop-blur"
           style={sidebarCollapsed ? { paddingLeft: "112px" } : undefined}
@@ -1567,62 +1358,13 @@ ${hasSuicideRisk ? "⚠️ 重要：您在评估中提到了伤害自己的想�
         <div className="flex-1 min-h-0 overflow-y-auto">
           <CgaAssessment onExit={handleExitAction} />
         </div>
-      ) : showScaleSelector ? (
-        <div className="flex-1 min-h-0 overflow-y-auto">
-          <div className="max-w-2xl mx-auto px-4 py-8">
-            <div className="mb-6">
-              <h2 className={cn("font-semibold mb-1", seniorMode ? "text-xl" : "text-lg")}>
-                老年综合评估（CGA）
-              </h2>
-              <p className={cn("text-muted-foreground", seniorMode ? "text-base" : "text-sm")}>
-                {role === "doctor"
-                  ? "请选择本次需要进行的评估量表，支持多选。已完成的量表将不可再次选择。"
-                  : "您好，请选择您想做的评估（可多选），选好后我会通过几个简单的问题来帮您评估。"}
-              </p>
-            </div>
-            <ScaleSelector
-              scales={scales}
-              selectedScaleIds={cgaTempSelectedIds}
-              completedScaleIds={cgaCompletedScaleIds}
-              onSelectionChange={setCgaTempSelectedIds}
-              onStart={handleCgaStartQuiz}
-              onGenerateReport={handleCgaGenerateReport}
-            />
-            <div className={cn("mt-6 rounded-md border border-amber-200 bg-amber-50 dark:border-amber-900/40 dark:bg-amber-950/30 px-3 py-2 text-amber-800 dark:text-amber-200", seniorMode ? "text-sm" : "text-xs")}>
-              AI 评估仅供健康参考，不能替代医生诊断。身体不适请及时就医。
-            </div>
-          </div>
-        </div>
-      ) : showCgaQuiz ? (
-        <div className="flex-1 min-h-0 overflow-y-auto relative">
-          <div className={cn("max-w-2xl mx-auto px-4 py-6", isGenerating && "pointer-events-none")}>
-            <CGAConversation
-              scales={cgaActiveScales}
-              initialAnswers={cgaInitialAnswers}
-              onComplete={handleCgaComplete}
-              onContinue={handleCgaContinue}
-              onGenerateReport={handleCgaGenerateReport}
-              onExit={handleExitAction}
-            />
-          </div>
-          {isGenerating && (
-            <div className="absolute inset-0 flex items-center justify-center bg-background/80 backdrop-blur-sm z-10">
-              <div className="flex flex-col items-center gap-3">
-                <Loader2 className="size-8 animate-spin text-primary" />
-                <p className={cn("text-muted-foreground", seniorMode ? "text-lg" : "text-sm")}>
-                  正在生成评估报告...
-                </p>
-              </div>
-            </div>
-          )}
-        </div>
       ) : (
         <div className="flex-1 min-h-0 overflow-hidden flex flex-col">
           {messages.length > 0 && <MessageList messages={messages} onRegenerate={handleRegenerate} onShare={(messageId) => setExportMessageId(messageId)} onDelete={handleDeleteRequest} />}
         </div>
       )}
 
-      {!showCgaQuiz && (
+      {chatAction !== "cga" && (
         <ChatInput
           onSend={handleSend}
           isGenerating={isGenerating}
@@ -1644,7 +1386,7 @@ ${hasSuicideRisk ? "⚠️ 重要：您在评估中提到了伤害自己的想�
 
       {/* 老年模式：退出功能二次确认弹窗 */}
       <Dialog open={showExitConfirm} onOpenChange={setShowExitConfirm}>
-        <DialogContent className="max-w-sm">
+        <DialogContent className="max-w-sm" showCloseButton={false}>
           <DialogHeader>
             <DialogTitle className="flex items-center gap-2">
               <AlertTriangle className="size-5 text-amber-500" />
@@ -1661,8 +1403,8 @@ ${hasSuicideRisk ? "⚠️ 重要：您在评估中提到了伤害自己的想�
                 : "退出后当前进度将不会保存，确定要退出吗？"}
           </p>
           <DialogFooter className="gap-2">
-            <DialogClose render={<Button variant="outline">取消</Button>} />
-            <Button variant="destructive" onClick={doExitAction}>
+            <DialogClose render={<Button variant="outline" className={cn(seniorMode && "min-h-12 px-4 text-lg")}>取消</Button>} />
+            <Button variant="destructive" className={cn(seniorMode && "min-h-12 px-4 text-lg")} onClick={doExitAction}>
               确认退出
             </Button>
           </DialogFooter>
@@ -1671,7 +1413,7 @@ ${hasSuicideRisk ? "⚠️ 重要：您在评估中提到了伤害自己的想�
 
       {/* 消息删除确认弹窗 */}
       <Dialog open={deleteMessageId !== null} onOpenChange={(open) => { if (!open) handleDeleteCancel(); }}>
-        <DialogContent className="max-w-sm">
+        <DialogContent className="max-w-sm" showCloseButton={false}>
           <DialogHeader>
             <DialogTitle className="flex items-center gap-2">
               <AlertTriangle className="size-5 text-amber-500" />
@@ -1682,8 +1424,8 @@ ${hasSuicideRisk ? "⚠️ 重要：您在评估中提到了伤害自己的想�
             删除后该条消息将无法恢复，确定要删除吗？
           </p>
           <DialogFooter className="gap-2">
-            <DialogClose render={<Button variant="outline">取消</Button>} />
-            <Button variant="destructive" onClick={handleDeleteConfirm}>
+            <DialogClose render={<Button variant="outline" className={cn(seniorMode && "min-h-12 px-4 text-lg")}>取消</Button>} />
+            <Button variant="destructive" className={cn(seniorMode && "min-h-12 px-4 text-lg")} onClick={handleDeleteConfirm}>
               确认删除
             </Button>
           </DialogFooter>
