@@ -185,6 +185,12 @@ export interface RuntimeApprovalBlockData {
   toolVersion: string;
 }
 
+/** Runtime Harness 确认的紧急医疗安全提示；前端不得自行推断或改写风险级别。 */
+export interface EmergencyAlertBlockData {
+  codes: string[];
+  message: string;
+}
+
 /** 消息内容块（一条消息可包含多个块：文本/图片/思维链/工具调用/搜索结果/文件/决策/操作按钮/信息收集卡片/问题卡片/阶段指示） */
 export type MessageBlock =
   | { kind: "text"; id: string; content: string; streaming?: boolean }
@@ -199,6 +205,7 @@ export type MessageBlock =
   | { kind: "question_card"; id: string; data: QuestionCardData }
   | { kind: "stage_indicator"; id: string; data: StageIndicatorData }
   | { kind: "runtime_approval"; id: string; data: RuntimeApprovalBlockData }
+  | { kind: "emergency_alert"; id: string; data: EmergencyAlertBlockData }
   | {
       kind: "action";
       id: string;

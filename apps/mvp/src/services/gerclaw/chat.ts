@@ -79,6 +79,15 @@ const approvalRequiredSchema = z
     tool_version: z.string().min(1),
   })
   .strict();
+const safetyNoticeSchema = z
+  .object({
+    codes: z.array(z.string().min(1).max(80)).min(1).max(10),
+    content: z.string().min(1).max(1_000),
+  })
+  // SSE middleware appends observability fields (for example timestamp).
+  // Keep the safety payload fail-closed for its required fields while allowing
+  // transport metadata to evolve independently.
+  .passthrough();
 
 export interface AgentToolEvent {
   id: string;
@@ -100,6 +109,7 @@ export interface AgentChatCallbacks {
     policyVersion: string;
     toolVersion: string;
   }) => void;
+  onSafetyNotice?: (notice: { codes: string[]; content: string }) => void;
   onDone?: (fullText: string, citations: Citation[], traceId: string) => void;
   onCancelled?: (traceId: string, message: string) => void;
   onError?: (error: GerclawApiError) => void;
@@ -250,6 +260,9 @@ export async function streamAgentChat(
           policyVersion: approval.policy_version,
           toolVersion: approval.tool_version,
         });
+      } else if (parsed.event === "safety_notice") {
+        const notice = safetyNoticeSchema.parse(parsed.data);
+        callbacks.onSafetyNotice?.(notice);
       } else if (parsed.event === "done") {
         const doneEvent = doneSchema.parse(parsed.data);
         sawTerminal = true;

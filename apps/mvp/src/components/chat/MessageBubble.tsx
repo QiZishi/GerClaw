@@ -3,6 +3,7 @@
 import { useEffect, useState } from "react";
 import Image from "next/image";
 import {
+  AlertTriangle,
   Check,
   Copy,
   ExternalLink,
@@ -61,6 +62,37 @@ import { toast } from "@/components/ui/toast";
 import { useAudioPlayer } from "@/hooks/useAudioPlayer";
 import { InfoCollectionCard, StageIndicator } from "./InfoCollectionCard";
 import { RuntimeApprovalCard } from "./blocks/RuntimeApprovalCard";
+
+function EmergencyWarningCard({
+  message,
+  seniorMode,
+}: {
+  message: string;
+  seniorMode: boolean;
+}) {
+  return (
+    <section
+      aria-label="紧急医疗警告"
+      role="alert"
+      className={cn(
+        "rounded-xl border-2 border-red-200 bg-red-700 p-4 text-white shadow-sm",
+        seniorMode && "p-5"
+      )}
+    >
+      <div className={cn("flex items-center gap-2 font-bold", seniorMode ? "text-xl" : "text-lg")}>
+        <AlertTriangle aria-hidden className={seniorMode ? "size-6" : "size-5"} />
+        <span>紧急医疗警告</span>
+      </div>
+      <p className={cn("mt-3 font-medium leading-relaxed", seniorMode ? "text-lg" : "text-base")}>
+        {message}
+      </p>
+      <p className={cn("mt-3 font-bold leading-relaxed", seniorMode ? "text-lg" : "text-base")}>
+        请立即拨打 120 急救电话或前往最近医院急诊科。
+      </p>
+      <p className="sr-only">系统已确认紧急风险，请立即按提示就医。</p>
+    </section>
+  );
+}
 
 interface MessageBubbleProps {
   message: Message;
@@ -244,6 +276,9 @@ export function MessageBubble({
   const hasActiveThinking = !isUser && message.blocks.some(
     (b) => b.kind === "thinking" && b.data.status === "thinking"
   );
+  const hasEmergencyAlert = !isUser && message.blocks.some(
+    (block) => block.kind === "emergency_alert"
+  );
   const messageAnimation = cn(
     "transition-all duration-200 ease-out",
     appeared ? "opacity-100 translate-y-0" : "opacity-0 translate-y-2"
@@ -395,6 +430,14 @@ export function MessageBubble({
                   );
                 case "runtime_approval":
                   return <RuntimeApprovalCard key={block.id} data={block.data} />;
+                case "emergency_alert":
+                  return (
+                    <EmergencyWarningCard
+                      key={block.id}
+                      message={block.data.message}
+                      seniorMode={seniorMode}
+                    />
+                  );
                 case "question_card":
                   if (block.data.submitted) {
                     return (
@@ -468,7 +511,7 @@ export function MessageBubble({
           </div>
         )}
 
-        {(message.status === "done" || stoppedAssistant || errorAssistant) && (
+        {!hasEmergencyAlert && (message.status === "done" || stoppedAssistant || errorAssistant) && (
           <div className="relative">
             <div
               data-message-actions
