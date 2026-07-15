@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useRef, useEffect } from "react";
+import { useState, useRef, useEffect, useLayoutEffect } from "react";
 import Image from "next/image";
 import {
   Check,
@@ -340,20 +340,6 @@ export function ChatInput({
     }
   }, [loadedSkillIds.length, refreshSkills, skillStatus]);
 
-  useEffect(() => {
-    const previousSessionId = previousSessionIdRef.current;
-    documentScopeRef.current = currentSessionId;
-    previousSessionIdRef.current = currentSessionId;
-    if (!previousSessionId || previousSessionId === currentSessionId) return;
-
-    rawDocumentsRef.current.clear();
-    setPendingDocuments([]);
-    setUploadedDocCount(0);
-    toast.show("为保护会话隐私，已清空当前附件；原会话资料不会自动带入新对话");
-  }, [currentSessionId]);
-
-  const micDisabled = !isOnline || !asrAvailable || isTranscribing || isGenerating;
-
   const {
     isRecording,
     recordingDuration,
@@ -362,6 +348,41 @@ export function ChatInput({
     stopRecording,
     cancelRecording,
   } = useAudioRecorder();
+
+  const micDisabled = !isOnline || !asrAvailable || isTranscribing || isGenerating;
+
+  useLayoutEffect(() => {
+    const previousSessionId = previousSessionIdRef.current;
+    documentScopeRef.current = currentSessionId;
+    previousSessionIdRef.current = currentSessionId;
+    if (!previousSessionId || previousSessionId === currentSessionId) return;
+
+    const hadDraft = Boolean(text.trim()) || pendingImages.length > 0 || pendingDocuments.length > 0 || isTranscribing || isRecording;
+    rawDocumentsRef.current.clear();
+    setPendingDocuments([]);
+    setUploadedDocCount(0);
+    setPendingImages((previous) => {
+      previous.forEach((image) => URL.revokeObjectURL(image.previewUrl));
+      return [];
+    });
+    setText("");
+    transcriptionAbortRef.current?.abort();
+    transcriptionAbortRef.current = null;
+    setIsTranscribing(false);
+    cancelRecording();
+    if (imageInputRef.current) {
+      imageInputRef.current.value = "";
+    }
+    if (fileInputRef.current) {
+      fileInputRef.current.value = "";
+    }
+    if (textareaRef.current) {
+      textareaRef.current.style.height = "52px";
+    }
+    if (hadDraft) {
+      toast.show("已切换会话，未发送的文字、图片和文档已清空；原会话资料不会自动带入新对话");
+    }
+  }, [cancelRecording, currentSessionId, isRecording, isTranscribing, pendingDocuments.length, pendingImages.length, text]);
 
   useEffect(() => {
     return () => {
