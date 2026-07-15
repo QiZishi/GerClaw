@@ -16,6 +16,8 @@ from gerclaw_api.services.rate_limit import RateLimiter
 router = APIRouter(prefix="/auth", tags=["auth"])
 
 _GUEST_SCOPES = {
+    "approval:read",
+    "approval:write",
     "chat:read",
     "chat:write",
     "feedback:write",

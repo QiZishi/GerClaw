@@ -30,8 +30,15 @@ from gerclaw_api.modules.contracts import AgentResponse, ExecutionContext
 from gerclaw_api.modules.memory.memory_module import ProductionMemoryModule
 from gerclaw_api.modules.memory.models import MemoryUpdateResult
 from gerclaw_api.modules.rag import HybridRAGModule
+from gerclaw_api.modules.runtime.models import (
+    ActorRole,
+    ApprovalCreate,
+    ApprovalRead,
+    RuntimePrincipal,
+)
 from gerclaw_api.modules.search.protocols import SearchModule
 from gerclaw_api.modules.skill.skill_module import ProductionSkillModule
+from gerclaw_api.repositories.approval import SqlAlchemyApprovalRepository
 from gerclaw_api.security import JsonValue, audit_hmac_digest
 from gerclaw_api.services.conversation_service import ConversationService
 from gerclaw_api.services.model_router import FailoverChatModel
@@ -102,6 +109,7 @@ class ChatService:
         memory_factory: MemoryModuleFactory,
         search_module: SearchModule | None = None,
         skill_module: ProductionSkillModule | None = None,
+        approval_repository: SqlAlchemyApprovalRepository | None = None,
     ) -> None:
         self._settings = settings
         self._conversation = conversation
@@ -112,6 +120,7 @@ class ChatService:
         self._memory_factory = memory_factory
         self._search_module = search_module
         self._skill_module = skill_module
+        self._approval_repository = approval_repository
 
     async def process(
         self,
@@ -360,6 +369,22 @@ class ChatService:
             actor_id=identity.actor_id,
             session_id=payload.session_id,
         )
+
+        async def persist_approval(command: ApprovalCreate) -> ApprovalRead:
+            if self._approval_repository is None:
+                raise UnsupportedAgentContextError("Runtime approval storage is unavailable")
+            record = await self._approval_repository.create(
+                command,
+                tenant_id=identity.tenant_id,
+                requester_actor_id=identity.actor_id,
+            )
+            approval = ApprovalRead.model_validate(record)
+            # This commit intentionally precedes the parked-turn exception. A
+            # subsequent failure Trace must never erase an approval the user
+            # has already been told to act on.
+            await self._approval_repository.commit()
+            return approval
+
         harness = ProductionAgentHarness(
             settings=self._settings,
             model=self._model,
@@ -375,6 +400,16 @@ class ChatService:
             search_enabled=payload.workflow != "cga",
             agent_skills=agent_skills,
             loaded_skill_ids=payload.loaded_skills,
+            runtime_principal=RuntimePrincipal(
+                tenant_id=identity.tenant_id,
+                actor_id=identity.actor_id,
+                role=ActorRole.GUEST,
+                scopes=identity.scopes,
+                user_id=conversation.user_id,
+                patient_id=conversation.user_id,
+                patient_access_verified=True,
+            ),
+            approval_callback=persist_approval,
         )
         context = await harness.assemble_context(
             str(payload.session_id),
@@ -399,6 +434,43 @@ class ChatService:
         async def projected(event: StreamEvent) -> None:
             if event.event_type == "done":
                 return
+            if event.event_type == "approval_required":
+                approval_id = event.data.get("approval_id")
+                tool_name = event.data.get("tool_name")
+                status = event.data.get("status")
+                policy_version = event.data.get("policy_version")
+                tool_version = event.data.get("tool_version")
+                expires_at = event.data.get("expires_at")
+                if all(
+                    isinstance(value, str)
+                    for value in (
+                        approval_id,
+                        tool_name,
+                        status,
+                        policy_version,
+                        tool_version,
+                        expires_at,
+                    )
+                ):
+                    await self._append_event(
+                        identity.tenant_id,
+                        trace_id,
+                        TraceEventType.APPROVAL,
+                        TraceEventStatus.STARTED,
+                        {
+                            "approval_id": approval_id,
+                            "tool_name": tool_name,
+                            "tool_version": tool_version,
+                            "policy_version": policy_version,
+                            "outcome": status,
+                            "expires_at": expires_at,
+                            "success": True,
+                        },
+                        # The harness immediately ends a parked turn. Persist
+                        # the PHI-free audit record before that exception rolls
+                        # back the normal turn unit of work.
+                        commit=True,
+                    )
             if event.event_type == "tool_call" and event.data.get("tool_name") == "Skill":
                 tool_call_id = event.data.get("tool_call_id")
                 if isinstance(tool_call_id, str):
@@ -903,6 +975,7 @@ class ChatService:
             "ModelChainExhaustedError": "CHAT_MODEL_UNAVAILABLE",
             "PartialModelStreamError": "CHAT_MODEL_STREAM_INTERRUPTED",
             "AgentIterationLimitError": "CHAT_ITERATION_LIMIT",
+            "RuntimeBudgetExceededError": "CHAT_RUNTIME_BUDGET_EXCEEDED",
             "AgentApprovalRequiredError": "CHAT_APPROVAL_REQUIRED",
             "UnsupportedAgentContextError": "CHAT_CONTEXT_UNSUPPORTED",
             "EmptyAgentResponseError": "CHAT_EMPTY_RESPONSE",

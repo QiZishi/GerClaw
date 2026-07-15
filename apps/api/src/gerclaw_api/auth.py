@@ -213,3 +213,27 @@ async def require_skill_execute(
     """Require explicit Skill activation access."""
 
     return authorize_scope(identity, "skill:execute")
+
+
+async def require_approval_read(
+    identity: Annotated[AuthContext, Depends(authenticate)],
+) -> AuthContext:
+    """Require access to the caller's own Runtime approval status."""
+
+    return authorize_scope(identity, "approval:read")
+
+
+async def require_approval_write(
+    identity: Annotated[AuthContext, Depends(authenticate)],
+) -> AuthContext:
+    """Require access to cancel the caller's own pending Runtime approval."""
+
+    return authorize_scope(identity, "approval:write")
+
+
+async def require_approval_decide(
+    identity: Annotated[AuthContext, Depends(authenticate)],
+) -> AuthContext:
+    """Require explicit decision scope; the database role is checked separately."""
+
+    return authorize_scope(identity, "approval:decide")

@@ -3,7 +3,9 @@
 from __future__ import annotations
 
 from collections.abc import AsyncGenerator
+from datetime import UTC, datetime, timedelta
 from typing import Any, cast
+from uuid import uuid4
 
 import pytest
 from agentscope.credential import CredentialBase
@@ -13,6 +15,7 @@ from agentscope.tool import ToolChoice
 
 from gerclaw_api.config import Settings
 from gerclaw_api.modules.agent_harness.harness import (
+    AgentApprovalRequiredError,
     AgentHarnessError,
     ProductionAgentHarness,
     UnsupportedAgentContextError,
@@ -27,6 +30,19 @@ from gerclaw_api.modules.contracts import ExecutionContext
 from gerclaw_api.modules.memory.models import MemoryUpdateResult
 from gerclaw_api.modules.memory.protocols import MemoryMessage, UserProfile
 from gerclaw_api.modules.rag.protocols import RetrievalResult
+from gerclaw_api.modules.runtime.models import (
+    ActorRole,
+    ApprovalRead,
+    ApprovalStatus,
+    DataClass,
+    ExecutionBudget,
+    NetworkAccess,
+    RiskLevel,
+    RuntimePrincipal,
+    SideEffect,
+    ToolCapability,
+)
+from gerclaw_api.modules.runtime.tool_schemas import SearchMemoryInput
 from gerclaw_api.modules.search.models import SearchResult
 from gerclaw_api.services.model_router import FailoverChatModel
 
@@ -198,6 +214,14 @@ def _harness(
         history=history or [],
         search_module=cast(Any, search),
         search_enabled=search_enabled,
+        runtime_principal=RuntimePrincipal(
+            tenant_id="tenant_public0001",
+            actor_id="usr_patient00000001",
+            role=ActorRole.PATIENT,
+            scopes=frozenset({"rag:read", "memory:read", "search:read"}),
+            patient_id="108815d7-05bf-4c2a-a977-cd034f390fab",
+            patient_access_verified=True,
+        ),
     )
 
 
@@ -660,3 +684,109 @@ async def test_output_limit_fails_instead_of_persisting_truncated_success(
             context,
             lambda _event: None,
         )
+
+
+@pytest.mark.asyncio
+async def test_agentscope_ask_is_parked_and_projected_before_turn_stops(
+    unit_settings: Settings,
+) -> None:
+    harness = _harness(unit_settings, model=_HarnessModel(), rag=_HarnessRAG([]))
+    user_id = uuid4()
+    harness._runtime_principal = harness._runtime_principal.model_copy(
+        update={"user_id": user_id, "patient_id": user_id}
+    )
+    captured = []
+
+    async def persist(command: object) -> ApprovalRead:
+        captured.append(command)
+        return ApprovalRead(
+            id=uuid4(),
+            requester_actor_id="usr_patient00000001",
+            patient_id=user_id,
+            session_id=uuid4(),
+            trace_id="trace_abcdefgh",
+            invocation_id="invoke_aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+            tool_name="clinical_action",
+            tool_version="1.0.0",
+            required_roles=[ActorRole.DOCTOR],
+            policy_version="1.0.0",
+            status=ApprovalStatus.PENDING,
+            revision=1,
+            decided_by_actor_id=None,
+            expires_at=datetime.now(UTC) + timedelta(minutes=15),
+            created_at=datetime.now(UTC),
+            updated_at=datetime.now(UTC),
+        )
+
+    harness._approval_callback = persist
+    events: list[StreamEvent] = []
+    approval_ids = await harness._persist_approval_requests(
+        [
+            ToolCallBlock(
+                id="tool_call_approval001",
+                name="clinical_action",
+                input='{"keywords": ["5mg"]}',
+            )
+        ],
+        capabilities={
+            "clinical_action": ToolCapability(
+                name="clinical_action",
+                version="1.0.0",
+                description="High-risk clinical action requiring doctor approval.",
+                required_scopes=frozenset({"clinical:write"}),
+                allowed_roles=frozenset({ActorRole.PATIENT}),
+                risk_level=RiskLevel.HIGH,
+                side_effect=SideEffect.CLINICAL_ACTION,
+                network_access=NetworkAccess.NONE,
+                data_classes=frozenset({DataClass.PHI}),
+                idempotency_required=True,
+                approval_roles=frozenset({ActorRole.DOCTOR}),
+            )
+        },
+        input_models={"clinical_action": SearchMemoryInput},
+        stream_callback=events.append,
+    )
+    assert len(captured) == 1
+    assert len(approval_ids) == 1
+    assert events[-1].event_type == "approval_required"
+    assert events[-1].data["policy_version"] == "1.0.0"
+    with pytest.raises(AgentApprovalRequiredError, match="registered schema"):
+        await harness._persist_approval_requests(
+            [ToolCallBlock(id="tool_call_invalid0001", name="clinical_action", input="{}")],
+            capabilities={
+                "clinical_action": ToolCapability(
+                    name="clinical_action",
+                    version="1.0.0",
+                    description="High-risk clinical action requiring doctor approval.",
+                    required_scopes=frozenset({"clinical:write"}),
+                    allowed_roles=frozenset({ActorRole.PATIENT}),
+                    risk_level=RiskLevel.HIGH,
+                    side_effect=SideEffect.CLINICAL_ACTION,
+                    network_access=NetworkAccess.NONE,
+                    data_classes=frozenset({DataClass.PHI}),
+                    idempotency_required=True,
+                    approval_roles=frozenset({ActorRole.DOCTOR}),
+                )
+            },
+            input_models={"clinical_action": SearchMemoryInput},
+            stream_callback=events.append,
+        )
+    assert len(captured) == 1
+
+
+@pytest.mark.asyncio
+async def test_wall_clock_watchdog_interrupts_a_stalled_agent_event_stream(
+    unit_settings: Settings,
+) -> None:
+    harness = _harness(unit_settings, model=_HarnessModel(), rag=_HarnessRAG([]))
+    harness._execution_budget = ExecutionBudget(wall_clock_seconds=1)  # type: ignore[misc]
+
+    async def stalled_events() -> AsyncGenerator[str, None]:
+        await __import__("asyncio").sleep(1.05)
+        yield "too late"
+
+    from gerclaw_api.modules.runtime.budget import RuntimeBudgetExceededError
+
+    with pytest.raises(RuntimeBudgetExceededError, match="RUNTIME_WALL_CLOCK_EXCEEDED"):
+        async for _event in harness._bounded_agent_events(stalled_events()):
+            pass

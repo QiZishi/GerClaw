@@ -3,13 +3,14 @@
 from __future__ import annotations
 
 import asyncio
+import hashlib
 import inspect
 import json
 import logging
 import re
 import time
 from collections.abc import AsyncIterator, Awaitable, Callable
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from typing import Any, cast
 
 from agentscope.agent import Agent, ContextConfig, ReActConfig
@@ -25,11 +26,12 @@ from agentscope.event import (
     ToolCallStartEvent,
     ToolResultEndEvent,
 )
-from agentscope.message import AssistantMsg, Msg, SystemMsg, UserMsg
+from agentscope.message import AssistantMsg, Msg, SystemMsg, ToolCallBlock, UserMsg
 from agentscope.middleware import Mem0Middleware, RAGMiddleware
 from agentscope.skill import Skill as AgentScopeSkill
 from agentscope.state import AgentState
 from agentscope.tool import Toolkit
+from pydantic import BaseModel, ValidationError
 
 from gerclaw_api.config import Settings
 from gerclaw_api.modules.agent_harness.protocols import (
@@ -56,6 +58,27 @@ from gerclaw_api.modules.rag import (
     build_agentic_rag_middleware,
     capture_agentic_rag_results,
 )
+from gerclaw_api.modules.runtime.budget import RuntimeBudgetExceededError, RuntimeBudgetTracker
+from gerclaw_api.modules.runtime.models import (
+    ActorRole,
+    ApprovalCreate,
+    ApprovalRead,
+    DataClass,
+    ExecutionBudget,
+    NetworkAccess,
+    RiskLevel,
+    RuntimePrincipal,
+    SideEffect,
+    ToolCapability,
+    ToolInvocationRequest,
+)
+from gerclaw_api.modules.runtime.permission import POLICY_VERSION
+from gerclaw_api.modules.runtime.registry import GovernedToolRegistry
+from gerclaw_api.modules.runtime.tool_schemas import (
+    SearchKnowledgeInput,
+    SearchMemoryInput,
+    WebSearchInput,
+)
 from gerclaw_api.modules.search import (
     build_web_search_tool,
     capture_agent_search_results,
@@ -68,6 +91,7 @@ from gerclaw_api.security import JsonValue
 from gerclaw_api.services.model_router import FailoverChatModel, capture_model_attempts
 
 StreamCallback = Callable[[StreamEvent], Awaitable[None] | None]
+ApprovalCallback = Callable[[ApprovalCreate], Awaitable[ApprovalRead]]
 _SENTENCE_END = re.compile(r"[。！？!?\n]")
 logger = logging.getLogger("gerclaw.agent_harness")
 
@@ -107,7 +131,11 @@ class AgentIterationLimitError(AgentHarnessError):
 
 
 class AgentApprovalRequiredError(AgentHarnessError):
-    """Raised instead of silently approving a future side-effecting tool."""
+    """Raised after every requested side effect has been durably parked for HITL."""
+
+    def __init__(self, message: str, *, approval_ids: tuple[str, ...] = ()) -> None:
+        self.approval_ids = approval_ids
+        super().__init__(message)
 
 
 class EmptyAgentResponseError(AgentHarnessError):
@@ -217,6 +245,9 @@ class ProductionAgentHarness:
         search_enabled: bool = True,
         agent_skills: list[AgentScopeSkill] | None = None,
         loaded_skill_ids: list[str] | None = None,
+        runtime_principal: RuntimePrincipal,
+        execution_budget: ExecutionBudget | None = None,
+        approval_callback: ApprovalCallback | None = None,
     ) -> None:
         self._settings = settings
         self._model = model
@@ -232,6 +263,12 @@ class ProductionAgentHarness:
         self._search_enabled = search_enabled
         self._agent_skills = agent_skills or []
         self._loaded_skill_ids = loaded_skill_ids or []
+        self._runtime_principal = runtime_principal
+        self._execution_budget = execution_budget or ExecutionBudget(
+            max_steps=settings.agent_max_react_iterations,
+            max_output_bytes=min(settings.agent_max_output_characters * 4, 2_097_152),
+        )
+        self._approval_callback = approval_callback
 
     async def assemble_context(
         self,
@@ -248,7 +285,7 @@ class ProductionAgentHarness:
             raise UnsupportedAgentContextError("validated Skill context does not match the request")
         if uploaded_files:
             raise UnsupportedAgentContextError("uploaded document context is not enabled yet")
-        tool_names = ["search_knowledge", "search_memory", "add_memory"]
+        tool_names = ["search_knowledge", "search_memory"]
         if self._search_module is not None and self._search_enabled:
             tool_names.append("web_search")
         if self._agent_skills:
@@ -282,6 +319,8 @@ class ProductionAgentHarness:
     ) -> AgentResponse:
         """Run preflight evidence, AgentScope ReAct, and deterministic safety."""
 
+        budget = RuntimeBudgetTracker(self._execution_budget)
+
         await self._emit(
             stream_callback,
             "agent_start",
@@ -299,9 +338,11 @@ class ProductionAgentHarness:
                 {"codes": safe_high_risk_codes, "content": HIGH_RISK_NOTICE},
             )
             high_risk_text = HIGH_RISK_NOTICE + "\n\n"
+            budget.add_output(high_risk_text)
             emitted_parts.append(high_risk_text)
             await self._emit(stream_callback, "text_delta", {"content": high_risk_text})
             disclaimer_delta = MEDICAL_DISCLAIMER
+            budget.add_output(disclaimer_delta)
             await self._emit(stream_callback, "text_delta", {"content": disclaimer_delta})
             response = AgentResponse(
                 text=high_risk_text + disclaimer_delta,
@@ -414,12 +455,78 @@ class ProductionAgentHarness:
                 "系统会自动完成循证记忆写入; 不要根据助手推断创造记忆。"
             ),
         )
-        tools = [
+        raw_tools = [
             *await rag_middleware.list_tools(),
             *await memory_middleware.list_tools(),
         ]
         if self._search_module is not None and self._search_enabled:
-            tools.append(build_web_search_tool(self._search_module))
+            raw_tools.append(build_web_search_tool(self._search_module))
+        registry = GovernedToolRegistry()
+        for tool in raw_tools:
+            if tool.name == "search_knowledge":
+                registry.register(
+                    tool,
+                    ToolCapability(
+                        name="search_knowledge",
+                        version="1.0.0",
+                        description="Read-only local medical evidence retrieval.",
+                        required_scopes=frozenset({"rag:read"}),
+                        allowed_roles=frozenset(
+                            {ActorRole.GUEST, ActorRole.PATIENT, ActorRole.DOCTOR}
+                        ),
+                        risk_level=RiskLevel.LOW,
+                        side_effect=SideEffect.NONE,
+                        network_access=NetworkAccess.INTERNAL,
+                        data_classes=frozenset({DataClass.INTERNAL}),
+                    ),
+                    SearchKnowledgeInput,
+                )
+            elif tool.name == "search_memory":
+                registry.register(
+                    tool,
+                    ToolCapability(
+                        name="search_memory",
+                        version="1.0.0",
+                        description="Read-only retrieval of caller-owned health memory.",
+                        required_scopes=frozenset({"memory:read"}),
+                        allowed_roles=frozenset(
+                            {ActorRole.GUEST, ActorRole.PATIENT, ActorRole.DOCTOR}
+                        ),
+                        risk_level=RiskLevel.LOW,
+                        side_effect=SideEffect.NONE,
+                        network_access=NetworkAccess.INTERNAL,
+                        data_classes=frozenset({DataClass.PHI}),
+                        patient_scoped=True,
+                    ),
+                    SearchMemoryInput,
+                )
+            elif tool.name == "web_search":
+                registry.register(
+                    tool,
+                    ToolCapability(
+                        name="web_search",
+                        version="1.0.0",
+                        description="Read-only redacted external medical evidence search.",
+                        required_scopes=frozenset({"search:read"}),
+                        allowed_roles=frozenset(
+                            {ActorRole.GUEST, ActorRole.PATIENT, ActorRole.DOCTOR}
+                        ),
+                        risk_level=RiskLevel.MEDIUM,
+                        side_effect=SideEffect.NONE,
+                        network_access=NetworkAccess.EXTERNAL,
+                        data_classes=frozenset({DataClass.INTERNAL}),
+                    ),
+                    WebSearchInput,
+                )
+        tools = cast(
+            list[Any],
+            registry.build_tools(
+                principal=self._runtime_principal,
+                outbound_redacted_tools=frozenset({"web_search"}),
+            ),
+        )
+        capabilities = {capability.name: capability for capability in registry.capabilities()}
+        input_models = registry.input_models()
         toolkit = Toolkit(
             tools=tools,
             skills_or_loaders=self._agent_skills,
@@ -497,17 +604,27 @@ class ProductionAgentHarness:
             capture_agent_search_results() as search_results,
             capture_search_attempts() as search_attempts,
         ):
-            async for event in observed_agent_events():
+            async for event in self._bounded_agent_events(observed_agent_events()):
                 if isinstance(event, ModelCallStartEvent):
+                    budget.check_wall_clock()
+                    budget.add_step()
+                    budget.add_model_call()
                     await self._emit(
                         stream_callback,
                         "reasoning_summary",
                         {"content": "正在分析并整理可执行建议…", "status": "running"},
                     )
                 elif isinstance(event, ModelCallEndEvent):
+                    budget.check_wall_clock()
                     model_input_tokens += event.input_tokens
                     model_output_tokens += event.output_tokens
+                    budget.add_tokens(
+                        input_tokens=event.input_tokens,
+                        output_tokens=event.output_tokens,
+                    )
                 elif isinstance(event, ToolCallStartEvent):
+                    budget.check_wall_clock()
+                    budget.add_tool_call()
                     tool_names[event.tool_call_id] = event.tool_call_name
                     tool_arguments[event.tool_call_id] = ""
                     tool_started[event.tool_call_id] = time.monotonic()
@@ -548,12 +665,14 @@ class ProductionAgentHarness:
                         result_data,
                     )
                 elif isinstance(event, TextBlockDeltaEvent):
+                    budget.check_wall_clock()
                     raw_character_count += len(event.delta)
                     if raw_character_count > self._settings.agent_max_output_characters:
                         raise AgentHarnessError("agent output exceeded the configured limit")
                     for safe_part in buffer.feed(event.delta):
                         public_part = canonical_stream.feed(safe_part)
                         if public_part:
+                            budget.add_output(public_part)
                             emitted_parts.append(public_part)
                             streamed_agent_parts.append(public_part)
                             await self._emit(
@@ -564,8 +683,15 @@ class ProductionAgentHarness:
                 elif isinstance(event, ExceedMaxItersEvent):
                     raise AgentIterationLimitError("AgentScope ReAct loop exceeded its limit")
                 elif isinstance(event, (RequireUserConfirmEvent, RequireExternalExecutionEvent)):
+                    approval_ids = await self._persist_approval_requests(
+                        event.tool_calls,
+                        capabilities=capabilities,
+                        input_models=input_models,
+                        stream_callback=stream_callback,
+                    )
                     raise AgentApprovalRequiredError(
-                        "a side-effecting action requires an explicit approval endpoint"
+                        "side-effecting actions are parked pending explicit approval",
+                        approval_ids=approval_ids,
                     )
                 elif isinstance(event, ReplyEndEvent):
                     finished_reason = _event_value(event.finished_reason)
@@ -573,9 +699,11 @@ class ProductionAgentHarness:
             memory_client.raise_if_failed()
 
             tail = buffer.finish()
+            budget.check_wall_clock()
             if tail:
                 public_tail = canonical_stream.feed(tail)
                 if public_tail:
+                    budget.add_output(public_tail)
                     emitted_parts.append(public_tail)
                     streamed_agent_parts.append(public_tail)
                     await self._emit(
@@ -664,6 +792,8 @@ class ProductionAgentHarness:
             raise EmptyAgentResponseError("model completed without public text")
         final_text = f"{model_text}\n\n{MEDICAL_DISCLAIMER}"
         disclaimer_delta = f"\n\n{MEDICAL_DISCLAIMER}"
+        budget.check_wall_clock()
+        budget.add_output(disclaimer_delta)
         await self._emit(stream_callback, "text_delta", {"content": disclaimer_delta})
 
         citations = citations_from_results(evidence_results + agentic_results)
@@ -704,6 +834,98 @@ class ProductionAgentHarness:
             },
         )
         return response
+
+    async def _bounded_agent_events(
+        self,
+        events: AsyncIterator[Any],
+    ) -> AsyncIterator[Any]:
+        """Cancel a stalled model/tool stream at the Runtime wall-clock boundary."""
+
+        try:
+            async with asyncio.timeout(self._execution_budget.wall_clock_seconds):
+                async for event in events:
+                    yield event
+        except TimeoutError as error:
+            raise RuntimeBudgetExceededError("RUNTIME_WALL_CLOCK_EXCEEDED") from error
+
+    async def _persist_approval_requests(
+        self,
+        tool_calls: list[ToolCallBlock],
+        *,
+        capabilities: dict[str, ToolCapability],
+        input_models: dict[str, type[BaseModel]],
+        stream_callback: StreamCallback,
+    ) -> tuple[str, ...]:
+        """Park every AgentScope ASK in durable HITL before ending this turn."""
+
+        if self._approval_callback is None:
+            raise AgentApprovalRequiredError(
+                "approval persistence is unavailable; action was not executed"
+            )
+        if self._runtime_principal.user_id is None:
+            raise AgentApprovalRequiredError("approval requires a verified user identity")
+        approval_ids: list[str] = []
+        for tool_call in tool_calls:
+            capability = capabilities.get(tool_call.name)
+            input_model = input_models.get(tool_call.name)
+            if capability is None or input_model is None or not capability.approval_roles:
+                raise AgentApprovalRequiredError(
+                    "requested tool has no approved human-review capability"
+                )
+            try:
+                raw_arguments = json.loads(tool_call.input)
+            except json.JSONDecodeError as error:
+                raise AgentApprovalRequiredError(
+                    "requested tool arguments are not valid JSON"
+                ) from error
+            if not isinstance(raw_arguments, dict):
+                raise AgentApprovalRequiredError("requested tool arguments must be an object")
+            try:
+                validated_arguments = input_model.model_validate(raw_arguments).model_dump(
+                    mode="json"
+                )
+            except ValidationError as error:
+                raise AgentApprovalRequiredError(
+                    "requested tool arguments failed the registered schema"
+                ) from error
+            digest = hashlib.sha256(
+                f"{self._execution.trace_id}:{tool_call.id}:{tool_call.input}".encode()
+            ).hexdigest()
+            command = ApprovalCreate(
+                user_id=self._runtime_principal.user_id,
+                patient_id=self._runtime_principal.patient_id,
+                session_id=self._execution.session_id,
+                trace_id=self._execution.trace_id,
+                invocation=ToolInvocationRequest(
+                    invocation_id=f"invoke_{digest[:32]}",
+                    tool_name=capability.name,
+                    tool_version=capability.version,
+                    arguments=cast(dict[str, JsonValue], validated_arguments),
+                    idempotency_key=f"idem_{digest}",
+                    outbound_data_redacted=False,
+                ),
+                required_roles=tuple(
+                    sorted(capability.approval_roles, key=lambda role: role.value)
+                ),
+                policy_version=POLICY_VERSION,
+                expires_at=datetime.now(UTC) + timedelta(minutes=15),
+            )
+            approval = await self._approval_callback(command)
+            approval_id = str(approval.id)
+            approval_ids.append(approval_id)
+            await self._emit(
+                stream_callback,
+                "approval_required",
+                {
+                    "approval_id": approval_id,
+                    "tool_name": approval.tool_name,
+                    "status": approval.status.value,
+                    "expires_at": approval.expires_at.isoformat(),
+                    "policy_version": approval.policy_version,
+                    "tool_version": approval.tool_version,
+                },
+            )
+        return tuple(approval_ids)
 
     def _build_agent(
         self,

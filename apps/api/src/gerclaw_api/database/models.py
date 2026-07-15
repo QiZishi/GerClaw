@@ -340,6 +340,102 @@ class SessionSkill(Base):
     )
 
 
+class RuntimeApproval(TimestampMixin, Base):
+    """Durable, tenant-scoped HITL request with a one-time execution grant."""
+
+    __tablename__ = "runtime_approvals"
+    __table_args__ = (
+        CheckConstraint(
+            "status IN ('pending','approved','rejected','expired','cancelled')",
+            name="valid_status",
+        ),
+        CheckConstraint("revision > 0", name="positive_revision"),
+        CheckConstraint("expires_at > created_at", name="future_expiry"),
+        UniqueConstraint(
+            "tenant_id", "idempotency_key", name="uq_runtime_approvals_tenant_idempotency"
+        ),
+        UniqueConstraint(
+            "tenant_id", "invocation_id", name="uq_runtime_approvals_tenant_invocation"
+        ),
+        ForeignKeyConstraint(
+            ["tenant_id", "user_id", "session_id"],
+            ["sessions.tenant_id", "sessions.user_id", "sessions.id"],
+            name="fk_runtime_approvals_owner_session",
+            ondelete="CASCADE",
+        ),
+        Index("ix_runtime_approvals_tenant_status_expiry", "tenant_id", "status", "expires_at"),
+        Index("ix_runtime_approvals_requester_created", "requester_actor_id", "created_at"),
+    )
+
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    tenant_id: Mapped[str] = mapped_column(String(64), nullable=False, index=True)
+    requester_actor_id: Mapped[str] = mapped_column(String(128), nullable=False, index=True)
+    user_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), nullable=False)
+    patient_id: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True), nullable=True)
+    session_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), nullable=False)
+    trace_id: Mapped[str] = mapped_column(String(64), nullable=False, index=True)
+    invocation_id: Mapped[str] = mapped_column(String(96), nullable=False)
+    tool_name: Mapped[str] = mapped_column(String(64), nullable=False)
+    tool_version: Mapped[str] = mapped_column(String(32), nullable=False)
+    arguments: Mapped[dict[str, Any]] = mapped_column(EncryptedJSON(), nullable=False)
+    argument_fingerprint: Mapped[str] = mapped_column(String(64), nullable=False)
+    idempotency_key: Mapped[str] = mapped_column(String(128), nullable=False)
+    required_roles: Mapped[list[str]] = mapped_column(JSONB, nullable=False)
+    policy_version: Mapped[str] = mapped_column(String(32), nullable=False)
+    status: Mapped[str] = mapped_column(String(16), default="pending", nullable=False)
+    revision: Mapped[int] = mapped_column(Integer, default=1, nullable=False)
+    decided_by_actor_id: Mapped[str | None] = mapped_column(String(128), nullable=True)
+    decision_reason: Mapped[str | None] = mapped_column(EncryptedText(), nullable=True)
+    decided_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    expires_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    execution_token_hash: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    token_consumed_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
+    execution_result: Mapped[dict[str, Any] | None] = mapped_column(EncryptedJSON(), nullable=True)
+
+
+class RuntimeCheckpointRecord(TimestampMixin, Base):
+    """Encrypted, version-bound Agent state parked at a Runtime suspension point."""
+
+    __tablename__ = "runtime_checkpoints"
+    __table_args__ = (
+        CheckConstraint("sequence > 0", name="positive_sequence"),
+        CheckConstraint("revision > 0", name="positive_revision"),
+        CheckConstraint("status IN ('parked','resumed','discarded')", name="valid_status"),
+        UniqueConstraint(
+            "tenant_id", "trace_id", "sequence", name="uq_runtime_checkpoints_trace_sequence"
+        ),
+        ForeignKeyConstraint(
+            ["tenant_id", "user_id", "session_id"],
+            ["sessions.tenant_id", "sessions.user_id", "sessions.id"],
+            name="fk_runtime_checkpoints_owner_session",
+            ondelete="CASCADE",
+        ),
+        Index("ix_runtime_checkpoints_owner_status", "tenant_id", "actor_id", "status"),
+    )
+
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    tenant_id: Mapped[str] = mapped_column(String(64), nullable=False, index=True)
+    actor_id: Mapped[str] = mapped_column(String(128), nullable=False, index=True)
+    user_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), nullable=False)
+    session_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), nullable=False)
+    trace_id: Mapped[str] = mapped_column(String(64), nullable=False, index=True)
+    approval_id: Mapped[uuid.UUID] = mapped_column(
+        ForeignKey("runtime_approvals.id", ondelete="CASCADE"), nullable=False
+    )
+    sequence: Mapped[int] = mapped_column(Integer, nullable=False)
+    schema_version: Mapped[str] = mapped_column(String(32), nullable=False)
+    policy_version: Mapped[str] = mapped_column(String(32), nullable=False)
+    workflow_version: Mapped[str] = mapped_column(String(32), nullable=False)
+    capability_versions: Mapped[dict[str, Any]] = mapped_column(JSONB, nullable=False)
+    state: Mapped[dict[str, Any]] = mapped_column(EncryptedJSON(), nullable=False)
+    state_fingerprint: Mapped[str] = mapped_column(String(64), nullable=False)
+    status: Mapped[str] = mapped_column(String(16), default="parked", nullable=False)
+    revision: Mapped[int] = mapped_column(Integer, default=1, nullable=False)
+    resumed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+
+
 class ExecutionTrace(Base):
     """Top-level audit record for one complete system execution."""
 

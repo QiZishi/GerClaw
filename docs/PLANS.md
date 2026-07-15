@@ -10,19 +10,18 @@
 
 | 编号 | 任务 | 目标 |
 |---|---|---|
-| 0021 | Runtime Permission/HITL/Tool Registry/多智能体 | ALLOW/DENY/ASK、可恢复审批、工具边界、预算和复核 Trace |
+| 0022 | 前端全接入与无障碍 | 以 `apps/mvp` 为唯一 Web 客户端，清除 mock、按钮/状态/布局、四断点与浏览器审阅 |
 
 ## 后续顺序
 
 | 编号 | 任务 | 主要验收 |
 |---|---|---|
-| 0021 | Runtime Permission/HITL/Tool Registry/多智能体 | ALLOW/DENY/ASK、可恢复审批、工具 allowlist、复核 Trace |
-| 0022 | Voice/Privacy/Document | 真实 ASR/TTS、统一隐私策略、MinerU 上传/URL/轮询/会话绑定 |
-| 0023 | CGA/风险预警/慢病管理/情感陪伴 | 量表计分、风险事件闭环、慢病计划与趋势、安全陪伴和危机升级 |
-| 0024 | 五大处方与用药审查 | 模板 JSON、四重校验、DDI/Beers/剂量/重复、审批与导出 |
-| 0025 | 账号/RBAC/患者授权 | 注册登录、刷新退出、角色固定、资源授权、加密临床数据 |
-| 0026 | Feedback/Eval/Bad Case/性能 | 反馈闭环、eval 回放、10 并发、指标与性能报告 |
-| 0027 | 前端全接入与无障碍 | 清除 mock、四断点、患者/医生核心 E2E、全站适老化 |
+| 0022 | 前端全接入与无障碍 | 以 `apps/mvp` 为唯一 Web 客户端，清除 mock、按钮/状态/布局、四断点与浏览器审阅 |
+| 0023 | Voice/Privacy/Document | 真实 ASR/TTS、统一隐私策略、MinerU 上传/URL/轮询/会话绑定 |
+| 0024 | CGA/风险预警/慢病管理/情感陪伴 | 量表计分、风险事件闭环、慢病计划与趋势、安全陪伴和危机升级 |
+| 0025 | 五大处方与用药审查 | 模板 JSON、四重校验、DDI/Beers/剂量/重复、审批与导出 |
+| 0026 | 账号/RBAC/患者授权 | 注册登录、刷新退出、角色固定、资源授权、加密临床数据 |
+| 0027 | Feedback/Eval/Bad Case/性能 | 反馈闭环、eval 回放、10 并发、指标与性能报告 |
 | 0028 | Docker 与最终验收 | 空卷迁移/索引/health/重启、真实外部回归、独立最终 PASS |
 
 ## 交付规则
@@ -45,3 +44,4 @@
 | 0018 | Search 联网医疗证据 | AnySearch→Tavily、SSRF、安全引用 |
 | 0019 | Skill 注册执行与前端集成 | 真实生成/viewer/RAG/Trace、独立 PASS |
 | 0020 | 生产交付基线与 Development Harness | 59 项需求矩阵、统一门禁、负向自检、独立 PASS |
+| 0021 | Runtime Permission/HITL/Tool Registry 基础 | 权限决策、持久化 HITL、工具 permit、预算/checkpoint、审批 Trace，独立 PASS |

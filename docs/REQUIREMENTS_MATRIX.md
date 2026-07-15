@@ -8,14 +8,14 @@
 | DEV-02 | 分层测试和隔离依赖 | `apps/api/tests` | unit/integration/external/e2e；独立 DB/Redis/Qdrant | ✅ marker 与隔离 fixture 已有 |
 | DEV-03 | 证据和独立审阅 | exec-plan、`output/` | 每里程碑命令、截图、审阅 PASS、commit | ✅ 0014–0019 已执行 |
 | DEV-04 | 模块合同 | `modules/*` | Protocol+生产实现+README+测试 | 🚧 RAG/Memory/Search/Skill 完成；其余缺实现 |
-| DEV-05 | owner/预算/checkpoint | exec-plan、runtime | owner、预算、恢复入口、独立 reviewer | 🚧 exec-plan/reviewer 有，缺运行时预算与统一 checkpoint |
+| DEV-05 | owner/预算/checkpoint | exec-plan、runtime | owner、预算、恢复入口、独立 reviewer | 🚧 Runtime 预算与加密 version-bound checkpoint 已实现；临床副作用 continuation executor 尚未启用 |
 | RUN-01 | AgentScope ReAct/SSE/取消 | agent_harness、chat service | 真实模型+RAG+工具+原子终态 | ✅ 0016–0019 证据 |
-| RUN-02 | ALLOW/DENY/ASK 与 HITL | permission、approval | 三决策单测；ASK 可恢复审批 | ❌ 缺模块与 API |
-| RUN-03 | 工具注册表和边界 | tools、harness | allowlist、schema、超时/大小/结果校验 | 🚧 RAG/Search/Skill 已接入，缺统一注册表 |
+| RUN-02 | ALLOW/DENY/ASK 与 HITL | permission、approval | 三决策单测；ASK 可恢复审批 | 🚧 PermissionEngine、加密审批 API、一次性 token、pending SSE 已实现；临床副作用 resume executor 待业务模块启用 |
+| RUN-03 | 工具注册表和边界 | tools、harness | allowlist、schema、超时/大小/结果校验 | 🚧 RAG/Memory/Search 已通过 Runtime registry；Skill/临床写入工具待对应模块接入 |
 | RUN-04 | PHI-free Trace | trace repo/routes | 成功/失败/取消/工具/Skill 全事件 | 🚧 核心 Chat 已有，缺审批/临床模块/反馈 |
 | RUN-05 | workflow 与多智能体复核 | harness | standard/CGA；全科→老年专科复核 | 🚧 workflow 字段已有，缺生产复核链 |
-| RUN-06 | 长任务 checkpoint/replay | runtime、repositories | 重启恢复且副作用不重复 | 🚧 Trace replay/索引 generation 已有，缺统一任务 checkpoint |
-| RUN-07 | 执行预算 | harness、config | token/tool/time/call/output 超限稳定失败 | 🚧 模型/迭代/输出有阈值，缺统一预算对象和成本审计 |
+| RUN-06 | 长任务 checkpoint/replay | runtime、repositories | 重启恢复且副作用不重复 | 🚧 加密 checkpoint、状态指纹和版本 fail-closed 已实现；副作用 replay executor 待临床模块接入 |
+| RUN-07 | 执行预算 | harness、config | token/tool/time/call/output 超限稳定失败 | ✅ 统一 RuntimeBudgetTracker 已在 Agent Harness 计量 model/tool/step/token/output/wall-clock |
 | AI-01 | 本地 RAG | `modules/rag` | 436 文档、39,837 chunks、混合检索/重排/引用 | ✅ 真实重建与 E2E 通过 |
 | AI-02 | Memory/健康画像引擎 | `modules/memory` | 加密、跨会话、冲突、无 PHI vector | ✅ 0017 独立 PASS |
 | AI-03 | Skill 生命周期 | `modules/skill`、Skill UI | 注册/版本/隔离/viewer/安全/真实模型 | ✅ 0019 独立 PASS |

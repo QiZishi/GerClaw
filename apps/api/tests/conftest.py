@@ -148,7 +148,8 @@ async def integration_client(
         async with app.state.database.engine.begin() as connection:
             await connection.execute(
                 text(
-                    "TRUNCATE bad_cases, user_feedback, trace_events, messages, "
+                    "TRUNCATE runtime_checkpoints, runtime_approvals, bad_cases, user_feedback, "
+                    "trace_events, messages, "
                     "skill_definition_revisions, session_skills, skill_definitions, "
                     "memory_fact_revisions, memory_facts, health_profiles, sessions, users, "
                     "execution_traces "
@@ -160,6 +161,8 @@ async def integration_client(
             actor_id="usr_patient_integration0001",
             tenant_id="tenant_public0001",
             scopes={
+                "approval:read",
+                "approval:write",
                 "trace:read",
                 "trace:write",
                 "feedback:write",

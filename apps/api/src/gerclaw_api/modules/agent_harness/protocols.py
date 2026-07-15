@@ -51,6 +51,7 @@ class StreamEvent(BaseModel):
         "reasoning_summary",
         "tool_call",
         "tool_result",
+        "approval_required",
         "text_delta",
         "safety_notice",
         "done",

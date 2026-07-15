@@ -36,6 +36,7 @@ from gerclaw_api.modules.agent_harness import StreamEvent
 from gerclaw_api.modules.memory.memory_module import ProductionMemoryModule
 from gerclaw_api.modules.memory.runtime import create_memory_module
 from gerclaw_api.modules.skill import ProductionSkillModule
+from gerclaw_api.repositories.approval import SqlAlchemyApprovalRepository
 from gerclaw_api.repositories.conversation import (
     ConversationConflictError,
     SqlAlchemyConversationRepository,
@@ -252,6 +253,7 @@ async def chat(
                         model=request.app.state.agent_model,
                         allowed_tools=frozenset(request.app.state.settings.skill_allowed_tools),
                     ),
+                    approval_repository=SqlAlchemyApprovalRepository(database_session),
                 )
                 await service.process(
                     payload,

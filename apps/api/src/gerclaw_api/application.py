@@ -11,6 +11,7 @@ from fastapi.responses import JSONResponse
 from qdrant_client import AsyncQdrantClient
 from redis.asyncio import Redis
 
+from gerclaw_api.api.routes.approvals import router as approvals_router
 from gerclaw_api.api.routes.auth import router as auth_router
 from gerclaw_api.api.routes.chat import router as chat_router
 from gerclaw_api.api.routes.health import router as health_router
@@ -48,6 +49,11 @@ from gerclaw_api.modules.skill import (
     SkillNotFoundError,
     UnsafeSkillArchiveError,
     UnsafeSkillError,
+)
+from gerclaw_api.repositories.approval import (
+    ApprovalConflictError,
+    ApprovalForbiddenError,
+    ApprovalNotFoundError,
 )
 from gerclaw_api.repositories.skill import (
     SkillRepositoryConflictError,
@@ -155,6 +161,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     app.add_middleware(RequestContextMiddleware)
     app.include_router(health_router)
     app.include_router(auth_router, prefix=resolved.api_prefix)
+    app.include_router(approvals_router, prefix=resolved.api_prefix)
     app.include_router(traces_router, prefix=resolved.api_prefix)
     app.include_router(rag_router, prefix=resolved.api_prefix)
     app.include_router(search_router, prefix=resolved.api_prefix)
@@ -167,6 +174,27 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         return JSONResponse(
             {"error": {"code": "TRACE_NOT_FOUND", "message": f"trace {error} not found"}},
             status_code=404,
+        )
+
+    @app.exception_handler(ApprovalNotFoundError)
+    async def approval_not_found(_request: Request, _error: ApprovalNotFoundError) -> JSONResponse:
+        return JSONResponse(
+            {"error": {"code": "APPROVAL_NOT_FOUND", "message": "approval not found"}},
+            status_code=404,
+        )
+
+    @app.exception_handler(ApprovalConflictError)
+    async def approval_conflict(_request: Request, error: ApprovalConflictError) -> JSONResponse:
+        return JSONResponse(
+            {"error": {"code": "APPROVAL_CONFLICT", "message": str(error)}},
+            status_code=409,
+        )
+
+    @app.exception_handler(ApprovalForbiddenError)
+    async def approval_forbidden(_request: Request, _error: ApprovalForbiddenError) -> JSONResponse:
+        return JSONResponse(
+            {"error": {"code": "APPROVAL_FORBIDDEN", "message": "approval forbidden"}},
+            status_code=403,
         )
 
     @app.exception_handler(TraceConflictError)

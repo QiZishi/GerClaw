@@ -32,6 +32,7 @@ class TraceEventType(StrEnum):
     RAG_RETRIEVE = "rag.retrieve"
     SEARCH_QUERY = "search.query"
     TOOL_CALL = "tool.call"
+    APPROVAL = "runtime.approval"
     SKILL_EXECUTE = "skill.execute"
     MEMORY_UPDATE = "memory.update"
     SAFETY_CHECK = "safety.check"
