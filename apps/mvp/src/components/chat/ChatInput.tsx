@@ -26,6 +26,8 @@ import { useAppStore } from "@/stores/appStore";
 import { useSkillStore } from "@/stores/skillStore";
 import { SkillTag } from "@/components/skills/SkillTag";
 import { SkillSelector } from "@/components/skills/SkillSelector";
+import { FileTag } from "@/components/document/FileTag";
+import { DocumentToolCard } from "@/components/document/DocumentToolCard";
 import { replaceSessionSkills } from "@/services/gerclaw/skills";
 import { INPUT_LIMITS, MEDICAL_DISCLAIMER, ALLOWED_IMAGE_MIME_TYPES } from "@/lib/constants";
 import { toast } from "@/components/ui/toast";
@@ -42,7 +44,7 @@ import {
   DialogFooter,
   DialogClose,
 } from "@/components/ui/dialog";
-import type { ImageAttachment } from "@/types";
+import type { FileTag as UploadFileTag, ImageAttachment } from "@/types";
 
 interface PendingImage {
   id: string;
@@ -56,7 +58,6 @@ interface ChatInputProps {
   onSend?: (text: string, images?: ImageAttachment[]) => boolean | void;
   isGenerating?: boolean;
   onStop?: () => void;
-  onFileParsed?: (fileName: string, markdown: string) => void;
   onStartAction?: (action: "prescription" | "cga" | "drug-review" | "health-profile") => void;
   contextLoading?: boolean;
 }
@@ -249,7 +250,6 @@ export function ChatInput({
   onSend,
   isGenerating,
   onStop,
-  onFileParsed,
   onStartAction,
   contextLoading = false,
 }: ChatInputProps) {
@@ -279,7 +279,9 @@ export function ChatInput({
   const [text, setText] = useState("");
   const [isTranscribing, setIsTranscribing] = useState(false);
   const [pendingImages, setPendingImages] = useState<PendingImage[]>([]);
+  const [pendingDocuments, setPendingDocuments] = useState<UploadFileTag[]>([]);
   const [uploadedDocCount, setUploadedDocCount] = useState(0);
+  const rawDocumentsRef = useRef<Map<string, File>>(new Map());
   const [showLimitDialog, setShowLimitDialog] = useState(false);
   const [limitDialogMessage, setLimitDialogMessage] = useState("");
   const textareaRef = useRef<HTMLTextAreaElement>(null);
@@ -355,6 +357,64 @@ export function ChatInput({
     fileInputRef.current?.click();
   };
 
+  const parsePendingDocument = async (fileData: UploadFileTag, file: File) => {
+    setPendingDocuments((previous) =>
+      previous.map((item) =>
+        item.id === fileData.id ? { ...item, status: "parsing", progress: 70 } : item
+      )
+    );
+    try {
+      const result = await parseFile(file);
+      const completed: UploadFileTag = {
+        ...fileData,
+        status: "done",
+        progress: 100,
+        parsedMarkdown: result.markdown,
+      };
+      setPendingDocuments((previous) =>
+        previous.map((item) => (item.id === fileData.id ? completed : item))
+      );
+      setUploadedDocCount((count) => count + 1);
+      toast.show(
+        result.source === "mineru"
+          ? `${file.name} 已由 MinerU 解析，可展开预览；暂未自动加入对话上下文`
+          : `${file.name} 已在本机读取，可展开预览；暂未自动加入对话上下文`
+      );
+    } catch (error) {
+      const errorMessage = error instanceof Error ? error.message : "文档解析失败，请稍后重试";
+      setPendingDocuments((previous) =>
+        previous.map((item) =>
+          item.id === fileData.id
+            ? { ...item, status: "failed", progress: 0, errorMessage }
+            : item
+        )
+      );
+      toast.show(`解析 ${file.name} 失败：${errorMessage}`);
+    }
+  };
+
+  const retryPendingDocument = (id: string) => {
+    const fileData = pendingDocuments.find((item) => item.id === id);
+    const rawFile = rawDocumentsRef.current.get(id);
+    if (!fileData || !rawFile) {
+      toast.show("原文件已不可用，请重新选择文件");
+      return;
+    }
+    setPendingDocuments((previous) =>
+      previous.map((item) =>
+        item.id === id
+          ? { ...item, status: "uploading", progress: 30, errorMessage: undefined }
+          : item
+      )
+    );
+    void parsePendingDocument(fileData, rawFile);
+  };
+
+  const removePendingDocument = (id: string) => {
+    setPendingDocuments((previous) => previous.filter((item) => item.id !== id));
+    rawDocumentsRef.current.delete(id);
+  };
+
   const handleFileChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const files = e.target.files;
     if (!files || files.length === 0) return;
@@ -378,7 +438,7 @@ export function ChatInput({
       }
     }
 
-    if (uploadedDocCount + documentFiles.length > INPUT_LIMITS.maxFileCount) {
+    if (uploadedDocCount + pendingDocuments.length + documentFiles.length > INPUT_LIMITS.maxFileCount) {
       setLimitDialogMessage(`已达到最大文件上传数量（${INPUT_LIMITS.maxFileCount}个），请先删除部分文件后再上传。`);
       setShowLimitDialog(true);
       e.target.value = "";
@@ -413,7 +473,7 @@ export function ChatInput({
       }
     }
 
-    if (documentFiles.length > 0 && onFileParsed) {
+    if (documentFiles.length > 0) {
       for (const file of documentFiles) {
         const ext = `.${file.name.split(".").pop()?.toLowerCase()}`;
         const typeOk = ALLOWED_FILE_MIME.includes(file.type) || ALLOWED_FILE_EXT.includes(ext);
@@ -425,19 +485,19 @@ export function ChatInput({
           toast.show(`文件 ${file.name} 超过 10MB 限制`);
           continue;
         }
+        const id = generateId("file");
+        const fileData: UploadFileTag = {
+          id,
+          fileName: file.name,
+          fileType: ext.slice(1),
+          fileSize: file.size,
+          status: "uploading",
+          progress: 30,
+        };
+        rawDocumentsRef.current.set(id, file);
+        setPendingDocuments((previous) => [...previous, fileData]);
         toast.show(`正在解析文件：${file.name}...`);
-        try {
-          const result = await parseFile(file);
-          if (result.markdown && result.markdown.trim()) {
-            onFileParsed(file.name, result.markdown);
-            setUploadedDocCount((prev) => prev + 1);
-            toast.show(`${file.name} 解析完成`);
-          } else {
-            toast.show(`${file.name} 解析内容为空`);
-          }
-        } catch (err) {
-          toast.show(`解析 ${file.name} 失败：${err instanceof Error ? err.message : "未知错误"}`);
-        }
+        void parsePendingDocument(fileData, file);
       }
     }
 
@@ -647,8 +707,18 @@ export function ChatInput({
   return (
     <div className="border-t border-border bg-background px-4 py-3">
       <div className="max-w-3xl mx-auto">
-        {(loadedSkillIds.length > 0 || pendingImages.length > 0) && (
+        {(loadedSkillIds.length > 0 || pendingImages.length > 0 || pendingDocuments.length > 0) && (
           <div className="flex flex-wrap gap-2 mb-2">
+            {pendingDocuments.map((file) => (
+              <div key={file.id} className="min-w-0 space-y-2">
+                <FileTag
+                  data={file}
+                  onRetry={file.status === "failed" ? retryPendingDocument : undefined}
+                  onRemove={file.status === "failed" || file.status === "done" ? removePendingDocument : undefined}
+                />
+                {file.status === "done" && <DocumentToolCard data={file} />}
+              </div>
+            ))}
             {pendingImages.map((img) => (
               <div key={img.id} className="relative group">
                 <Image
@@ -662,10 +732,14 @@ export function ChatInput({
                 <button
                   type="button"
                   onClick={() => removePendingImage(img.id)}
-                  className="absolute -top-1.5 -right-1.5 size-5 rounded-full bg-destructive text-destructive-foreground flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity shadow"
+                  className={cn(
+                    "absolute -top-1.5 -right-1.5 size-5 rounded-full bg-destructive text-destructive-foreground flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity shadow",
+                    seniorMode && "static mt-1 min-h-12 w-full gap-1 rounded-md px-2 text-base opacity-100"
+                  )}
                   aria-label="移除图片"
                 >
                   <X className="size-3" />
+                  {seniorMode && <span>移除图片</span>}
                 </button>
               </div>
             ))}

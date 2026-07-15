@@ -230,15 +230,15 @@ export function FileUpload({ className, onFileParsed }: FileUploadProps) {
           <div
             className={cn(
               "text-sm font-medium",
-              seniorMode && "text-base"
+              seniorMode && "text-lg"
             )}
           >
             点击或拖拽文件到此处
           </div>
-          <div className="text-xs text-muted-foreground mt-1">
+          <div className={cn("text-xs text-muted-foreground mt-1", seniorMode && "text-base")}>
             支持 PDF / DOCX / MD / TXT / PNG / JPG / GIF / WEBP
           </div>
-          <div className="text-[11px] text-muted-foreground mt-0.5">
+          <div className={cn("text-[11px] text-muted-foreground mt-0.5", seniorMode && "text-base")}>
             单文件 ≤ {formatFileSize(INPUT_LIMITS.maxFileSize)}，最多 {INPUT_LIMITS.maxFileCount} 个
           </div>
         </div>
@@ -259,7 +259,10 @@ export function FileUpload({ className, onFileParsed }: FileUploadProps) {
       {error && (
         <div
           role="alert"
-          className="mx-3 mb-2 rounded-md border border-destructive/30 bg-destructive/5 px-3 py-2 text-xs text-destructive"
+          className={cn(
+            "mx-3 mb-2 rounded-md border border-destructive/30 bg-destructive/5 px-3 py-2 text-xs text-destructive",
+            seniorMode && "px-4 py-3 text-base"
+          )}
         >
           {error}
         </div>
@@ -267,13 +270,13 @@ export function FileUpload({ className, onFileParsed }: FileUploadProps) {
 
       {files.length > 0 && (
         <div className="px-3 pb-1 flex items-center justify-between">
-          <span className="text-xs text-muted-foreground">
+          <span className={cn("text-xs text-muted-foreground", seniorMode && "text-base")}>
             已上传 {files.length} / {INPUT_LIMITS.maxFileCount}
           </span>
           <Button
             variant="ghost"
             size="xs"
-            className="gap-1 text-xs"
+            className={cn("gap-1 text-xs", seniorMode && "min-h-12 px-3 text-base")}
             onClick={() => {
               files.forEach((f) => {
                 removeUploadedFile(f.id);
@@ -299,7 +302,7 @@ export function FileUpload({ className, onFileParsed }: FileUploadProps) {
             />
           ))}
           {files.length === 0 && (
-            <div className="flex flex-col items-center gap-1 py-6 text-xs text-muted-foreground">
+            <div className={cn("flex flex-col items-center gap-1 py-6 text-xs text-muted-foreground", seniorMode && "text-base")}>
               <FileUp className="size-6 opacity-40" />
               <span>尚未上传文件</span>
             </div>
@@ -312,11 +315,11 @@ export function FileUpload({ className, onFileParsed }: FileUploadProps) {
           <DialogHeader>
             <DialogTitle>提示</DialogTitle>
           </DialogHeader>
-          <p className="text-sm text-muted-foreground">
+          <p className={cn("text-sm text-muted-foreground", seniorMode && "text-lg")}>
             已达到最大文件上传数量（{INPUT_LIMITS.maxFileCount}个），请先删除部分文件后再上传。
           </p>
           <DialogFooter>
-            <DialogClose render={<Button variant="outline">我知道了</Button>} />
+            <DialogClose render={<Button variant="outline" className={cn(seniorMode && "min-h-12 px-4 text-base")}>我知道了</Button>} />
           </DialogFooter>
         </DialogContent>
       </Dialog>

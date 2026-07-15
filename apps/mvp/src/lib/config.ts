@@ -35,9 +35,6 @@ const envSchema = z.object({
   NEXT_PUBLIC_TTS_MODEL: z.string().default("mimo-v2.5-tts"),
   NEXT_PUBLIC_TTS_VOICE: z.string().default("冰糖"),
 
-  NEXT_PUBLIC_MINERU_URL: z.string().default(""),
-  NEXT_PUBLIC_MINERU_API_KEY: z.string().default(""),
-
   NEXT_PUBLIC_APP_NAME: z.string().default("GerClaw"),
   NEXT_PUBLIC_APP_VERSION: z.string().default("0.1.0"),
 });
@@ -70,9 +67,6 @@ function loadEnv(): EnvConfig {
     NEXT_PUBLIC_TTS_API_KEY: process.env.NEXT_PUBLIC_TTS_API_KEY,
     NEXT_PUBLIC_TTS_MODEL: process.env.NEXT_PUBLIC_TTS_MODEL,
     NEXT_PUBLIC_TTS_VOICE: process.env.NEXT_PUBLIC_TTS_VOICE,
-
-    NEXT_PUBLIC_MINERU_URL: process.env.NEXT_PUBLIC_MINERU_URL,
-    NEXT_PUBLIC_MINERU_API_KEY: process.env.NEXT_PUBLIC_MINERU_API_KEY,
 
     NEXT_PUBLIC_APP_NAME: process.env.NEXT_PUBLIC_APP_NAME,
     NEXT_PUBLIC_APP_VERSION: process.env.NEXT_PUBLIC_APP_VERSION,
@@ -147,11 +141,6 @@ export const voiceConfig = {
   ttsApiKey: env.NEXT_PUBLIC_TTS_API_KEY,
   ttsModel: env.NEXT_PUBLIC_TTS_MODEL,
   ttsVoice: env.NEXT_PUBLIC_TTS_VOICE,
-};
-
-export const documentConfig = {
-  mineruUrl: env.NEXT_PUBLIC_MINERU_URL,
-  mineruApiKey: env.NEXT_PUBLIC_MINERU_API_KEY,
 };
 
 export function hasRealLLMConfig(): boolean {

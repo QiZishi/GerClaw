@@ -633,24 +633,6 @@ export function ChatArea() {
     return true;
   };
 
-  const handleFileParsed = (fileName: string, markdown: string) => {
-    const fileMessage = `📄 **文件解析结果：${fileName}**\n\n<file-parsed>\n${markdown}\n</file-parsed>\n\n请根据以上文件内容回答我的问题。`;
-    if (!currentSessionId) {
-      const sid = createSession(role);
-      if (loadedSkillIds.length > 0) {
-        pendingSkillSelectionRef.current.set(sid, [...loadedSkillIds]);
-      }
-      setCurrentSession(sid);
-      setTimeout(() => doSend(sid, fileMessage, false), 50);
-      return;
-    }
-    if (skillSelectionReadySessionId !== currentSessionId) {
-      toast.show("正在恢复当前会话的技能，请稍候再发送");
-      return;
-    }
-    doSend(currentSessionId, fileMessage, false);
-  };
-
   const doSend = (sid: string, text: string, isRegenerate = false, images?: ImageAttachment[]) => {
     const userBlocks: MessageBlock[] = [];
     if (images && images.length > 0) {
@@ -1747,7 +1729,6 @@ ${hasSuicideRisk ? "⚠️ 重要：您在评估中提到了伤害自己的想�
           onSend={handleSend}
           isGenerating={isGenerating}
           onStop={handleStop}
-          onFileParsed={handleFileParsed}
           onStartAction={handleStartAction}
           contextLoading={Boolean(
             currentSessionId && skillSelectionReadySessionId !== currentSessionId

@@ -4,6 +4,7 @@ import { Check, FileText, RotateCw, X } from "lucide-react";
 import { Progress } from "@/components/ui/progress";
 import { cn } from "@/lib/utils";
 import { formatFileSize } from "@/lib/format";
+import { useAppStore } from "@/stores/appStore";
 import type { FileTag as FileTagData } from "@/types";
 
 interface FileTagProps {
@@ -19,6 +20,9 @@ interface FileTagProps {
  * uploading/parsing 显示进度条
  */
 export function FileTag({ data, onRemove, onRetry, onClick }: FileTagProps) {
+  const role = useAppStore((state) => state.role);
+  const seniorMode = useAppStore((state) => state.seniorMode);
+  const isSeniorPatient = role === "patient" && seniorMode;
   const statusText = () => {
     switch (data.status) {
       case "uploading":
@@ -47,15 +51,28 @@ export function FileTag({ data, onRemove, onRetry, onClick }: FileTagProps) {
     <div
       className={cn(
         "inline-flex flex-col gap-1 rounded-lg border border-border bg-muted/40 px-3 py-2 min-w-[200px]",
-        onClick && "cursor-pointer hover:bg-muted/70 transition-colors"
+        onClick && "cursor-pointer hover:bg-muted/70 transition-colors",
+        isSeniorPatient && "min-h-16 gap-2 px-4 py-3"
       )}
       onClick={onClick ? () => onClick(data.id) : undefined}
+      role={onClick ? "button" : undefined}
+      tabIndex={onClick ? 0 : undefined}
+      onKeyDown={
+        onClick
+          ? (event) => {
+              if (event.key === "Enter" || event.key === " ") {
+                event.preventDefault();
+                onClick(data.id);
+              }
+            }
+          : undefined
+      }
     >
       <div className="flex items-center gap-2">
         <FileText className="size-4 shrink-0 text-muted-foreground" />
         <div className="flex-1 min-w-0">
-          <div className="text-sm font-medium truncate">{data.fileName}</div>
-          <div className="flex items-center gap-2 text-xs text-muted-foreground">
+          <div className={cn("text-sm font-medium truncate", isSeniorPatient && "text-lg")}>{data.fileName}</div>
+          <div className={cn("flex items-center gap-2 text-xs text-muted-foreground", isSeniorPatient && "text-base")}>
             <span>{formatFileSize(data.fileSize)}</span>
             <span>·</span>
             <span className={statusColor()}>{statusText()}</span>
@@ -71,10 +88,14 @@ export function FileTag({ data, onRemove, onRetry, onClick }: FileTagProps) {
               e.stopPropagation();
               onRetry(data.id);
             }}
-            className="text-muted-foreground hover:text-foreground shrink-0"
+            className={cn(
+              "text-muted-foreground hover:text-foreground shrink-0",
+              isSeniorPatient && "inline-flex min-h-12 items-center gap-1 px-2 text-base"
+            )}
             aria-label="重试"
           >
             <RotateCw className="size-3.5" />
+            {isSeniorPatient && <span>重试</span>}
           </button>
         )}
         {onRemove && (
@@ -84,10 +105,14 @@ export function FileTag({ data, onRemove, onRetry, onClick }: FileTagProps) {
               e.stopPropagation();
               onRemove(data.id);
             }}
-            className="text-muted-foreground hover:text-destructive shrink-0"
+            className={cn(
+              "text-muted-foreground hover:text-destructive shrink-0",
+              isSeniorPatient && "inline-flex min-h-12 items-center gap-1 px-2 text-base"
+            )}
             aria-label="移除"
           >
             <X className="size-3.5" />
+            {isSeniorPatient && <span>移除</span>}
           </button>
         )}
       </div>
@@ -95,7 +120,7 @@ export function FileTag({ data, onRemove, onRetry, onClick }: FileTagProps) {
         <Progress value={data.progress ?? 0} className="h-1" />
       )}
       {data.status === "failed" && data.errorMessage && (
-        <div className="text-xs text-destructive">{data.errorMessage}</div>
+        <div className={cn("text-xs text-destructive", isSeniorPatient && "text-base")}>{data.errorMessage}</div>
       )}
     </div>
   );
