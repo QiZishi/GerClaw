@@ -267,6 +267,7 @@ async def test_factory_owned_http_client_closes_idempotently() -> None:
     client = model._gerclaw_owned_http_client
 
     assert not client.is_closed
+    assert model.parameters.max_tokens == 1_024
     await close_agentscope_model(model)
     assert client.is_closed
     await close_agentscope_model(model)

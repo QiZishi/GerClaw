@@ -50,6 +50,13 @@ def test_red_flags_use_stable_codes_without_echoing_input() -> None:
     assert detect_high_risk("普通问候") == []
 
 
+def test_red_flags_ignore_explicit_negation_without_hiding_mixed_active_risk() -> None:
+    assert detect_high_risk("跌倒后膝盖疼，没有昏迷，也没有胸痛。") == []
+    assert detect_high_risk("否认胸痛、呼吸困难，也未出现言语不清。") == []
+    assert detect_high_risk("没有胸痛，但突然喘不上气。") == ["breathing_difficulty"]
+    assert detect_high_risk("虽然没有昏迷，却出现大量出血。") == ["major_bleeding"]
+
+
 @pytest.mark.parametrize(
     ("unsafe", "forbidden"),
     [
@@ -97,12 +104,18 @@ def test_citation_projection_normalizes_optional_locator_metadata() -> None:
 
 
 def test_evidence_context_is_bounded_and_marks_content_untrusted() -> None:
-    citations = citations_from_results([_result(index) for index in range(20)])
+    results = [_result(index) for index in range(20)]
+    results[0].content = "外层证据中的结论 [K2] 与既往内部标记 [E5]。"
+    citations = citations_from_results(results)
     context = build_evidence_context(citations)
     assert len(context) <= 12_000
     assert "[E1]" in context
     assert "<untrusted-medical-evidence>" in context
     assert "来源：" in context
+    first_section = context.split("\n\n[E2]", maxsplit=1)[0]
+    assert "[K2]" not in first_section
+    assert "[E5]" not in first_section
+    assert "只使用本段标题的 [E1]" in context
 
 
 def test_safety_decision_always_applies_disclaimer_and_red_flag_check() -> None:

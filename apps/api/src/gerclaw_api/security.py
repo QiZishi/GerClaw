@@ -2,6 +2,9 @@
 
 from __future__ import annotations
 
+import base64
+import hashlib
+import hmac
 import math
 import re
 from collections.abc import Mapping, Sequence
@@ -168,6 +171,16 @@ def redact_text(value: str) -> str:
     return redacted
 
 
+def audit_hmac_digest(key: bytes, value: bytes) -> str:
+    """Return a stable keyed digest whose alphabet cannot resemble Chinese PHI numbers."""
+
+    digest = hmac.new(key, value, hashlib.sha256).digest()
+    # RFC 4648 Base32 uses only A-Z and digits 2-7. Lowercasing and removing
+    # padding keeps the value inside the audit identifier grammar while making
+    # phone/ID-card regex false positives structurally impossible.
+    return base64.b32encode(digest).decode("ascii").rstrip("=").lower()
+
+
 def _safe_primitive(value: Any, *, depth: int, seen: set[int]) -> JsonValue:
     if value is None or isinstance(value, (bool, int)):
         return value
@@ -235,7 +248,11 @@ def validate_audit_payload(value: Any) -> dict[str, JsonValue]:
                 raise AuditPayloadError("audit payload floats must be finite")
             return item
         if isinstance(item, str):
-            if len(item) > MAX_AUDIT_STRING_LENGTH or not _AUDIT_STRING_PATTERN.fullmatch(item):
+            if (
+                len(item) > MAX_AUDIT_STRING_LENGTH
+                or not _AUDIT_STRING_PATTERN.fullmatch(item)
+                or redact_text(item) != item
+            ):
                 raise AuditPayloadError("audit strings must be bounded non-PHI identifiers")
             return item
         if isinstance(item, list):

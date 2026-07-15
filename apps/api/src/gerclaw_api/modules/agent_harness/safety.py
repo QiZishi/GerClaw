@@ -41,6 +41,13 @@ _HIGH_RISK_PATTERNS: tuple[tuple[str, re.Pattern[str]], ...] = (
     ("major_bleeding", re.compile(r"大出血|大量出血|呕血|便血.*(?:很多|大量)")),
     ("suicide_risk", re.compile(r"自杀|不想活|结束生命|伤害自己")),
 )
+_RED_FLAG_CLAUSE_BOUNDARY = re.compile(r"[。！？!?；;，,\n]")
+_RED_FLAG_NEGATION = re.compile(
+    r"(?:没有|没|无(?!论)|否认|未(?:见|出现|发生)|不伴|不存在|从未)"
+    r"[^。！？!?；;，,\n]{0,16}$"
+)
+_RED_FLAG_CONTRAST = re.compile(r"但(?:是)?|然而|却|仍(?:然)?")
+_EMBEDDED_CITATION_MARKER = re.compile(r"\[(?:E|W|K|R)\d{1,4}\]", re.IGNORECASE)
 
 
 class EvidenceUnavailableError(RuntimeError):
@@ -56,7 +63,22 @@ def is_medical_message(text: str) -> bool:
 def detect_high_risk(text: str) -> list[str]:
     """Return stable red-flag codes without persisting the triggering text."""
 
-    return [code for code, pattern in _HIGH_RISK_PATTERNS if pattern.search(text)]
+    codes: list[str] = []
+    for code, pattern in _HIGH_RISK_PATTERNS:
+        for match in pattern.finditer(text):
+            prefix_start = 0
+            for boundary in _RED_FLAG_CLAUSE_BOUNDARY.finditer(text, 0, match.start()):
+                prefix_start = boundary.end()
+            prefix = text[prefix_start : match.start()]
+            negation = _RED_FLAG_NEGATION.search(prefix)
+            if (
+                negation is not None
+                and _RED_FLAG_CONTRAST.search(prefix[negation.start() :]) is None
+            ):
+                continue
+            codes.append(code)
+            break
+    return codes
 
 
 def sanitize_medical_text(text: str) -> str:
@@ -119,9 +141,10 @@ def build_evidence_context(citations: list[Citation]) -> str:
     sections: list[str] = []
     budget = 12_000
     for index, citation in enumerate(citations, start=1):
-        excerpt = citation.excerpt[:3_000]
+        excerpt = _EMBEDDED_CITATION_MARKER.sub("", citation.excerpt[:3_000])
         entry = (
             f"[E{index}] {citation.title}\n来源：{citation.locator}\n"
+            f"引用时只使用本段标题的 [E{index}]，不要复制正文中的原始编号。\n"
             "<untrusted-medical-evidence>\n"
             f"{excerpt}\n"
             "</untrusted-medical-evidence>"

@@ -203,6 +203,11 @@ export function MessageBubble({
   };
 
   const plainText = extractPlainText(message.blocks);
+  const hasInlineDisclaimer = message.blocks.some(
+    (block) =>
+      block.kind === "text" &&
+      (block.content.includes(MEDICAL_DISCLAIMER) || block.content.includes("免责声明"))
+  );
   const hasActiveThinking = !isUser && message.blocks.some(
     (b) => b.kind === "thinking" && b.data.status === "thinking"
   );
@@ -212,7 +217,12 @@ export function MessageBubble({
   );
   const iconSize = seniorMode ? "size-4" : "size-3.5";
   const btnSize = seniorMode ? "icon" : "icon-sm";
-  const showRegenerate = !isUser && isLastMessage && onRegenerate && message.status === "done";
+  const showRegenerate =
+    !isUser &&
+    isLastMessage &&
+    onRegenerate &&
+    (message.status === "done" || message.status === "stopped");
+  const stoppedAssistant = !isUser && message.status === "stopped";
 
   return (
     <div
@@ -406,7 +416,7 @@ export function MessageBubble({
           </div>
         </div>
 
-        {message.hasDisclaimer && (
+        {message.hasDisclaimer && !hasInlineDisclaimer && (
           <div className={cn(
             "text-muted-foreground px-2",
             seniorMode ? "text-xs" : "text-[11px]"
@@ -421,7 +431,7 @@ export function MessageBubble({
           </div>
         )}
 
-        {message.status === "done" && (
+        {(message.status === "done" || stoppedAssistant) && (
           <div className="relative">
             <div
               data-message-actions
@@ -434,7 +444,7 @@ export function MessageBubble({
                   : "opacity-0 group-hover:opacity-100 focus-within:opacity-100"
               )}
             >
-              {!isUser ? (
+              {!isUser && !stoppedAssistant ? (
                 <>
                   <Tooltip>
                     <TooltipTrigger
@@ -474,7 +484,7 @@ export function MessageBubble({
                 </>
               ) : null}
 
-              <Tooltip>
+              {!stoppedAssistant && <Tooltip>
                 <TooltipTrigger
                   render={
                     <Button
@@ -492,7 +502,7 @@ export function MessageBubble({
                   )}
                 </TooltipTrigger>
                 <TooltipContent>{copied ? "已复制" : "复制"}</TooltipContent>
-              </Tooltip>
+              </Tooltip>}
 
               {!isUser && showRegenerate && (
                 <Tooltip>
@@ -512,11 +522,11 @@ export function MessageBubble({
                 </Tooltip>
               )}
 
-              {!isUser && plainText && (
+              {!isUser && !stoppedAssistant && plainText && (
                 <VoiceReadButton text={plainText} seniorMode={seniorMode} />
               )}
 
-              <Tooltip>
+              {!stoppedAssistant && <Tooltip>
                 <TooltipTrigger
                   render={
                     <Button
@@ -530,9 +540,9 @@ export function MessageBubble({
                   <Share2 className={iconSize} />
                 </TooltipTrigger>
                 <TooltipContent>分享/导出</TooltipContent>
-              </Tooltip>
+              </Tooltip>}
 
-              {!isUser ? (
+              {!isUser && !stoppedAssistant ? (
                 <DropdownMenu>
                   <DropdownMenuTrigger
                     render={
@@ -560,7 +570,7 @@ export function MessageBubble({
                     </DropdownMenuItem>
                   </DropdownMenuContent>
                 </DropdownMenu>
-              ) : (
+              ) : isUser ? (
                 <Tooltip>
                   <TooltipTrigger
                     render={
@@ -576,7 +586,7 @@ export function MessageBubble({
                   </TooltipTrigger>
                   <TooltipContent>删除</TooltipContent>
                 </Tooltip>
-              )}
+              ) : null}
             </div>
           </div>
         )}

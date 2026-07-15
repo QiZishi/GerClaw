@@ -65,6 +65,7 @@ interface AppState {
   loadedSkillIds: string[];
   uploadedFileIds: string[];
   parsedFiles: Record<string, FileTag>;
+  setLoadedSkills: (ids: string[]) => void;
   addLoadedSkill: (id: string) => void;
   removeLoadedSkill: (id: string) => void;
   addUploadedFile: (id: string) => void;
@@ -179,6 +180,7 @@ export const useAppStore = create<AppState>()(
       loadedSkillIds: [],
       uploadedFileIds: [],
       parsedFiles: {},
+      setLoadedSkills: (loadedSkillIds) => set({ loadedSkillIds }),
       addLoadedSkill: (id) =>
         set((s) => ({
           loadedSkillIds: s.loadedSkillIds.includes(id)

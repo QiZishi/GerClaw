@@ -3,7 +3,6 @@
 import { useState, useRef, useEffect } from "react";
 import Image from "next/image";
 import {
-  Zap,
   Check,
   ClipboardCheck,
   FileSearch,
@@ -24,6 +23,10 @@ import {
   TooltipTrigger,
 } from "@/components/ui/tooltip";
 import { useAppStore } from "@/stores/appStore";
+import { useSkillStore } from "@/stores/skillStore";
+import { SkillTag } from "@/components/skills/SkillTag";
+import { SkillSelector } from "@/components/skills/SkillSelector";
+import { replaceSessionSkills } from "@/services/gerclaw/skills";
 import { INPUT_LIMITS, MEDICAL_DISCLAIMER, ALLOWED_IMAGE_MIME_TYPES } from "@/lib/constants";
 import { toast } from "@/components/ui/toast";
 import { cn } from "@/lib/utils";
@@ -50,10 +53,11 @@ interface PendingImage {
 }
 
 interface ChatInputProps {
-  onSend?: (text: string, images?: ImageAttachment[]) => void;
+  onSend?: (text: string, images?: ImageAttachment[]) => boolean | void;
   isGenerating?: boolean;
   onStop?: () => void;
   onFileParsed?: (fileName: string, markdown: string) => void;
+  contextLoading?: boolean;
 }
 
 function WaveformBars({ audioLevel, recordingDuration }: { audioLevel: number; recordingDuration: number }) {
@@ -99,7 +103,7 @@ function FunctionButtonGroup({
   disabled,
   role,
   mounted,
-  onSetMainView,
+  seniorMode,
   onSetChatAction,
   onPickImage,
   onPickFile,
@@ -107,7 +111,7 @@ function FunctionButtonGroup({
   disabled: boolean;
   role: "patient" | "doctor" | "visitor";
   mounted: boolean;
-  onSetMainView: (view: "skills" | "chat") => void;
+  seniorMode: boolean;
   onSetChatAction: (action: "prescription" | "cga" | "drug-review" | "health-profile" | "none") => void;
   onPickImage: () => void;
   onPickFile: () => void;
@@ -149,23 +153,15 @@ function FunctionButtonGroup({
         </TooltipTrigger>
         <TooltipContent>上传文件（PDF/DOCX/MD/图片）</TooltipContent>
       </Tooltip>
-      <Tooltip>
-        <TooltipTrigger
-          render={
-            <Button
-              variant="ghost"
-              size="icon"
-              className="btn-icon"
-              onClick={() => onSetMainView("skills")}
-              aria-label="技能"
-              disabled={disabled}
-            />
-          }
-        >
-          <Zap className="size-4" />
-        </TooltipTrigger>
-        <TooltipContent>技能</TooltipContent>
-      </Tooltip>
+      <SkillSelector showLabel={seniorMode}>
+        <Button
+          variant="ghost"
+          size={seniorMode ? "default" : "icon"}
+          className={cn("btn-icon", seniorMode && "h-12 min-w-24 px-4 text-lg")}
+          aria-label="选择当前对话的临床技能"
+          disabled={disabled}
+        />
+      </SkillSelector>
       <Tooltip>
         <TooltipTrigger
           render={
@@ -242,13 +238,22 @@ function FunctionButtonGroup({
   );
 }
 
-export function ChatInput({ onSend, isGenerating, onStop, onFileParsed }: ChatInputProps) {
+export function ChatInput({
+  onSend,
+  isGenerating,
+  onStop,
+  onFileParsed,
+  contextLoading = false,
+}: ChatInputProps) {
   const [mounted, setMounted] = useState(false);
   const role = useAppStore((s) => s.role);
   const seniorMode = useAppStore((s) => s.seniorMode);
   const loadedSkillIds = useAppStore((s) => s.loadedSkillIds);
-  const removeLoadedSkill = useAppStore((s) => s.removeLoadedSkill);
-  const setMainView = useAppStore((s) => s.setMainView);
+  const setLoadedSkills = useAppStore((s) => s.setLoadedSkills);
+  const currentSessionId = useAppStore((s) => s.currentSessionId);
+  const availableSkills = useSkillStore((s) => s.skills);
+  const skillStatus = useSkillStore((s) => s.status);
+  const refreshSkills = useSkillStore((s) => s.refresh);
   const setChatAction = useAppStore((s) => s.setChatAction);
   const chatAction = useAppStore((s) => s.chatAction);
   const setRightPanel = useAppStore((s) => s.setRightPanel);
@@ -265,10 +270,25 @@ export function ChatInput({ onSend, isGenerating, onStop, onFileParsed }: ChatIn
   const imageInputRef = useRef<HTMLInputElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
+  const handleRemoveLoadedSkill = async (id: string) => {
+    const next = loadedSkillIds.filter((skillId) => skillId !== id);
+    try {
+      setLoadedSkills(currentSessionId ? await replaceSessionSkills(currentSessionId, next) : next);
+    } catch (error) {
+      toast.show(error instanceof Error ? error.message : "技能选择未保存");
+    }
+  };
+
   useEffect(() => {
     // eslint-disable-next-line react-hooks/set-state-in-effect
     setMounted(true);
   }, []);
+
+  useEffect(() => {
+    if (loadedSkillIds.length > 0 && skillStatus === "idle") {
+      void refreshSkills();
+    }
+  }, [loadedSkillIds.length, refreshSkills, skillStatus]);
 
   const micDisabled = !isOnline || !asrAvailable || isTranscribing || isGenerating;
 
@@ -462,6 +482,8 @@ export function ChatInput({ onSend, isGenerating, onStop, onFileParsed }: ChatIn
 
   const placeholder = !mounted
     ? "描述您的健康问题…"
+    : contextLoading
+      ? "正在恢复当前会话的技能，请稍候…"
     : role === "doctor"
       ? seniorMode
         ? "请描述患者病情或需要评估的内容…"
@@ -472,11 +494,18 @@ export function ChatInput({ onSend, isGenerating, onStop, onFileParsed }: ChatIn
 
   const handleSend = () => {
     const trimmed = text.trim();
-    if ((!trimmed && pendingImages.length === 0) || isGenerating || isTranscribing || !isOnline) return;
+    if (
+      (!trimmed && pendingImages.length === 0) ||
+      isGenerating ||
+      isTranscribing ||
+      contextLoading ||
+      !isOnline
+    ) return;
     const images: ImageAttachment[] | undefined = pendingImages.length > 0
       ? pendingImages.map((p) => ({ mimeType: p.mimeType, base64: p.base64, alt: p.alt }))
       : undefined;
-    onSend?.(trimmed, images);
+    const accepted = onSend?.(trimmed, images);
+    if (accepted === false) return;
     setText("");
     setPendingImages((prev) => {
       prev.forEach((img) => URL.revokeObjectURL(img.previewUrl));
@@ -625,21 +654,19 @@ export function ChatInput({ onSend, isGenerating, onStop, onFileParsed }: ChatIn
               </div>
             ))}
             {loadedSkillIds.map((id) => (
-              <span
+              <SkillTag
                 key={id}
-                className="inline-flex items-center gap-1 rounded-full bg-primary/10 text-primary text-xs px-2 py-1"
-              >
-                <Zap className="size-3" />
-                {id}
-                <button
-                  type="button"
-                  onClick={() => removeLoadedSkill(id)}
-                  className="hover:bg-primary/20 rounded-full p-0.5"
-                  aria-label="移除技能"
-                >
-                  <X className="size-3" />
-                </button>
-              </span>
+                skill={
+                  availableSkills.find((skill) => skill.skill_id === id) ?? {
+                    skill_id: id,
+                    name: "正在读取技能",
+                    source: "builtin",
+                  }
+                }
+                removable
+                onRemove={(skillId) => void handleRemoveLoadedSkill(skillId)}
+                className={cn(seniorMode && "min-h-12 px-3 text-lg")}
+              />
             ))}
           </div>
         )}
@@ -669,7 +696,7 @@ export function ChatInput({ onSend, isGenerating, onStop, onFileParsed }: ChatIn
             onKeyDown={handleKeyDown}
             placeholder={isTranscribing ? (seniorMode ? "正在识别语音…" : "识别中…") : placeholder}
             rows={1}
-            disabled={isTranscribing}
+            disabled={isTranscribing || contextLoading}
             className={cn(
               "w-full resize-none bg-transparent border-0 outline-none px-4 py-3 text-base leading-relaxed placeholder:text-muted-foreground max-h-[200px] overflow-y-auto disabled:opacity-60 transition-colors",
               seniorMode && "text-lg"
@@ -679,10 +706,10 @@ export function ChatInput({ onSend, isGenerating, onStop, onFileParsed }: ChatIn
 
           <div className="flex items-center justify-between gap-1 px-2 py-1.5 border-t border-border/60">
             <FunctionButtonGroup
-              disabled={isTranscribing}
+              disabled={isTranscribing || contextLoading}
               role={role}
               mounted={mounted}
-              onSetMainView={setMainView}
+              seniorMode={seniorMode}
               onSetChatAction={setChatAction}
               onPickImage={handleImageSelect}
               onPickFile={handleFileSelect}
@@ -713,10 +740,10 @@ export function ChatInput({ onSend, isGenerating, onStop, onFileParsed }: ChatIn
                       <Button
                         variant="default"
                         size="icon"
-                        className="btn-icon"
+                        className={cn("btn-icon", seniorMode && "size-12")}
                         onClick={handleSend}
                         aria-label="发送"
-                        disabled={!isOnline}
+                        disabled={!isOnline || contextLoading}
                       />
                     }
                   >
@@ -764,8 +791,16 @@ export function ChatInput({ onSend, isGenerating, onStop, onFileParsed }: ChatIn
 
         <div className={cn(
           "mt-1.5 text-muted-foreground",
-          seniorMode ? "text-xs" : "text-[11px]"
+          seniorMode ? "text-lg" : "text-[11px]"
         )}>
+          {contextLoading && (
+            <span
+              role="status"
+              className={cn("mb-1 block text-primary", seniorMode && "text-lg")}
+            >
+              正在恢复当前会话的技能，恢复完成后即可发送。
+            </span>
+          )}
           {MEDICAL_DISCLAIMER}
         </div>
       </div>

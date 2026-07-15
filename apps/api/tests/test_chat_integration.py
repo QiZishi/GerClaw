@@ -4,6 +4,8 @@ from __future__ import annotations
 
 import asyncio
 import uuid
+from collections.abc import Awaitable, Callable
+from datetime import UTC, datetime
 from typing import Any
 
 import pytest
@@ -14,6 +16,7 @@ from gerclaw_api.auth import create_access_token
 from gerclaw_api.database.models import BadCase, Message
 from gerclaw_api.domain.enums import TraceStatus
 from gerclaw_api.domain.trace_schemas import TraceFinishRequest
+from gerclaw_api.modules.agent_harness import StreamEvent
 from gerclaw_api.modules.contracts import AgentResponse, Citation, SafetyDecision
 from gerclaw_api.repositories.conversation import (
     ConversationConflictError,
@@ -49,6 +52,52 @@ class _SafeHarness:
 
     async def process_message(self, *_args: object, **_kwargs: object) -> AgentResponse:
         return _safe_response()
+
+
+class _BlockingSkillHarness:
+    entered = asyncio.Event()
+
+    def __init__(self, **_kwargs: object) -> None:
+        type(self).entered.clear()
+
+    async def assemble_context(self, *_args: object, **_kwargs: object) -> object:
+        return object()
+
+    async def process_message(
+        self,
+        _message: str,
+        _session_id: str,
+        _context: object,
+        callback: Callable[[StreamEvent], Awaitable[None]],
+    ) -> AgentResponse:
+        await callback(
+            StreamEvent(
+                event_type="tool_call",
+                data={
+                    "tool_call_id": "tool_call_cancel_route_001",
+                    "tool_name": "Skill",
+                    "status": "running",
+                },
+                timestamp=datetime.now(UTC),
+            )
+        )
+        self.entered.set()
+        try:
+            await asyncio.Event().wait()
+        except asyncio.CancelledError:
+            await callback(
+                StreamEvent(
+                    event_type="tool_result",
+                    data={
+                        "tool_call_id": "tool_call_cancel_route_001",
+                        "tool_name": "Skill",
+                        "status": "cancelled",
+                        "duration_ms": 1,
+                    },
+                    timestamp=datetime.now(UTC),
+                )
+            )
+            raise
 
 
 def _safe_response() -> AgentResponse:
@@ -422,3 +471,59 @@ async def test_terminal_trace_failure_atomically_rolls_back_assistant(
     assert assistant_count == 0
     assert bad_case_count == 1
     assert trace.json()["status"] == TraceStatus.FAILED.value
+
+
+@pytest.mark.integration
+@pytest.mark.asyncio
+async def test_explicit_cancel_keeps_sse_open_until_tool_and_trace_are_terminal(
+    integration_client: tuple[AsyncClient, object],
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The cancel control request must acknowledge only after durable cleanup is visible."""
+
+    client, _app = integration_client
+    session_id = uuid.uuid4()
+    trace_id = "trace_chat_cancel_route_0001"
+    assert (
+        await client.post("/api/v1/sessions", json={"session_id": str(session_id)})
+    ).status_code == 201
+    monkeypatch.setattr(chat_service_module, "ProductionAgentHarness", _BlockingSkillHarness)
+
+    chat_task = asyncio.create_task(
+        client.post(
+            "/api/v1/chat",
+            headers={"X-Trace-ID": trace_id},
+            json={
+                "session_id": str(session_id),
+                "message": "请按已加载技能准备随访",
+                "loaded_skills": ["risk-assessment"],
+                "channel": "web",
+            },
+            timeout=15,
+        )
+    )
+    await asyncio.wait_for(_BlockingSkillHarness.entered.wait(), timeout=3)
+
+    cancel = await client.post(f"/api/v1/chat/{trace_id}/cancel")
+    response = await asyncio.wait_for(chat_task, timeout=10)
+
+    assert cancel.status_code == 202, cancel.text
+    assert cancel.json() == {"trace_id": trace_id, "status": "cancellation_requested"}
+    assert response.status_code == 200, response.text
+    assert "event: tool_call" in response.text
+    assert "event: tool_result" in response.text
+    assert '"status":"cancelled"' in response.text
+    assert "event: cancelled" in response.text
+    assert response.text.index("event: tool_result") < response.text.index("event: cancelled")
+    assert "event: done" not in response.text
+
+    trace = await client.get(f"/api/v1/traces/{trace_id}?limit=100")
+    assert trace.status_code == 200, trace.text
+    trace_payload = trace.json()
+    assert trace_payload["status"] == TraceStatus.CANCELLED.value
+    skill_event = next(
+        event for event in trace_payload["events"] if event["event_type"] == "skill.execute"
+    )
+    assert skill_event["status"] == "cancelled"
+    assert skill_event["payload"]["skill"] == "risk-assessment"
+    assert skill_event["payload"]["outcome"] == "cancelled"

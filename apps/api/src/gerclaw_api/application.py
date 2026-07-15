@@ -11,11 +11,13 @@ from fastapi.responses import JSONResponse
 from qdrant_client import AsyncQdrantClient
 from redis.asyncio import Redis
 
+from gerclaw_api.api.routes.auth import router as auth_router
 from gerclaw_api.api.routes.chat import router as chat_router
 from gerclaw_api.api.routes.health import router as health_router
 from gerclaw_api.api.routes.memory import router as memory_router
 from gerclaw_api.api.routes.rag import router as rag_router
 from gerclaw_api.api.routes.search import router as search_router
+from gerclaw_api.api.routes.skills import router as skills_router
 from gerclaw_api.api.routes.traces import router as traces_router
 from gerclaw_api.config import Settings, get_settings
 from gerclaw_api.database.session import Database
@@ -37,6 +39,21 @@ from gerclaw_api.modules.search import (
     UnsafeSearchURLError,
     create_search_runtime,
 )
+from gerclaw_api.modules.skill import (
+    CorruptSkillError,
+    SkillConflictError,
+    SkillDisabledError,
+    SkillFormatError,
+    SkillGenerationError,
+    SkillNotFoundError,
+    UnsafeSkillArchiveError,
+    UnsafeSkillError,
+)
+from gerclaw_api.repositories.skill import (
+    SkillRepositoryConflictError,
+    SkillSessionNotFoundError,
+)
+from gerclaw_api.services.chat_cancellation import ChatCancellationRegistry
 from gerclaw_api.services.health_service import DependencyHealthService
 from gerclaw_api.services.model_router import FailoverChatModel
 from gerclaw_api.services.rate_limit import RateLimiter, RateLimitExceeded, RateLimitUnavailable
@@ -80,6 +97,9 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         model_configs = resolved.agent_model_configs
         app.state.database = database
         app.state.redis = redis_client
+        chat_cancellations = ChatCancellationRegistry(redis_client)
+        await chat_cancellations.start()
+        app.state.chat_cancellations = chat_cancellations
         app.state.qdrant = qdrant_client
         app.state.rag_runtime = rag_runtime
         app.state.search_runtime = search_runtime
@@ -106,6 +126,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         try:
             yield
         finally:
+            await chat_cancellations.aclose()
             if agent_model is not None:
                 await agent_model.aclose()
             await search_runtime.aclose()
@@ -126,18 +147,20 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         CORSMiddleware,
         allow_origins=resolved.cors_origin_strings,
         allow_credentials=True,
-        allow_methods=["GET", "POST", "OPTIONS"],
+        allow_methods=["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
         allow_headers=["Authorization", "Content-Type", "X-Request-ID", "X-Trace-ID"],
     )
     app.add_middleware(RequestBodyLimitMiddleware, max_body_bytes=resolved.max_request_body_bytes)
     app.add_middleware(SecurityHeadersMiddleware)
     app.add_middleware(RequestContextMiddleware)
     app.include_router(health_router)
+    app.include_router(auth_router, prefix=resolved.api_prefix)
     app.include_router(traces_router, prefix=resolved.api_prefix)
     app.include_router(rag_router, prefix=resolved.api_prefix)
     app.include_router(search_router, prefix=resolved.api_prefix)
     app.include_router(chat_router, prefix=resolved.api_prefix)
     app.include_router(memory_router, prefix=resolved.api_prefix)
+    app.include_router(skills_router, prefix=resolved.api_prefix)
 
     @app.exception_handler(TraceNotFoundError)
     async def trace_not_found(_request: Request, error: TraceNotFoundError) -> JSONResponse:
@@ -196,6 +219,65 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         return JSONResponse(
             {"error": {"code": "SEARCH_URL_REJECTED", "message": str(error)}},
             status_code=400,
+        )
+
+    @app.exception_handler(SkillNotFoundError)
+    @app.exception_handler(SkillSessionNotFoundError)
+    async def skill_not_found(_request: Request, _error: Exception) -> JSONResponse:
+        return JSONResponse(
+            {"error": {"code": "SKILL_NOT_FOUND", "message": "Skill or session not found"}},
+            status_code=404,
+        )
+
+    @app.exception_handler(SkillConflictError)
+    @app.exception_handler(SkillRepositoryConflictError)
+    async def skill_conflict(_request: Request, error: Exception) -> JSONResponse:
+        return JSONResponse(
+            {"error": {"code": "SKILL_CONFLICT", "message": str(error)}},
+            status_code=409,
+        )
+
+    @app.exception_handler(SkillDisabledError)
+    async def skill_disabled(_request: Request, _error: SkillDisabledError) -> JSONResponse:
+        return JSONResponse(
+            {"error": {"code": "SKILL_DISABLED", "message": "Skill is disabled"}},
+            status_code=409,
+        )
+
+    @app.exception_handler(SkillFormatError)
+    @app.exception_handler(UnsafeSkillArchiveError)
+    @app.exception_handler(UnsafeSkillError)
+    async def skill_rejected(_request: Request, error: Exception) -> JSONResponse:
+        code = "SKILL_UNSAFE" if isinstance(error, UnsafeSkillError) else "SKILL_INVALID"
+        return JSONResponse(
+            {"error": {"code": code, "message": str(error)}},
+            status_code=422,
+        )
+
+    @app.exception_handler(SkillGenerationError)
+    async def skill_generation_unavailable(
+        _request: Request, _error: SkillGenerationError
+    ) -> JSONResponse:
+        return JSONResponse(
+            {
+                "error": {
+                    "code": "SKILL_GENERATION_UNAVAILABLE",
+                    "message": "Skill generation service is unavailable",
+                }
+            },
+            status_code=503,
+        )
+
+    @app.exception_handler(CorruptSkillError)
+    async def corrupt_skill(_request: Request, _error: CorruptSkillError) -> JSONResponse:
+        return JSONResponse(
+            {
+                "error": {
+                    "code": "SKILL_STORAGE_INVALID",
+                    "message": "Stored Skill failed integrity validation",
+                }
+            },
+            status_code=500,
         )
 
     return app

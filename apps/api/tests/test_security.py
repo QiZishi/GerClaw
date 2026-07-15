@@ -7,10 +7,22 @@ import pytest
 from gerclaw_api.security import (
     REDACTED,
     AuditPayloadError,
+    audit_hmac_digest,
     redact_text,
     sanitize_payload,
     validate_audit_payload,
 )
+
+
+def test_audit_hmac_digest_cannot_look_like_phone_or_id_card() -> None:
+    digest = audit_hmac_digest(
+        b"test-key",
+        b"payload-that-produced-5f8dd071eebc73f4fbb582617875ff0192d2ec99cc46b6c0a08f15730958845f",
+    )
+
+    assert len(digest) == 52
+    assert set(digest) <= set("abcdefghijklmnopqrstuvwxyz234567")
+    assert redact_text(digest) == digest
 
 
 def test_redact_text_removes_common_phi_and_authorization() -> None:
@@ -85,6 +97,8 @@ def test_redaction_is_linear_for_long_delimiter_free_text() -> None:
     [
         {"name": "张三"},
         {"source": "北京市朝阳区幸福路1号"},
+        {"skill": "patient-13800138000-followup"},
+        {"document_ids": ["record-11010519491231002X"]},
         {"score": float("nan")},
         {
             "token_usage": {

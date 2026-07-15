@@ -154,7 +154,10 @@ PLACEHOLDER_PATTERNS = [
     r"例如：",
     r"XXX",
     r"xxx",
-    r"<[^>]+>",
+    # Security boundary tags such as <untrusted-web-evidence> are executable
+    # protocol literals, not unfinished documentation. Angle-bracket placeholders
+    # in this repository contain human-language text or whitespace.
+    r"<[^>]*[\s\u4e00-\u9fff][^>]*>",
 ]
 
 EXCLUDED_PATTERNS = [

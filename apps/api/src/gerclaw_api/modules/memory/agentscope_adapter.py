@@ -2,14 +2,28 @@
 
 from __future__ import annotations
 
+import logging
 from typing import Any
 
 from gerclaw_api.modules.memory.memory_module import ProductionMemoryModule
 from gerclaw_api.modules.memory.protocols import MemoryMessage
 
+_LOGGER = logging.getLogger("gerclaw.memory.adapter")
+
 
 class AgentScopeMemoryAdapterError(RuntimeError):
     """Safe adapter failure surfaced after AgentScope finishes its middleware chain."""
+
+
+def _exception_chain(error: BaseException) -> list[str]:
+    """Return bounded exception class names without messages, inputs, or provider identity."""
+
+    chain: list[str] = []
+    current: BaseException | None = error
+    while current is not None and len(chain) < 8:
+        chain.append(type(current).__name__)
+        current = current.__cause__
+    return chain
 
 
 class GerClawMem0Client:
@@ -54,6 +68,10 @@ class GerClawMem0Client:
             profile = await self._module.get_long_term(self._actor_id, query=query)
         except Exception as error:
             self._error = error
+            _LOGGER.warning(
+                "memory_adapter_search_failed",
+                extra={"attributes": {"exception_chain": _exception_chain(error)}},
+            )
             raise AgentScopeMemoryAdapterError("memory search failed") from error
         return {
             "results": [
@@ -81,6 +99,10 @@ class GerClawMem0Client:
             await self._module.extract_and_update_profile(self._actor_id, [self._source])
         except Exception as error:
             self._error = error
+            _LOGGER.warning(
+                "memory_adapter_write_failed",
+                extra={"attributes": {"exception_chain": _exception_chain(error)}},
+            )
             raise AgentScopeMemoryAdapterError("memory write failed") from error
         self._write_done = True
         return self._result()

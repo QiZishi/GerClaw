@@ -33,6 +33,7 @@ def build_agentscope_model(config: AgentModelConfig) -> ChatModelBase:
         model: ChatModelBase = OpenAIChatModel(
             credential=OpenAICredential(api_key=config.api_key, base_url=base_url),
             model=config.model_name,
+            parameters=OpenAIChatModel.Parameters(max_tokens=config.max_output_tokens),
             stream=True,
             max_retries=1,
             client_kwargs=client_kwargs,
@@ -41,6 +42,7 @@ def build_agentscope_model(config: AgentModelConfig) -> ChatModelBase:
         model = DashScopeChatModel(
             credential=DashScopeCredential(api_key=config.api_key, base_url=base_url),
             model=config.model_name,
+            parameters=DashScopeChatModel.Parameters(max_tokens=config.max_output_tokens),
             stream=True,
             max_retries=1,
             client_kwargs=client_kwargs,
@@ -49,6 +51,7 @@ def build_agentscope_model(config: AgentModelConfig) -> ChatModelBase:
         model = AnthropicChatModel(
             credential=AnthropicCredential(api_key=config.api_key, base_url=base_url),
             model=config.model_name,
+            parameters=AnthropicChatModel.Parameters(max_tokens=config.max_output_tokens),
             stream=True,
             max_retries=1,
             client_kwargs=client_kwargs,

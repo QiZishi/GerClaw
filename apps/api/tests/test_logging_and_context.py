@@ -57,5 +57,7 @@ def test_logging_configuration_metrics_and_header_ids() -> None:
     assert "text/plain" in media_type
     assert _safe_header_id("request_valid_001", "req") == "request_valid_001"
     assert _safe_header_id("bad", "req").startswith("req_")
+    assert _safe_header_id("request_13800138000", "req") != "request_13800138000"
     assert _safe_trace_id("trace_valid_001") == "trace_valid_001"
     assert _safe_trace_id("request_valid_001").startswith("trace_")
+    assert _safe_trace_id("trace_13800138000") != "trace_13800138000"

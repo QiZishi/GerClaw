@@ -2,8 +2,6 @@
 
 from __future__ import annotations
 
-import hashlib
-import hmac
 import json
 import uuid
 from typing import Annotated, Literal, cast
@@ -25,6 +23,7 @@ from gerclaw_api.modules.search import (
     SearchUnavailableError,
     capture_search_attempts,
 )
+from gerclaw_api.security import audit_hmac_digest
 from gerclaw_api.services.rate_limit import RateLimiter
 from gerclaw_api.services.trace_service import TraceConflictError, TraceService
 
@@ -99,7 +98,7 @@ def _fingerprint(request: Request, payload: BaseModel) -> str:
         separators=(",", ":"),
     )
     key = request.app.state.settings.auth_jwt_secret.get_secret_value().encode()
-    return hmac.new(key, canonical.encode(), hashlib.sha256).hexdigest()
+    return audit_hmac_digest(key, canonical.encode())
 
 
 async def _start_trace(

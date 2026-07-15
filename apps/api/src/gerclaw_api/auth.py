@@ -100,7 +100,9 @@ async def authenticate(
         ) from error
 
 
-def _authorize(identity: AuthContext, required_scope: str) -> AuthContext:
+def authorize_scope(identity: AuthContext, required_scope: str) -> AuthContext:
+    """Enforce one scope for both dependency and conditional route policies."""
+
     if required_scope not in identity.scopes:
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
@@ -114,7 +116,7 @@ async def require_trace_read(
 ) -> AuthContext:
     """Require tenant-scoped Trace read access."""
 
-    return _authorize(identity, "trace:read")
+    return authorize_scope(identity, "trace:read")
 
 
 async def require_trace_write(
@@ -122,7 +124,7 @@ async def require_trace_write(
 ) -> AuthContext:
     """Require tenant-scoped Trace mutation access."""
 
-    return _authorize(identity, "trace:write")
+    return authorize_scope(identity, "trace:write")
 
 
 async def require_feedback_write(
@@ -130,7 +132,7 @@ async def require_feedback_write(
 ) -> AuthContext:
     """Require tenant-scoped feedback mutation access."""
 
-    return _authorize(identity, "feedback:write")
+    return authorize_scope(identity, "feedback:write")
 
 
 async def require_metrics_read(
@@ -138,7 +140,7 @@ async def require_metrics_read(
 ) -> AuthContext:
     """Require operational metrics access."""
 
-    return _authorize(identity, "metrics:read")
+    return authorize_scope(identity, "metrics:read")
 
 
 async def require_rag_read(
@@ -146,7 +148,7 @@ async def require_rag_read(
 ) -> AuthContext:
     """Require access to local medical evidence retrieval."""
 
-    return _authorize(identity, "rag:read")
+    return authorize_scope(identity, "rag:read")
 
 
 async def require_chat_read(
@@ -154,7 +156,7 @@ async def require_chat_read(
 ) -> AuthContext:
     """Require access to the caller's own conversation history."""
 
-    return _authorize(identity, "chat:read")
+    return authorize_scope(identity, "chat:read")
 
 
 async def require_chat_write(
@@ -162,7 +164,7 @@ async def require_chat_write(
 ) -> AuthContext:
     """Require access to execute a tenant-scoped Agent turn."""
 
-    return _authorize(identity, "chat:write")
+    return authorize_scope(identity, "chat:write")
 
 
 async def require_memory_read(
@@ -170,7 +172,7 @@ async def require_memory_read(
 ) -> AuthContext:
     """Require access to the caller's own encrypted health memory."""
 
-    return _authorize(identity, "memory:read")
+    return authorize_scope(identity, "memory:read")
 
 
 async def require_memory_write(
@@ -178,7 +180,7 @@ async def require_memory_write(
 ) -> AuthContext:
     """Require confirmation or retirement of the caller's memory facts."""
 
-    return _authorize(identity, "memory:write")
+    return authorize_scope(identity, "memory:write")
 
 
 async def require_search_read(
@@ -186,4 +188,28 @@ async def require_search_read(
 ) -> AuthContext:
     """Require access to provider-backed online evidence search."""
 
-    return _authorize(identity, "search:read")
+    return authorize_scope(identity, "search:read")
+
+
+async def require_skill_read(
+    identity: Annotated[AuthContext, Depends(authenticate)],
+) -> AuthContext:
+    """Require discovery access to system and caller-owned Skills."""
+
+    return authorize_scope(identity, "skill:read")
+
+
+async def require_skill_write(
+    identity: Annotated[AuthContext, Depends(authenticate)],
+) -> AuthContext:
+    """Require mutation access to caller-owned Skills."""
+
+    return authorize_scope(identity, "skill:write")
+
+
+async def require_skill_execute(
+    identity: Annotated[AuthContext, Depends(authenticate)],
+) -> AuthContext:
+    """Require explicit Skill activation access."""
+
+    return authorize_scope(identity, "skill:execute")

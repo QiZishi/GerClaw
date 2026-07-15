@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import base64
 import os
+import re
 import secrets
 from functools import lru_cache
 from pathlib import Path
@@ -65,7 +66,8 @@ class AgentModelConfig(BaseModel):
     model_name: str = Field(min_length=1, max_length=128)
     protocol: Literal["openai", "dashscope", "anthropic"]
     preference: Literal["primary", "backup1", "backup2"]
-    timeout_seconds: float = Field(default=30.0, gt=0, le=120)
+    timeout_seconds: float = Field(default=60.0, gt=0, le=60)
+    max_output_tokens: int = Field(default=1_024, ge=256, le=1_024)
 
 
 class Settings(BaseSettings):
@@ -94,6 +96,8 @@ class Settings(BaseSettings):
     agent_max_react_iterations: int = Field(default=10, ge=1, le=20)
     agent_history_messages: int = Field(default=40, ge=2, le=200)
     agent_evidence_top_k: int = Field(default=5, ge=1, le=10)
+    agent_model_timeout_seconds: float = Field(default=60.0, gt=0, le=60)
+    agent_model_max_output_tokens: int = Field(default=1_024, ge=256, le=1_024)
     agent_max_output_characters: int = Field(default=20_000, ge=1_000, le=50_000)
     chat_session_lease_ttl_seconds: int = Field(default=300, ge=60, le=900)
     memory_collection_name: str = Field(
@@ -114,9 +118,22 @@ class Settings(BaseSettings):
         default=2 * 1024 * 1024, ge=64 * 1024, le=8 * 1024 * 1024
     )
     search_max_content_characters: int = Field(default=50_000, ge=1_000, le=100_000)
+    skill_max_markdown_characters: int = Field(default=10_000, ge=1_000, le=10_000)
+    skill_max_archive_bytes: int = Field(default=262_144, ge=16_384, le=1_048_576)
+    skill_max_loaded: int = Field(default=10, ge=1, le=10)
+    skill_allowed_tools: list[str] = Field(
+        default_factory=lambda: ["search_knowledge", "web_search", "search_memory"],
+        min_length=1,
+        max_length=20,
+    )
+    guest_token_ttl_seconds: int = Field(default=3_600, ge=300, le=86_400)
 
     auth_jwt_secret: SecretStr = Field(
         default_factory=lambda: _load_or_create_local_secret("jwt.key"), min_length=32
+    )
+    guest_identity_secret: SecretStr = Field(
+        default_factory=lambda: _load_or_create_local_secret("guest-identity.key"),
+        min_length=32,
     )
     auth_jwt_issuer: str = Field(default="gerclaw", min_length=2, max_length=128)
     auth_jwt_audience: str = Field(default="gerclaw-api", min_length=2, max_length=128)
@@ -397,6 +414,17 @@ class Settings(BaseSettings):
             return None
         return value
 
+    @field_validator("skill_allowed_tools")
+    @classmethod
+    def validate_skill_allowed_tools(cls, value: list[str]) -> list[str]:
+        """Keep the declarative Skill capability surface finite and unambiguous."""
+
+        if len(value) != len(set(value)) or any(
+            not re.fullmatch(r"[a-z][a-z0-9_.-]{1,63}", item) for item in value
+        ):
+            raise ValueError("Skill allowed tools must be unique valid tool names")
+        return value
+
     @model_validator(mode="after")
     def validate_production_safety(self) -> Settings:
         """Reject unsafe production-only configuration combinations."""
@@ -423,8 +451,14 @@ class Settings(BaseSettings):
             raise ValueError("memory top-k cannot exceed retrieval candidates")
 
         if self.app_env == "production":
-            if not {"auth_jwt_secret", "data_encryption_key"}.issubset(self.model_fields_set):
-                raise ValueError("production requires explicit JWT and data-encryption secrets")
+            if not {
+                "auth_jwt_secret",
+                "guest_identity_secret",
+                "data_encryption_key",
+            }.issubset(self.model_fields_set):
+                raise ValueError(
+                    "production requires explicit JWT, guest-identity, and data-encryption secrets"
+                )
             origins = {str(origin).rstrip("/") for origin in self.cors_origins}
             if any(not origin.startswith("https://") for origin in origins):
                 raise ValueError("production CORS origins must use HTTPS")
@@ -494,6 +528,7 @@ class Settings(BaseSettings):
 
             secrets = (
                 self.auth_jwt_secret,
+                self.guest_identity_secret,
                 self.data_encryption_key,
                 self.agent_primary_api_key,
                 self.agent_backup1_api_key,
@@ -574,7 +609,8 @@ class Settings(BaseSettings):
                     model_name=model,
                     protocol=protocol,
                     preference=preference,
-                    timeout_seconds=self.external_request_timeout_seconds,
+                    timeout_seconds=self.agent_model_timeout_seconds,
+                    max_output_tokens=self.agent_model_max_output_tokens,
                 )
             )
         return tuple(configured)

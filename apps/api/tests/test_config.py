@@ -18,6 +18,7 @@ def _values() -> dict[str, object]:
         "knowledge_base_path": Path("/knowledge-base"),
         "cors_origins": ["https://gerclaw.example.com"],
         "auth_jwt_secret": "strong-jwt-secret-with-at-least-thirty-two-characters",
+        "guest_identity_secret": "strong-guest-identity-secret-with-at-least-thirty-two-chars",
         "data_encryption_key": "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=",
         "data_encryption_key_id": "production-v1",
         "agent_primary_url": "https://primary.example.com/v1",
@@ -60,6 +61,23 @@ def test_production_settings_accept_explicit_safe_endpoints() -> None:
         "backup1",
         "backup2",
     ]
+    assert {item.max_output_tokens for item in settings.agent_model_configs} == {1_024}
+    assert {item.timeout_seconds for item in settings.agent_model_configs} == {60.0}
+
+
+@pytest.mark.parametrize(
+    ("field", "value"),
+    [
+        ("agent_model_timeout_seconds", 60.01),
+        ("agent_model_max_output_tokens", 1_025),
+    ],
+)
+def test_model_deadline_and_output_budget_are_hard_upper_bounds(field: str, value: object) -> None:
+    values = _values()
+    values[field] = value
+
+    with pytest.raises(ValidationError):
+        Settings.model_validate(values)
 
 
 @pytest.mark.parametrize(

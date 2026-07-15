@@ -16,6 +16,7 @@ from gerclaw_api.auth import create_access_token
 from gerclaw_api.config import Settings
 
 TEST_JWT_SECRET = "tests-only-jwt-secret-that-is-longer-than-32-characters"
+TEST_GUEST_IDENTITY_SECRET = "tests-only-guest-identity-secret-longer-than-32-characters"
 TEST_DATA_KEY = "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA="
 
 
@@ -40,6 +41,7 @@ def make_settings(**overrides: object) -> Settings:
         "cors_origins": ["http://localhost:3000"],
         "readiness_cache_seconds": 0,
         "auth_jwt_secret": TEST_JWT_SECRET,
+        "guest_identity_secret": TEST_GUEST_IDENTITY_SECRET,
         "data_encryption_key": TEST_DATA_KEY,
         "data_encryption_key_id": "test-v1",
     }
@@ -147,6 +149,7 @@ async def integration_client(
             await connection.execute(
                 text(
                     "TRUNCATE bad_cases, user_feedback, trace_events, messages, "
+                    "skill_definition_revisions, session_skills, skill_definitions, "
                     "memory_fact_revisions, memory_facts, health_profiles, sessions, users, "
                     "execution_traces "
                     "RESTART IDENTITY CASCADE"
@@ -167,6 +170,9 @@ async def integration_client(
                 "memory:read",
                 "memory:write",
                 "search:read",
+                "skill:read",
+                "skill:write",
+                "skill:execute",
             },
         )
         async with AsyncClient(

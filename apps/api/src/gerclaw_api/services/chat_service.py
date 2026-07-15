@@ -3,8 +3,6 @@
 from __future__ import annotations
 
 import asyncio
-import hashlib
-import hmac
 import json
 import time
 import uuid
@@ -26,19 +24,23 @@ from gerclaw_api.modules.agent_harness import (
     ConversationHistoryMessage,
     ProductionAgentHarness,
     StreamEvent,
+    UnsupportedAgentContextError,
 )
 from gerclaw_api.modules.contracts import AgentResponse, ExecutionContext
 from gerclaw_api.modules.memory.memory_module import ProductionMemoryModule
 from gerclaw_api.modules.memory.models import MemoryUpdateResult
 from gerclaw_api.modules.rag import HybridRAGModule
 from gerclaw_api.modules.search.protocols import SearchModule
-from gerclaw_api.security import JsonValue
+from gerclaw_api.modules.skill.skill_module import ProductionSkillModule
+from gerclaw_api.security import JsonValue, audit_hmac_digest
 from gerclaw_api.services.conversation_service import ConversationService
 from gerclaw_api.services.model_router import FailoverChatModel
 from gerclaw_api.services.session_lease import SessionLease, SessionLeaseGuard
 from gerclaw_api.services.trace_service import TraceService
 
 StreamCallback = Callable[[StreamEvent], Awaitable[None]]
+CancellationProbe = Callable[[], Awaitable[bool]]
+ActiveSkillCall = tuple[float, str, str | None]
 
 
 class MemoryModuleFactory(Protocol):
@@ -59,6 +61,10 @@ class ChatReplayUnavailableError(RuntimeError):
     """Raised when a terminal Trace has no successful replayable response."""
 
 
+class ChatCancellationFinalizationError(RuntimeError):
+    """Raised when cancellation cannot be durably published as a terminal Trace."""
+
+
 def _fingerprint(payload: ChatRequest, settings: Settings) -> str:
     """Return a keyed payload identity without exposing enumerable user text."""
 
@@ -70,7 +76,7 @@ def _fingerprint(payload: ChatRequest, settings: Settings) -> str:
         separators=(",", ":"),
     )
     key = settings.auth_jwt_secret.get_secret_value().encode()
-    return hmac.new(key, canonical.encode(), hashlib.sha256).hexdigest()
+    return audit_hmac_digest(key, canonical.encode())
 
 
 def _event_id() -> str:
@@ -95,6 +101,7 @@ class ChatService:
         rag_module: HybridRAGModule,
         memory_factory: MemoryModuleFactory,
         search_module: SearchModule | None = None,
+        skill_module: ProductionSkillModule | None = None,
     ) -> None:
         self._settings = settings
         self._conversation = conversation
@@ -104,6 +111,7 @@ class ChatService:
         self._rag_module = rag_module
         self._memory_factory = memory_factory
         self._search_module = search_module
+        self._skill_module = skill_module
 
     async def process(
         self,
@@ -113,6 +121,7 @@ class ChatService:
         request_id: str,
         trace_id: str,
         callback: StreamCallback,
+        cancellation_requested: CancellationProbe | None = None,
     ) -> AgentResponse:
         started = time.monotonic()
         request_fingerprint = _fingerprint(payload, self._settings)
@@ -159,6 +168,8 @@ class ChatService:
         fencing_token: int | None = None
         lease_guard: SessionLeaseGuard | None = None
         failure_handled = False
+        active_skill_calls: dict[str, ActiveSkillCall] = {}
+        skill_audit_events: list[TraceEventCreate] = []
         try:
             fencing_token = await self._conversation.next_fencing_token()
             async with self._lease.acquire(
@@ -179,9 +190,12 @@ class ChatService:
                         request_fingerprint=request_fingerprint,
                         lease_guard=lease_guard,
                         callback=callback,
+                        cancellation_requested=cancellation_requested,
+                        active_skill_calls=active_skill_calls,
+                        skill_audit_events=skill_audit_events,
                     )
-                except asyncio.CancelledError:
-                    await self._finish_failure(
+                except asyncio.CancelledError as cancellation_error:
+                    cancellation_persisted = await self._finish_failure(
                         payload,
                         identity=identity,
                         trace_id=trace_id,
@@ -190,8 +204,14 @@ class ChatService:
                         request_fingerprint=request_fingerprint,
                         fencing_token=fencing_token,
                         lease_guard=lease_guard,
+                        active_skill_calls=active_skill_calls,
+                        skill_audit_events=skill_audit_events,
                     )
                     failure_handled = True
+                    if not cancellation_persisted:
+                        raise ChatCancellationFinalizationError(
+                            "cancelled Trace could not be durably finalized"
+                        ) from cancellation_error
                     raise
                 except Exception as error:
                     await self._finish_failure(
@@ -203,15 +223,17 @@ class ChatService:
                         request_fingerprint=request_fingerprint,
                         fencing_token=fencing_token,
                         lease_guard=lease_guard,
+                        active_skill_calls=active_skill_calls,
+                        skill_audit_events=skill_audit_events,
                     )
                     failure_handled = True
                     raise
                 CHAT_TURNS.labels(outcome="completed").inc()
                 CHAT_TURN_LATENCY.observe(time.monotonic() - started)
                 return response
-        except asyncio.CancelledError:
+        except asyncio.CancelledError as cancellation_error:
             if owns_trace_execution and not failure_handled:
-                await self._finish_failure(
+                cancellation_persisted = await self._finish_failure(
                     payload,
                     identity=identity,
                     trace_id=trace_id,
@@ -220,7 +242,13 @@ class ChatService:
                     request_fingerprint=request_fingerprint,
                     fencing_token=fencing_token,
                     lease_guard=lease_guard,
+                    active_skill_calls=active_skill_calls,
+                    skill_audit_events=skill_audit_events,
                 )
+                if not cancellation_persisted:
+                    raise ChatCancellationFinalizationError(
+                        "cancelled Trace could not be durably finalized"
+                    ) from cancellation_error
             CHAT_TURNS.labels(outcome="cancelled").inc()
             CHAT_TURN_LATENCY.observe(time.monotonic() - started)
             raise
@@ -235,6 +263,8 @@ class ChatService:
                     request_fingerprint=request_fingerprint,
                     fencing_token=fencing_token,
                     lease_guard=lease_guard,
+                    active_skill_calls=active_skill_calls,
+                    skill_audit_events=skill_audit_events,
                 )
             CHAT_TURNS.labels(outcome="failed").inc()
             CHAT_TURN_LATENCY.observe(time.monotonic() - started)
@@ -250,6 +280,9 @@ class ChatService:
         request_fingerprint: str,
         lease_guard: SessionLeaseGuard,
         callback: StreamCallback,
+        cancellation_requested: CancellationProbe | None,
+        active_skill_calls: dict[str, ActiveSkillCall],
+        skill_audit_events: list[TraceEventCreate],
     ) -> AgentResponse:
         conversation = await self._conversation.ensure_session(
             payload.session_id,
@@ -265,6 +298,27 @@ class ChatService:
         )
         if conversation.user_id is None:
             raise RuntimeError("conversation has no active user principal")
+        if payload.loaded_skills and self._skill_module is None:
+            raise UnsupportedAgentContextError("Skill module is unavailable")
+        agent_skills = (
+            await self._skill_module.resolve_agent_skills(payload.loaded_skills)
+            if self._skill_module is not None
+            else []
+        )
+        skill_versions = {
+            skill_id: version
+            for skill in agent_skills
+            if skill.dir.startswith("skill://") and "@" in skill.dir
+            for skill_id, version in [skill.dir.removeprefix("skill://").rsplit("@", maxsplit=1)]
+        }
+        fallback_skill_id = (
+            payload.loaded_skills[0] if len(payload.loaded_skills) == 1 else "unknown_skill"
+        )
+        fallback_skill_version = skill_versions.get(fallback_skill_id)
+        if self._skill_module is not None:
+            await self._skill_module.replace_session_skills(
+                payload.session_id, payload.loaded_skills, commit=False
+            )
         memory = self._memory_factory(
             tenant_id=identity.tenant_id,
             actor_id=identity.actor_id,
@@ -319,6 +373,8 @@ class ChatService:
             session_summary=session_summary,
             search_module=self._search_module,
             search_enabled=payload.workflow != "cga",
+            agent_skills=agent_skills,
+            loaded_skill_ids=payload.loaded_skills,
         )
         context = await harness.assemble_context(
             str(payload.session_id),
@@ -343,31 +399,101 @@ class ChatService:
         async def projected(event: StreamEvent) -> None:
             if event.event_type == "done":
                 return
-            await callback(event)
+            if event.event_type == "tool_call" and event.data.get("tool_name") == "Skill":
+                tool_call_id = event.data.get("tool_call_id")
+                if isinstance(tool_call_id, str):
+                    active_skill_calls[tool_call_id] = (
+                        time.monotonic(),
+                        fallback_skill_id,
+                        fallback_skill_version,
+                    )
             if event.event_type == "tool_result":
                 data = event.data
-                success = data.get("status") == "success"
+                result_status = data.get("status")
+                success = result_status == "success"
+                trace_status = (
+                    TraceEventStatus.SUCCEEDED
+                    if success
+                    else TraceEventStatus.CANCELLED
+                    if result_status == "cancelled"
+                    else TraceEventStatus.FAILED
+                )
+                outcome = (
+                    "success"
+                    if success
+                    else "cancelled"
+                    if result_status == "cancelled"
+                    else "failed"
+                )
                 raw_duration = data.get("duration_ms")
                 duration_ms = (
                     raw_duration
                     if isinstance(raw_duration, int) and not isinstance(raw_duration, bool)
                     else 0
                 )
-                await self._append_event(
-                    identity.tenant_id,
-                    trace_id,
-                    TraceEventType.TOOL_CALL,
-                    TraceEventStatus.SUCCEEDED if success else TraceEventStatus.FAILED,
-                    {
-                        "duration_ms": duration_ms,
-                        "operation": "execute",
-                        "outcome": "success" if success else "failed",
-                        "success": success,
-                        "tool_name": data.get("tool_name", "unknown_tool"),
-                    },
-                    duration_ms=duration_ms,
-                    commit=False,
+                tool_name = data.get("tool_name", "unknown_tool")
+                is_skill = tool_name == "Skill"
+                tool_call_id = data.get("tool_call_id")
+                pending_skill = (
+                    active_skill_calls.pop(tool_call_id, None)
+                    if isinstance(tool_call_id, str)
+                    else None
                 )
+                skill_id = data.get("skill")
+                skill_version = data.get("version")
+                if is_skill:
+                    resolved_skill = (
+                        skill_id
+                        if isinstance(skill_id, str)
+                        else pending_skill[1]
+                        if pending_skill is not None
+                        else "unknown_skill"
+                    )
+                    resolved_version = (
+                        skill_version
+                        if isinstance(skill_version, str)
+                        else pending_skill[2]
+                        if pending_skill is not None
+                        else None
+                    )
+                    audit_event = TraceEventCreate(
+                        event_id=_event_id(),
+                        event_type=TraceEventType.SKILL_EXECUTE,
+                        status=trace_status,
+                        payload={
+                            "duration_ms": duration_ms,
+                            "operation": "viewer",
+                            "outcome": outcome,
+                            "skill": resolved_skill,
+                            "success": success,
+                            **({"version": resolved_version} if resolved_version else {}),
+                        },
+                        duration_ms=duration_ms,
+                    )
+                    skill_audit_events.append(audit_event)
+                    await self._traces.append_event(
+                        identity.tenant_id,
+                        trace_id,
+                        audit_event,
+                        commit=False,
+                    )
+                else:
+                    await self._append_event(
+                        identity.tenant_id,
+                        trace_id,
+                        TraceEventType.TOOL_CALL,
+                        trace_status,
+                        {
+                            "duration_ms": duration_ms,
+                            "operation": "execute",
+                            "outcome": outcome,
+                            "success": success,
+                            "tool_name": tool_name,
+                        },
+                        duration_ms=duration_ms,
+                        commit=False,
+                    )
+            await callback(event)
 
         try:
             response = await harness.process_message(
@@ -376,6 +502,12 @@ class ChatService:
                 context,
                 projected,
             )
+            # AgentScope middleware performs asynchronous cleanup when a model
+            # stream is interrupted. A provider can finish during that cleanup
+            # and consume the task cancellation. The durable intent is therefore
+            # the final fence before an assistant response becomes replayable.
+            if cancellation_requested is not None and await cancellation_requested():
+                raise asyncio.CancelledError("explicit chat cancellation requested")
             # Conversation and Trace repositories share this request's
             # AsyncSession. Stage the assistant plus success events, then let the
             # terminal Trace transition commit the whole success unit atomically.
@@ -451,7 +583,8 @@ class ChatService:
     ) -> None:
         structured = response.structured
         selected = structured.get("model_preference")
-        model_slot = selected if isinstance(selected, str) else "unknown"
+        model_invoked = structured.get("model_invoked") is True
+        model_slot = selected if model_invoked and isinstance(selected, str) else "not_invoked"
         input_tokens = structured.get("input_tokens")
         output_tokens = structured.get("output_tokens")
         input_tokens = input_tokens if isinstance(input_tokens, int) else 0
@@ -496,22 +629,23 @@ class ChatService:
                 duration_ms=duration_ms,
                 commit=commit,
             )
-        await self._append_event(
-            tenant_id,
-            trace_id,
-            TraceEventType.MODEL_CALL,
-            TraceEventStatus.SUCCEEDED,
-            {
-                "input_tokens": input_tokens,
-                "model": model_slot,
-                "outcome": "success",
-                "output_tokens": output_tokens,
-                "retry_count": retry_count,
-                "success": True,
-                "total_tokens": input_tokens + output_tokens,
-            },
-            commit=commit,
-        )
+        if model_invoked:
+            await self._append_event(
+                tenant_id,
+                trace_id,
+                TraceEventType.MODEL_CALL,
+                TraceEventStatus.SUCCEEDED,
+                {
+                    "input_tokens": input_tokens,
+                    "model": model_slot,
+                    "outcome": "success",
+                    "output_tokens": output_tokens,
+                    "retry_count": retry_count,
+                    "success": True,
+                    "total_tokens": input_tokens + output_tokens,
+                },
+                commit=commit,
+            )
         if response.citations:
             citation_ids: list[JsonValue] = [item.source_id for item in response.citations]
             await self._append_event(
@@ -565,13 +699,19 @@ class ChatService:
             TraceEventStatus.SUCCEEDED,
             {
                 "citation_count": len(response.citations),
-                "input_tokens": input_tokens,
-                "model": model_slot,
                 "outcome": "completed",
-                "output_tokens": output_tokens,
                 "safety_flags": safety_flags,
                 "success": True,
-                "total_tokens": input_tokens + output_tokens,
+                **(
+                    {
+                        "input_tokens": input_tokens,
+                        "model": model_slot,
+                        "output_tokens": output_tokens,
+                        "total_tokens": input_tokens + output_tokens,
+                    }
+                    if model_invoked
+                    else {}
+                ),
             },
             commit=commit,
         )
@@ -611,7 +751,9 @@ class ChatService:
         request_fingerprint: str,
         fencing_token: int | None,
         lease_guard: SessionLeaseGuard | None,
-    ) -> None:
+        active_skill_calls: dict[str, ActiveSkillCall],
+        skill_audit_events: list[TraceEventCreate],
+    ) -> bool:
         try:
             # A memory tool may have staged encrypted facts before the agent
             # fails. Clear the shared unit of work before recording the durable
@@ -626,9 +768,44 @@ class ChatService:
                     trace_id=trace_id,
                 )
                 if not allowed:
-                    return
+                    return False
             if lease_guard is not None:
                 await lease_guard.assert_owned()
+            for event in skill_audit_events:
+                await self._traces.append_event(
+                    identity.tenant_id,
+                    trace_id,
+                    event,
+                    commit=False,
+                )
+            skill_terminal_status = (
+                TraceEventStatus.CANCELLED
+                if status is TraceStatus.CANCELLED
+                else TraceEventStatus.FAILED
+            )
+            skill_outcome = "cancelled" if status is TraceStatus.CANCELLED else "failed"
+            for started_at, skill_id, version in active_skill_calls.values():
+                duration_ms = max(0, int((time.monotonic() - started_at) * 1_000))
+                await self._traces.append_event(
+                    identity.tenant_id,
+                    trace_id,
+                    TraceEventCreate(
+                        event_id=_event_id(),
+                        event_type=TraceEventType.SKILL_EXECUTE,
+                        status=skill_terminal_status,
+                        payload={
+                            "duration_ms": duration_ms,
+                            "error_code": code.casefold(),
+                            "operation": "viewer",
+                            "outcome": skill_outcome,
+                            "skill": skill_id,
+                            "success": False,
+                            **({"version": version} if version else {}),
+                        },
+                        duration_ms=duration_ms,
+                    ),
+                    commit=False,
+                )
             await self._traces.append_event(
                 identity.tenant_id,
                 trace_id,
@@ -664,11 +841,12 @@ class ChatService:
                     },
                 ),
             )
+            return True
         except Exception:
             await self._conversation.rollback()
-            # The original safe failure remains authoritative. Trace persistence
-            # errors are logged by the route's request logger without user text.
-            return
+            # Callers must never publish a terminal cancellation unless this
+            # transaction actually committed the corresponding Trace state.
+            return False
 
     async def _emit_replay(
         self,
@@ -733,5 +911,9 @@ class ChatService:
             "MemoryExtractionError": "CHAT_MEMORY_UNAVAILABLE",
             "MemoryRepositoryError": "CHAT_MEMORY_UNAVAILABLE",
             "MemoryStoreError": "CHAT_MEMORY_UNAVAILABLE",
+            "SkillNotFoundError": "CHAT_SKILL_UNAVAILABLE",
+            "SkillDisabledError": "CHAT_SKILL_UNAVAILABLE",
+            "CorruptSkillError": "CHAT_SKILL_UNAVAILABLE",
+            "ChatCancellationFinalizationError": "CHAT_CANCELLATION_FINALIZATION_FAILED",
         }
         return mapping.get(name, "CHAT_EXECUTION_FAILED")

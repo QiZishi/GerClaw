@@ -26,29 +26,17 @@ import { CGAConversation } from "@/components/cga/CGAConversation";
 import { useAppStore } from "@/stores/appStore";
 import { useChatStore } from "@/stores/chatStore";
 import { scales } from "@/data/scales";
-import { skills } from "@/data/skills";
 import { cn } from "@/lib/utils";
 import { HIGH_RISK_SYMPTOMS, EMERGENCY_ALERT } from "@/lib/constants";
 import { postprocessMedicalText } from "@/lib/security-postprocess";
 import { desensitizeForLLM } from "@/lib/security";
-import { streamChat, buildSystemPrompt, type LLMMessage } from "@/services/llm";
+import { streamChat, type LLMMessage } from "@/services/llm";
+import { streamAgentChat } from "@/services/gerclaw/chat";
+import { readSessionSkills, replaceSessionSkills } from "@/services/gerclaw/skills";
 import { generateId } from "@/lib/format";
 import { toast } from "@/components/ui/toast";
 import { useAudioPlayer } from "@/hooks/useAudioPlayer";
-import { retrieveKnowledge } from "@/services/knowledge/client";
-import type { ChatActionType, Citation, ImageAttachment, Message, MessageBlock, SearchResultItem, Scale, ScaleResult } from "@/types";
-
-function buildSkillsPrompt(loadedSkillIds: string[]): string {
-  if (loadedSkillIds.length === 0) return "";
-  const loadedSkills = skills.filter((s) => loadedSkillIds.includes(s.id) && s.content);
-  if (loadedSkills.length === 0) return "";
-
-  let prompt = "\n\n【已加载的专业技能】\n你可以使用以下已加载的专业技能知识来帮助回答问题。当用户的问题与某个技能相关时，请优先参考该技能中的专业内容和指南建议：\n\n";
-  loadedSkills.forEach((skill, index) => {
-    prompt += `## 技能${index + 1}：${skill.name}\n${skill.content}\n\n`;
-  });
-  return prompt;
-}
+import type { ChatActionType, ImageAttachment, Message, MessageBlock, Scale, ScaleResult } from "@/types";
 
 /** 检测文本中是否包含高风险症状关键词（铁律5关联） */
 function detectHighRiskSymptoms(text: string): string[] {
@@ -136,6 +124,7 @@ export function ChatArea() {
   const sidebarCollapsed = useAppStore((s) => s.sidebarCollapsed);
   const seniorMode = useAppStore((s) => s.seniorMode);
   const loadedSkillIds = useAppStore((s) => s.loadedSkillIds);
+  const setLoadedSkills = useAppStore((s) => s.setLoadedSkills);
   const isGenerating = useChatStore((s) => s.isGenerating);
   const setGenerating = useChatStore((s) => s.setGenerating);
   const selectedModelId = useChatStore((s) => s.selectedModelId);
@@ -151,6 +140,7 @@ export function ChatArea() {
   const finalizeMessageThinking = useChatStore((s) => s.finalizeMessageThinking);
   const initMessageToolCall = useChatStore((s) => s.initMessageToolCall);
   const completeMessageToolCall = useChatStore((s) => s.completeMessageToolCall);
+  const failMessageToolCall = useChatStore((s) => s.failMessageToolCall);
   const removeMessage = useChatStore((s) => s.removeMessage);
   const deleteMessage = useChatStore((s) => s.deleteMessage);
   const updateSession = useChatStore((s) => s.updateSession);
@@ -159,6 +149,10 @@ export function ChatArea() {
 
   const abortControllerRef = useRef<AbortController | null>(null);
   const currentThinkingBlockIdRef = useRef<string | null>(null);
+  const skillSelectionLoadRef = useRef(0);
+  const pendingSkillSelectionRef = useRef(new Map<string, string[]>());
+  const [skillSelectionReadySessionId, setSkillSelectionReadySessionId] = useState<string | null>(null);
+  const skillSelectionReadySessionIdRef = useRef<string | null>(null);
 
   // 各会话功能模式下的对话轮次计数（sessionId -> count），上限5轮
   const [collectRounds, setCollectRounds] = useState<Record<string, number>>({});
@@ -386,6 +380,50 @@ export function ChatArea() {
     actionInitRef.current = null;
   }, [currentSessionId]);
 
+  useEffect(() => {
+    if (!currentSessionId) {
+      skillSelectionLoadRef.current += 1;
+      setLoadedSkills([]);
+      // eslint-disable-next-line react-hooks/set-state-in-effect
+      setSkillSelectionReadySessionId(null);
+      skillSelectionReadySessionIdRef.current = null;
+      return;
+    }
+    const loadId = ++skillSelectionLoadRef.current;
+    // Never expose the previous conversation's Skills while the new
+    // conversation selection is being restored from the backend.
+    setLoadedSkills([]);
+    setSkillSelectionReadySessionId(null);
+    skillSelectionReadySessionIdRef.current = null;
+    const pendingSelection = pendingSkillSelectionRef.current.get(currentSessionId);
+    pendingSkillSelectionRef.current.delete(currentSessionId);
+    const loadSelection = pendingSelection
+      ? replaceSessionSkills(currentSessionId, pendingSelection)
+      : readSessionSkills(currentSessionId);
+    void loadSelection
+      .then((skillIds) => {
+        if (
+          loadId === skillSelectionLoadRef.current &&
+          useAppStore.getState().currentSessionId === currentSessionId
+        ) {
+          setLoadedSkills(skillIds);
+          skillSelectionReadySessionIdRef.current = currentSessionId;
+          setSkillSelectionReadySessionId(currentSessionId);
+        }
+      })
+      .catch((error) => {
+        if (
+          loadId === skillSelectionLoadRef.current &&
+          useAppStore.getState().currentSessionId === currentSessionId
+        ) {
+          setLoadedSkills([]);
+          skillSelectionReadySessionIdRef.current = currentSessionId;
+          setSkillSelectionReadySessionId(currentSessionId);
+          toast.show(error instanceof Error ? error.message : "会话技能未能恢复");
+        }
+      });
+  }, [currentSessionId, setLoadedSkills]);
+
   // 当 chatAction 变化时：自动创建会话（如需要）；非 CGA 直接发开场消息
   useEffect(() => {
     if (chatAction === "none") {
@@ -525,32 +563,8 @@ export function ChatArea() {
   const handleStop = () => {
     if (abortControllerRef.current) {
       abortControllerRef.current.abort();
-      abortControllerRef.current = null;
+      toast.show("正在安全停止，等待服务器确认执行终态");
     }
-    const currentMsgs = currentSessionId ? useChatStore.getState().messagesBySession[currentSessionId] ?? [] : [];
-    const streamingMsg = currentMsgs.find((m) => m.status === "streaming");
-    if (streamingMsg) {
-      streamingMsg.blocks.forEach((b) => {
-        if (b.kind === "thinking" && b.data.status === "thinking") {
-          finalizeMessageThinking(streamingMsg.id, b.id);
-        }
-      });
-      const existingTextBlock = streamingMsg.blocks.find(b => b.kind === "text") as { content: string } | undefined;
-      const existingContent = existingTextBlock?.content || "";
-      const blocks = streamingMsg.blocks.map((b) => {
-        if (b.kind === "text") {
-          return { ...b, streaming: false, content: existingContent };
-        }
-        return b;
-      });
-      updateMessage(streamingMsg.id, {
-        status: "done",
-        blocks,
-        hasDisclaimer: true,
-      });
-    }
-    setGenerating(false);
-    useAppStore.getState().setStreamingInterrupted(false);
   };
 
   /** 重新生成 */
@@ -600,19 +614,38 @@ export function ChatArea() {
   const handleSend = (text: string, images?: ImageAttachment[]) => {
     if (!currentSessionId) {
       const sid = createSession(role);
+      if (loadedSkillIds.length > 0) {
+        pendingSkillSelectionRef.current.set(sid, [...loadedSkillIds]);
+      }
       setCurrentSession(sid);
       setTimeout(() => doSend(sid, text, false, images), 50);
-      return;
+      return true;
+    }
+    const liveSessionId = useAppStore.getState().currentSessionId;
+    if (
+      liveSessionId !== currentSessionId ||
+      skillSelectionReadySessionIdRef.current !== liveSessionId
+    ) {
+      toast.show("正在恢复当前会话的技能，请稍候再发送");
+      return false;
     }
     doSend(currentSessionId, text, false, images);
+    return true;
   };
 
   const handleFileParsed = (fileName: string, markdown: string) => {
     const fileMessage = `📄 **文件解析结果：${fileName}**\n\n<file-parsed>\n${markdown}\n</file-parsed>\n\n请根据以上文件内容回答我的问题。`;
     if (!currentSessionId) {
       const sid = createSession(role);
+      if (loadedSkillIds.length > 0) {
+        pendingSkillSelectionRef.current.set(sid, [...loadedSkillIds]);
+      }
       setCurrentSession(sid);
       setTimeout(() => doSend(sid, fileMessage, false), 50);
+      return;
+    }
+    if (skillSelectionReadySessionId !== currentSessionId) {
+      toast.show("正在恢复当前会话的技能，请稍候再发送");
       return;
     }
     doSend(currentSessionId, fileMessage, false);
@@ -759,8 +792,6 @@ ${forceGenerate ? "重要：已达到对话轮次上限，请立即输出 [生�
 报告结构：# 用药审查报告 ## 一、用药汇总 ## 二、潜在相互作用提示 ## 三、老年人用药提醒 ## 四、建议 ## 五、就医提示。
 ${forceGenerate ? "重要：已达到对话轮次上限，请立即输出 [生成审查] 标记并生成完整报告。" : ""}`;
         }
-
-        systemPrompt += buildSkillsPrompt(loadedSkillIds);
 
         llmMessages.push({ role: "system", content: systemPrompt });
 
@@ -1131,202 +1162,156 @@ ${forceGenerate ? "重要：已达到对话轮次上限，请立即输出 [生�
     initMessageThinking(assistantMsgId, initialThinkingBlockId);
 
     const toolCallBlockMap = new Map<string, string>();
-    let allCitations: Citation[] = [];
+    let thinkingFinished = false;
+    abortControllerRef.current = new AbortController();
 
-    const buildLLMMessages = (kbContext?: string): LLMMessage[] => {
-      const llmMessages: LLMMessage[] = [];
-      let systemPrompt = buildSystemPrompt(role);
-      if (hasHighRisk) {
-        systemPrompt += "\n\n重要提示：用户提到了高风险症状，你已经发送了紧急就医提示，请继续温和地安抚用户并强调立即就医的重要性，不要给出其他医疗建议。";
-      }
-      systemPrompt += buildSkillsPrompt(loadedSkillIds);
-      if (kbContext) {
-        systemPrompt += `\n\n【本地知识库参考资料】\n以下是从本地老年医学知识库中检索到的与用户问题相关的内容，请参考这些专业资料来回答用户问题，但不要在回复中提及"知识库"或"检索"等词汇，自然地整合这些信息：\n${kbContext}`;
-      }
-      llmMessages.push({ role: "system", content: systemPrompt });
-
-      const history = buildLLMHistory(assistantMsgId);
-      llmMessages.push(...history);
-      return llmMessages;
-    };
-
-    const doStreamChat = async () => {
-      let kbContext = "";
-      try {
-        const kbResult = await retrieveKnowledge(text, 3);
-        if (kbResult.success && kbResult.chunks.length > 0) {
-          kbContext = kbResult.chunks
-            .map((chunk, i) => `[参考${i + 1}] ${chunk.title}（${chunk.category}）\n${chunk.content}`)
-            .join("\n\n");
-        }
-      } catch {
-      }
-
-      const llmMessages = buildLLMMessages(kbContext);
-
-      abortControllerRef.current = new AbortController();
-
-      streamChat(
-      llmMessages,
-      { signal: abortControllerRef.current.signal, modelPreference: selectedModelId },
+    void streamAgentChat(
+      { localSessionId: sid, message: text, loadedSkills: loadedSkillIds },
+      abortControllerRef.current.signal,
       {
-        onThinkingStart: () => {
-          const newBlockId = generateId("block");
-          currentThinkingBlockIdRef.current = newBlockId;
-          startMessageThinkingBlock(assistantMsgId, newBlockId);
-        },
-        onThinkingDelta: (delta) => {
+        onThinking: (content) => {
           const currentId = currentThinkingBlockIdRef.current;
-          if (currentId) {
-            appendMessageThinking(assistantMsgId, currentId, delta);
-          }
-        },
-        onThinkingDone: () => {
-          const currentId = currentThinkingBlockIdRef.current;
-          if (currentId) {
-            finalizeMessageThinking(assistantMsgId, currentId);
+          if (currentId && !thinkingFinished) {
+            appendMessageThinking(assistantMsgId, currentId, `${content}\n`);
           }
         },
         onText: (delta) => {
+          const currentId = currentThinkingBlockIdRef.current;
+          if (currentId && !thinkingFinished) {
+            finalizeMessageThinking(assistantMsgId, currentId);
+            thinkingFinished = true;
+          }
           appendMessageText(assistantMsgId, assistantBlockId, delta);
         },
-        onFallback: (message) => {
-          toast.show(message);
-        },
-        onToolCallStart: ({ id, name }) => {
+        onToolCall: ({ id, name }) => {
           const toolBlockId = generateId("block");
           toolCallBlockMap.set(id, toolBlockId);
           initMessageToolCall(assistantMsgId, toolBlockId, id, name);
         },
-        onToolCallDelta: () => {
-        },
-        onToolCallEnd: (toolCallId, args) => {
-          const toolBlockId = toolCallBlockMap.get(toolCallId);
+        onToolResult: ({ id, status, durationMs, results }) => {
+          const toolBlockId = toolCallBlockMap.get(id);
           if (!toolBlockId) return;
-          const currentMsg = useChatStore.getState().messagesBySession[sid]?.find(m => m.id === assistantMsgId);
-          if (!currentMsg) return;
-          const toolBlock = currentMsg.blocks.find(b => b.kind === "tool_call" && b.id === toolBlockId);
-          if (toolBlock && toolBlock.kind === "tool_call") {
-            updateMessage(assistantMsgId, {
-              blocks: currentMsg.blocks.map(b => {
-                if (b.kind === "tool_call" && b.id === toolBlockId) {
-                  return {
-                    ...b,
-                    data: { ...b.data, args },
-                  };
-                }
-                return b;
-              }),
-            });
+          if (status !== "success") {
+            failMessageToolCall(
+              assistantMsgId,
+              toolBlockId,
+              status === "cancelled"
+                ? "用户已停止生成"
+                : `工具执行失败${durationMs === undefined ? "" : `（${durationMs}ms）`}`
+            );
+            return;
           }
+          completeMessageToolCall(assistantMsgId, toolBlockId, {}, {
+            status,
+            duration_ms: durationMs,
+            results,
+          });
         },
-        onToolResult: (toolCallId, result) => {
-          const toolBlockId = toolCallBlockMap.get(toolCallId);
-          if (!toolBlockId) return;
-
-          const currentMsg = useChatStore.getState().messagesBySession[sid]?.find(m => m.id === assistantMsgId);
-          if (!currentMsg) return;
-
-          const toolBlock = currentMsg.blocks.find(b => b.kind === "tool_call" && b.id === toolBlockId);
-          let args: Record<string, unknown> = {};
-          if (toolBlock && toolBlock.kind === "tool_call") {
-            args = toolBlock.data.args || {};
-          }
-
-          completeMessageToolCall(assistantMsgId, toolBlockId, args, result);
-
-          if (toolBlock && toolBlock.kind === "tool_call" && toolBlock.data.toolName === "web_search") {
-            const searchData = result as { results?: { title: string; url: string; content: string; source?: string; published_date?: string }[] };
-            const results = searchData.results || [];
-            if (results.length > 0) {
-              const searchResults: SearchResultItem[] = results.map((r) => {
-                let source = "";
-                try {
-                  const url = new URL(r.url);
-                  source = url.hostname.replace(/^www\./, "");
-                } catch {
-                  source = r.url;
-                }
-                return {
-                  id: generateId("search"),
-                  title: r.title || "无标题",
-                  url: r.url,
-                  source: r.source || source,
-                  snippet: r.content || "",
-                  publishedDate: r.published_date,
-                };
-              });
-
-              const newCitations: Citation[] = searchResults.map((r, i) => ({
-                id: allCitations.length + i + 1,
-                title: r.title,
-                snippet: r.snippet,
-                url: r.url,
-                source: r.source,
-                publishedDate: r.publishedDate,
-              }));
-              allCitations = [...allCitations, ...newCitations];
-
-              updateMessage(assistantMsgId, {
-                citations: allCitations.length > 0 ? allCitations : undefined,
-              });
-            }
-          }
-        },
-        onDone: (fullText) => {
+        onDone: (fullText, citations) => {
           abortControllerRef.current = null;
           const currentId = currentThinkingBlockIdRef.current;
-          if (currentId) {
-            finalizeMessageThinking(assistantMsgId, currentId);
-          }
-          const finalContent = postprocessMedicalText(fullText);
-          const msgNow = useChatStore.getState().messagesBySession[sid]?.find(m => m.id === assistantMsgId);
-          const updatedBlocks = msgNow?.blocks.map((b) => {
-            if (b.kind === "text" && b.id === assistantBlockId) {
-              return { ...b, content: finalContent, streaming: false };
-            }
-            return b;
-          }) ?? [];
+          if (currentId && !thinkingFinished) finalizeMessageThinking(assistantMsgId, currentId);
+          const msgNow = useChatStore.getState().messagesBySession[sid]?.find((message) => message.id === assistantMsgId);
+          const updatedBlocks = msgNow?.blocks.map((block) =>
+            block.kind === "text" && block.id === assistantBlockId
+              ? { ...block, content: fullText, streaming: false }
+              : block
+          ) ?? [];
           updateMessage(assistantMsgId, {
             status: "done",
             blocks: updatedBlocks,
-            citations: allCitations.length > 0 ? allCitations : undefined,
+            citations: citations.length > 0 ? citations : undefined,
             hasDisclaimer: true,
           });
           setGenerating(false);
-
           if (!isRegenerate) {
-            const latestMsgs = useChatStore.getState().messagesBySession[sid] ?? [];
-            const firstUserMsg = latestMsgs.find((m) => m.role === "user");
-            if (firstUserMsg) {
-              trySetSessionTitle(sid, getTextFromMessage(firstUserMsg));
-            }
+            const firstUserMsg = (useChatStore.getState().messagesBySession[sid] ?? []).find((message) => message.role === "user");
+            if (firstUserMsg) trySetSessionTitle(sid, getTextFromMessage(firstUserMsg));
           }
         },
-        onError: () => {
+        onCancelled: (_traceId, cancellationMessage) => {
           abortControllerRef.current = null;
           const currentId = currentThinkingBlockIdRef.current;
-          if (currentId) {
+          if (currentId && !thinkingFinished) {
             finalizeMessageThinking(assistantMsgId, currentId);
+            thinkingFinished = true;
           }
-          const msgNow = useChatStore.getState().messagesBySession[sid]?.find(m => m.id === assistantMsgId);
-          const existingTextBlock = msgNow?.blocks.find(b => b.kind === "text" && b.id === assistantBlockId);
-          const existingContent = existingTextBlock && existingTextBlock.kind === "text" ? existingTextBlock.content : "";
-
-          let finalContent = existingContent;
-          if (!finalContent.trim()) {
-            finalContent = "抱歉，生成过程中出现问题，请重新发送消息或点击重新生成。";
-          }
-          const processedContent = postprocessMedicalText(finalContent);
-
-          const updatedBlocks = msgNow?.blocks.map((b) => {
-            if (b.kind === "text" && b.id === assistantBlockId) {
-              return { ...b, content: processedContent, streaming: false };
+          const stoppedAt = Date.now();
+          const msgNow = useChatStore.getState().messagesBySession[sid]?.find(
+            (message) => message.id === assistantMsgId
+          );
+          const stoppedNotice = `⚠️ ${cancellationMessage}以上内容不完整且未通过最终校验，请勿据此调整治疗或用药。`;
+          const updatedBlocks = msgNow?.blocks.map((block) => {
+            if (block.kind === "text" && block.id === assistantBlockId) {
+              return {
+                ...block,
+                streaming: false,
+                content: block.content.trim()
+                  ? `${block.content.trim()}\n\n---\n\n${stoppedNotice}`
+                  : stoppedNotice,
+              };
             }
-            return b;
+            if (block.kind === "thinking" && block.data.status === "thinking") {
+              return {
+                ...block,
+                data: { ...block.data, status: "done" as const, endedAt: stoppedAt },
+              };
+            }
+            if (block.kind === "tool_call" && block.data.status === "running") {
+              return {
+                ...block,
+                data: {
+                  ...block.data,
+                  status: "failed" as const,
+                  errorMessage: "用户已停止生成",
+                  endedAt: stoppedAt,
+                  durationMs: Math.max(0, stoppedAt - block.data.startedAt),
+                },
+              };
+            }
+            return block;
           }) ?? [];
           updateMessage(assistantMsgId, {
-            status: "done",
+            status: "stopped",
+            blocks: updatedBlocks,
+            hasDisclaimer: true,
+          });
+          setGenerating(false);
+          useAppStore.getState().setStreamingInterrupted(false);
+        },
+        onError: (error) => {
+          abortControllerRef.current = null;
+          const currentId = currentThinkingBlockIdRef.current;
+          if (currentId && !thinkingFinished) finalizeMessageThinking(assistantMsgId, currentId);
+          const msgNow = useChatStore.getState().messagesBySession[sid]?.find((message) => message.id === assistantMsgId);
+          const traceHint = error.traceId ? `\n\n错误追踪：${error.traceId}` : "";
+          const failedAt = Date.now();
+          const updatedBlocks = msgNow?.blocks.map((block) => {
+            if (block.kind === "text" && block.id === assistantBlockId) {
+              return {
+                  ...block,
+                  content: /(?:立即就医|拨打\s*120|前往急诊)/.test(block.content)
+                    ? `${block.content.trim()}\n\n---\n\n⚠️ 后续处理未完成：${error.message}${traceHint}`
+                    : `${error.message}${traceHint}`,
+                  streaming: false,
+                };
+            }
+            if (block.kind === "tool_call" && block.data.status === "running") {
+              return {
+                ...block,
+                data: {
+                  ...block.data,
+                  status: "failed" as const,
+                  errorMessage: "响应中断，工具结果未完成",
+                  endedAt: failedAt,
+                  durationMs: Math.max(0, failedAt - block.data.startedAt),
+                },
+              };
+            }
+            return block;
+          }) ?? [];
+          updateMessage(assistantMsgId, {
+            status: "error",
             blocks: updatedBlocks,
             hasDisclaimer: true,
           });
@@ -1335,9 +1320,6 @@ ${forceGenerate ? "重要：已达到对话轮次上限，请立即输出 [生�
         },
       }
     );
-  };
-
-  doStreamChat();
 };
 
 const handleExampleClick = (text: string) => {
@@ -1601,19 +1583,26 @@ ${hasSuicideRisk ? "⚠️ 重要：您在评估中提到了伤害自己的想�
     return (
       <main className="flex-1 flex flex-col min-w-0 min-h-0 bg-background">
         <header
-          className="sticky top-0 z-10 flex items-center gap-2 px-3 h-12 border-b border-border bg-background/95 backdrop-blur"
+          className={cn(
+            "sticky top-0 z-10 flex min-h-12 items-center gap-2 border-b border-border bg-background/95 px-3 backdrop-blur",
+            seniorMode && "py-2"
+          )}
           style={sidebarCollapsed ? { paddingLeft: "112px" } : undefined}
         >
           <Button
             variant="ghost"
-            size="icon-sm"
-            className="btn-icon shrink-0"
+            size={seniorMode ? "default" : "icon-sm"}
+            className={cn(
+              "btn-icon shrink-0",
+              seniorMode && "h-12 min-w-32 gap-2 px-4 text-lg"
+            )}
             onClick={() => setMainView("chat")}
             aria-label="返回对话"
           >
-            <ArrowLeft className="size-4" />
+            <ArrowLeft className={cn("size-4", seniorMode && "size-5")} />
+            {seniorMode && <span>返回对话</span>}
           </Button>
-          <span className="font-medium">技能管理</span>
+          <span className={cn("font-medium", seniorMode && "text-lg")}>技能管理</span>
         </header>
         <div className="flex-1 min-h-0">
           <SkillManager />
@@ -1724,6 +1713,9 @@ ${hasSuicideRisk ? "⚠️ 重要：您在评估中提到了伤害自己的想�
           isGenerating={isGenerating}
           onStop={handleStop}
           onFileParsed={handleFileParsed}
+          contextLoading={Boolean(
+            currentSessionId && skillSelectionReadySessionId !== currentSessionId
+          )}
         />
       )}
 

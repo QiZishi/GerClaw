@@ -7,8 +7,9 @@
 ## 1. 系统目标
 
 GerClaw是面向老年患者与老年科医生的Web端AI双向诊疗平台：
-- **MVP阶段（一阶段）**：纯前端Next.js 15静态导出，部署在IGA Pages，核心功能闭环可演示可体验，所有外部API（LLM/ASR/TTS/搜索/MinerU）前端直连
-- **二阶段（生产）**：平滑迁移到前后端分离架构（Next.js + FastAPI + AgentScope多智能体），Docker部署到ModelScope，支持企业级生产使用
+- **历史MVP（一阶段）**：纯前端原型，仅作为交互基线保留。
+- **当前实现（二阶段）**：Next.js BFF + FastAPI + AgentScope 2.0.4 的前后端分离系统；普通对话、RAG、Memory、Search 和 Skill 已进入后端生产链路，浏览器不再直连模型或检索 Provider。
+- **交付阶段**：在全功能与前后端回归完成后再封装应用 Docker 并部署到 ModelScope；本地 Docker 现阶段只承载 PostgreSQL、Redis、Qdrant 开发依赖。
 
 核心价值：语音优先适老化交互、专业CGA老年综合评估、五大处方体系、医患双向诊疗、医疗安全底线保障。
 
@@ -40,7 +41,7 @@ qwen等
 用户
     ↓
 Next.js前端 (SSR/SSG)
-    ↓ (HTTPS)
+    ↓ 同源 BFF（HttpOnly 访客 JWT + Zod 校验）
 FastAPI后端
 ├── API Routes (routes/)
 ├── Service层 (services/ - 业务逻辑)
@@ -49,7 +50,9 @@ FastAPI后端
 │   ├── 老年专科医生智能体（复核）
 │   ├── 用药审查智能体（规则引擎+LLM）
 │   ├── CGA评估智能体（状态机骨架+LLM柔性层）
-│   └── Agentic RAG middleware（search_knowledge工具）
+│   ├── Agentic RAG middleware（search_knowledge工具）
+│   ├── Memory middleware（加密事实源+语义召回）
+│   └── AgentScope Skill Toolkit（声明式 Skill viewer）
 ├── Repository层 (repositories/)
 │   ├── PostgreSQL (用户/会话/健康档案)
 │   ├── Redis (缓存/限流/会话)
@@ -62,7 +65,7 @@ FastAPI后端
     └── MinerU Provider (文档解析)
 ```
 
-### 二阶段当前对话闭环（0017）
+### 二阶段当前对话闭环（0019）
 
 ```text
 POST /api/v1/chat
@@ -71,22 +74,29 @@ POST /api/v1/chat
   → session token claim + PostgreSQL 加密历史 + 幂等 user message
   → AgentScope ContextConfig 压缩短期历史 + 加密 session summary
   → 加密健康画像 + Qdrant 当前 revision allowlist 跨会话召回
-  → 本地医学证据门（dense+sparse RRF + rerank）
+  → 确定性红旗症状门
+       ├── 命中：立即输出 120/急诊提示 + 免责声明并结束，不调用 RAG/模型
+       └── 未命中：进入本地医学证据门（dense+sparse RRF + rerank）
   → AgentScope Agent/ReAct
        ├── primary → backup1 → backup2 model router
        ├── agentic search_knowledge → 同一 production RAG
        ├── read-only web_search → AnySearch JSON-RPC → Tavily fallback
-       └── Mem0Middleware → search_memory/add_memory → GerClaw Memory adapter
+       ├── Mem0Middleware → search_memory/add_memory → GerClaw Memory adapter
+       └── AgentScope Skill viewer → PostgreSQL 会话级已授权声明式 Skill
   → 按句医疗安全后处理 + citation + 免责声明
   → Redis owner + PostgreSQL token 复验
   → session 行锁 + Redis owner 双重终态校验
   → 用户原文证据约束的 Memory 抽取与画像更新
+  → 显式停止：identity-scoped cancel → Redis TTL/PubSub → active task
+    → active tool_result(cancelled) → cancelled Trace 原子事务 → SSE cancelled
   → 加密 assistant/message/profile/facts/revision history + memory.update + completed Trace 原子事务
     / SYSTEM_ERROR + failed Trace + Bad Case 原子事务
   → SSE done（仅持久化提交后）
 ```
 
 共享的是无状态 provider client；`AgentState`、RAG/Memory middleware、事件缓冲和模型尝试审计均按 turn 隔离。PostgreSQL 加密列是会话与健康事实源；`memory_facts` 保存当前投影，`memory_fact_revisions` 保存每次变更前的不可变密文快照。Qdrant 只保存 HMAC namespace 下的 revisioned reference vector，AgentScope 热状态和 mem0 默认存储均不承担跨请求持久化。
+
+Skill current/revision 只保存 AES-GCM 密文正文，参数 schema 每次从密文 `SKILL.md` 重新解析，不保留可读副本；归一化名称使用 SHA-256 blind index 保证同一 tenant/actor 内唯一。session selection 先以 `(tenant_id, actor_id, user_id)` 三列外键把 actor/user 绑定为同一主体，再以 tenant/user/session 复合外键绑定会话，数据库层和 repository 层同时阻断跨主体拼接。Skill ID 与 Trace 审计字符串先通过 PHI 拒绝策略，前端上传走无副作用 preview，完整审阅确认后才注册。
 
 ## 3. 推荐技术栈
 
@@ -269,3 +279,6 @@ types → config → providers → repositories → services → agents → rout
 | ADR-010 | Redis owner lease + PostgreSQL 单调 fencing token/Trace 绑定 + terminal 原子事务 | Redis 负责长模型调用期间低成本互斥；新 owner 通过 session 行发布更高 token 与当前 Trace，成功和失败终态均在 lease 内以 session 行锁加 Redis compare-and-renew 双重校验；assistant/成功 Trace 一次提交，SYSTEM_ERROR/失败 Trace/Bad Case 一次提交，避免租约丢失或提交故障形成矛盾终态 | 仅 owner-token→丢锁检测存在窗口；长事务数据库锁→占用连接；多次独立 commit→消息、Trace 与 Bad Case 状态可分裂 | 2026-07-15 |
 | ADR-011 | AgentScope Mem0Middleware 生命周期 + 加密 PostgreSQL Memory authority/revision audit + PHI-free Qdrant reference vectors | 保留 AgentScope 自动/工具式记忆控制，同时满足医疗 evidence、用户确认、tenant 隔离、加密和 Trace 原子性；当前事实投影与变更前密文快照分离，重大事件按发生时间或 source Trace/evidence hash 保持可追溯；revision-fenced point ID 与 PostgreSQL allowlist 排除 stale/rollback vector | mem0 默认 SQLite/Qdrant 明文→隐私与事务不满足；原地覆盖且无历史→停药/剂量/事件来源不可审计；纯 PG 关键词检索→跨会话语义召回不足；自研 agent loop→重复框架能力 | 2026-07-15 |
 | ADR-012 | AnySearch-first SearchModule + AgentScope read-only web_search + 不可信证据隔离 | 符合指定 JSON-RPC 协议与主备顺序；统一 query 脱敏、来源分级、SSRF、Trace 和 SSE 卡片边界；普通 Chat 复用同一 async runtime，CGA 不注册工具 | 浏览器直连 Provider→密钥泄漏且无租户审计；只用 Tavily→违反设计优先级；网页正文当指令→prompt injection；自研 Agent loop→重复框架能力 | 2026-07-15 |
+| ADR-013 | 版本化声明式 Skill 注册表 + AgentScope LocalSkillLoader/Toolkit + 会话级选择 | 支持四个只读内置 Skill、自定义 Markdown/ZIP、真实模型生成草稿、加密修订历史和可审计执行，同时禁止上传任意代码；Next BFF 的稳定伪匿名访客身份让 JWT 换发不丢会话 | 浏览器拼 prompt→无权限与审计；执行上传代码→医疗和多租户风险不可接受；进程内 Skill→刷新/多副本丢失 | 2026-07-15 |
+| ADR-014 | 红旗症状在 RAG/模型前确定性短路且不伪造模型 Trace；模型单候选使用硬上限 60s 完整流 deadline 与 1024-token 上限 | 急症提示不能等待检索或被模型扩写成用药指令；模型流必须有不可被环境配置放大的资源边界，且不能复用搜索等短请求的 30s timeout | 先检索/生成再告警→延误且可能输出冲突建议；可见输出后切模型→正文重复；无限/超限输出→占用执行槽；短路仍记模型成功→审计失真 | 2026-07-15 |
+| ADR-015 | 显式 Chat 取消控制面 + Redis TTL/PubSub + 副本内 pre-commit intent fence | 用户停止必须跨副本命中 active turn，先终态化工具与 Trace，再让 UI 宣告停止；持久键覆盖注册竞态，Pub/Sub 负责低延迟投递，本地 intent 防止 AgentScope 清理吞掉 task cancellation 后误提交成功 | 浏览器直接 abort SSE→丢 terminal tool_result/Trace；仅进程内 task map→多副本失效；只依赖 task.cancel→框架清理可能吞掉取消；无界终态入队→消费者放弃后清理挂死 | 2026-07-15 |

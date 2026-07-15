@@ -15,6 +15,7 @@ from starlette.types import ASGIApp, Message, Receive, Scope, Send
 
 from gerclaw_api.context import bind_request_context, reset_request_context
 from gerclaw_api.metrics import HTTP_LATENCY, HTTP_REQUESTS
+from gerclaw_api.security import redact_text
 
 HEADER_ID_PATTERN = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_.:-]{7,63}$")
 TRACE_ID_PATTERN = re.compile(r"^trace_[A-Za-z0-9][A-Za-z0-9_.:-]{7,57}$")
@@ -22,13 +23,13 @@ LOGGER = logging.getLogger("gerclaw.http")
 
 
 def _safe_header_id(value: str | None, prefix: str) -> str:
-    if value is not None and HEADER_ID_PATTERN.fullmatch(value):
+    if value is not None and HEADER_ID_PATTERN.fullmatch(value) and redact_text(value) == value:
         return value
     return f"{prefix}_{uuid.uuid4().hex}"
 
 
 def _safe_trace_id(value: str | None) -> str:
-    if value is not None and TRACE_ID_PATTERN.fullmatch(value):
+    if value is not None and TRACE_ID_PATTERN.fullmatch(value) and redact_text(value) == value:
         return value
     return f"trace_{uuid.uuid4().hex}"
 

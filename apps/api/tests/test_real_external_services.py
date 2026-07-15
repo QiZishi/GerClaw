@@ -87,6 +87,121 @@ async def test_real_agent_model_chain() -> None:
 
 @pytest.mark.integration
 @pytest.mark.asyncio
+async def test_real_model_generates_and_agentscope_executes_reviewed_skill(
+    integration_client: tuple[AsyncClient, object],
+) -> None:
+    """Prove Skill drafting and the chat Skill viewer use real configured models."""
+
+    client, app = integration_client
+    generation_trace_id = "trace_real_skill_generate_0001"
+    generated = await client.post(
+        "/api/v1/skills/generate",
+        headers={
+            "X-Trace-ID": generation_trace_id,
+            "X-Request-ID": "request_real_skill_generate_0001",
+        },
+        json={
+            "description": (
+                "生成一个名为“老年跌倒复诊准备”的声明式临床工作流，skill_id 必须使用 "
+                "custom-fall-followup-safety。它不接收参数，tools 只能包含 search_knowledge，"
+                "必须先用 search_knowledge "
+                "检索本地知识库，核对跌倒红旗征象、药物因素和就医时机，输出供医生复核的清单；"
+                "最终只输出三条短句、总字数不超过180字。不得确定性诊断、不得建议自行停换药，"
+                "并保留高风险立即就医规则。"
+            )
+        },
+        timeout=240,
+    )
+    assert generated.status_code == 200, generated.text
+    draft = generated.json()
+    definition = draft["definition"]
+    assert draft["trace_id"] == generation_trace_id
+    assert definition["origin"] == "generated"
+    assert definition["source"] == "custom"
+    assert definition["skill_id"] == "custom-fall-followup-safety"
+    assert definition["tool_names"] == ["search_knowledge"]
+    assert "source_markdown" in definition
+
+    generation_trace = await client.get(f"/api/v1/traces/{generation_trace_id}")
+    assert generation_trace.status_code == 200, generation_trace.text
+    assert generation_trace.json()["status"] == "completed"
+    assert generation_trace.json()["events"][-1]["event_type"] == "skill.execute"
+    assert generation_trace.json()["events"][-1]["payload"]["operation"] == "generate"
+
+    registered = await client.post(
+        "/api/v1/skills",
+        json={"source_markdown": definition["source_markdown"], "origin": "generated"},
+    )
+    assert registered.status_code == 201, registered.text
+    skill_id = registered.json()["skill_id"]
+
+    session_id = uuid.uuid4()
+    assert (
+        await client.post("/api/v1/sessions", json={"session_id": str(session_id)})
+    ).status_code == 201
+    selection = await client.put(
+        f"/api/v1/skills/sessions/{session_id}/selection",
+        json={"skill_ids": [skill_id]},
+    )
+    assert selection.status_code == 200, selection.text
+
+    chat_trace_id = "trace_real_skill_chat_0001"
+    response = await client.post(
+        "/api/v1/chat",
+        headers={
+            "X-Trace-ID": chat_trace_id,
+            "X-Request-ID": "request_real_skill_chat_0001",
+        },
+        json={
+            "session_id": str(session_id),
+            "message": (
+                "必须先调用 Skill 工具读取我已加载的“老年跌倒复诊准备”工作流，"
+                "再按其中要求调用 search_knowledge 检索本地知识库，"
+                "为一位近期跌倒的老人生成供医生核验的复诊准备清单。"
+                "严格只输出三条短句，总字数不超过180字。"
+            ),
+            "loaded_skills": [skill_id],
+            "channel": "web",
+            "workflow": "standard",
+        },
+        timeout=300,
+    )
+    assert response.status_code == 200, response.text
+    events = _sse_events(response.text)
+    assert events[-1][0] == "done", events[-3:]
+    tool_calls = [
+        data for name, data in events if name == "tool_call" and data.get("tool_name") == "Skill"
+    ]
+    assert tool_calls, [(name, data.get("tool_name")) for name, data in events]
+    assert any(
+        name == "tool_call" and data.get("tool_name") == "search_knowledge" for name, data in events
+    )
+    done = events[-1][1]
+    assert done["references"]
+    assert str(done["full_text"]).endswith("内容由 AI 生成，仅供参考。身体不适请及时就医。")
+
+    chat_trace = await client.get(f"/api/v1/traces/{chat_trace_id}?limit=100")
+    assert chat_trace.status_code == 200, chat_trace.text
+    trace_payload = chat_trace.json()
+    assert trace_payload["status"] == "completed"
+    skill_events = [
+        event for event in trace_payload["events"] if event["event_type"] == "skill.execute"
+    ]
+    assert skill_events
+    assert skill_events[-1]["payload"]["skill"] == skill_id
+    assert skill_events[-1]["payload"]["version"] == definition["version"]
+    serialized = response.text + json.dumps(trace_payload, ensure_ascii=False)
+    assert definition["source_markdown"] not in serialized
+    assert all(
+        config.api_key.get_secret_value() not in serialized
+        and str(config.url) not in serialized
+        and config.model_name not in serialized
+        for config in app.state.settings.agent_model_configs
+    )
+
+
+@pytest.mark.integration
+@pytest.mark.asyncio
 async def test_real_chat_sse_agentic_rag_persistence_and_replay(
     integration_client: tuple[AsyncClient, object],
 ) -> None:

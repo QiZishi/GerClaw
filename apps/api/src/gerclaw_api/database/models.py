@@ -8,6 +8,7 @@ from typing import Any
 
 from sqlalchemy import (
     BigInteger,
+    Boolean,
     CheckConstraint,
     DateTime,
     Float,
@@ -47,6 +48,8 @@ class User(TimestampMixin, Base):
     __tablename__ = "users"
     __table_args__ = (
         UniqueConstraint("tenant_id", "external_id", name="uq_users_tenant_external"),
+        UniqueConstraint("tenant_id", "id", name="uq_users_tenant_id"),
+        UniqueConstraint("tenant_id", "external_id", "id", name="uq_users_tenant_external_id"),
         CheckConstraint("role IN ('guest','patient','doctor','admin')", name="valid_role"),
     )
 
@@ -63,6 +66,7 @@ class ConversationSession(TimestampMixin, Base):
     __tablename__ = "sessions"
     __table_args__ = (
         CheckConstraint("status IN ('active','archived','deleted')", name="valid_status"),
+        UniqueConstraint("tenant_id", "user_id", "id", name="uq_sessions_tenant_user_id"),
         Index("ix_sessions_user_updated", "user_id", "updated_at"),
     )
 
@@ -210,6 +214,127 @@ class MemoryFactRevision(Base):
     )
     revision: Mapped[int] = mapped_column(Integer, nullable=False)
     snapshot: Mapped[dict[str, Any]] = mapped_column(EncryptedJSON(), nullable=False)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), nullable=False
+    )
+
+
+class SkillDefinitionRecord(TimestampMixin, Base):
+    """Current encrypted caller-owned Skill definition."""
+
+    __tablename__ = "skill_definitions"
+    __table_args__ = (
+        UniqueConstraint(
+            "tenant_id", "actor_id", "skill_id", name="uq_skill_definitions_owner_skill"
+        ),
+        UniqueConstraint(
+            "tenant_id",
+            "actor_id",
+            "name_fingerprint",
+            name="uq_skill_definitions_owner_name",
+        ),
+        UniqueConstraint("tenant_id", "actor_id", "id", name="uq_skill_definitions_owner_id"),
+        CheckConstraint("origin IN ('text','upload','generated')", name="valid_origin"),
+        CheckConstraint("revision > 0", name="positive_revision"),
+        Index(
+            "ix_skill_definitions_owner_updated",
+            "tenant_id",
+            "actor_id",
+            "updated_at",
+        ),
+    )
+
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    tenant_id: Mapped[str] = mapped_column(String(64), nullable=False, index=True)
+    actor_id: Mapped[str] = mapped_column(String(128), nullable=False, index=True)
+    skill_id: Mapped[str] = mapped_column(String(64), nullable=False)
+    name: Mapped[str] = mapped_column(EncryptedText(), nullable=False)
+    name_fingerprint: Mapped[str] = mapped_column(String(64), nullable=False)
+    description: Mapped[str] = mapped_column(EncryptedText(), nullable=False)
+    version: Mapped[str] = mapped_column(String(32), nullable=False)
+    category: Mapped[str] = mapped_column(String(32), nullable=False)
+    origin: Mapped[str] = mapped_column(String(16), nullable=False)
+    tool_names: Mapped[list[str]] = mapped_column(JSONB, default=list, nullable=False)
+    source_markdown: Mapped[str] = mapped_column(EncryptedText(), nullable=False)
+    content_hash: Mapped[str] = mapped_column(String(64), nullable=False)
+    enabled: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
+    revision: Mapped[int] = mapped_column(Integer, default=1, nullable=False)
+
+
+class SkillDefinitionRevision(Base):
+    """Immutable encrypted snapshot retained before a custom Skill mutation."""
+
+    __tablename__ = "skill_definition_revisions"
+    __table_args__ = (
+        UniqueConstraint(
+            "skill_definition_id",
+            "revision",
+            name="uq_skill_definition_revisions_record_revision",
+        ),
+        CheckConstraint("revision > 0", name="positive_revision"),
+        ForeignKeyConstraint(
+            ["tenant_id", "actor_id", "skill_definition_id"],
+            [
+                "skill_definitions.tenant_id",
+                "skill_definitions.actor_id",
+                "skill_definitions.id",
+            ],
+            name="fk_skill_revisions_owner_definition",
+            ondelete="CASCADE",
+        ),
+        Index(
+            "ix_skill_definition_revisions_owner_created",
+            "tenant_id",
+            "actor_id",
+            "created_at",
+        ),
+    )
+
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    tenant_id: Mapped[str] = mapped_column(String(64), nullable=False, index=True)
+    actor_id: Mapped[str] = mapped_column(String(128), nullable=False, index=True)
+    skill_definition_id: Mapped[uuid.UUID] = mapped_column(nullable=False)
+    revision: Mapped[int] = mapped_column(Integer, nullable=False)
+    snapshot: Mapped[dict[str, Any]] = mapped_column(EncryptedJSON(), nullable=False)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), nullable=False
+    )
+
+
+class SessionSkill(Base):
+    """Ordered Skill selection for one caller-owned durable conversation."""
+
+    __tablename__ = "session_skills"
+    __table_args__ = (
+        UniqueConstraint(
+            "tenant_id", "session_id", "skill_id", name="uq_session_skills_session_skill"
+        ),
+        UniqueConstraint(
+            "tenant_id", "session_id", "position", name="uq_session_skills_session_position"
+        ),
+        CheckConstraint("position >= 0 AND position < 10", name="valid_position"),
+        ForeignKeyConstraint(
+            ["tenant_id", "actor_id", "user_id"],
+            ["users.tenant_id", "users.external_id", "users.id"],
+            name="fk_session_skills_owner_principal",
+            ondelete="CASCADE",
+        ),
+        ForeignKeyConstraint(
+            ["tenant_id", "user_id", "session_id"],
+            ["sessions.tenant_id", "sessions.user_id", "sessions.id"],
+            name="fk_session_skills_owner_session",
+            ondelete="CASCADE",
+        ),
+        Index("ix_session_skills_owner_session", "tenant_id", "actor_id", "session_id"),
+    )
+
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    tenant_id: Mapped[str] = mapped_column(String(64), nullable=False, index=True)
+    actor_id: Mapped[str] = mapped_column(String(128), nullable=False, index=True)
+    user_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), nullable=False)
+    session_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), nullable=False)
+    skill_id: Mapped[str] = mapped_column(String(64), nullable=False)
+    position: Mapped[int] = mapped_column(Integer, nullable=False)
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now(), nullable=False
     )

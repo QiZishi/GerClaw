@@ -224,6 +224,7 @@ class ConversationService:
             "citations": [item.model_dump(mode="json") for item in response.citations],
             "safety": response.safety.model_dump(mode="json"),
             "medical_content": response.medical_content,
+            "emergency_short_circuit": response.emergency_short_circuit,
             "model_preference": response.structured.get("model_preference"),
         }
         message = Message(
@@ -272,6 +273,9 @@ class ConversationService:
         medical_content = message.message_metadata.get("medical_content")
         if not isinstance(medical_content, bool):
             raise ConversationDataError("stored message medical-content flag is invalid")
+        emergency_short_circuit = message.message_metadata.get("emergency_short_circuit", False)
+        if not isinstance(emergency_short_circuit, bool):
+            raise ConversationDataError("stored emergency short-circuit flag is invalid")
         model_preference = message.message_metadata.get("model_preference")
         if model_preference not in {"primary", "backup1", "backup2", None}:
             raise ConversationDataError("stored model preference is invalid")
@@ -280,6 +284,7 @@ class ConversationService:
             citations=public.citations,
             safety=safety,
             medical_content=medical_content,
+            emergency_short_circuit=emergency_short_circuit,
             structured={"model_preference": model_preference, "replayed": True},
         )
 

@@ -165,7 +165,7 @@ function CodeBlock({ lang, code }: { lang: string; code: string }) {
       <div className="flex items-center justify-between px-3 py-1.5 border-b border-border bg-muted/50 dark:bg-muted/20">
         <span className={cn(
           "text-muted-foreground font-mono select-none",
-          seniorMode ? "text-sm" : "text-xs"
+          seniorMode ? "text-lg" : "text-xs"
         )}>
           {displayLang}
         </span>
@@ -174,7 +174,7 @@ function CodeBlock({ lang, code }: { lang: string; code: string }) {
           onClick={handleCopy}
           className={cn(
             "inline-flex items-center gap-1 text-muted-foreground hover:text-foreground transition-colors rounded",
-            seniorMode ? "text-sm min-w-[44px] min-h-[44px] px-2" : "text-xs px-1.5 py-1"
+            seniorMode ? "min-h-12 min-w-12 px-3 text-lg" : "text-xs px-1.5 py-1"
           )}
           aria-label="复制代码"
         >
@@ -196,7 +196,7 @@ function CodeBlock({ lang, code }: { lang: string; code: string }) {
           <div
             className={cn(
               "shiki-wrapper [&>pre]:!bg-transparent [&>pre]:!m-0 [&>pre]:p-4 [&>pre]:overflow-x-auto",
-              seniorMode ? "[&_code]:text-[16px] [&>pre]:text-[16px]" : "[&_code]:text-sm [&>pre]:text-sm",
+              seniorMode ? "[&_code]:text-lg [&>pre]:text-lg" : "[&_code]:text-sm [&>pre]:text-sm",
               "[&_code]:leading-relaxed"
             )}
             dangerouslySetInnerHTML={{ __html: highlightedHtml }}
@@ -204,7 +204,7 @@ function CodeBlock({ lang, code }: { lang: string; code: string }) {
         ) : (
           <pre className={cn(
             "p-4 font-mono overflow-x-auto text-foreground",
-            seniorMode ? "text-[16px]" : "text-sm"
+            seniorMode ? "text-lg" : "text-sm"
           )}>
             <code>{code}</code>
           </pre>
@@ -346,19 +346,19 @@ function createMarkdownComponents(citations?: Citation[], seniorMode?: boolean) 
       <h4
         className={cn(
           "font-semibold mt-2 mb-1.5 text-foreground",
-          seniorMode ? "text-base" : "text-sm"
+          seniorMode ? "text-lg" : "text-sm"
         )}
       >
         {processChildrenWithCitations(props.children, citations)}
       </h4>
     ),
     h5: (props: MarkdownComponentProps) => (
-      <h5 className="font-semibold mt-2 mb-1 text-sm text-foreground">
+      <h5 className={cn("font-semibold mt-2 mb-1 text-foreground", seniorMode ? "text-lg" : "text-sm")}>
         {processChildrenWithCitations(props.children, citations)}
       </h5>
     ),
     h6: (props: MarkdownComponentProps) => (
-      <h6 className="font-semibold mt-2 mb-1 text-xs text-muted-foreground uppercase tracking-wide">
+      <h6 className={cn("font-semibold mt-2 mb-1 text-muted-foreground uppercase tracking-wide", seniorMode ? "text-lg" : "text-xs")}>
         {processChildrenWithCitations(props.children, citations)}
       </h6>
     ),
@@ -366,7 +366,7 @@ function createMarkdownComponents(citations?: Citation[], seniorMode?: boolean) 
       <p
         className={cn(
           "mb-3 leading-relaxed text-foreground last:mb-0",
-          seniorMode ? "text-base leading-[1.8]" : "text-sm"
+          seniorMode ? "text-lg leading-[1.8]" : "text-sm"
         )}
       >
         {processChildrenWithCitations(props.children, citations)}
@@ -409,7 +409,7 @@ function createMarkdownComponents(citations?: Citation[], seniorMode?: boolean) 
         <code
           className={cn(
             "rounded bg-muted px-1.5 py-0.5 font-mono text-foreground border border-border/50",
-            seniorMode ? "text-[16px]" : "text-[0.85em]"
+            seniorMode ? "text-lg" : "text-[0.85em]"
           )}
           {...props}
         >
@@ -430,7 +430,7 @@ function createMarkdownComponents(citations?: Citation[], seniorMode?: boolean) 
             isSuicideWarning
               ? "border-red-600 bg-red-600 text-white font-medium"
               : "border-primary/50 bg-muted/40 text-muted-foreground",
-            seniorMode ? "text-base" : "text-sm"
+            seniorMode ? "text-lg" : "text-sm"
           )}
         >
           {processChildrenWithCitations(props.children, citations)}
@@ -441,7 +441,7 @@ function createMarkdownComponents(citations?: Citation[], seniorMode?: boolean) 
       <ul
         className={cn(
           "list-disc pl-6 my-3 space-y-1.5",
-          seniorMode ? "text-base" : "text-sm"
+          seniorMode ? "text-lg" : "text-sm"
         )}
       >
         {processChildrenWithCitations(props.children, citations)}
@@ -451,7 +451,7 @@ function createMarkdownComponents(citations?: Citation[], seniorMode?: boolean) 
       <ol
         className={cn(
           "list-decimal pl-6 my-3 space-y-1.5",
-          seniorMode ? "text-base" : "text-sm"
+          seniorMode ? "text-lg" : "text-sm"
         )}
       >
         {processChildrenWithCitations(props.children, citations)}
@@ -464,7 +464,7 @@ function createMarkdownComponents(citations?: Citation[], seniorMode?: boolean) 
     ),
     table: (props: MarkdownComponentProps) => (
       <div className="overflow-x-auto my-4 rounded-lg border border-border">
-        <table className="w-full border-collapse text-sm">
+        <table className={cn("w-full border-collapse", seniorMode ? "text-lg" : "text-sm")}>
           {processChildrenWithCitations(props.children, citations)}
         </table>
       </div>
@@ -488,7 +488,7 @@ function createMarkdownComponents(citations?: Citation[], seniorMode?: boolean) 
       <th
         className={cn(
           "border-b border-border px-4 py-2.5 text-left font-semibold text-foreground",
-          seniorMode ? "text-base" : "text-sm"
+          seniorMode ? "text-lg" : "text-sm"
         )}
       >
         {processChildrenWithCitations(props.children, citations)}
@@ -498,7 +498,7 @@ function createMarkdownComponents(citations?: Citation[], seniorMode?: boolean) 
       <td
         className={cn(
           "px-4 py-2.5 text-foreground align-top",
-          seniorMode ? "text-base" : "text-sm"
+          seniorMode ? "text-lg" : "text-sm"
         )}
       >
         {processChildrenWithCitations(props.children, citations)}
@@ -535,7 +535,7 @@ export function MarkdownRenderer({
     <div
       className={cn(
         "markdown-body",
-        seniorMode ? "text-base leading-[1.8]" : "text-sm leading-relaxed",
+        seniorMode ? "text-lg leading-[1.8]" : "text-sm leading-relaxed",
         className
       )}
     >

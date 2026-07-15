@@ -81,3 +81,27 @@ def test_shared_contracts_reject_unsafe_or_oversized_public_data() -> None:
         )
     with pytest.raises(ValidationError):
         ToolInvocation(name="INVALID TOOL")
+
+
+def test_emergency_short_circuit_requires_a_real_escalation() -> None:
+    safety = _safety().model_copy(
+        update={"notices": ["medical_disclaimer_applied", "high_risk_escalation_applied"]}
+    )
+    response = AgentResponse(
+        text="请立即拨打 120 或前往急诊。内容由 AI 生成,仅供参考。",
+        citations=[],
+        safety=safety,
+        medical_content=True,
+        emergency_short_circuit=True,
+    )
+
+    assert response.emergency_short_circuit is True
+
+    with pytest.raises(ValidationError, match="requires an applied escalation"):
+        AgentResponse(
+            text="请立即拨打 120。",
+            citations=[],
+            safety=_safety(),
+            medical_content=True,
+            emergency_short_circuit=True,
+        )

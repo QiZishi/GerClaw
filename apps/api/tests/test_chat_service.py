@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import asyncio
+import time
 import uuid
 from collections.abc import AsyncGenerator, AsyncIterator
 from contextlib import asynccontextmanager
@@ -23,7 +25,7 @@ from gerclaw_api.domain.enums import TraceStatus
 from gerclaw_api.domain.trace_schemas import TraceEventCreate, TraceFinishRequest
 from gerclaw_api.modules.memory.models import MemoryUpdateResult
 from gerclaw_api.modules.memory.protocols import MemoryMessage, UserProfile
-from gerclaw_api.services.chat_service import ChatService
+from gerclaw_api.services.chat_service import ChatCancellationFinalizationError, ChatService
 from gerclaw_api.services.session_lease import SessionBusyError, SessionLeaseLostError
 from gerclaw_api.services.trace_service import TraceStartResult
 
@@ -228,10 +230,16 @@ class _SupersedingLeaseGuard(_LeaseGuard):
 
 class _TraceFacade:
     def __init__(
-        self, *, created: bool, session_id: uuid.UUID, fail_completed_finish: bool = False
+        self,
+        *,
+        created: bool,
+        session_id: uuid.UUID,
+        fail_completed_finish: bool = False,
+        fail_cancelled_finish: bool = False,
     ) -> None:
         self.created = created
         self.fail_completed_finish = fail_completed_finish
+        self.fail_cancelled_finish = fail_cancelled_finish
         self.events: list[TraceEventCreate] = []
         self.finishes: list[TraceFinishRequest] = []
         self.trace = ExecutionTrace(
@@ -271,6 +279,8 @@ class _TraceFacade:
         del commit
         if self.fail_completed_finish and request.status is TraceStatus.COMPLETED:
             raise RuntimeError("injected terminal Trace commit failure")
+        if self.fail_cancelled_finish and request.status is TraceStatus.CANCELLED:
+            raise RuntimeError("injected cancelled Trace commit failure")
         self.finishes.append(request)
         self.trace.status = request.status.value
         return self.trace
@@ -435,6 +445,186 @@ async def test_owned_turn_streams_only_after_durable_success(unit_settings: Sett
 
 
 @pytest.mark.asyncio
+async def test_durable_cancel_intent_fences_success_when_runtime_swallows_task_cancel(
+    unit_settings: Settings,
+) -> None:
+    session_id = uuid.uuid4()
+    traces = _TraceFacade(created=True, session_id=session_id)
+    conversation = _ConversationFacade(session_id)
+    memory = _MemoryFacade()
+    service = ChatService(
+        settings=unit_settings,
+        conversation=cast(Any, conversation),
+        traces=cast(Any, traces),
+        lease=cast(Any, _OwnedLease()),
+        model=cast(Any, _TextModel()),
+        rag_module=cast(Any, _NoopRAG()),
+        memory_factory=_memory_factory(memory),
+    )
+    events: list[object] = []
+
+    async def callback(event: object) -> None:
+        events.append(event)
+
+    async def cancellation_requested() -> bool:
+        return True
+
+    with pytest.raises(asyncio.CancelledError):
+        await service.process(
+            ChatRequest(session_id=session_id, message="您好!"),
+            identity=AuthContext(
+                actor_id="usr_patient_unit0001",
+                tenant_id="tenant_public0001",
+                scopes=frozenset({"chat:write"}),
+            ),
+            request_id="request_chat_cancel_fence_0001",
+            trace_id="trace_chat_busy_0001",
+            callback=cast(Any, callback),
+            cancellation_requested=cancellation_requested,
+        )
+
+    assert conversation.response is None
+    assert conversation.rollback_count == 2
+    assert memory.compensation_count == 1
+    assert memory.committed_count == 0
+    assert traces.trace.status == TraceStatus.CANCELLED.value
+    assert traces.finishes[-1].status is TraceStatus.CANCELLED
+    assert all(cast(Any, event).event_type != "done" for event in events)
+
+
+@pytest.mark.asyncio
+async def test_cancel_does_not_publish_success_when_terminal_trace_commit_fails(
+    unit_settings: Settings,
+) -> None:
+    session_id = uuid.uuid4()
+    traces = _TraceFacade(
+        created=True,
+        session_id=session_id,
+        fail_cancelled_finish=True,
+    )
+    service = ChatService(
+        settings=unit_settings,
+        conversation=cast(Any, _ConversationFacade(session_id)),
+        traces=cast(Any, traces),
+        lease=cast(Any, _OwnedLease()),
+        model=cast(Any, _TextModel()),
+        rag_module=cast(Any, _NoopRAG()),
+        memory_factory=_memory_factory(),
+    )
+
+    async def callback(_event: object) -> None:
+        return None
+
+    async def cancellation_requested() -> bool:
+        return True
+
+    with pytest.raises(RuntimeError, match="cancelled Trace could not be durably finalized"):
+        await service.process(
+            ChatRequest(session_id=session_id, message="您好!"),
+            identity=AuthContext(
+                actor_id="usr_patient_unit0001",
+                tenant_id="tenant_public0001",
+                scopes=frozenset({"chat:write"}),
+            ),
+            request_id="request_chat_cancel_commit_failure_0001",
+            trace_id="trace_chat_busy_0001",
+            callback=cast(Any, callback),
+            cancellation_requested=cancellation_requested,
+        )
+
+    assert traces.trace.status == TraceStatus.RUNNING.value
+    assert traces.finishes == []
+
+
+@pytest.mark.asyncio
+async def test_emergency_short_circuit_trace_does_not_claim_a_model_call(
+    unit_settings: Settings,
+) -> None:
+    session_id = uuid.uuid4()
+    traces = _TraceFacade(created=True, session_id=session_id)
+    service = ChatService(
+        settings=unit_settings,
+        conversation=cast(Any, _ConversationFacade(session_id)),
+        traces=cast(Any, traces),
+        lease=cast(Any, _OwnedLease()),
+        model=cast(Any, _TextModel()),
+        rag_module=cast(Any, _NoopRAG()),
+        memory_factory=_memory_factory(),
+    )
+
+    async def callback(_event: object) -> None:
+        return None
+
+    response = await service.process(
+        ChatRequest(session_id=session_id, message="老人突然胸痛并且呼吸困难"),
+        identity=AuthContext(
+            actor_id="usr_patient_unit0001",
+            tenant_id="tenant_public0001",
+            scopes=frozenset({"chat:write"}),
+        ),
+        request_id="request_chat_emergency_0001",
+        trace_id="trace_chat_busy_0001",
+        callback=cast(Any, callback),
+    )
+
+    assert response.emergency_short_circuit is True
+    assert "model.call" not in [event.event_type.value for event in traces.events]
+    finish = next(event for event in traces.events if event.event_type.value == "agent.finish")
+    assert "model" not in finish.payload
+    assert "total_tokens" not in finish.payload
+
+
+@pytest.mark.asyncio
+async def test_cancelled_running_skill_viewer_gets_a_terminal_audit_event(
+    unit_settings: Settings,
+) -> None:
+    session_id = uuid.uuid4()
+    traces = _TraceFacade(created=True, session_id=session_id)
+    conversation = _ConversationFacade(session_id)
+    service = ChatService(
+        settings=unit_settings,
+        conversation=cast(Any, conversation),
+        traces=cast(Any, traces),
+        lease=cast(Any, _OwnedLease()),
+        model=cast(Any, _TextModel()),
+        rag_module=cast(Any, _NoopRAG()),
+        memory_factory=_memory_factory(),
+    )
+
+    await service._finish_failure(
+        ChatRequest(
+            session_id=session_id,
+            message="请读取风险评估技能",
+            loaded_skills=["risk-assessment"],
+        ),
+        identity=AuthContext(
+            actor_id="usr_patient_unit0001",
+            tenant_id="tenant_public0001",
+            scopes=frozenset({"chat:write"}),
+        ),
+        trace_id="trace_chat_busy_0001",
+        status=TraceStatus.CANCELLED,
+        code="CHAT_CANCELLED",
+        request_fingerprint="f" * 64,
+        fencing_token=17,
+        lease_guard=cast(Any, _LeaseGuard(17)),
+        active_skill_calls={
+            "tool_call_skill_001": (time.monotonic() - 0.01, "risk-assessment", "1.0.0")
+        },
+        skill_audit_events=[],
+    )
+
+    skill_event = next(
+        event for event in traces.events if event.event_type.value == "skill.execute"
+    )
+    assert skill_event.status.value == "cancelled"
+    assert skill_event.payload["outcome"] == "cancelled"
+    assert skill_event.payload["skill"] == "risk-assessment"
+    assert skill_event.payload["version"] == "1.0.0"
+    assert traces.finishes[-1].status is TraceStatus.CANCELLED
+
+
+@pytest.mark.asyncio
 async def test_terminal_trace_failure_rolls_back_assistant_before_recording_failure(
     unit_settings: Settings,
 ) -> None:
@@ -525,6 +715,9 @@ def test_chat_error_codes_never_expose_provider_details() -> None:
     assert ChatService.error_code(SessionBusyError("internal redis key")) == "CHAT_SESSION_BUSY"
     assert ChatService.error_code(RuntimeError("provider secret response")) == (
         "CHAT_EXECUTION_FAILED"
+    )
+    assert ChatService.error_code(ChatCancellationFinalizationError("database details")) == (
+        "CHAT_CANCELLATION_FINALIZATION_FAILED"
     )
 
 

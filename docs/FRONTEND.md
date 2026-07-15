@@ -8,20 +8,20 @@
 
 | 类别 | 技术选择 | 版本 | 说明 |
 |------|---------|------|------|
-| 框架 | Next.js | 15 (App Router) | React框架，支持SSG静态导出(output: 'export')适配IGA Pages |
+| 框架 | Next.js | 16.2.10 (App Router) | React框架；当前使用动态 BFF Route Handler 连接 FastAPI |
 | 语言 | TypeScript | 5.x | strict模式启用，全类型覆盖 |
 | 样式方案 | Tailwind CSS | 4 | 原子化CSS，深色模式dark:前缀 |
 | UI组件库 | shadcn/ui | latest | 基于Radix UI的高质量组件库，按需导入 |
 | 图标 | Lucide React | latest | 一致风格的图标库 |
 | 状态管理 | Zustand + React Context | latest | Zustand 管理会话/配置等可序列化状态，Context 管理主题/角色等跨组件状态；localStorage 持久化 |
-| 路由 | Next.js App Router | 15 | 文件系统路由，app/目录结构 |
-| 数据获取 | Vercel AI SDK + fetch | latest | useChat/useCompletion处理流式对话，原生fetch处理REST API |
+| 路由 | Next.js App Router | 16.2.10 | 文件系统路由与同源 BFF Route Handler |
+| 数据获取 | 同源 BFF + fetch + Zod | latest | FastAPI REST/SSE 经 `/api/gerclaw/*` 转发并在信任边界校验 |
 | 表单处理 | React Hook Form + Zod | latest | 类型安全的表单验证（设置、技能上传等） |
 | 音频处理 | Web Audio API + MediaRecorder | 浏览器原生 | 麦克风录音(WAV/MP3)、PCM16流式播放 |
 | 文档导出 | jsPDF + docx + marked | latest | PDF导出、DOCX导出、Markdown渲染 |
 | Markdown渲染 | react-markdown + remark-gfm + rehype-highlight | latest | Markdown渲染、GFM表格/任务列表、代码语法高亮 |
 | 测试框架 | Vitest + React Testing Library + Playwright | latest | 单元测试/组件测试/E2E测试 |
-| 构建工具 | Next.js内置(Turbopack) | 15 | 零配置构建，静态导出 |
+| 构建工具 | Turbopack build + Webpack dev | Next.js 16.2.10 | 生产 build 使用 Turbopack；本机 dev 固定 Webpack，规避已复现的首次编译挂起 |
 | 代码规范 | ESLint + Prettier | latest | Next.js默认ESLint配置 |
 
 ## 2. 目录结构
@@ -178,7 +178,19 @@ apps/mvp/
 - 主备切换：llm.ts实现主→备1→备2自动切换；search.ts实现AnySearch→Tavily兜底
 - API Key从环境变量读取，经src/lib/config.ts校验后使用，不在组件中直接process.env
 - 流式响应：使用Vercel AI SDK处理SSE流（LLM），手动处理ReadableStream（ASR/TTS）
-- 关键操作添加AbortController支持（用户可停止生成/取消请求）
+- 关键操作添加AbortController支持；用户停止生成先走显式后端取消协议，AbortController 仅作为取消端点失败或页面卸载时的 transport 兜底。
+
+### 5.1 当前生产链路（0019）
+
+- 普通聊天、Skill CRUD/生成/上传、会话 Skill 选择统一走 `src/services/gerclaw/`，组件不得拼接 Skill prompt 或直连 Provider。
+- `src/app/api/gerclaw/[...path]/route.ts` 只代理显式 allowlist 路径；访客 JWT 放在 HttpOnly/SameSite cookie，浏览器 JavaScript 不读取 token。
+- 浏览器在任何 BFF 请求前同步生成并持久化 32 位 visitor ID，同时随请求头发送；BFF 首次响应再写 HttpOnly visitor/JWT cookie。并发首请求因此使用同一身份输入，不会各自产生 actor A/B。独立 `GERCLAW_GUEST_IDENTITY_SECRET` 只在 BFF/FastAPI 间签名并稳定派生后端 `actor_id`；短期 JWT 到期不改变访客身份。
+- FastAPI SSE 必须出现 `done` 才视为成功；用户停止必须出现 `cancelled` 才视为服务端终态确认。连接提前结束、Schema 错误和工具失败均显式失败，不把部分输出包装成成功。
+- 会话切换从后端读取 Skill 选择；仅显式新建且继承输入上下文的 session 才执行首次写入，切换已有空会话不得用当前标签覆盖其后端选择。刷新后点回会话会从真实 Skill 列表恢复中文名称。
+- Skill 上传先调用只校验、不落库的 preview API；完整 `SKILL.md` 在可编辑源码/渲染预览中供用户审阅，明确确认后才注册。系统 Skill 可查看完整只读源码，自定义 Skill 使用 expected revision 编辑，禁止“上传即注册”。
+- 用户点击停止后进入“正在安全停止”状态，发送 `POST /api/gerclaw/chat/{trace_id}/cancel` 并继续读取原 SSE；只有收到服务端 `cancelled` 后，正文才标为 `stopped` 并追加“未完成且未通过最终校验”警示，thinking 结束、所有 running 工具卡转为 cancelled，且不显示重新生成之外的完成态假象。
+- 患者老年模式下，Skill 选择说明、已加载标签、显式“移除”按钮和完整 Markdown 预览正文均不低于 18px；所有操作目标不低于 48px。已有底部文字“关闭”时禁用弹窗右上角纯图标关闭按钮，避免重复且不合规的 35px 控件。
+- 命中红旗症状时先显示本地就医卡，后端在 RAG/模型前返回固定急症响应；即使请求错误，已有 120/急诊提示也不得被通用错误文案覆盖。
 
 ## 6. 样式规范
 
@@ -204,34 +216,15 @@ apps/mvp/
 
 ## 8. 环境变量规范
 
-前端环境变量使用 `NEXT_PUBLIC_` 前缀：
+只有确实需要进入浏览器 bundle 的非敏感显示配置可以使用 `NEXT_PUBLIC_`。模型、语音、搜索、文档服务和签名密钥均为服务端变量，禁止使用 `NEXT_PUBLIC_*`：
 
 ```env
-# === 主模型（OpenAI兼容）===
-NEXT_PUBLIC_PRIMARY_URL=https://api.openai.com/v1
-NEXT_PUBLIC_PRIMARY_API_KEY=
-NEXT_PUBLIC_PRIMARY_MODEL=gpt-4o
-NEXT_PUBLIC_PRIMARY_PROTOCOL=openai
+# Next.js server runtime only
+GERCLAW_API_URL=http://127.0.0.1:8000
+GERCLAW_GUEST_IDENTITY_SECRET=<由 Secret Manager 注入，至少32字符>
 
-# === 备份模型1（DashScope兼容）===
-NEXT_PUBLIC_BACKUP1_URL=https://dashscope.aliyuncs.com/compatible-mode/v1
-NEXT_PUBLIC_BACKUP1_API_KEY=
-NEXT_PUBLIC_BACKUP1_MODEL=qwen-plus
-NEXT_PUBLIC_BACKUP1_PROTOCOL=openai
-
-# === Mimo语音服务 ===
-NEXT_PUBLIC_MIMO_API_KEY=
-NEXT_PUBLIC_ASR_MODEL=mimo-v2.5-asr
-NEXT_PUBLIC_TTS_MODEL=mimo-v2.5-tts
-NEXT_PUBLIC_TTS_VOICE=冰糖
-
-# === 联网搜索 ===
-NEXT_PUBLIC_ANYSEARCH_API_KEY=
-NEXT_PUBLIC_TAVILY_API_KEY=
-
-# === MinerU文档解析 ===
-NEXT_PUBLIC_MINERU_URL=
-NEXT_PUBLIC_MINERU_API_KEY=
+# Python backend only；完整模型/RAG/Voice/Search/MinerU 配置见根 .env.example
+GERCLAW_AUTH_JWT_SECRET=<由 Secret Manager 注入，至少32字符>
 ```
 
 .env.example提交到仓库，真实.env*文件加入.gitignore。

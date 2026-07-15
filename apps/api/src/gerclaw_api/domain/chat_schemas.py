@@ -4,14 +4,14 @@ from __future__ import annotations
 
 import uuid
 from datetime import datetime
-from typing import Annotated, Literal
+from typing import Literal
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 from gerclaw_api.modules.contracts import Citation, SafetyDecision
+from gerclaw_api.modules.skill.models import SkillId
 
 STRICT = ConfigDict(extra="forbid")
-SkillId = Annotated[str, Field(pattern=r"^[a-z][a-z0-9_.-]{1,63}$")]
 
 
 class ChatRequest(BaseModel):
@@ -99,3 +99,22 @@ class ChatErrorData(BaseModel):
     message: str = Field(min_length=1, max_length=500)
     trace_id: str
     retriable: bool
+
+
+class ChatCancelledData(BaseModel):
+    """Terminal SSE acknowledgement emitted after durable cancellation cleanup."""
+
+    model_config = STRICT
+
+    trace_id: str
+    status: Literal["cancelled"] = "cancelled"
+    message: str = "回答已停止。未完成内容不得用于诊疗或用药调整。"
+
+
+class ChatCancelRead(BaseModel):
+    """Accepted identity-scoped request to cancel an active or starting turn."""
+
+    model_config = STRICT
+
+    trace_id: str
+    status: Literal["cancellation_requested"] = "cancellation_requested"

@@ -89,13 +89,23 @@ class AgentResponse(BaseModel):
     citations: list[Citation] = Field(default_factory=list, max_length=50)
     safety: SafetyDecision
     medical_content: bool
+    emergency_short_circuit: bool = False
     structured: dict[str, JsonValue] = Field(default_factory=dict)
 
     @model_validator(mode="after")
     def enforce_medical_output_invariants(self) -> AgentResponse:
         if _UNSAFE_DIAGNOSIS.search(self.text):
             raise ValueError("public output contains deterministic diagnosis language")
-        if self.medical_content and not self.citations:
+        if self.emergency_short_circuit:
+            if not self.medical_content:
+                raise ValueError("emergency short circuit must be marked as medical content")
+            if self.citations:
+                raise ValueError("emergency short circuit must not wait for retrieved evidence")
+            if "high_risk_escalation_applied" not in self.safety.notices:
+                raise ValueError("emergency short circuit requires an applied escalation")
+            if "120" not in self.text and "急诊" not in self.text:
+                raise ValueError("emergency short circuit requires an urgent action instruction")
+        if self.medical_content and not self.citations and not self.emergency_short_circuit:
             raise ValueError("medical output requires at least one traceable citation")
         return self
 

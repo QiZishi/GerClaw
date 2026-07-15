@@ -6,7 +6,6 @@
  */
 import { create } from "zustand";
 import type { Message, Session, SimpleStepData } from "@/types";
-import { generateId } from "@/lib/format";
 import { toast } from "@/components/ui/toast";
 import type { FrontendModelId } from "@/config/models";
 
@@ -612,7 +611,7 @@ export const useChatStore = create<ChatState>()((set, get) => ({
 
   // === 便捷方法 ===
   createSession: (role = "patient") => {
-    const id = generateId("session");
+    const id = crypto.randomUUID();
     const now = Date.now();
     const session: Session = {
       id,

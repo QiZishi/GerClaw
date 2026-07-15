@@ -2,8 +2,6 @@
 
 from __future__ import annotations
 
-import hashlib
-import hmac
 import json
 import logging
 import time
@@ -26,6 +24,7 @@ from gerclaw_api.metrics import RAG_RETRIEVAL_LATENCY, RAG_RETRIEVALS
 from gerclaw_api.middleware import set_active_trace
 from gerclaw_api.modules.rag.module import HybridRAGModule, RAGUnavailableError
 from gerclaw_api.modules.rag.protocols import RAGFilters, RAGStatus, RetrievalResult
+from gerclaw_api.security import audit_hmac_digest
 from gerclaw_api.services.rate_limit import RateLimiter
 from gerclaw_api.services.trace_service import (
     TraceConflictError,
@@ -105,7 +104,7 @@ def _request_fingerprint(payload: RAGRetrieveRequest, request: Request) -> str:
         separators=(",", ":"),
     )
     key = request.app.state.settings.auth_jwt_secret.get_secret_value().encode()
-    return hmac.new(key, canonical.encode(), hashlib.sha256).hexdigest()
+    return audit_hmac_digest(key, canonical.encode())
 
 
 @router.post("/retrieve", response_model=RAGRetrieveResponse)

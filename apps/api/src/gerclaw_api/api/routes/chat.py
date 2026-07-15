@@ -9,34 +9,44 @@ from collections.abc import AsyncIterator, Mapping
 from contextlib import suppress
 from typing import Annotated
 
-from fastapi import APIRouter, Depends, HTTPException, Query, Request, status
+from fastapi import APIRouter, Depends, HTTPException, Path, Query, Request, status
 from fastapi.responses import StreamingResponse
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from gerclaw_api.auth import (
     AuthContext,
+    authorize_scope,
     require_chat_read,
     require_chat_write,
 )
 from gerclaw_api.database.session import Database
 from gerclaw_api.dependencies import get_database_session
 from gerclaw_api.domain.chat_schemas import (
+    ChatCancelledData,
+    ChatCancelRead,
     ChatErrorData,
     ChatRequest,
     SessionCreateRequest,
     SessionMessagesRead,
     SessionRead,
 )
+from gerclaw_api.domain.trace_schemas import TRACE_ID_PATTERN
 from gerclaw_api.middleware import set_active_trace
 from gerclaw_api.modules.agent_harness import StreamEvent
 from gerclaw_api.modules.memory.memory_module import ProductionMemoryModule
 from gerclaw_api.modules.memory.runtime import create_memory_module
+from gerclaw_api.modules.skill import ProductionSkillModule
 from gerclaw_api.repositories.conversation import (
     ConversationConflictError,
     SqlAlchemyConversationRepository,
 )
 from gerclaw_api.repositories.memory import SqlAlchemyMemoryRepository
+from gerclaw_api.repositories.skill import SqlAlchemySkillRepository
 from gerclaw_api.repositories.trace import SqlAlchemyTraceRepository
+from gerclaw_api.services.chat_cancellation import (
+    ChatCancellationRegistry,
+    ChatCancellationUnavailable,
+)
 from gerclaw_api.services.chat_service import ChatService
 from gerclaw_api.services.conversation_service import (
     ConversationNotFoundError,
@@ -50,6 +60,7 @@ router = APIRouter(tags=["chat"])
 SessionDependency = Annotated[AsyncSession, Depends(get_database_session)]
 ChatReadIdentity = Annotated[AuthContext, Depends(require_chat_read)]
 ChatWriteIdentity = Annotated[AuthContext, Depends(require_chat_write)]
+TraceIdPath = Annotated[str, Path(pattern=TRACE_ID_PATTERN)]
 
 
 class _Terminal:
@@ -57,6 +68,22 @@ class _Terminal:
 
 
 _TERMINAL = _Terminal()
+QueueItem = StreamEvent | ChatCancelledData | ChatErrorData | _Terminal
+
+
+def _force_enqueue(queue: asyncio.Queue[QueueItem], item: QueueItem) -> None:
+    """Enqueue a control/terminal item without waiting on an abandoned consumer."""
+
+    while True:
+        try:
+            queue.put_nowait(item)
+            return
+        except asyncio.QueueFull:
+            # Drop the oldest streamed delta. Terminal tool results and control
+            # frames are inserted last, so successive control inserts preserve
+            # them while freeing bounded capacity.
+            with suppress(asyncio.QueueEmpty):
+                queue.get_nowait()
 
 
 async def _enforce_rate_limit(request: Request, identity: AuthContext) -> None:
@@ -66,6 +93,37 @@ async def _enforce_rate_limit(request: Request, identity: AuthContext) -> None:
 
 def _conversation_service(session: AsyncSession) -> ConversationService:
     return ConversationService(SqlAlchemyConversationRepository(session))
+
+
+@router.post(
+    "/chat/{trace_id}/cancel",
+    response_model=ChatCancelRead,
+    status_code=status.HTTP_202_ACCEPTED,
+)
+async def cancel_chat(
+    trace_id: TraceIdPath,
+    request: Request,
+    identity: ChatWriteIdentity,
+) -> ChatCancelRead:
+    """Request identity-scoped cancellation without tearing down the SSE stream."""
+
+    await _enforce_rate_limit(request, identity)
+    registry: ChatCancellationRegistry = request.app.state.chat_cancellations
+    try:
+        await registry.request_cancel(
+            tenant_id=identity.tenant_id,
+            actor_id=identity.actor_id,
+            trace_id=trace_id,
+        )
+    except ChatCancellationUnavailable as error:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail={
+                "code": "CHAT_CANCELLATION_UNAVAILABLE",
+                "message": "暂时无法安全停止，请稍后重试。",
+            },
+        ) from error
+    return ChatCancelRead(trace_id=trace_id)
 
 
 @router.post("/sessions", response_model=SessionRead, status_code=status.HTTP_201_CREATED)
@@ -128,14 +186,20 @@ async def chat(
 ) -> StreamingResponse:
     """Execute one real AgentScope turn and stream safe, backpressured SSE."""
 
+    if payload.loaded_skills:
+        authorize_scope(identity, "skill:execute")
     await _enforce_rate_limit(request, identity)
     trace_id = str(request.state.trace_id)
     request_id = str(request.state.request_id)
     set_active_trace(request.scope, trace_id)
-    queue: asyncio.Queue[StreamEvent | ChatErrorData | _Terminal] = asyncio.Queue(maxsize=128)
+    queue: asyncio.Queue[QueueItem] = asyncio.Queue(maxsize=128)
+    registry: ChatCancellationRegistry = request.app.state.chat_cancellations
 
     async def publish(event: StreamEvent) -> None:
-        await queue.put(event)
+        if event.event_type == "tool_result":
+            _force_enqueue(queue, event)
+        else:
+            await queue.put(event)
 
     async def run_turn() -> None:
         database: Database = request.app.state.database
@@ -181,6 +245,13 @@ async def chat(
                     rag_module=request.app.state.rag_runtime.module,
                     memory_factory=memory_factory,
                     search_module=request.app.state.search_runtime.module,
+                    skill_module=ProductionSkillModule(
+                        repository=SqlAlchemySkillRepository(database_session),
+                        tenant_id=identity.tenant_id,
+                        actor_id=identity.actor_id,
+                        model=request.app.state.agent_model,
+                        allowed_tools=frozenset(request.app.state.settings.skill_allowed_tools),
+                    ),
                 )
                 await service.process(
                     payload,
@@ -188,24 +259,59 @@ async def chat(
                     request_id=request_id,
                     trace_id=trace_id,
                     callback=publish,
+                    cancellation_requested=lambda: registry.is_cancel_requested(
+                        tenant_id=identity.tenant_id,
+                        actor_id=identity.actor_id,
+                        trace_id=trace_id,
+                    ),
                 )
         except asyncio.CancelledError:
-            raise
+            _force_enqueue(
+                queue,
+                ChatCancelledData(trace_id=trace_id),
+            )
         except Exception as error:
             code = ChatService.error_code(error)
             message, retriable = _public_error(code)
-            await queue.put(
+            _force_enqueue(
+                queue,
                 ChatErrorData(
                     code=code,
                     message=message,
                     trace_id=trace_id,
                     retriable=retriable,
-                )
+                ),
             )
         finally:
-            await queue.put(_TERMINAL)
+            current = asyncio.current_task()
+            if current is not None:
+                await registry.unregister(
+                    tenant_id=identity.tenant_id,
+                    actor_id=identity.actor_id,
+                    trace_id=trace_id,
+                    task=current,
+                )
+            _force_enqueue(queue, _TERMINAL)
 
     task = asyncio.create_task(run_turn(), name=f"chat-turn-{trace_id}")
+    try:
+        await registry.register(
+            tenant_id=identity.tenant_id,
+            actor_id=identity.actor_id,
+            trace_id=trace_id,
+            task=task,
+        )
+    except ChatCancellationUnavailable as error:
+        task.cancel("chat cancellation registry unavailable")
+        with suppress(asyncio.CancelledError):
+            await task
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail={
+                "code": "CHAT_CANCELLATION_UNAVAILABLE",
+                "message": "对话安全停止服务暂时不可用，请稍后重试。",
+            },
+        ) from error
 
     async def event_stream() -> AsyncIterator[str]:
         try:
@@ -220,6 +326,9 @@ async def chat(
                     continue
                 if isinstance(item, _Terminal):
                     break
+                if isinstance(item, ChatCancelledData):
+                    yield _encode_sse("cancelled", item.model_dump(mode="json"))
+                    continue
                 if isinstance(item, ChatErrorData):
                     yield _encode_sse("error", item.model_dump(mode="json"))
                     continue
@@ -272,5 +381,10 @@ def _public_error(code: str) -> tuple[str, bool]:
         "CHAT_CONTEXT_UNSUPPORTED": ("当前请求包含尚未启用的上下文类型。", False),
         "CHAT_EMPTY_RESPONSE": ("模型未返回可用内容，请稍后重试。", True),
         "CHAT_MEMORY_UNAVAILABLE": ("健康记忆服务暂时不可用，本次未完成，请稍后重试。", True),
+        "CHAT_SKILL_UNAVAILABLE": ("所选技能不存在、已禁用或暂不可用，请刷新技能列表。", False),
+        "CHAT_CANCELLATION_FINALIZATION_FAILED": (
+            "停止请求未能安全落库，请稍后重试并核对本次执行记录。",
+            True,
+        ),
     }
     return errors.get(code, ("本次对话执行失败，请稍后重试。", True))

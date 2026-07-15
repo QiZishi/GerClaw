@@ -10,6 +10,8 @@ interface MarkdownEditorProps {
   onChange: (value: string) => void;
   className?: string;
   readOnly?: boolean;
+  seniorMode?: boolean;
+  defaultMode?: "preview" | "source";
 }
 
 export function MarkdownEditor({
@@ -17,9 +19,11 @@ export function MarkdownEditor({
   onChange,
   className,
   readOnly = false,
+  seniorMode = false,
+  defaultMode = "preview",
 }: MarkdownEditorProps) {
   const deferredValue = useDeferredValue(value);
-  const [isEditing, setIsEditing] = useState(false);
+  const [isEditing, setIsEditing] = useState(defaultMode === "source");
 
   const handleChange = useCallback(
     (e: ChangeEvent<HTMLTextAreaElement>) => {
@@ -46,46 +50,51 @@ export function MarkdownEditor({
   );
 
   return (
-    <div className={cn("flex flex-col h-full w-full", className)}>
-      <div className="flex items-center justify-between px-3 py-2 border-b border-border shrink-0 bg-muted/30">
+    <div className={cn("flex h-full w-full flex-col", className)}>
+      <div className="flex shrink-0 items-center justify-between border-b border-border bg-muted/30 px-3 py-2">
         <div className="flex items-center gap-2">
           <Button
             variant={!isEditing ? "secondary" : "ghost"}
             size="sm"
             onClick={() => setIsEditing(false)}
-            disabled={readOnly}
-            className="h-7 px-3 text-xs"
+            className={cn("h-8 px-3 text-xs", seniorMode && "h-12 px-4 text-lg")}
           >
-            预览
+            渲染预览
           </Button>
           <Button
             variant={isEditing ? "secondary" : "ghost"}
             size="sm"
             onClick={() => setIsEditing(true)}
-            disabled={readOnly}
-            className="h-7 px-3 text-xs"
+            className={cn("h-8 px-3 text-xs", seniorMode && "h-12 px-4 text-lg")}
           >
-            编辑
+            SKILL.md 源码
           </Button>
         </div>
+        {readOnly && (
+          <span className={cn("text-xs font-medium text-muted-foreground", seniorMode && "text-lg")}>
+            只读
+          </span>
+        )}
       </div>
 
-      <div className="flex-1 min-h-0 flex flex-col">
-        {isEditing && !readOnly ? (
+      <div className="flex min-h-0 flex-1 flex-col">
+        {isEditing ? (
           <textarea
             value={value}
             onChange={handleChange}
             onKeyDown={handleKeyDown}
+            readOnly={readOnly}
             className={cn(
-              "flex-1 min-h-0 w-full resize-none bg-transparent p-4 font-mono text-sm leading-relaxed text-foreground outline-none",
-              "placeholder:text-muted-foreground"
+              "min-h-0 w-full flex-1 resize-none bg-transparent p-4 font-mono text-sm leading-relaxed text-foreground outline-none placeholder:text-muted-foreground",
+              seniorMode && "text-lg leading-8",
+              readOnly && "cursor-text bg-muted/15"
             )}
             placeholder="开始输入 Markdown..."
             spellCheck={false}
-            autoFocus
+            autoFocus={!readOnly}
           />
         ) : (
-          <div id="panel-export-content" className="flex-1 min-h-0 overflow-y-auto p-4 bg-white">
+          <div id="panel-export-content" className="min-h-0 flex-1 overflow-y-auto bg-white p-4 dark:bg-background">
             <MarkdownRenderer content={deferredValue} />
           </div>
         )}
