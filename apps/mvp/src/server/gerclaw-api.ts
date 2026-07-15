@@ -4,6 +4,7 @@ const apiUrlSchema = z
   .string()
   .url()
   .transform((value) => value.replace(/\/+$/, ""));
+const uuidPattern = "[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}";
 
 const proxyRules: Array<{ pattern: RegExp; methods: ReadonlySet<string> }> = [
   {
@@ -26,11 +27,11 @@ const proxyRules: Array<{ pattern: RegExp; methods: ReadonlySet<string> }> = [
   { pattern: /^cga\/scales$/, methods: new Set(["GET"]) },
   { pattern: /^cga\/assessments$/, methods: new Set(["POST"]) },
   {
-    pattern: /^cga\/assessments\/[0-9a-f-]{36}$/,
+    pattern: new RegExp(`^cga/assessments/${uuidPattern}$`, "i"),
     methods: new Set(["GET"]),
   },
-  { pattern: /^cga\/assessments\/[0-9a-f-]{36}\/(?:answers|complete)$/, methods: new Set(["POST"]) },
-  { pattern: /^cga\/assessments\/[0-9a-f-]{36}\/report$/, methods: new Set(["GET"]) },
+  { pattern: new RegExp(`^cga/assessments/${uuidPattern}/(?:answers|complete)$`, "i"), methods: new Set(["POST"]) },
+  { pattern: new RegExp(`^cga/assessments/${uuidPattern}/report$`, "i"), methods: new Set(["GET"]) },
   {
     pattern: /^runtime\/approvals\/[0-9a-f-]{36}(?:\/(?:cancel|decision|review))?$/,
     methods: new Set(["GET", "POST"]),
