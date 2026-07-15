@@ -1,6 +1,11 @@
 import "server-only";
 
 import { z } from "zod";
+import {
+  SearchRequestError,
+  statusIsRetryable,
+  withPrimaryFallback,
+} from "@/server/search-retry";
 
 const anySearchResponseSchema = z.object({
   jsonrpc: z.literal("2.0"),
@@ -45,6 +50,22 @@ const ANYSEARCH_API_KEY = process.env.ANYSEARCH_API_KEY || "";
 const TAVILY_URL = process.env.TAVILY_URL || "";
 const TAVILY_API_KEY = process.env.TAVILY_API_KEY || "";
 const SEARCH_TIMEOUT_MS = 10_000;
+
+async function fetchProvider(url: string, init: RequestInit): Promise<Response> {
+  let response: Response;
+  try {
+    response = await fetch(url, init);
+  } catch {
+    throw new SearchRequestError("Search provider network request failed", true);
+  }
+  if (!response.ok) {
+    throw new SearchRequestError(
+      `Search provider rejected request (${response.status})`,
+      statusIsRetryable(response.status)
+    );
+  }
+  return response;
+}
 
 function endpoint(baseUrl: string, suffix: string): string {
   const normalized = baseUrl.replace(/\/+$/, "");
@@ -95,7 +116,7 @@ async function callAnySearch(query: string, maxResults: number): Promise<ServerS
   if (!ANYSEARCH_URL) throw new Error("AnySearch is not configured");
   const headers: Record<string, string> = { "Content-Type": "application/json" };
   if (ANYSEARCH_API_KEY) headers.Authorization = `Bearer ${ANYSEARCH_API_KEY}`;
-  const response = await fetch(endpoint(ANYSEARCH_URL, "/mcp"), {
+  const response = await fetchProvider(endpoint(ANYSEARCH_URL, "/mcp"), {
     method: "POST",
     headers,
     body: JSON.stringify({
@@ -109,7 +130,6 @@ async function callAnySearch(query: string, maxResults: number): Promise<ServerS
     }),
     signal: AbortSignal.timeout(SEARCH_TIMEOUT_MS),
   });
-  if (!response.ok) throw new Error(`AnySearch rejected request (${response.status})`);
   const payload = anySearchResponseSchema.parse(await response.json());
   if (payload.error || !payload.result || payload.result.isError) {
     throw new Error("AnySearch tool call failed");
@@ -124,7 +144,7 @@ async function callAnySearch(query: string, maxResults: number): Promise<ServerS
 
 async function callTavily(query: string, maxResults: number): Promise<ServerSearchResult[]> {
   if (!TAVILY_URL || !TAVILY_API_KEY) throw new Error("Tavily is not configured");
-  const response = await fetch(endpoint(TAVILY_URL, "/search"), {
+  const response = await fetchProvider(endpoint(TAVILY_URL, "/search"), {
     method: "POST",
     headers: {
       "Content-Type": "application/json",
@@ -138,7 +158,6 @@ async function callTavily(query: string, maxResults: number): Promise<ServerSear
     }),
     signal: AbortSignal.timeout(SEARCH_TIMEOUT_MS),
   });
-  if (!response.ok) throw new Error(`Tavily rejected request (${response.status})`);
   const payload = tavilyResponseSchema.parse(await response.json());
   return payload.results;
 }
@@ -148,15 +167,12 @@ export async function searchWeb(query: string, maxResults = 6): Promise<ServerSe
   if (!safeQuery) throw new Error("搜索关键词不能为空");
   const boundedResults = Math.min(10, Math.max(1, maxResults));
 
-  for (let attempt = 0; attempt < 2; attempt += 1) {
-    try {
-      const results = await callAnySearch(safeQuery, boundedResults);
-      return { results, source: "anysearch" };
-    } catch {
-      if (attempt === 0) continue;
-    }
-  }
-
-  const results = await callTavily(safeQuery, boundedResults);
-  return { results, source: "tavily" };
+  const routed = await withPrimaryFallback(
+    () => callAnySearch(safeQuery, boundedResults),
+    () => callTavily(safeQuery, boundedResults)
+  );
+  return {
+    results: routed.value,
+    source: routed.fallbackUsed ? "tavily" : "anysearch",
+  };
 }

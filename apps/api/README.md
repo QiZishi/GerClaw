@@ -48,7 +48,7 @@ docker compose -f docker-compose.yml -f docker-compose.dev.yml \
 
 结果只接受 HTTPS 来源，按 WHO/FDA/NIH/政府（S）、权威学会与期刊（A）、专业平台（B）、通用来源（C）分级，论坛、广告和推广来源作为 D 级过滤。AgentScope 收到的正文用 `<untrusted-web-evidence>` 隔离，`tool_result` SSE 同时提供卡片所需结构化结果；最终 citation 的 `corpus` 为 `web`。本地 RAG 仍是医学事实第一证据来源，`workflow=cga` 时 Toolkit 不注册 `web_search`。
 
-`extract_content` 只允许标准 443 公网 HTTPS URL；调用 Provider 前校验全部 DNS 地址，并以 HEAD 探针逐跳重新校验最多 5 次 redirect，阻断 loopback、私网、link-local、metadata 和重绑定到非公网地址。搜索 Trace 只保存 Provider、结果数、重试序号、耗时和权威级别，不保存 query、snippet 或网页正文。
+`extract_content` 只允许标准 443 公网 HTTPS URL；调用 Provider 前校验全部 DNS 地址，以受限 GET 连接已验证公网 IP，同时用原 hostname 做 TLS SNI/证书校验，并逐跳重新校验最多 5 次 redirect，阻断 HEAD/GET 差异跳转、loopback、私网、link-local、metadata 和 DNS rebinding。搜索 Trace 只保存 Provider、结果数、重试序号、耗时和权威级别，不保存 query、snippet 或网页正文。相同 Trace ID 的重试必须匹配 actor、执行类型和 keyed request fingerprint；completed Trace 可重新执行查询但不追加重复事件，冲突请求返回 409。
 
 ## 验证
 

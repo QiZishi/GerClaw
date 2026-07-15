@@ -209,14 +209,15 @@ async def test_search_api_redacts_phi_enforces_scope_and_persists_safe_trace(
         url_guard=PublicURLGuard(_public_resolver),
     )
     try:
+        search_request = {
+            "query": "患者姓名:张三, 手机号13800138000 老年健康最新指南",
+            "max_results": 3,
+            "domain": "health",
+        }
         response = await client.post(
             "/api/v1/search/query",
             headers={"X-Trace-ID": "trace_search_integration_0001"},
-            json={
-                "query": "患者姓名:张三, 手机号13800138000 老年健康最新指南",
-                "max_results": 3,
-                "domain": "health",
-            },
+            json=search_request,
         )
         assert response.status_code == 200, response.text
         payload = response.json()
@@ -243,6 +244,23 @@ async def test_search_api_redacts_phi_enforces_scope_and_persists_safe_trace(
         assert "张三" not in telemetry
         assert "13800138000" not in telemetry
         assert "WHO healthy ageing evidence" not in telemetry
+
+        replay = await client.post(
+            "/api/v1/search/query",
+            headers={"X-Trace-ID": "trace_search_integration_0001"},
+            json=search_request,
+        )
+        assert replay.status_code == 200, replay.text
+        assert replay.json()["results"] == payload["results"]
+        replayed_trace = await client.get("/api/v1/traces/trace_search_integration_0001")
+        assert len(replayed_trace.json()["events"]) == 1
+
+        conflict = await client.post(
+            "/api/v1/search/query",
+            headers={"X-Trace-ID": "trace_search_integration_0001"},
+            json={**search_request, "query": "different evidence request"},
+        )
+        assert conflict.status_code == 409
 
         rejected = await client.post(
             "/api/v1/search/extract",

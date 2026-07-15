@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import json
 from collections.abc import Awaitable, Callable
 from typing import Any, cast
@@ -604,7 +605,8 @@ async def test_public_url_guard_revalidates_every_redirect_target() -> None:
         return ["93.184.216.34"]
 
     def unsafe_redirect(request: httpx.Request) -> httpx.Response:
-        assert request.method == "HEAD"
+        assert request.method == "GET"
+        assert request.headers["range"] == "bytes=0-0"
         return httpx.Response(302, headers={"Location": "https://127.0.0.1/metadata"})
 
     guard = PublicURLGuard(
@@ -631,6 +633,55 @@ async def test_public_url_guard_revalidates_every_redirect_target() -> None:
     )
     assert await safe_guard.validate("https://example.com/start") == "https://example.com/final"
     assert redirects == 2
+
+
+@pytest.mark.asyncio
+async def test_public_url_guard_pins_tls_probe_to_validated_dns_address(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    async def public(_host: str, _port: int) -> list[str]:
+        return ["93.184.216.34"]
+
+    class Reader:
+        async def readuntil(self, _separator: bytes) -> bytes:
+            return b"HTTP/1.1 200 OK\r\nContent-Length: 0\r\n\r\n"
+
+    class Writer:
+        request = b""
+
+        def write(self, request: bytes) -> None:
+            self.request = request
+
+        async def drain(self) -> None:
+            return None
+
+        def close(self) -> None:
+            return None
+
+        async def wait_closed(self) -> None:
+            return None
+
+    writer = Writer()
+
+    async def pinned_connection(
+        host: str,
+        port: int,
+        *,
+        ssl: object,
+        server_hostname: str,
+        limit: int,
+    ) -> tuple[Reader, Writer]:
+        assert host == "93.184.216.34"
+        assert port == 443
+        assert ssl is not None
+        assert server_hostname == "example.com"
+        assert limit == 65_536
+        return Reader(), writer
+
+    monkeypatch.setattr(asyncio, "open_connection", pinned_connection)
+    guard = PublicURLGuard(public, probe_redirects=True)
+    assert await guard.validate("https://example.com/start") == "https://example.com/start"
+    assert writer.request.startswith(b"GET /start HTTP/1.1\r\nHost: example.com\r\n")
 
 
 @pytest.mark.asyncio

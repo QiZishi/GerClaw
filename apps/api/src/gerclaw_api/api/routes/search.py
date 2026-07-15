@@ -22,10 +22,11 @@ from gerclaw_api.modules.search import (
     SearchAttempt,
     SearchResult,
     SearchStatus,
+    SearchUnavailableError,
     capture_search_attempts,
 )
 from gerclaw_api.services.rate_limit import RateLimiter
-from gerclaw_api.services.trace_service import TraceConflictError, TraceNotFoundError, TraceService
+from gerclaw_api.services.trace_service import TraceConflictError, TraceService
 
 router = APIRouter(prefix="/search", tags=["search"])
 SessionDependency = Annotated[AsyncSession, Depends(get_database_session)]
@@ -109,28 +110,32 @@ async def _start_trace(
     execution_type: str,
     operation: str,
     request_fingerprint: str,
-) -> str:
+) -> tuple[str, bool]:
     trace_id = str(request.state.trace_id)
     set_active_trace(request.scope, trace_id)
-    try:
-        await service.get_trace(identity.tenant_id, trace_id)
-    except TraceNotFoundError:
-        await service.start_trace(
-            TraceStartRequest(
-                execution_type=execution_type,
-                attributes={
-                    "module": "search",
-                    "operation": operation,
-                    "request_fingerprint": request_fingerprint,
-                },
-            ),
-            str(request.state.request_id),
-            trace_id=trace_id,
-            tenant_id=identity.tenant_id,
-            actor_id=identity.actor_id,
-        )
-        return trace_id
-    raise TraceConflictError("trace identifier was already used for a search request")
+    result = await service.start_trace_with_status(
+        TraceStartRequest(
+            execution_type=execution_type,
+            attributes={
+                "module": "search",
+                "operation": operation,
+                "request_fingerprint": request_fingerprint,
+            },
+        ),
+        str(request.state.request_id),
+        trace_id=trace_id,
+        tenant_id=identity.tenant_id,
+        actor_id=identity.actor_id,
+    )
+    if result.created:
+        return trace_id, False
+    if result.trace.status == TraceStatus.COMPLETED.value:
+        return trace_id, True
+    if result.trace.status == TraceStatus.RUNNING.value:
+        raise TraceConflictError("the search for this trace identifier is still running")
+    raise SearchUnavailableError(
+        "the previous search attempt did not complete; retry with a new trace identifier"
+    )
 
 
 async def _append_attempts(
@@ -234,7 +239,7 @@ async def search_query(
 ) -> SearchQueryResponse:
     await _enforce_rate_limit(request, identity)
     request_fingerprint = _fingerprint(request, payload)
-    trace_id = await _start_trace(
+    trace_id, replay_completed = await _start_trace(
         request=request,
         service=service,
         identity=identity,
@@ -249,24 +254,26 @@ async def search_query(
                 max_results=payload.max_results,
                 domain=payload.domain,
             )
-            await _finish_success(
-                service,
-                tenant_id=identity.tenant_id,
-                trace_id=trace_id,
-                operation="query",
-                attempts=attempts,
-                result_count=len(results),
-                authority_levels=sorted({item.authority_level for item in results}),
-            )
+            if not replay_completed:
+                await _finish_success(
+                    service,
+                    tenant_id=identity.tenant_id,
+                    trace_id=trace_id,
+                    operation="query",
+                    attempts=attempts,
+                    result_count=len(results),
+                    authority_levels=sorted({item.authority_level for item in results}),
+                )
             return SearchQueryResponse(trace_id=trace_id, results=results)
         except BaseException:
-            await _finish_failure(
-                service,
-                tenant_id=identity.tenant_id,
-                trace_id=trace_id,
-                operation="query",
-                attempts=attempts,
-            )
+            if not replay_completed:
+                await _finish_failure(
+                    service,
+                    tenant_id=identity.tenant_id,
+                    trace_id=trace_id,
+                    operation="query",
+                    attempts=attempts,
+                )
             raise
 
 
@@ -279,7 +286,7 @@ async def extract_content(
     identity: SearchReadIdentity,
 ) -> SearchExtractResponse:
     await _enforce_rate_limit(request, identity)
-    trace_id = await _start_trace(
+    trace_id, replay_completed = await _start_trace(
         request=request,
         service=service,
         identity=identity,
@@ -290,24 +297,26 @@ async def extract_content(
     with capture_search_attempts() as attempts:
         try:
             content = await module.extract_content(str(payload.url))
-            await _finish_success(
-                service,
-                tenant_id=identity.tenant_id,
-                trace_id=trace_id,
-                operation="extract",
-                attempts=attempts,
-                result_count=1,
-                authority_levels=[],
-            )
+            if not replay_completed:
+                await _finish_success(
+                    service,
+                    tenant_id=identity.tenant_id,
+                    trace_id=trace_id,
+                    operation="extract",
+                    attempts=attempts,
+                    result_count=1,
+                    authority_levels=[],
+                )
             return SearchExtractResponse(trace_id=trace_id, content=content)
         except BaseException:
-            await _finish_failure(
-                service,
-                tenant_id=identity.tenant_id,
-                trace_id=trace_id,
-                operation="extract",
-                attempts=attempts,
-            )
+            if not replay_completed:
+                await _finish_failure(
+                    service,
+                    tenant_id=identity.tenant_id,
+                    trace_id=trace_id,
+                    operation="extract",
+                    attempts=attempts,
+                )
             raise
 
 

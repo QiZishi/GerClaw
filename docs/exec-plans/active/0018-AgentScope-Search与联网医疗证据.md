@@ -46,13 +46,13 @@
 
 ## 5. 验收记录（2026-07-15）
 
-- 后端静态与全量回归：Ruff format/check、mypy 均通过；`269 passed, 25 skipped`，总覆盖率 `81.52%`，Search 核心文件为 83%–100%。
-- 真实基础设施集成：PostgreSQL/Redis/Qdrant 下 `285 passed, 9 deselected`，总覆盖率 `88.42%`；Search API 权限、Trace、PHI 脱敏和 SSRF 拒绝均落到真实数据库。
+- 后端静态与全量回归：Ruff format/check、mypy 均通过；修复后 `270 passed, 25 skipped`，总覆盖率 `81.25%`，Search 核心文件为 81%–100%。
+- 真实基础设施集成：PostgreSQL/Redis/Qdrant 下修复后 `289 passed, 6 skipped`，总覆盖率 `88.56%`；Search API 权限、Trace、PHI 脱敏、SSRF 拒绝、相同请求重放和冲突请求 409 均落到真实数据库。首次全量重跑曾因 readiness 瞬时 3 秒超时出现 1 个失败，该用例隔离复跑通过，随后整套复跑全绿，未将偶发失败隐去。
 - 根 `.env` 外部服务：`9 passed`，真实执行 AnySearch search/extract、强制 AnySearch 故障后的 Tavily search/extract、AgentScope 模型自主 `web_search`、RAG、Memory 和模型降级链。
-- 安全：Bandit 无发现；pip-audit 无已知漏洞（仅本地 `gerclaw-api` 包不在 PyPI，按工具规则跳过）；API 日志中未出现验收查询原文。
+- 安全：Bandit 无发现；pip-audit 无已知漏洞（仅本地 `gerclaw-api` 包不在 PyPI，按工具规则跳过）；API 日志中未出现验收查询原文。独立审阅首轮复现出 HEAD/GET redirect 与 DNS TOCTOU、Trace 非幂等、MVP 重试分类三个阻断；修复后 URL 探测使用 validated-IP pinned TLS GET，completed Trace keyed fingerprint 重放不追加事件，MVP policy 测试覆盖 401 立即 fallback 与 Tavily transient retry。
 - Docker：初次两次因外部下载超时失败并如实保留；增加 BuildKit `uv` cache 与有界 timeout/retry 后镜像成功。迁移完成，容器 healthy，`/health/ready` 返回 Search AnySearch/Tavily ready、本地知识库 436 文档/39,837 chunks、AgentScope 2.0.4 全绿。
 - Docker 真实 API：短期 `search:read` JWT 调用返回 HTTP 200、3 条 AnySearch 结果（S/C 级），Trace `completed` 且持久化 `search.query/succeeded` 事件。
-- 前端：ESLint 与 Next production build 通过；构建只加载根 `.env` 的服务端变量，Search Route 请求边界使用 Zod，Provider key 未进入浏览器配置。
+- 前端：Node retry policy `4 passed`、ESLint 与 Next production build 通过；构建只加载根 `.env` 的服务端变量，Search Route 请求边界使用 Zod，Provider key 未进入浏览器配置。
 
 ## 6. 明确不在本变更集内
 
