@@ -168,6 +168,37 @@ class CgaAssessment(TimestampMixin, Base):
     report: Mapped[dict[str, Any] | None] = mapped_column(EncryptedJSON(), nullable=True)
 
 
+class UploadedDocument(TimestampMixin, Base):
+    """Encrypted, revocable parsed document scoped to one conversation owner."""
+
+    __tablename__ = "uploaded_documents"
+    __table_args__ = (
+        CheckConstraint("status IN ('active','revoked')", name="valid_status"),
+        CheckConstraint("content_characters > 0", name="positive_content_characters"),
+        Index(
+            "ix_uploaded_documents_owner_session_active",
+            "tenant_id",
+            "actor_id",
+            "session_id",
+            "status",
+            "updated_at",
+        ),
+    )
+
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    tenant_id: Mapped[str] = mapped_column(String(64), nullable=False, index=True)
+    actor_id: Mapped[str] = mapped_column(String(128), nullable=False, index=True)
+    session_id: Mapped[uuid.UUID] = mapped_column(
+        ForeignKey("sessions.id", ondelete="CASCADE"), nullable=False
+    )
+    filename: Mapped[str] = mapped_column(EncryptedText(), nullable=False)
+    media_type: Mapped[str] = mapped_column(String(96), nullable=False)
+    parse_source: Mapped[str] = mapped_column(String(16), nullable=False)
+    status: Mapped[str] = mapped_column(String(16), default="active", nullable=False)
+    content: Mapped[str] = mapped_column(EncryptedText(), nullable=False)
+    content_characters: Mapped[int] = mapped_column(Integer, nullable=False)
+
+
 class MemoryFact(TimestampMixin, Base):
     """One encrypted, evidenced user-memory fact with a vector revision."""
 

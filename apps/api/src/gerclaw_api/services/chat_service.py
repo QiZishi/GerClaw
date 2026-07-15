@@ -27,6 +27,7 @@ from gerclaw_api.modules.agent_harness import (
     UnsupportedAgentContextError,
 )
 from gerclaw_api.modules.contracts import AgentResponse, ExecutionContext
+from gerclaw_api.modules.document import DocumentService
 from gerclaw_api.modules.memory.memory_module import ProductionMemoryModule
 from gerclaw_api.modules.memory.models import MemoryUpdateResult
 from gerclaw_api.modules.rag import HybridRAGModule
@@ -110,6 +111,7 @@ class ChatService:
         search_module: SearchModule | None = None,
         skill_module: ProductionSkillModule | None = None,
         approval_repository: SqlAlchemyApprovalRepository | None = None,
+        document_service: DocumentService | None = None,
     ) -> None:
         self._settings = settings
         self._conversation = conversation
@@ -121,6 +123,7 @@ class ChatService:
         self._search_module = search_module
         self._skill_module = skill_module
         self._approval_repository = approval_repository
+        self._document_service = document_service
 
     async def process(
         self,
@@ -362,6 +365,19 @@ class ChatService:
             message.text() for message in compressed if message.role == "system" and message.text()
         )
         profile_context, profile_version, memory_refs = await memory.core_profile_context()
+        if payload.uploaded_files and self._document_service is None:
+            raise UnsupportedAgentContextError("uploaded document storage is unavailable")
+        uploaded_documents = (
+            await self._document_service.resolve_context(
+                payload.uploaded_files,
+                tenant_id=identity.tenant_id,
+                actor_id=identity.actor_id,
+                session_id=payload.session_id,
+                max_characters=self._settings.document_context_max_characters,
+            )
+            if self._document_service is not None
+            else []
+        )
         execution = ExecutionContext(
             request_id=request_id,
             trace_id=trace_id,
@@ -400,6 +416,7 @@ class ChatService:
             search_enabled=payload.workflow != "cga",
             agent_skills=agent_skills,
             loaded_skill_ids=payload.loaded_skills,
+            uploaded_documents=uploaded_documents,
             runtime_principal=RuntimePrincipal(
                 tenant_id=identity.tenant_id,
                 actor_id=identity.actor_id,
@@ -978,6 +995,7 @@ class ChatService:
             "RuntimeBudgetExceededError": "CHAT_RUNTIME_BUDGET_EXCEEDED",
             "AgentApprovalRequiredError": "CHAT_APPROVAL_REQUIRED",
             "UnsupportedAgentContextError": "CHAT_CONTEXT_UNSUPPORTED",
+            "DocumentContextError": "CHAT_DOCUMENT_UNAVAILABLE",
             "EmptyAgentResponseError": "CHAT_EMPTY_RESPONSE",
             "AgentScopeMemoryAdapterError": "CHAT_MEMORY_UNAVAILABLE",
             "MemoryDataError": "CHAT_MEMORY_UNAVAILABLE",

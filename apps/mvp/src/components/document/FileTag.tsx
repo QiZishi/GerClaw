@@ -29,7 +29,7 @@ export function FileTag({ data, onRemove, onRetry, onClick }: FileTagProps) {
       case "parsing":
         return "正在解析文档";
       case "done":
-        return "已就绪";
+        return data.serverDocumentId ? "已加入本次对话" : "发送时加入对话";
       case "failed":
         return "解析失败";
     }

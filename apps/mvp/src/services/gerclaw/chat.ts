@@ -147,7 +147,12 @@ function parseEventBlock(block: string): { event: string; data: unknown } | null
 }
 
 export async function streamAgentChat(
-  input: { localSessionId: string; message: string; loadedSkills: string[] },
+  input: {
+    localSessionId: string;
+    message: string;
+    loadedSkills: string[];
+    uploadedDocumentIds?: string[];
+  },
   signal: AbortSignal,
   callbacks: AgentChatCallbacks
 ): Promise<void> {
@@ -191,7 +196,7 @@ export async function streamAgentChat(
         session_id: sessionId,
         message: input.message,
         loaded_skills: input.loadedSkills,
-        uploaded_files: [],
+        uploaded_files: input.uploadedDocumentIds ?? [],
         channel: "web",
         workflow: "standard",
       }),

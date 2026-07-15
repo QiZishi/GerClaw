@@ -33,6 +33,7 @@ from gerclaw_api.domain.chat_schemas import (
 from gerclaw_api.domain.trace_schemas import TRACE_ID_PATTERN
 from gerclaw_api.middleware import set_active_trace
 from gerclaw_api.modules.agent_harness import StreamEvent
+from gerclaw_api.modules.document import DocumentService
 from gerclaw_api.modules.memory.memory_module import ProductionMemoryModule
 from gerclaw_api.modules.memory.runtime import create_memory_module
 from gerclaw_api.modules.skill import ProductionSkillModule
@@ -41,6 +42,7 @@ from gerclaw_api.repositories.conversation import (
     ConversationConflictError,
     SqlAlchemyConversationRepository,
 )
+from gerclaw_api.repositories.document import SqlAlchemyDocumentRepository
 from gerclaw_api.repositories.memory import SqlAlchemyMemoryRepository
 from gerclaw_api.repositories.skill import SqlAlchemySkillRepository
 from gerclaw_api.repositories.trace import SqlAlchemyTraceRepository
@@ -254,6 +256,9 @@ async def chat(
                         allowed_tools=frozenset(request.app.state.settings.skill_allowed_tools),
                     ),
                     approval_repository=SqlAlchemyApprovalRepository(database_session),
+                    document_service=DocumentService(
+                        SqlAlchemyDocumentRepository(database_session), request.app.state.settings
+                    ),
                 )
                 await service.process(
                     payload,
@@ -381,6 +386,10 @@ def _public_error(code: str) -> tuple[str, bool]:
         "CHAT_ITERATION_LIMIT": ("分析步骤达到安全上限，本次已停止。", True),
         "CHAT_APPROVAL_REQUIRED": ("该操作需要医生确认，当前未执行。", False),
         "CHAT_CONTEXT_UNSUPPORTED": ("当前请求包含尚未启用的上下文类型。", False),
+        "CHAT_DOCUMENT_UNAVAILABLE": (
+            "所选文档已移除、不可用或不属于当前会话，请重新上传后再试。",
+            False,
+        ),
         "CHAT_EMPTY_RESPONSE": ("模型未返回可用内容，请稍后重试。", True),
         "CHAT_MEMORY_UNAVAILABLE": ("健康记忆服务暂时不可用，本次未完成，请稍后重试。", True),
         "CHAT_SKILL_UNAVAILABLE": ("所选技能不存在、已禁用或暂不可用，请刷新技能列表。", False),

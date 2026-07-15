@@ -38,8 +38,8 @@ function maxProxyBodyBytes(): number {
     .int()
     .min(16_384)
     .max(2_097_152)
-    .safeParse(process.env.GERCLAW_MAX_REQUEST_BODY_BYTES ?? "262144");
-  return parsed.success ? parsed.data : 262_144;
+    .safeParse(process.env.GERCLAW_MAX_REQUEST_BODY_BYTES ?? "1200000");
+  return parsed.success ? parsed.data : 1_200_000;
 }
 
 async function readBoundedBody(request: NextRequest): Promise<ArrayBuffer | undefined> {

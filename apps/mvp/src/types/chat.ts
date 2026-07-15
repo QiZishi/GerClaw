@@ -127,6 +127,10 @@ export interface FileTag {
   errorMessage?: string;
   thumbnailUrl?: string;
   parsedMarkdown?: string;
+  /** 加密登记后的后端引用；正文始终只留在当前组件内存。 */
+  serverDocumentId?: string;
+  /** 登记时绑定的本地会话，切换会话后必须重新登记。 */
+  documentSessionId?: string;
   /** 解析完成时间；未记录时 UI 不得用组件挂载时间冒充 */
   parsedAt?: number;
 }

@@ -35,6 +35,7 @@ import { cn } from "@/lib/utils";
 import { useAudioRecorder } from "@/hooks/useAudioRecorder";
 import { recognizeAudio } from "@/services/voice/asr";
 import { parseFile } from "@/services/document/mineru";
+import { registerParsedDocument, revokeParsedDocument } from "@/services/gerclaw/documents";
 import { generateId } from "@/lib/format";
 import {
   Dialog,
@@ -54,8 +55,28 @@ interface PendingImage {
   alt?: string;
 }
 
+export interface ChatDocumentAttachment {
+  localId: string;
+  fileName: string;
+  mediaType: string;
+  source: "mineru" | "local-text";
+  markdown: string;
+  serverDocumentId?: string;
+  documentSessionId?: string;
+}
+
+interface ChatSendAccepted {
+  accepted: true;
+  documentBindings?: Record<string, string>;
+  documentSessionId?: string;
+}
+
 interface ChatInputProps {
-  onSend?: (text: string, images?: ImageAttachment[]) => boolean | void;
+  onSend?: (
+    text: string,
+    images?: ImageAttachment[],
+    documents?: ChatDocumentAttachment[]
+  ) => boolean | void | ChatSendAccepted | Promise<boolean | void | ChatSendAccepted>;
   isGenerating?: boolean;
   onStop?: () => void;
   onStartAction?: (action: "prescription" | "cga" | "drug-review" | "health-profile") => void;
@@ -100,6 +121,18 @@ const ALLOWED_FILE_MIME = [
   "image/gif",
   "image/webp",
 ];
+
+function documentMediaType(file: File): string | null {
+  if (ALLOWED_FILE_MIME.includes(file.type)) return file.type;
+  const extension = file.name.split(".").pop()?.toLowerCase();
+  if (extension === "pdf") return "application/pdf";
+  if (extension === "docx") {
+    return "application/vnd.openxmlformats-officedocument.wordprocessingml.document";
+  }
+  if (extension === "md") return "text/markdown";
+  if (extension === "txt") return "text/plain";
+  return null;
+}
 
 function FunctionButtonGroup({
   disabled,
@@ -279,6 +312,8 @@ export function ChatInput({
   const [pendingDocuments, setPendingDocuments] = useState<UploadFileTag[]>([]);
   const [uploadedDocCount, setUploadedDocCount] = useState(0);
   const rawDocumentsRef = useRef<Map<string, File>>(new Map());
+  const documentScopeRef = useRef<string | undefined>(currentSessionId);
+  const previousSessionIdRef = useRef<string | undefined>(currentSessionId);
   const [showLimitDialog, setShowLimitDialog] = useState(false);
   const [limitDialogMessage, setLimitDialogMessage] = useState("");
   const textareaRef = useRef<HTMLTextAreaElement>(null);
@@ -304,6 +339,18 @@ export function ChatInput({
       void refreshSkills();
     }
   }, [loadedSkillIds.length, refreshSkills, skillStatus]);
+
+  useEffect(() => {
+    const previousSessionId = previousSessionIdRef.current;
+    documentScopeRef.current = currentSessionId;
+    previousSessionIdRef.current = currentSessionId;
+    if (!previousSessionId || previousSessionId === currentSessionId) return;
+
+    rawDocumentsRef.current.clear();
+    setPendingDocuments([]);
+    setUploadedDocCount(0);
+    toast.show("为保护会话隐私，已清空当前附件；原会话资料不会自动带入新对话");
+  }, [currentSessionId]);
 
   const micDisabled = !isOnline || !asrAvailable || isTranscribing || isGenerating;
 
@@ -351,6 +398,7 @@ export function ChatInput({
   };
 
   const parsePendingDocument = async (fileData: UploadFileTag, file: File) => {
+    const scopeAtStart = documentScopeRef.current;
     setPendingDocuments((previous) =>
       previous.map((item) =>
         item.id === fileData.id ? { ...item, status: "parsing" } : item
@@ -358,21 +406,54 @@ export function ChatInput({
     );
     try {
       const result = await parseFile(file);
+      const mediaType = documentMediaType(file);
+      if (!mediaType) throw new Error("文件类型无法安全识别");
+      let serverDocumentId: string | undefined;
+      if (currentSessionId) {
+        const registered = await registerParsedDocument({
+          localSessionId: currentSessionId,
+          filename: file.name,
+          mediaType,
+          source: result.source,
+          markdown: result.markdown,
+        });
+        serverDocumentId = registered.document_id;
+      }
+      if (documentScopeRef.current !== scopeAtStart) {
+        if (serverDocumentId && scopeAtStart) {
+          await revokeParsedDocument(scopeAtStart, serverDocumentId);
+        }
+        setPendingDocuments((previous) =>
+          previous.map((item) =>
+            item.id === fileData.id
+              ? {
+                  ...item,
+                  status: "failed",
+                  progress: 0,
+                  errorMessage: "会话已切换，请重新上传或点击重试后再使用此文档",
+                }
+              : item
+          )
+        );
+        return;
+      }
       const completed: UploadFileTag = {
         ...fileData,
         status: "done",
         progress: 100,
         parsedMarkdown: result.markdown,
         parsedAt: Date.now(),
+        serverDocumentId,
+        documentSessionId: serverDocumentId ? currentSessionId ?? undefined : undefined,
       };
       setPendingDocuments((previous) =>
         previous.map((item) => (item.id === fileData.id ? completed : item))
       );
       setUploadedDocCount((count) => count + 1);
       toast.show(
-        result.source === "mineru"
-          ? `${file.name} 已由 MinerU 解析，可展开预览；暂未自动加入对话上下文`
-          : `${file.name} 已在本机读取，可展开预览；暂未自动加入对话上下文`
+        serverDocumentId
+          ? `${file.name} 已解析并安全加入本次对话`
+          : `${file.name} 已解析。发送第一条消息时会安全加入新对话`
       );
     } catch (error) {
       const errorMessage = error instanceof Error ? error.message : "文档解析失败，请稍后重试";
@@ -404,7 +485,16 @@ export function ChatInput({
     void parsePendingDocument(fileData, rawFile);
   };
 
-  const removePendingDocument = (id: string) => {
+  const removePendingDocument = async (id: string) => {
+    const existing = pendingDocuments.find((item) => item.id === id);
+    if (existing?.serverDocumentId && existing.documentSessionId) {
+      try {
+        await revokeParsedDocument(existing.documentSessionId, existing.serverDocumentId);
+      } catch (error) {
+        toast.show(error instanceof Error ? error.message : "文档撤销失败，请重试");
+        return;
+      }
+    }
     setPendingDocuments((previous) => previous.filter((item) => item.id !== id));
     rawDocumentsRef.current.delete(id);
   };
@@ -554,7 +644,7 @@ export function ChatInput({
         ? "请描述您的不适或健康问题，例如：我最近血压偏高…"
         : "描述您的健康问题…";
 
-  const handleSend = () => {
+  const handleSend = async () => {
     const trimmed = text.trim();
     if (
       (!trimmed && pendingImages.length === 0) ||
@@ -566,8 +656,32 @@ export function ChatInput({
     const images: ImageAttachment[] | undefined = pendingImages.length > 0
       ? pendingImages.map((p) => ({ mimeType: p.mimeType, base64: p.base64, alt: p.alt }))
       : undefined;
-    const accepted = onSend?.(trimmed, images);
-    if (accepted === false) return;
+    const documents: ChatDocumentAttachment[] = pendingDocuments
+      .filter((item) => item.status === "done" && item.parsedMarkdown)
+      .map((item) => {
+        const rawFile = rawDocumentsRef.current.get(item.id);
+        return {
+          localId: item.id,
+          fileName: item.fileName,
+          mediaType: rawFile ? documentMediaType(rawFile) ?? "" : "",
+          source: item.fileType === "md" || item.fileType === "txt" ? "local-text" : "mineru",
+          markdown: item.parsedMarkdown ?? "",
+          serverDocumentId: item.serverDocumentId,
+          documentSessionId: item.documentSessionId,
+        };
+      });
+    const result = await onSend?.(trimmed, images, documents);
+    if (result === false || !result) return;
+    if (typeof result === "object" && result.documentBindings && result.documentSessionId) {
+      setPendingDocuments((previous) =>
+        previous.map((item) => {
+          const serverDocumentId = result.documentBindings?.[item.id];
+          return serverDocumentId
+            ? { ...item, serverDocumentId, documentSessionId: result.documentSessionId }
+            : item;
+        })
+      );
+    }
     setText("");
     setPendingImages((prev) => {
       prev.forEach((img) => URL.revokeObjectURL(img.previewUrl));
@@ -582,7 +696,7 @@ export function ChatInput({
   const handleKeyDown = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
     if (e.key === "Enter" && !e.shiftKey && !isRecording && !isTranscribing) {
       e.preventDefault();
-      handleSend();
+      void handleSend();
     }
   };
 
@@ -700,7 +814,7 @@ export function ChatInput({
                 <FileTag
                   data={file}
                   onRetry={file.status === "failed" ? retryPendingDocument : undefined}
-                  onRemove={file.status === "failed" || file.status === "done" ? removePendingDocument : undefined}
+                  onRemove={file.status === "failed" || file.status === "done" ? (id) => void removePendingDocument(id) : undefined}
                 />
                 {file.status === "done" && <DocumentToolCard data={file} />}
               </div>
@@ -818,7 +932,7 @@ export function ChatInput({
                         variant="default"
                         size={seniorMode ? "default" : "icon"}
                         className={cn("btn-icon", seniorMode && "h-12 gap-2 px-3 text-base")}
-                        onClick={handleSend}
+                        onClick={() => void handleSend()}
                         aria-label="发送"
                         disabled={!isOnline || contextLoading}
                       />

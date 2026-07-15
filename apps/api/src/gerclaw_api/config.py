@@ -89,7 +89,7 @@ class Settings(BaseSettings):
     app_name: str = "GerClaw API"
     api_prefix: str = "/api/v1"
     log_level: Literal["DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"] = "INFO"
-    max_request_body_bytes: int = Field(default=262_144, ge=16_384, le=2_097_152)
+    max_request_body_bytes: int = Field(default=1_200_000, ge=16_384, le=2_097_152)
     rate_limit_requests: int = Field(default=100, ge=1, le=10_000)
     rate_limit_window_seconds: int = Field(default=60, ge=1, le=3_600)
     max_events_per_trace: int = Field(default=10_000, ge=100, le=100_000)
@@ -99,6 +99,8 @@ class Settings(BaseSettings):
     agent_model_timeout_seconds: float = Field(default=60.0, gt=0, le=60)
     agent_model_max_output_tokens: int = Field(default=1_024, ge=256, le=1_024)
     agent_max_output_characters: int = Field(default=20_000, ge=1_000, le=50_000)
+    document_max_markdown_characters: int = Field(default=1_000_000, ge=10_000, le=2_000_000)
+    document_context_max_characters: int = Field(default=20_000, ge=1_000, le=100_000)
     chat_session_lease_ttl_seconds: int = Field(default=300, ge=60, le=900)
     memory_collection_name: str = Field(
         default="gerclaw_user_memory_v1",

@@ -167,6 +167,22 @@ async def require_chat_write(
     return authorize_scope(identity, "chat:write")
 
 
+async def require_document_read(
+    identity: Annotated[AuthContext, Depends(authenticate)],
+) -> AuthContext:
+    """Require access to the caller's own parsed-document metadata."""
+
+    return authorize_scope(identity, "document:read")
+
+
+async def require_document_write(
+    identity: Annotated[AuthContext, Depends(authenticate)],
+) -> AuthContext:
+    """Require parsed-document registration or revocation."""
+
+    return authorize_scope(identity, "document:write")
+
+
 async def require_memory_read(
     identity: Annotated[AuthContext, Depends(authenticate)],
 ) -> AuthContext:

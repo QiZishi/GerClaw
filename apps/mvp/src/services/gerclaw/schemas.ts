@@ -141,3 +141,26 @@ export const cgaReportSchema = z
 export type CgaAssessment = z.infer<typeof cgaAssessmentSchema>;
 export type CgaQuestion = z.infer<typeof cgaQuestionSchema>;
 export type CgaReport = z.infer<typeof cgaReportSchema>;
+
+export const uploadedDocumentSchema = z
+  .object({
+    document_id: z.string().uuid(),
+    session_id: z.string().uuid(),
+    filename: z.string().min(1).max(255),
+    media_type: z.enum([
+      "application/pdf",
+      "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+      "text/markdown",
+      "text/plain",
+    ]),
+    parse_source: z.enum(["mineru", "local_text"]),
+    status: z.enum(["active", "revoked"]),
+    content_characters: z.number().int().positive().max(1_000_000),
+    created_at: z.string().datetime(),
+  })
+  .strict();
+export const uploadedDocumentDeletedSchema = z
+  .object({ document_id: z.string().uuid(), deleted: z.literal(true) })
+  .strict();
+
+export type UploadedDocument = z.infer<typeof uploadedDocumentSchema>;
