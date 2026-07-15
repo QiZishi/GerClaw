@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import uuid
+from datetime import datetime
 from typing import Literal
 
 from pydantic import BaseModel, ConfigDict, Field
@@ -107,3 +108,23 @@ class CgaReportRead(BaseModel):
     safety_messages: list[str] = Field(default_factory=list)
     component_scores: dict[str, int] = Field(default_factory=dict)
     disclaimer: str
+
+
+class CgaHistoryItemRead(BaseModel):
+    """One caller-owned completed screening; raw answers are deliberately absent."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    assessment_id: uuid.UUID
+    scale_id: Literal["phq9", "sas", "psqi"]
+    definition_version: str
+    completed_at: datetime
+    report: CgaReportRead
+
+
+class CgaHistoryRead(BaseModel):
+    """A bounded, newest-first view of completed caller-owned screenings."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    items: list[CgaHistoryItemRead] = Field(default_factory=list, max_length=20)

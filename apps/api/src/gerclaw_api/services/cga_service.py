@@ -8,6 +8,8 @@ from typing import Any, Literal
 from gerclaw_api.database.models import CgaAssessment
 from gerclaw_api.modules.cga.models import (
     CgaAssessmentRead,
+    CgaHistoryItemRead,
+    CgaHistoryRead,
     CgaQuestionRead,
     CgaReportRead,
     CgaRiskRead,
@@ -148,6 +150,35 @@ class CgaService:
         if record.status != "completed" or record.report is None:
             raise CgaAssessmentConflictError("assessment report is not available")
         return CgaReportRead.model_validate(record.report)
+
+    async def history(
+        self, *, tenant_id: str, actor_id: str, limit: int
+    ) -> CgaHistoryRead:
+        """List bounded, caller-owned completed reports without exposing answers."""
+
+        records = await self._repository.list_completed(
+            tenant_id=tenant_id, actor_id=actor_id, limit=limit
+        )
+        items: list[CgaHistoryItemRead] = []
+        for record in records:
+            if record.report is None or record.updated_at is None:
+                raise CgaAssessmentConflictError("completed assessment state is invalid")
+            try:
+                report = CgaReportRead.model_validate(record.report)
+            except ValueError as error:
+                raise CgaAssessmentConflictError(
+                    "completed assessment report is invalid"
+                ) from error
+            items.append(
+                CgaHistoryItemRead(
+                    assessment_id=record.id,
+                    scale_id=record.scale_id,
+                    definition_version=record.definition_version,
+                    completed_at=record.updated_at,
+                    report=report,
+                )
+            )
+        return CgaHistoryRead(items=items)
 
     def _read(self, record: CgaAssessment) -> CgaAssessmentRead:
         answers = self._answers(record)

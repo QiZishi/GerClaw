@@ -1,6 +1,7 @@
 """State-machine tests for the deterministic, server-owned PHQ-9 workflow."""
 
 import uuid
+from datetime import UTC, datetime
 
 import pytest
 
@@ -14,6 +15,7 @@ from gerclaw_api.services.cga_service import CgaAssessmentConflictError, CgaServ
 class _Repository:
     def __init__(self) -> None:
         self.record: CgaAssessment | None = None
+        self.history_records: list[CgaAssessment] = []
 
     async def create(self, **kwargs: str) -> CgaAssessment:
         self.record = CgaAssessment(
@@ -32,6 +34,9 @@ class _Repository:
 
     async def lock(self, assessment_id: uuid.UUID, **_kwargs: str) -> CgaAssessment:
         return await self.get(assessment_id)
+
+    async def list_completed(self, **_kwargs: object) -> list[CgaAssessment]:
+        return self.history_records
 
 
 @pytest.mark.asyncio
@@ -209,6 +214,38 @@ async def test_legacy_phq9_report_remains_readable_after_multiscale_contract_cha
     assert report.score_max == 27
     assert report.raw_score is None
     assert report.standard_score is None
+
+
+@pytest.mark.asyncio
+async def test_history_returns_only_completed_report_summaries_without_answers() -> None:
+    repository = _Repository()
+    service = CgaService(repository)  # type: ignore[arg-type]
+    state = await service.start(tenant_id="tenant_public0001", actor_id="usr_patient_test0001")
+    assert repository.record is not None
+    repository.record.status = "completed"
+    repository.record.updated_at = datetime(2026, 7, 16, tzinfo=UTC)
+    repository.record.answers = {"phq9_1": 3}
+    repository.record.report = {
+        "total_score": 3,
+        "score_max": 27,
+        "severity": "minimal",
+        "self_harm_signal": False,
+        "requires_immediate_safety_assessment": False,
+        "high_severity_follow_up": False,
+        "safety_messages": [],
+        "component_scores": {},
+        "disclaimer": "筛查结果不能替代临床诊断。",
+    }
+    repository.history_records = [repository.record]
+
+    history = await service.history(
+        tenant_id="tenant_public0001", actor_id="usr_patient_test0001", limit=10
+    )
+
+    assert len(history.items) == 1
+    assert history.items[0].assessment_id == state.assessment_id
+    assert history.items[0].report.total_score == 3
+    assert "answers" not in history.items[0].model_dump(mode="json")
 
 
 @pytest.mark.asyncio

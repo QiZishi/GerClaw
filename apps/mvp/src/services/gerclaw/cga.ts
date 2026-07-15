@@ -1,6 +1,7 @@
 import { gerclawRequest } from "./client";
 import {
   cgaAssessmentSchema,
+  cgaHistorySchema,
   cgaReportSchema,
   cgaScalesSchema,
   type CgaAssessment,
@@ -36,6 +37,10 @@ export async function startPhq9Assessment(): Promise<CgaAssessment> {
 export async function getCgaAssessment(assessmentId: string): Promise<CgaAssessment> {
   const parsedId = assessmentIdSchema.parse(assessmentId);
   return gerclawRequest(`cga/assessments/${encodeURIComponent(parsedId)}`, cgaAssessmentSchema);
+}
+
+export async function listCgaHistory() {
+  return gerclawRequest("cga/assessments?limit=10", cgaHistorySchema);
 }
 
 export async function submitCgaAnswer(

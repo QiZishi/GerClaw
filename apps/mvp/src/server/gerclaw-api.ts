@@ -30,7 +30,7 @@ const proxyRules: Array<{ pattern: RegExp; methods: ReadonlySet<string> }> = [
     methods: new Set(["GET", "DELETE"]),
   },
   { pattern: /^cga\/scales$/, methods: new Set(["GET"]) },
-  { pattern: /^cga\/assessments$/, methods: new Set(["POST"]) },
+  { pattern: /^cga\/assessments$/, methods: new Set(["GET", "POST"]) },
   {
     pattern: new RegExp(`^cga/assessments/${uuidPattern}$`, "i"),
     methods: new Set(["GET"]),

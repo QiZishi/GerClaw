@@ -10,13 +10,14 @@ import { useAppStore } from "@/stores/appStore";
 import {
   completeCgaAssessment,
   getCgaAssessment,
+  listCgaHistory,
   getCgaReport,
   listCgaScales,
   startCgaAssessment,
   submitCgaAnswer,
 } from "@/services/gerclaw/cga";
 import { GerclawApiError } from "@/services/gerclaw/client";
-import type { CgaAssessment as Assessment, CgaReport, CgaScale, CgaScaleId } from "@/services/gerclaw/schemas";
+import type { CgaAssessment as Assessment, CgaHistoryItem, CgaReport, CgaScale, CgaScaleId } from "@/services/gerclaw/schemas";
 
 interface CgaAssessmentProps {
   onExit: () => void;
@@ -79,11 +80,14 @@ export function CgaAssessment({ onExit }: CgaAssessmentProps) {
   const [scales, setScales] = useState<CgaScale[]>([]);
   const [assessment, setAssessment] = useState<Assessment | null>(null);
   const [report, setReport] = useState<CgaReport | null>(null);
+  const [history, setHistory] = useState<CgaHistoryItem[]>([]);
   const [selectedScaleId, setSelectedScaleId] = useState<CgaScaleId | null>(null);
   const [loadingDirectory, setLoadingDirectory] = useState(true);
+  const [loadingHistory, setLoadingHistory] = useState(true);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
+  const [historyError, setHistoryError] = useState<string | null>(null);
   const [manualInput, setManualInput] = useState("");
 
   const selectedScale = useMemo(
@@ -93,9 +97,22 @@ export function CgaAssessment({ onExit }: CgaAssessmentProps) {
   const textClass = seniorMode ? "text-lg" : "text-sm";
   const actionClass = seniorMode ? "min-h-12 text-lg" : "min-h-10 text-sm";
 
+  const loadHistory = useCallback(async () => {
+    setLoadingHistory(true);
+    setHistoryError(null);
+    try {
+      setHistory((await listCgaHistory()).items);
+    } catch {
+      setHistoryError("历史筛查记录暂时无法读取，请稍后重试。");
+    } finally {
+      setLoadingHistory(false);
+    }
+  }, []);
+
   const loadDirectory = useCallback(async () => {
     setLoadingDirectory(true);
     setError(null);
+    void loadHistory();
     try {
       setScales((await listCgaScales()).scales);
     } catch {
@@ -103,7 +120,7 @@ export function CgaAssessment({ onExit }: CgaAssessmentProps) {
     } finally {
       setLoadingDirectory(false);
     }
-  }, []);
+  }, [loadHistory]);
 
   useEffect(() => {
     const timer = window.setTimeout(() => void loadDirectory(), 0);
@@ -146,6 +163,30 @@ export function CgaAssessment({ onExit }: CgaAssessmentProps) {
       setSaving(false);
     }
   }, []);
+
+  const openHistory = async (historyItem: CgaHistoryItem) => {
+    const scale = scales.find((item) => item.id === historyItem.scale_id);
+    if (!scale || saving) return;
+    setSaving(true);
+    setError(null);
+    setNotice(null);
+    try {
+      const historicAssessment = await getCgaAssessment(historyItem.assessment_id);
+      if (
+        historicAssessment.status !== "completed" ||
+        historicAssessment.scale_id !== historyItem.scale_id
+      ) {
+        throw new GerclawApiError("历史记录状态不正确", "CGA_HISTORY_INVALID", 409);
+      }
+      setSelectedScaleId(scale.id);
+      setAssessment(historicAssessment);
+      setReport(await getCgaReport(historicAssessment.assessment_id));
+    } catch {
+      setError("这份历史筛查报告暂时无法读取，请稍后重试。");
+    } finally {
+      setSaving(false);
+    }
+  };
 
   const choose = async (score: number) => {
     if (!assessment?.next_question || saving) return;
@@ -201,6 +242,7 @@ export function CgaAssessment({ onExit }: CgaAssessmentProps) {
     setError(null);
     setNotice(null);
     setManualInput("");
+    void loadHistory();
   };
 
   const submitManualAnswer = () => {
@@ -251,7 +293,7 @@ export function CgaAssessment({ onExit }: CgaAssessmentProps) {
       {notice && <p className={cn("mb-4 rounded-lg border bg-muted p-4", textClass)}>{notice}</p>}
 
       {!assessment && !error && (
-        <div className="space-y-3">
+        <div className="space-y-6">
           {loadingDirectory ? (
             <p className={cn("rounded-lg border p-5 text-muted-foreground", textClass)}>正在准备评估项目…</p>
           ) : scales.map((scale) => (
@@ -271,6 +313,43 @@ export function CgaAssessment({ onExit }: CgaAssessmentProps) {
               </div>
             </article>
           ))}
+          <section aria-labelledby="cga-history-title" className="border-t pt-6">
+            <div className="flex flex-wrap items-baseline justify-between gap-2">
+              <h3 id="cga-history-title" className={cn("font-semibold", seniorMode ? "text-xl" : "text-lg")}>我的历史筛查结果</h3>
+              <span className={cn("text-muted-foreground", textClass)}>仅显示最近 10 份已完成报告</span>
+            </div>
+            {loadingHistory ? (
+              <p className={cn("mt-3 rounded-lg border p-4 text-muted-foreground", textClass)}>正在读取历史筛查结果…</p>
+            ) : historyError ? (
+              <div className={cn("mt-3 rounded-lg border border-destructive/40 bg-destructive/10 p-4", textClass)} role="alert">
+                <p>{historyError}</p>
+                <Button className={cn("mt-3", actionClass)} variant="outline" onClick={() => void loadHistory()} disabled={saving}>重新读取历史记录</Button>
+              </div>
+            ) : history.length === 0 ? (
+              <p className={cn("mt-3 rounded-lg border p-4 text-muted-foreground", textClass)}>尚无已完成的筛查报告。完成一项筛查后，结果会显示在这里。</p>
+            ) : (
+              <div className="mt-3 space-y-3">
+                {history.map((historyItem) => {
+                  const scale = scales.find((item) => item.id === historyItem.scale_id);
+                  return (
+                    <article key={historyItem.assessment_id} className="rounded-xl border bg-card p-4 shadow-sm">
+                      <div className="flex flex-wrap items-start justify-between gap-3">
+                        <div>
+                          <h4 className={cn("font-semibold", seniorMode ? "text-lg" : "text-base")}>{scale?.name ?? historyItem.scale_id.toUpperCase()} 筛查</h4>
+                          <p className={cn("mt-1 text-muted-foreground", textClass)}>完成于 {new Date(historyItem.completed_at).toLocaleString("zh-CN")}</p>
+                          <p className={cn("mt-2", textClass)}>得分：<strong>{historyItem.report.total_score} / {historyItem.report.score_max}</strong>；分级：{SEVERITY_LABEL[historyItem.report.severity]}</p>
+                          {historyItem.report.requires_immediate_safety_assessment && (
+                            <p className={cn("mt-2 flex items-start gap-2 font-medium text-destructive", textClass)}><AlertTriangle className="mt-0.5 size-5 shrink-0" />该报告包含需立即安全评估的提示，请及时寻求帮助。</p>
+                          )}
+                        </div>
+                        <Button className={actionClass} variant="outline" onClick={() => void openHistory(historyItem)} disabled={saving}>查看报告</Button>
+                      </div>
+                    </article>
+                  );
+                })}
+              </div>
+            )}
+          </section>
         </div>
       )}
 

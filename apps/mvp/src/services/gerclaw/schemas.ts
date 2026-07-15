@@ -143,10 +143,24 @@ export const cgaReportSchema = z
     disclaimer: z.string().min(1).max(200),
   })
   .strict();
+export const cgaHistorySchema = z
+  .object({
+    items: z.array(
+      z.object({
+        assessment_id: z.string().uuid(),
+        scale_id: cgaScaleIdSchema,
+        definition_version: z.string().min(1).max(32),
+        completed_at: z.string().datetime(),
+        report: cgaReportSchema,
+      }).strict()
+    ).max(20),
+  })
+  .strict();
 
 export type CgaAssessment = z.infer<typeof cgaAssessmentSchema>;
 export type CgaQuestion = z.infer<typeof cgaQuestionSchema>;
 export type CgaReport = z.infer<typeof cgaReportSchema>;
+export type CgaHistoryItem = z.infer<typeof cgaHistorySchema>["items"][number];
 export type CgaScale = z.infer<typeof cgaScalesSchema>["scales"][number];
 export type CgaScaleId = z.infer<typeof cgaScaleIdSchema>;
 

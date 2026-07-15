@@ -5,7 +5,7 @@ from __future__ import annotations
 import uuid
 from typing import Annotated
 
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, Query, status
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from gerclaw_api.auth import AuthContext, require_cga_read, require_cga_write
@@ -14,6 +14,7 @@ from gerclaw_api.modules.cga.models import (
     CgaAnswerRequest,
     CgaAssessmentRead,
     CgaCompleteRequest,
+    CgaHistoryRead,
     CgaQuestionRead,
     CgaReportRead,
     CgaScaleRead,
@@ -107,6 +108,22 @@ async def start_assessment(
     )
     await session.commit()
     return result
+
+
+@router.get("/assessments", response_model=CgaHistoryRead)
+async def list_assessment_history(
+    session: SessionDependency,
+    identity: ReadIdentity,
+    limit: Annotated[int, Query(ge=1, le=20)] = 10,
+) -> CgaHistoryRead:
+    """List only the caller's completed reports for personal comparison."""
+
+    try:
+        return await CgaService(SqlAlchemyCgaRepository(session)).history(
+            tenant_id=identity.tenant_id, actor_id=identity.actor_id, limit=limit
+        )
+    except CgaAssessmentConflictError as error:
+        raise HTTPException(status_code=409, detail={"code": "CGA_HISTORY_UNAVAILABLE"}) from error
 
 
 @router.get("/assessments/{assessment_id}", response_model=CgaAssessmentRead)

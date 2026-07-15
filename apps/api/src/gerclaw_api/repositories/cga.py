@@ -67,3 +67,20 @@ class SqlAlchemyCgaRepository:
         if record is None:
             raise CgaAssessmentNotFoundError(str(assessment_id))
         return record
+
+    async def list_completed(
+        self, *, tenant_id: str, actor_id: str, limit: int
+    ) -> list[CgaAssessment]:
+        """Return only the caller's completed records, newest completion first."""
+
+        statement = (
+            select(CgaAssessment)
+            .where(
+                CgaAssessment.tenant_id == tenant_id,
+                CgaAssessment.actor_id == actor_id,
+                CgaAssessment.status == "completed",
+            )
+            .order_by(CgaAssessment.updated_at.desc(), CgaAssessment.id.desc())
+            .limit(limit)
+        )
+        return list((await self._session.scalars(statement)).all())
