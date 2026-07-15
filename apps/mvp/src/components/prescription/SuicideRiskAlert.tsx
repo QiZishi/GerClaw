@@ -14,7 +14,7 @@ export function SuicideRiskAlert({ className, onDismiss }: SuicideRiskAlertProps
       role="alert"
       aria-label="自杀风险紧急提示"
       className={cn(
-        "flex flex-col gap-2 rounded-lg border-2 border-red-600 bg-red-600 px-4 py-4 text-white shadow-lg animate-pulse",
+        "flex flex-col gap-2 rounded-lg border-2 border-red-600 bg-red-600 px-4 py-4 text-white shadow-lg",
         className
       )}
     >
@@ -54,7 +54,7 @@ export function SuicideRiskAlert({ className, onDismiss }: SuicideRiskAlertProps
         <button
           type="button"
           onClick={onDismiss}
-          className="mt-1 self-end text-sm text-red-100 hover:text-white underline"
+          className="mt-1 min-h-12 self-end rounded-md px-3 text-base text-red-100 underline underline-offset-4 hover:text-white focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white focus-visible:ring-offset-2 focus-visible:ring-offset-red-600"
         >
           我已知晓
         </button>
