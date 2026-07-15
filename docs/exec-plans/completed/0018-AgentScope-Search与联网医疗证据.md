@@ -42,7 +42,7 @@
 - [x] 前端不再读取 `NEXT_PUBLIC_ANYSEARCH_API_KEY`/`NEXT_PUBLIC_TAVILY_API_KEY`，浏览器不直连 Provider，既有搜索卡片、引用和适老化交互继续工作。
 - [x] 根 `.env` 的 AnySearch、Tavily 和真实 Agent 模型完成端到端测试，无 mock 成功路径；测试证据说明实际 provider、fallback 和响应 schema。
 - [x] Ruff format/check、mypy、Bandit、pip-audit、全量 pytest、Docker build/health、MVP lint/build 全部通过。
-- [ ] 独立审阅者复现权限、隐私、SSRF、fallback、AgentScope 真实工具调用和前端关键链路并给出 PASS 后提交归档。
+- [x] 独立审阅者复现权限、隐私、SSRF、fallback、AgentScope 真实工具调用和前端关键链路并给出 PASS 后提交归档。
 
 ## 5. 验收记录（2026-07-15）
 
@@ -53,6 +53,7 @@
 - Docker：初次两次因外部下载超时失败并如实保留；增加 BuildKit `uv` cache 与有界 timeout/retry 后镜像成功。迁移完成，容器 healthy，`/health/ready` 返回 Search AnySearch/Tavily ready、本地知识库 436 文档/39,837 chunks、AgentScope 2.0.4 全绿。
 - Docker 真实 API：短期 `search:read` JWT 调用返回 HTTP 200、3 条 AnySearch 结果（S/C 级），Trace `completed` 且持久化 `search.query/succeeded` 事件。
 - 前端：Node retry policy `4 passed`、ESLint 与 Next production build 通过；构建只加载根 `.env` 的服务端变量，Search Route 请求边界使用 Zod，Provider key 未进入浏览器配置。
+- 独立审阅：原 HEAD/GET SSRF 绕过复现已被公网 URL guard 拦截；定向后端 `46 passed, 8 skipped`，MVP retry `4 passed`、lint/build、Ruff format/check 和 mypy 全部通过。根环境真实 AnySearch/Tavily/fallback `3 passed`，真实 AgentScope 自主 `web_search` 集成 `1 passed`，确认结构化联网来源、引用与 PHI-free Trace，结论 PASS。
 
 ## 6. 明确不在本变更集内
 
