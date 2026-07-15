@@ -2,6 +2,7 @@
 
 import { useState } from "react";
 import { createRoot } from "react-dom/client";
+import { flushSync } from "react-dom";
 import React from "react";
 import {
   Download,
@@ -94,22 +95,20 @@ async function renderToTempElement(
   document.body.appendChild(tempContainer);
 
   const root = createRoot(tempContent);
-  root.render(
-    React.createElement(MarkdownRenderer, {
-      content,
-      className: "text-sm leading-relaxed",
-    })
-  );
-
-  await new Promise((resolve) => setTimeout(resolve, 800));
+  flushSync(() => {
+    root.render(
+      React.createElement(MarkdownRenderer, {
+        content,
+        className: "text-sm leading-relaxed",
+      })
+    );
+  });
+  await document.fonts?.ready;
+  await new Promise<void>((resolve) => requestAnimationFrame(() => resolve()));
 
   const cleanup = () => {
-    setTimeout(() => {
-      root.unmount();
-      if (tempContainer.parentNode) {
-        document.body.removeChild(tempContainer);
-      }
-    }, 100);
+    root.unmount();
+    tempContainer.remove();
   };
 
   return { element: tempContainer, cleanup };

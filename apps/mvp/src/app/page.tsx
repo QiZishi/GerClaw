@@ -20,7 +20,7 @@ import { cn } from "@/lib/utils";
  * 角色路由分发
  * 静态导出无服务端路由，用条件渲染：role=doctor 显示医生端，否则患者端
  * - 患者端：Sidebar + ChatArea + RightPanel
- * - 医生端：Sidebar + DoctorHome（无会话显示 PatientList，有会话进入 ChatArea） + RightPanel
+ * - 医生端：Sidebar + DoctorHome（无会话显示医生首页，有会话进入 ChatArea） + RightPanel
  *
  * 侧边栏折叠时不渲染 Sidebar，改在中间主视图左上角浮动显示"展开按钮 + 新建对话按钮"
  */
