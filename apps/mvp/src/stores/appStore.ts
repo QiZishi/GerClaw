@@ -55,7 +55,6 @@ interface AppState {
   // === 右侧面板 Markdown 内容（用于 LLM 流式输出报告）===
   panelContent: string;
   setPanelContent: (content: string) => void;
-  appendPanelContent: (delta: string) => void;
 
   // === 当前引用列表（点击角标时设置，右侧面板显示）===
   currentCitations: Citation[];
@@ -140,6 +139,7 @@ export const useAppStore = create<AppState>()(
         set({
           rightPanelType: type,
           rightPanelOpen: open && type !== null,
+          panelContent: "",
         }),
       closeRightPanel: () =>
         set({ rightPanelOpen: false, rightPanelType: null }),
@@ -170,7 +170,6 @@ export const useAppStore = create<AppState>()(
       // === 右侧面板内容 ===
       panelContent: "",
       setPanelContent: (content) => set({ panelContent: content }),
-      appendPanelContent: (delta) => set((s) => ({ panelContent: s.panelContent + delta })),
 
       // === 当前引用列表 ===
       currentCitations: [],

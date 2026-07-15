@@ -181,7 +181,13 @@ export function MessageBubble({
   }, []);
 
   const handleViewReport = (panelType: RightPanelType) => {
+    const session = useChatStore
+      .getState()
+      .sessions.find((item) => item.id === message.sessionId);
     setRightPanel(panelType);
+    setPanelContent(
+      session?.panelType === panelType ? session.panelContent ?? "" : ""
+    );
   };
 
   const handleCopy = () => {
@@ -216,8 +222,8 @@ export function MessageBubble({
 
   const handleEditInDoc = () => {
     const textContent = extractPlainText(message.blocks);
-    setPanelContent(textContent);
     setRightPanel("doc-editor");
+    setPanelContent(textContent);
     onEdit?.(message.id);
   };
 

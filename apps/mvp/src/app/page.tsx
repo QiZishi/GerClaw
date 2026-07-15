@@ -14,6 +14,7 @@ import { DoctorHome } from "@/components/layout/DoctorHome";
 import { RightPanel } from "@/components/layout/RightPanel";
 import { useAppStore } from "@/stores/appStore";
 import { useChatStore } from "@/stores/chatStore";
+import { cn } from "@/lib/utils";
 
 /**
  * 角色路由分发
@@ -25,12 +26,14 @@ import { useChatStore } from "@/stores/chatStore";
  */
 export default function Home() {
   const role = useAppStore((s) => s.role);
+  const seniorMode = useAppStore((s) => s.seniorMode);
   const sidebarCollapsed = useAppStore((s) => s.sidebarCollapsed);
   const toggleSidebar = useAppStore((s) => s.toggleSidebar);
   const mobileSidebarOpen = useAppStore((s) => s.mobileSidebarOpen);
   const setMobileSidebarOpen = useAppStore((s) => s.setMobileSidebarOpen);
   const createSession = useChatStore((s) => s.createSession);
   const setCurrentSession = useAppStore((s) => s.setCurrentSession);
+  const isSeniorPatient = role === "patient" && seniorMode;
 
   const handleQuickNew = () => {
     const id = createSession(role);
@@ -54,14 +57,18 @@ export default function Home() {
               render={
                 <Button
                   variant="ghost"
-                  size="icon"
-                  className="btn-icon"
+                  size={isSeniorPatient ? "default" : "icon"}
+                  className={cn(
+                    "btn-icon",
+                    isSeniorPatient && "min-h-12 gap-2 px-3 text-base"
+                  )}
                   onClick={toggleSidebar}
                   aria-label="展开侧边栏"
                 />
               }
             >
               <PanelLeftClose className="size-4" />
+              {isSeniorPatient && <span>展开</span>}
             </TooltipTrigger>
             <TooltipContent side="bottom">展开侧边栏</TooltipContent>
           </Tooltip>
@@ -70,14 +77,18 @@ export default function Home() {
               render={
                 <Button
                   variant="ghost"
-                  size="icon"
-                  className="btn-icon text-foreground hover:text-foreground"
+                  size={isSeniorPatient ? "default" : "icon"}
+                  className={cn(
+                    "btn-icon text-foreground hover:text-foreground",
+                    isSeniorPatient && "min-h-12 gap-2 px-3 text-base"
+                  )}
                   onClick={handleQuickNew}
                   aria-label="新建对话"
                 />
               }
             >
               <Plus className="size-4" />
+              {isSeniorPatient && <span>新建</span>}
             </TooltipTrigger>
             <TooltipContent side="bottom">新建对话</TooltipContent>
           </Tooltip>
@@ -94,15 +105,24 @@ export default function Home() {
             render={
               <Button
                 variant="ghost"
-                size="icon"
-                className="btn-icon absolute top-2 left-2 z-20 md:hidden"
+                size={isSeniorPatient ? "default" : "icon"}
+                className={cn(
+                  "btn-icon absolute top-2 left-2 z-20 md:hidden",
+                  isSeniorPatient && "min-h-12 gap-2 px-3 text-base bg-background/95 shadow-sm"
+                )}
                 aria-label="打开菜单"
               />
             }
           >
             <Menu className="size-4" />
+            {isSeniorPatient && <span>菜单</span>}
           </SheetTrigger>
-          <SheetContent side="left" className="p-0 w-[280px]">
+          <SheetContent
+            side="left"
+            className="p-0"
+            style={{ width: isSeniorPatient ? "min(92vw, 360px)" : "280px" }}
+            showCloseButton={false}
+          >
             <Sidebar onNavigate={() => setMobileSidebarOpen(false)} />
           </SheetContent>
         </Sheet>

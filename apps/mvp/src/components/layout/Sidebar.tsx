@@ -70,6 +70,7 @@ export function Sidebar({ onNavigate }: SidebarProps) {
   const setRole = useAppStore((s) => s.setRole);
   const setSeniorMode = useAppStore((s) => s.setSeniorMode);
   const setRightPanel = useAppStore((s) => s.setRightPanel);
+  const setPanelContent = useAppStore((s) => s.setPanelContent);
   const closeRightPanel = useAppStore((s) => s.closeRightPanel);
   const mainView = useAppStore((s) => s.mainView);
   const setMainView = useAppStore((s) => s.setMainView);
@@ -161,6 +162,8 @@ export function Sidebar({ onNavigate }: SidebarProps) {
     const id = createSession(role);
     setCurrentSession(id);
     setMainView("chat");
+    setPanelContent("");
+    closeRightPanel();
     onNavigate?.();
   };
 
@@ -171,7 +174,9 @@ export function Sidebar({ onNavigate }: SidebarProps) {
     const session = effectiveSessions.find((s) => s.id === id);
     if (session?.panelType) {
       setRightPanel(session.panelType);
+      setPanelContent(session.panelContent ?? "");
     } else {
+      setPanelContent("");
       closeRightPanel();
     }
     onNavigate?.();
@@ -183,10 +188,41 @@ export function Sidebar({ onNavigate }: SidebarProps) {
     onNavigate?.();
   };
 
+  const handleCollapse = () => {
+    if (onNavigate) {
+      onNavigate();
+      return;
+    }
+    toggleSidebar();
+  };
+
+  const handleRoleChange = (nextRole: "visitor" | "patient" | "doctor") => {
+    setRole(nextRole);
+    onNavigate?.();
+  };
+
+  const handleOpenSettings = () => {
+    setRightPanel("settings");
+    onNavigate?.();
+  };
+
+  const handleShowHelp = () => {
+    toast.show("帮助中心正在整理中；您可以先选择患者模式或医生模式开始咨询。");
+    onNavigate?.();
+  };
+
+  const handleExit = () => {
+    setRole("visitor");
+    setCurrentSession(null);
+    closeRightPanel();
+    toast.show("已返回访客模式");
+    onNavigate?.();
+  };
+
   return (
     <aside
       className="flex h-full flex-col bg-sidebar text-sidebar-foreground border-r border-sidebar-border"
-      style={{ width: LAYOUT.sidebar.expanded }}
+      style={{ width: onNavigate ? "100%" : LAYOUT.sidebar.expanded }}
     >
       {/* ===== 顶部：标识区 + 折叠按钮 ===== */}
       <div className={cn("flex items-center gap-2 px-3 h-14 shrink-0", seniorMode && "h-16")}>
@@ -206,15 +242,15 @@ export function Sidebar({ onNavigate }: SidebarProps) {
                 variant="ghost"
                 size={seniorMode ? "default" : "icon-sm"}
                 className={cn("btn-icon shrink-0", seniorMode && "min-h-12 gap-1 px-2 text-base")}
-                onClick={toggleSidebar}
-                aria-label="折叠侧边栏"
+                onClick={handleCollapse}
+                aria-label={onNavigate ? "关闭菜单" : "折叠侧边栏"}
               />
             }
           >
             <Menu className="size-4" />
-            {seniorMode && <span>收起</span>}
+            {seniorMode && <span>{onNavigate ? "关闭" : "收起"}</span>}
           </TooltipTrigger>
-          <TooltipContent>折叠</TooltipContent>
+          <TooltipContent>{onNavigate ? "关闭菜单" : "折叠"}</TooltipContent>
         </Tooltip>
       </div>
 
@@ -342,7 +378,7 @@ export function Sidebar({ onNavigate }: SidebarProps) {
               <DropdownMenuLabel className="text-xs font-normal text-muted-foreground">选择模式</DropdownMenuLabel>
               <DropdownMenuItem
                 className={cn("cursor-pointer gap-2", seniorMode && "min-h-12 text-base", isVisitor && "bg-accent")}
-                onClick={() => setRole("visitor")}
+                onClick={() => handleRoleChange("visitor")}
               >
                 <Users className="size-4 text-gray-500" />
                 <span>访客模式</span>
@@ -350,7 +386,7 @@ export function Sidebar({ onNavigate }: SidebarProps) {
               </DropdownMenuItem>
               <DropdownMenuItem
                 className={cn("cursor-pointer gap-2", seniorMode && "min-h-12 text-base", isPatient && "bg-accent")}
-                onClick={() => setRole("patient")}
+                onClick={() => handleRoleChange("patient")}
               >
                 <User className="size-4 text-primary" />
                 <span>患者模式</span>
@@ -358,7 +394,7 @@ export function Sidebar({ onNavigate }: SidebarProps) {
               </DropdownMenuItem>
               <DropdownMenuItem
                 className={cn("cursor-pointer gap-2", seniorMode && "min-h-12 text-base", isDoctor && "bg-accent")}
-                onClick={() => setRole("doctor")}
+                onClick={() => handleRoleChange("doctor")}
               >
                 <Stethoscope className="size-4 text-blue-600" />
                 <span>医生模式</span>
@@ -400,22 +436,17 @@ export function Sidebar({ onNavigate }: SidebarProps) {
 
             <DropdownMenuSeparator />
             <DropdownMenuGroup>
-              <DropdownMenuItem className={cn("cursor-pointer", seniorMode && "min-h-12 text-base")} onClick={() => setRightPanel("settings")}>
+              <DropdownMenuItem className={cn("cursor-pointer", seniorMode && "min-h-12 text-base")} onClick={handleOpenSettings}>
                 <Settings className="size-4" />
                 设置
               </DropdownMenuItem>
-              <DropdownMenuItem className={cn("cursor-pointer", seniorMode && "min-h-12 text-base")} onClick={() => toast.show("帮助中心正在整理中；您可以先选择患者模式或医生模式开始咨询。")}>
+              <DropdownMenuItem className={cn("cursor-pointer", seniorMode && "min-h-12 text-base")} onClick={handleShowHelp}>
                 <HelpCircle className="size-4" />
                 帮助
               </DropdownMenuItem>
             </DropdownMenuGroup>
             <DropdownMenuSeparator />
-            <DropdownMenuItem className={cn("cursor-pointer", seniorMode && "min-h-12 text-base")} onClick={() => {
-              setRole("visitor");
-              setCurrentSession(null);
-              closeRightPanel();
-              toast.show("已返回访客模式");
-            }}>
+            <DropdownMenuItem className={cn("cursor-pointer", seniorMode && "min-h-12 text-base")} onClick={handleExit}>
               <LogOut className="size-4" />
               退出
             </DropdownMenuItem>

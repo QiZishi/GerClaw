@@ -241,6 +241,8 @@ export interface Session {
   messageCount: number;
   /** 该会话生成的结果类型（用于自动展开右侧面板）*/
   panelType?: RightPanelType;
+  /** 与 panelType 配对的真实报告内容；禁止跨会话复用 */
+  panelContent?: string;
 }
 
 /** 模型配置 */

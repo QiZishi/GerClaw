@@ -1,6 +1,13 @@
 "use client";
 
-import { useCallback, useEffect, useRef, useState, type MouseEvent } from "react";
+import {
+  useCallback,
+  useEffect,
+  useRef,
+  useState,
+  type KeyboardEvent,
+  type MouseEvent,
+} from "react";
 import { X, Copy } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Separator } from "@/components/ui/separator";
@@ -15,6 +22,7 @@ import { toast } from "@/components/ui/toast";
 import type { FileTag as FileTagData, RightPanelType } from "@/types";
 import { useReducedMotion } from "@/hooks/useReducedMotion";
 import { SettingsPanel } from "@/components/settings/SettingsPanel";
+import { LAYOUT } from "@/lib/constants";
 
 // 注：技能管理（skills）已迁移至中间栏显示，不再占用右侧面板
 const PANEL_TITLES: Record<NonNullable<RightPanelType>, string> = {
@@ -38,6 +46,8 @@ const EXPORTABLE_PANELS: RightPanelType[] = ["prescription", "cga", "drug-review
  */
 export function RightPanel() {
   const rightPanelOpen = useAppStore((s) => s.rightPanelOpen);
+  const role = useAppStore((s) => s.role);
+  const seniorMode = useAppStore((s) => s.seniorMode);
   const rightPanelType = useAppStore((s) => s.rightPanelType);
   const rightPanelWidth = useAppStore((s) => s.rightPanelWidth);
   const closeRightPanel = useAppStore((s) => s.closeRightPanel);
@@ -45,6 +55,7 @@ export function RightPanel() {
   const panelContent = useAppStore((s) => s.panelContent);
   const setPanelContent = useAppStore((s) => s.setPanelContent);
   const reducedMotion = useReducedMotion();
+  const isSeniorPatient = role === "patient" && seniorMode;
 
   const [mounted, setMounted] = useState(false);
   const [visible, setVisible] = useState(false);
@@ -74,6 +85,21 @@ export function RightPanel() {
     document.body.style.cursor = "col-resize";
     document.body.style.userSelect = "none";
   }, []);
+
+  const handleResizeKeyDown = useCallback(
+    (event: KeyboardEvent<HTMLDivElement>) => {
+      const step = event.shiftKey ? 48 : 16;
+      let nextWidth: number | null = null;
+      if (event.key === "ArrowLeft") nextWidth = rightPanelWidth + step;
+      if (event.key === "ArrowRight") nextWidth = rightPanelWidth - step;
+      if (event.key === "Home") nextWidth = LAYOUT.rightPanel.min;
+      if (event.key === "End") nextWidth = LAYOUT.rightPanel.max;
+      if (nextWidth === null) return;
+      event.preventDefault();
+      setRightPanelWidth(nextWidth);
+    },
+    [rightPanelWidth, setRightPanelWidth]
+  );
 
   useEffect(() => {
     const handleMouseMove = (e: globalThis.MouseEvent) => {
@@ -149,26 +175,34 @@ export function RightPanel() {
         {/* 拖拽手柄 */}
         <div
           onMouseDown={handleMouseDown}
-          className="absolute left-0 top-0 bottom-0 w-3 cursor-col-resize hover:bg-primary/20 active:bg-primary/30 transition-colors flex items-center justify-center"
+          onKeyDown={handleResizeKeyDown}
+          className="absolute left-0 top-0 bottom-0 hidden w-3 cursor-col-resize items-center justify-center transition-colors hover:bg-primary/20 active:bg-primary/30 md:flex"
+          role="separator"
+          tabIndex={0}
+          aria-orientation="vertical"
+          aria-valuemin={LAYOUT.rightPanel.min}
+          aria-valuemax={LAYOUT.rightPanel.max}
+          aria-valuenow={rightPanelWidth}
           aria-label="拖拽调整宽度"
         >
           <div className="w-0.5 h-12 bg-border rounded-full group-hover:bg-primary/50" />
         </div>
 
         {/* 头部 */}
-        <header className="flex items-center justify-between gap-2 px-4 h-12 shrink-0 border-b border-border">
-          <span className="font-medium text-sm">{title}</span>
+        <header className={cn("flex items-center justify-between gap-2 px-4 h-12 shrink-0 border-b border-border", isSeniorPatient && "h-16")}>
+          <span className={cn("font-medium text-sm", isSeniorPatient && "text-lg")}>{title}</span>
           <div className="flex items-center gap-1">
             {panelContent && (
               <Button
                 variant="ghost"
-                size="icon-sm"
-                className="btn-icon"
+                size={isSeniorPatient ? "default" : "icon-sm"}
+                className={cn("btn-icon", isSeniorPatient && "min-h-12 gap-2 px-3 text-base")}
                 onClick={handleCopy}
                 aria-label="复制内容"
                 title="复制 Markdown 源码"
               >
                 <Copy className="size-4" />
+                {isSeniorPatient && <span>复制</span>}
               </Button>
             )}
             {EXPORTABLE_PANELS.includes(rightPanelType) && panelContent && (
@@ -180,12 +214,13 @@ export function RightPanel() {
             )}
             <Button
               variant="ghost"
-              size="icon-sm"
-              className="btn-icon"
+              size={isSeniorPatient ? "default" : "icon-sm"}
+              className={cn("btn-icon", isSeniorPatient && "min-h-12 gap-2 px-3 text-base")}
               onClick={closeRightPanel}
               aria-label="关闭"
             >
               <X className="size-4" />
+              {isSeniorPatient && <span>关闭</span>}
             </Button>
           </div>
         </header>
@@ -240,6 +275,14 @@ function PanelContent({
       );
 
     case "cga": {
+      if (!panelContent) {
+        return (
+          <UnavailablePanel
+            title="还没有 CGA 评估报告"
+            description="完成真实的综合老年评估后，报告才会显示在这里；当前不会用示例内容代替评估结果。"
+          />
+        );
+      }
       return (
         <MarkdownEditor
           value={panelContent}
@@ -304,6 +347,9 @@ function PanelContent({
 /** 文件预览面板：上传 + 选中后切换到预览 */
 function FilePreviewPanel() {
   const [selected, setSelected] = useState<FileTagData | null>(null);
+  const role = useAppStore((state) => state.role);
+  const seniorMode = useAppStore((state) => state.seniorMode);
+  const isSeniorPatient = role === "patient" && seniorMode;
 
   if (selected) {
     return (
@@ -312,11 +358,11 @@ function FilePreviewPanel() {
           <button
             type="button"
             onClick={() => setSelected(null)}
-            className="text-xs text-primary hover:underline"
+            className={cn("text-xs text-primary hover:underline", isSeniorPatient && "min-h-12 text-base")}
           >
             ← 返回上传列表
           </button>
-          <span className="text-xs text-muted-foreground truncate max-w-[180px]">
+          <span className={cn("text-xs text-muted-foreground truncate max-w-[180px]", isSeniorPatient && "text-base")}>
             {selected.fileName}
           </span>
         </div>
