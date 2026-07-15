@@ -2,6 +2,10 @@
 
 import { useState, useRef, useCallback, useEffect } from "react";
 import { synthesizeSpeech } from "@/services/voice/tts";
+import {
+  claimActiveAudioPlayer,
+  releaseActiveAudioPlayer,
+} from "@/lib/audioPlaybackCoordinator";
 
 interface UseAudioPlayerReturn {
   isPlaying: boolean;
@@ -13,9 +17,6 @@ interface UseAudioPlayerReturn {
   resume: () => Promise<void>;
   stop: () => void;
 }
-
-let stopActivePlayer: (() => void) | null = null;
-let activePlayerId: symbol | null = null;
 
 export function useAudioPlayer(): UseAudioPlayerReturn {
   const [isPlaying, setIsPlaying] = useState(false);
@@ -46,10 +47,7 @@ export function useAudioPlayer(): UseAudioPlayerReturn {
 
   const stop = useCallback(() => {
     releaseMedia();
-    if (activePlayerId === playerIdRef.current) {
-      stopActivePlayer = null;
-      activePlayerId = null;
-    }
+    releaseActiveAudioPlayer(playerIdRef.current);
     setIsPlaying(false);
     setIsPaused(false);
     setIsLoading(false);
@@ -58,10 +56,8 @@ export function useAudioPlayer(): UseAudioPlayerReturn {
   useEffect(() => stop, [stop]);
 
   const claimPlayer = useCallback(() => {
-    if (stopActivePlayer && activePlayerId !== playerIdRef.current) stopActivePlayer();
     stop();
-    stopActivePlayer = stop;
-    activePlayerId = playerIdRef.current;
+    claimActiveAudioPlayer(playerIdRef.current, stop);
     setIsLoading(true);
   }, [stop]);
 

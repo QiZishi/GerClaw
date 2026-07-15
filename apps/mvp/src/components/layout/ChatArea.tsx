@@ -35,7 +35,7 @@ import { streamAgentChat } from "@/services/gerclaw/chat";
 import { readSessionSkills, replaceSessionSkills } from "@/services/gerclaw/skills";
 import { generateId } from "@/lib/format";
 import { toast } from "@/components/ui/toast";
-import { useAudioPlayer } from "@/hooks/useAudioPlayer";
+import { stopActiveAudioPlayer } from "@/lib/audioPlaybackCoordinator";
 import type { ChatActionType, ImageAttachment, Message, MessageBlock, Scale, ScaleResult } from "@/types";
 
 /** 检测文本中是否包含高风险症状关键词（铁律5关联） */
@@ -127,7 +127,6 @@ export function ChatArea() {
   const isGenerating = useChatStore((s) => s.isGenerating);
   const setGenerating = useChatStore((s) => s.setGenerating);
   const selectedModelId = useChatStore((s) => s.selectedModelId);
-  const { stop: stopTTS } = useAudioPlayer();
 
   const messagesBySession = useChatStore((s) => s.messagesBySession);
   const addMessage = useChatStore((s) => s.addMessage);
@@ -1525,7 +1524,7 @@ ${hasSuicideRisk ? "⚠️ 重要：您在评估中提到了伤害自己的想�
   };
   const doExitAction = () => {
     setShowExitConfirm(false);
-    stopTTS();
+    stopActiveAudioPlayer();
     if (currentSessionId) {
       setCgaSelectedScales(prev => {
         const next = { ...prev };
