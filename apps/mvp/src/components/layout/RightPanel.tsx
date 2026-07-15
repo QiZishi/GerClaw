@@ -28,7 +28,7 @@ import { LAYOUT } from "@/lib/constants";
 const PANEL_TITLES: Record<NonNullable<RightPanelType>, string> = {
   skills: "技能管理",
   prescription: "五大处方报告",
-  cga: "CGA 评估报告",
+  cga: "CGA 评估结果",
   "file-preview": "文件预览",
   citations: "引用列表",
   "health-profile": "健康画像",
