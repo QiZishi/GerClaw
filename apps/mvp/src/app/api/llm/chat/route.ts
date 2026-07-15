@@ -4,21 +4,21 @@ import { searchWeb } from "@/server/search";
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
-function getApiKey(nonPublicKey: string, publicKey: string): string {
-  return process.env[nonPublicKey] || process.env[publicKey] || "";
+function getServerConfig(...keys: string[]): string {
+  return keys.map((key) => process.env[key]?.trim() ?? "").find(Boolean) ?? "";
 }
 
-const PRIMARY_URL = process.env.NEXT_PUBLIC_PRIMARY_URL || "";
-const PRIMARY_API_KEY = getApiKey("PRIMARY_API_KEY", "NEXT_PUBLIC_PRIMARY_API_KEY");
-const PRIMARY_MODEL = process.env.NEXT_PUBLIC_PRIMARY_MODEL || "gpt-4o";
+const PRIMARY_URL = getServerConfig("PRIMARY_URL", "AGENT_PRIMARY_URL");
+const PRIMARY_API_KEY = getServerConfig("PRIMARY_API_KEY", "AGENT_PRIMARY_API_KEY");
+const PRIMARY_MODEL = getServerConfig("PRIMARY_MODEL", "AGENT_PRIMARY_MODEL") || "gpt-4o";
 
-const BACKUP1_URL = process.env.NEXT_PUBLIC_BACKUP1_URL || "";
-const BACKUP1_API_KEY = getApiKey("BACKUP1_API_KEY", "NEXT_PUBLIC_BACKUP1_API_KEY");
-const BACKUP1_MODEL = process.env.NEXT_PUBLIC_BACKUP1_MODEL || "";
+const BACKUP1_URL = getServerConfig("BACKUP1_URL", "AGENT_BACKUP1_URL");
+const BACKUP1_API_KEY = getServerConfig("BACKUP1_API_KEY", "AGENT_BACKUP1_API_KEY");
+const BACKUP1_MODEL = getServerConfig("BACKUP1_MODEL", "AGENT_BACKUP1_MODEL");
 
-const BACKUP2_URL = process.env.NEXT_PUBLIC_BACKUP2_URL || "";
-const BACKUP2_API_KEY = getApiKey("BACKUP2_API_KEY", "NEXT_PUBLIC_BACKUP2_API_KEY");
-const BACKUP2_MODEL = process.env.NEXT_PUBLIC_BACKUP2_MODEL || "";
+const BACKUP2_URL = getServerConfig("BACKUP2_URL", "AGENT_BACKUP2_URL");
+const BACKUP2_API_KEY = getServerConfig("BACKUP2_API_KEY", "AGENT_BACKUP2_API_KEY");
+const BACKUP2_MODEL = getServerConfig("BACKUP2_MODEL", "AGENT_BACKUP2_MODEL");
 
 interface ModelConfig {
   url: string;

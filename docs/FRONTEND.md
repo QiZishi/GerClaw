@@ -221,14 +221,15 @@ apps/mvp/
 
 ## 8. 环境变量规范
 
-只有确实需要进入浏览器 bundle 的非敏感显示配置可以使用 `NEXT_PUBLIC_`。模型、语音、搜索、文档服务和签名密钥均为服务端变量，禁止使用 `NEXT_PUBLIC_*`：
+浏览器 bundle 只允许 `NEXT_PUBLIC_APP_NAME` 与 `NEXT_PUBLIC_APP_VERSION` 两个显示配置；其他有值的 `NEXT_PUBLIC_*` 在 MVP 启动时 fail closed。模型、语音、搜索、文档服务和签名密钥均为服务端变量：
 
 ```env
-# Next.js server runtime only
+# Next.js server runtime only；apps/mvp 的 dev/build/start 脚本从仓库根 .env 注入
 GERCLAW_API_URL=http://127.0.0.1:8000
 # GERCLAW_GUEST_IDENTITY_SECRET 由 Secret Manager 注入，至少32字符
 
-# Python backend only；完整模型/RAG/Voice/Search/MinerU 配置见根 .env.example
+# 完整模型/RAG/Voice/Search/MinerU 配置见根 .env.example；真实 MinerU 还必须配置
+# MINERU_URL、MINERU_API_KEY 与 MINERU_ALLOWED_HOSTS（严格 HTTPS host allowlist）
 # GERCLAW_AUTH_JWT_SECRET 由 Secret Manager 注入，至少32字符
 ```
 

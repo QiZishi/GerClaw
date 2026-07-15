@@ -5,6 +5,24 @@ import path from "node:path";
 // 全栈开发统一使用仓库根 .env。只有显式 NEXT_PUBLIC_ 变量会进入浏览器包；
 // Provider key 仅供 Node.js API Route 使用。
 loadEnvConfig(path.resolve(process.cwd(), "../.."));
+loadEnvConfig(process.cwd());
+
+const allowedPublicKeys = new Set([
+  "NEXT_PUBLIC_APP_NAME",
+  "NEXT_PUBLIC_APP_VERSION",
+]);
+const unsafePublicKeys = Object.keys(process.env).filter(
+  (key) =>
+    key.startsWith("NEXT_PUBLIC_") &&
+    !allowedPublicKeys.has(key) &&
+    Boolean(process.env[key]?.trim()),
+);
+
+if (unsafePublicKeys.length > 0) {
+  throw new Error(
+    `只允许 NEXT_PUBLIC_APP_NAME 与 NEXT_PUBLIC_APP_VERSION：${unsafePublicKeys.join(", ")}`,
+  );
+}
 
 const nextConfig: NextConfig = {
   // 使用服务端运行时以支持 API Routes（LLM/ASR/TTS/搜索代理）

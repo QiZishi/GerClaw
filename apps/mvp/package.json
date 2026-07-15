@@ -3,9 +3,9 @@
   "version": "0.1.0",
   "private": true,
   "scripts": {
-    "dev": "next dev --webpack",
-    "build": "next build",
-    "start": "next start",
+    "dev": "node scripts/with-root-env.mjs dev --webpack",
+    "build": "node scripts/with-root-env.mjs build",
+    "start": "node scripts/with-root-env.mjs start",
     "lint": "eslint",
     "test:audio": "node --test src/lib/audioPlaybackCoordinator.test.mjs src/server/voice-request.test.mjs",
     "test:document": "node --test src/server/mineru-contract.test.ts",
