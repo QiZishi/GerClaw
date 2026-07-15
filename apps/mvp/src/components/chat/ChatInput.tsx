@@ -360,7 +360,7 @@ export function ChatInput({
   const parsePendingDocument = async (fileData: UploadFileTag, file: File) => {
     setPendingDocuments((previous) =>
       previous.map((item) =>
-        item.id === fileData.id ? { ...item, status: "parsing", progress: 70 } : item
+        item.id === fileData.id ? { ...item, status: "parsing" } : item
       )
     );
     try {
@@ -404,7 +404,7 @@ export function ChatInput({
     setPendingDocuments((previous) =>
       previous.map((item) =>
         item.id === id
-          ? { ...item, status: "parsing", progress: 50, errorMessage: undefined }
+          ? { ...item, status: "parsing", errorMessage: undefined }
           : item
       )
     );
@@ -493,7 +493,6 @@ export function ChatInput({
           fileType: ext.slice(1),
           fileSize: file.size,
           status: "parsing",
-          progress: 50,
         };
         rawDocumentsRef.current.set(id, file);
         setPendingDocuments((previous) => [...previous, fileData]);

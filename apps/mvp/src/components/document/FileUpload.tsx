@@ -73,7 +73,7 @@ export function FileUpload({ className, onFileParsed }: FileUploadProps) {
       setFiles((prev) =>
         prev.map((f) =>
           f.id === fileData.id
-            ? { ...f, status: "parsing" as FileStatus, progress: 50 }
+            ? { ...f, status: "parsing" as FileStatus }
             : f
         )
       );
@@ -143,7 +143,6 @@ export function FileUpload({ className, onFileParsed }: FileUploadProps) {
           fileType: ext.slice(1),
           fileSize: raw.size,
           status: "parsing",
-          progress: 50,
         };
         rawFilesRef.current.set(id, raw);
         setFiles((prev) => [...prev, newFile]);
@@ -175,7 +174,7 @@ export function FileUpload({ className, onFileParsed }: FileUploadProps) {
     if (!file) return;
     setFiles((prev) =>
       prev.map((f) =>
-        f.id === id ? { ...f, status: "parsing", progress: 50, errorMessage: undefined } : f
+        f.id === id ? { ...f, status: "parsing", errorMessage: undefined } : f
       )
     );
     performParse(file);

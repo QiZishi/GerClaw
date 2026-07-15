@@ -1,7 +1,6 @@
 "use client";
 
 import { Check, FileText, RotateCw, X } from "lucide-react";
-import { Progress } from "@/components/ui/progress";
 import { cn } from "@/lib/utils";
 import { formatFileSize } from "@/lib/format";
 import { useAppStore } from "@/stores/appStore";
@@ -17,7 +16,7 @@ interface FileTagProps {
 /**
  * §4.2.3 文件标签
  * 显示：文件名 + 类型图标 + 大小 + 状态（uploading/parsing/done/failed）+ × 移除
- * uploading/parsing 显示进度条
+ * MinerU 是单次 BFF 请求，浏览器没有真实可观测的上传/解析百分比；解析中仅显示稳定文字，避免伪进度。
  */
 export function FileTag({ data, onRemove, onRetry, onClick }: FileTagProps) {
   const role = useAppStore((state) => state.role);
@@ -26,9 +25,9 @@ export function FileTag({ data, onRemove, onRetry, onClick }: FileTagProps) {
   const statusText = () => {
     switch (data.status) {
       case "uploading":
-        return "上传中…";
+        return "正在提交文档";
       case "parsing":
-        return "解析中…";
+        return "正在解析文档";
       case "done":
         return "已就绪";
       case "failed":
@@ -75,7 +74,9 @@ export function FileTag({ data, onRemove, onRetry, onClick }: FileTagProps) {
           <div className={cn("flex items-center gap-2 text-xs text-muted-foreground", isSeniorPatient && "text-base")}>
             <span>{formatFileSize(data.fileSize)}</span>
             <span>·</span>
-            <span className={statusColor()}>{statusText()}</span>
+            <span className={statusColor()} role="status" aria-live="polite">
+              {statusText()}
+            </span>
           </div>
         </div>
         {data.status === "done" && (
@@ -116,9 +117,6 @@ export function FileTag({ data, onRemove, onRetry, onClick }: FileTagProps) {
           </button>
         )}
       </div>
-      {(data.status === "uploading" || data.status === "parsing") && (
-        <Progress value={data.progress ?? 0} className="h-1" />
-      )}
       {data.status === "failed" && data.errorMessage && (
         <div className={cn("text-xs text-destructive", isSeniorPatient && "text-base")}>{data.errorMessage}</div>
       )}
