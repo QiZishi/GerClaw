@@ -49,3 +49,34 @@ export const sessionSchema = z
 
 export type SkillInfo = z.infer<typeof skillInfoSchema>;
 export type SkillDefinition = z.infer<typeof skillDefinitionSchema>;
+
+const approvalStatusSchema = z.enum([
+  "pending",
+  "approved",
+  "rejected",
+  "expired",
+  "cancelled",
+]);
+
+export const approvalSchema = z
+  .object({
+    id: z.string().uuid(),
+    requester_actor_id: z.string().min(1),
+    patient_id: z.string().uuid().nullable(),
+    session_id: z.string().uuid(),
+    trace_id: z.string().min(1),
+    invocation_id: z.string().min(1),
+    tool_name: z.string().min(1),
+    tool_version: z.string().min(1),
+    required_roles: z.array(z.string().min(1)),
+    policy_version: z.string().min(1),
+    status: approvalStatusSchema,
+    revision: z.number().int().positive(),
+    decided_by_actor_id: z.string().nullable(),
+    expires_at: z.string().datetime(),
+    created_at: z.string().datetime(),
+    updated_at: z.string().datetime(),
+  })
+  .strict();
+
+export type RuntimeApproval = z.infer<typeof approvalSchema>;

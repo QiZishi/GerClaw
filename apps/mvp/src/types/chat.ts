@@ -171,6 +171,14 @@ export interface StageIndicatorData {
   description?: string;
 }
 
+export interface RuntimeApprovalBlockData {
+  approvalId: string;
+  toolName: string;
+  expiresAt: string;
+  policyVersion: string;
+  toolVersion: string;
+}
+
 /** 消息内容块（一条消息可包含多个块：文本/图片/思维链/工具调用/搜索结果/文件/决策/操作按钮/信息收集卡片/问题卡片/阶段指示） */
 export type MessageBlock =
   | { kind: "text"; id: string; content: string; streaming?: boolean }
@@ -184,6 +192,7 @@ export type MessageBlock =
   | { kind: "info_collection"; id: string; data: { fields: InfoCollectionField[] } }
   | { kind: "question_card"; id: string; data: QuestionCardData }
   | { kind: "stage_indicator"; id: string; data: StageIndicatorData }
+  | { kind: "runtime_approval"; id: string; data: RuntimeApprovalBlockData }
   | {
       kind: "action";
       id: string;

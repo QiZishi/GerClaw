@@ -57,6 +57,7 @@ interface ChatInputProps {
   isGenerating?: boolean;
   onStop?: () => void;
   onFileParsed?: (fileName: string, markdown: string) => void;
+  onStartAction?: (action: "prescription" | "cga" | "drug-review" | "health-profile") => void;
   contextLoading?: boolean;
 }
 
@@ -112,20 +113,20 @@ function FunctionButtonGroup({
   role: "patient" | "doctor" | "visitor";
   mounted: boolean;
   seniorMode: boolean;
-  onSetChatAction: (action: "prescription" | "cga" | "drug-review" | "health-profile" | "none") => void;
+  onSetChatAction: (action: "prescription" | "cga" | "drug-review" | "health-profile") => void;
   onPickImage: () => void;
   onPickFile: () => void;
 }) {
   const isDoctor = mounted && role === "doctor";
   return (
-    <div className="flex items-center gap-0.5 flex-wrap">
+    <div className="flex min-w-0 flex-1 items-center gap-1 overflow-x-auto overscroll-x-contain pb-1">
       <Tooltip>
         <TooltipTrigger
           render={
             <Button
               variant="ghost"
-              size="icon"
-              className="btn-icon"
+              size={seniorMode ? "default" : "icon"}
+              className={cn("btn-icon shrink-0", seniorMode && "order-4 h-12 gap-2 px-3 text-base")}
               onClick={onPickImage}
               aria-label="上传图片"
               disabled={disabled}
@@ -133,6 +134,7 @@ function FunctionButtonGroup({
           }
         >
           <ImageIcon className="size-4" />
+          {seniorMode && <span>图片</span>}
         </TooltipTrigger>
         <TooltipContent>上传图片</TooltipContent>
       </Tooltip>
@@ -141,8 +143,8 @@ function FunctionButtonGroup({
           render={
             <Button
               variant="ghost"
-              size="icon"
-              className="btn-icon"
+              size={seniorMode ? "default" : "icon"}
+              className={cn("btn-icon shrink-0", seniorMode && "order-5 h-12 gap-2 px-3 text-base")}
               onClick={onPickFile}
               aria-label="上传文件或图片"
               disabled={disabled}
@@ -150,6 +152,7 @@ function FunctionButtonGroup({
           }
         >
           <Paperclip className="size-4" />
+          {seniorMode && <span>文件</span>}
         </TooltipTrigger>
         <TooltipContent>上传文件（PDF/DOCX/MD/图片）</TooltipContent>
       </Tooltip>
@@ -157,7 +160,7 @@ function FunctionButtonGroup({
         <Button
           variant="ghost"
           size={seniorMode ? "default" : "icon"}
-          className={cn("btn-icon", seniorMode && "h-12 min-w-24 px-4 text-lg")}
+          className={cn("btn-icon shrink-0", seniorMode && "order-1 h-12 min-w-24 px-4 text-lg")}
           aria-label="选择当前对话的临床技能"
           disabled={disabled}
         />
@@ -167,8 +170,8 @@ function FunctionButtonGroup({
           render={
             <Button
               variant="ghost"
-              size="icon"
-              className="btn-icon"
+              size={seniorMode ? "default" : "icon"}
+              className={cn("btn-icon shrink-0", seniorMode && "order-2 h-12 gap-2 px-3 text-base")}
               onClick={() => onSetChatAction("prescription")}
               aria-label="五大处方生成"
               disabled={disabled}
@@ -176,6 +179,7 @@ function FunctionButtonGroup({
           }
         >
           <Pill className="size-4" />
+          {seniorMode && <span>处方</span>}
         </TooltipTrigger>
         <TooltipContent>五大处方生成</TooltipContent>
       </Tooltip>
@@ -184,8 +188,8 @@ function FunctionButtonGroup({
           render={
             <Button
               variant="ghost"
-              size="icon"
-              className="btn-icon"
+              size={seniorMode ? "default" : "icon"}
+              className={cn("btn-icon shrink-0", seniorMode && "order-3 h-12 gap-2 px-3 text-base")}
               onClick={() => onSetChatAction("cga")}
               aria-label="老年综合评估"
               disabled={disabled}
@@ -193,6 +197,7 @@ function FunctionButtonGroup({
           }
         >
           <ClipboardCheck className="size-4" />
+          {seniorMode && <span>评估</span>}
         </TooltipTrigger>
         <TooltipContent>老年综合评估</TooltipContent>
       </Tooltip>
@@ -202,8 +207,8 @@ function FunctionButtonGroup({
             render={
               <Button
                 variant="ghost"
-                size="icon"
-                className="btn-icon"
+                size={seniorMode ? "default" : "icon"}
+                className={cn("btn-icon shrink-0", seniorMode && "h-12 gap-2 px-3 text-base")}
                 onClick={() => onSetChatAction("drug-review")}
                 aria-label="用药审查"
                 disabled={disabled}
@@ -211,6 +216,7 @@ function FunctionButtonGroup({
             }
           >
             <FileSearch className="size-4" />
+            {seniorMode && <span>审查</span>}
           </TooltipTrigger>
           <TooltipContent>用药审查</TooltipContent>
         </Tooltip>
@@ -221,8 +227,8 @@ function FunctionButtonGroup({
             render={
               <Button
                 variant="ghost"
-                size="icon"
-                className="btn-icon"
+                size={seniorMode ? "default" : "icon"}
+                className={cn("btn-icon shrink-0", seniorMode && "h-12 gap-2 px-3 text-base")}
                 onClick={() => onSetChatAction("health-profile")}
                 aria-label="查看健康画像"
                 disabled={disabled}
@@ -230,6 +236,7 @@ function FunctionButtonGroup({
             }
           >
             <UserRound className="size-4" />
+            {seniorMode && <span>档案</span>}
           </TooltipTrigger>
           <TooltipContent>查看健康画像</TooltipContent>
         </Tooltip>
@@ -243,6 +250,7 @@ export function ChatInput({
   isGenerating,
   onStop,
   onFileParsed,
+  onStartAction,
   contextLoading = false,
 }: ChatInputProps) {
   const [mounted, setMounted] = useState(false);
@@ -259,6 +267,14 @@ export function ChatInput({
   const setRightPanel = useAppStore((s) => s.setRightPanel);
   const isOnline = useAppStore((s) => s.isOnline);
   const asrAvailable = useAppStore((s) => s.asrAvailable);
+
+  const handleStartAction = (action: "prescription" | "cga" | "drug-review" | "health-profile") => {
+    if (onStartAction) {
+      onStartAction(action);
+      return;
+    }
+    setChatAction(action);
+  };
 
   const [text, setText] = useState("");
   const [isTranscribing, setIsTranscribing] = useState(false);
@@ -704,13 +720,13 @@ export function ChatInput({
             style={{ minHeight: "52px" }}
           />
 
-          <div className="flex items-center justify-between gap-1 px-2 py-1.5 border-t border-border/60">
+          <div className="flex items-end justify-between gap-2 px-2 py-1.5 border-t border-border/60">
             <FunctionButtonGroup
               disabled={isTranscribing || contextLoading}
               role={role}
               mounted={mounted}
-              seniorMode={seniorMode}
-              onSetChatAction={setChatAction}
+      seniorMode={seniorMode}
+      onSetChatAction={handleStartAction}
               onPickImage={handleImageSelect}
               onPickFile={handleFileSelect}
             />
@@ -722,14 +738,15 @@ export function ChatInput({
                     render={
                       <Button
                         variant="destructive"
-                        size="icon"
-                        className={cn("btn-icon", seniorMode && "size-12")}
+                        size={seniorMode ? "default" : "icon"}
+                        className={cn("btn-icon", seniorMode && "h-12 gap-2 px-3 text-base")}
                         onClick={onStop}
                         aria-label="停止生成"
                       />
                     }
                   >
-                    <Square className="size-4 fill-current" />
+                  <Square className="size-4 fill-current" />
+                  {seniorMode && <span>停止</span>}
                   </TooltipTrigger>
                   <TooltipContent>停止生成</TooltipContent>
                 </Tooltip>
@@ -739,15 +756,16 @@ export function ChatInput({
                     render={
                       <Button
                         variant="default"
-                        size="icon"
-                        className={cn("btn-icon", seniorMode && "size-12")}
+                        size={seniorMode ? "default" : "icon"}
+                        className={cn("btn-icon", seniorMode && "h-12 gap-2 px-3 text-base")}
                         onClick={handleSend}
                         aria-label="发送"
                         disabled={!isOnline || contextLoading}
                       />
                     }
                   >
-                    <SendHorizonal className="size-4" />
+                  <SendHorizonal className="size-4" />
+                  {seniorMode && <span>发送</span>}
                   </TooltipTrigger>
                   <TooltipContent>
                     {!isOnline ? "网络已断开，请检查网络连接" : "发送"}
@@ -766,15 +784,16 @@ export function ChatInput({
                     render={
                       <Button
                         variant="ghost"
-                        size="icon"
-                        className={cn("btn-icon", seniorMode && "size-12")}
+                        size={seniorMode ? "default" : "icon"}
+                        className={cn("btn-icon", seniorMode && "h-12 gap-2 px-3 text-base")}
                         onClick={handleMicStart}
                         aria-label={micDisabled ? "语音服务暂时不可用" : "语音输入"}
                         disabled={micDisabled}
                       />
                     }
                   >
-                    <Mic className={cn(seniorMode ? "size-5" : "size-4")} />
+                  <Mic className={cn(seniorMode ? "size-5" : "size-4")} />
+                  {seniorMode && <span>说话</span>}
                   </TooltipTrigger>
                   <TooltipContent>
                     {!isOnline 

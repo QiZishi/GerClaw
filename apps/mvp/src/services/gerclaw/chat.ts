@@ -69,6 +69,16 @@ const cancellationRequestedSchema = z
     status: z.literal("cancellation_requested"),
   })
   .strict();
+const approvalRequiredSchema = z
+  .object({
+    approval_id: z.string().uuid(),
+    tool_name: z.string().min(1),
+    status: z.literal("pending"),
+    expires_at: z.string().datetime(),
+    policy_version: z.string().min(1),
+    tool_version: z.string().min(1),
+  })
+  .strict();
 
 export interface AgentToolEvent {
   id: string;
@@ -83,6 +93,13 @@ export interface AgentChatCallbacks {
   onText?: (delta: string) => void;
   onToolCall?: (event: AgentToolEvent) => void;
   onToolResult?: (event: AgentToolEvent) => void;
+  onApprovalRequired?: (approval: {
+    id: string;
+    toolName: string;
+    expiresAt: string;
+    policyVersion: string;
+    toolVersion: string;
+  }) => void;
   onDone?: (fullText: string, citations: Citation[], traceId: string) => void;
   onCancelled?: (traceId: string, message: string) => void;
   onError?: (error: GerclawApiError) => void;
@@ -218,6 +235,15 @@ export async function streamAgentChat(
           status: tool.status,
           durationMs: tool.duration_ms,
           results: tool.results,
+        });
+      } else if (parsed.event === "approval_required") {
+        const approval = approvalRequiredSchema.parse(parsed.data);
+        callbacks.onApprovalRequired?.({
+          id: approval.approval_id,
+          toolName: approval.tool_name,
+          expiresAt: approval.expires_at,
+          policyVersion: approval.policy_version,
+          toolVersion: approval.tool_version,
         });
       } else if (parsed.event === "done") {
         const doneEvent = doneSchema.parse(parsed.data);

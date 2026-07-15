@@ -59,6 +59,7 @@ import type { Message, MessageBlock, RightPanelType } from "@/types";
 import { toast } from "@/components/ui/toast";
 import { useAudioPlayer } from "@/hooks/useAudioPlayer";
 import { InfoCollectionCard, StageIndicator } from "./InfoCollectionCard";
+import { RuntimeApprovalCard } from "./blocks/RuntimeApprovalCard";
 
 interface MessageBubbleProps {
   message: Message;
@@ -358,6 +359,8 @@ export function MessageBubble({
                       />
                     </div>
                   );
+                case "runtime_approval":
+                  return <RuntimeApprovalCard key={block.id} data={block.data} />;
                 case "question_card":
                   if (block.data.submitted) {
                     return (

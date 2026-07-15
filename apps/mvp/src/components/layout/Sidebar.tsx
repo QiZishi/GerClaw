@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useState, useSyncExternalStore } from "react";
+import { useEffect, useMemo, useState } from "react";
 import {
   Zap,
   Check,
@@ -46,6 +46,7 @@ import { LAYOUT } from "@/lib/constants";
 import { cn } from "@/lib/utils";
 import { formatRelativeTime, groupByTime, type SessionGroup } from "@/lib/format";
 import type { Session } from "@/types";
+import { toast } from "@/components/ui/toast";
 
 interface SidebarProps {
   /** 移动端用：关闭抽屉的回调 */
@@ -58,16 +59,8 @@ interface SidebarProps {
  * 顶部：标识 / 折叠按钮 / 新建对话 / 搜索 / 历史列表 / 技能入口
  * 底部：用户信息 / 模式切换 / 老年模式 / 主题
  */
-const emptySubscribe = () => () => {};
-const clientSnapshot = () => true;
-const serverSnapshot = () => false;
-
 export function Sidebar({ onNavigate }: SidebarProps) {
-  const mounted = useSyncExternalStore(
-    emptySubscribe,
-    clientSnapshot,
-    serverSnapshot
-  );
+  const [mounted, setMounted] = useState(false);
 
   const role = useAppStore((s) => s.role);
   const seniorMode = useAppStore((s) => s.seniorMode);
@@ -89,6 +82,11 @@ export function Sidebar({ onNavigate }: SidebarProps) {
   const togglePinSession = useChatStore((s) => s.togglePinSession);
 
   const [searchQuery, setSearchQuery] = useState("");
+
+  useEffect(() => {
+    const frame = requestAnimationFrame(() => setMounted(true));
+    return () => cancelAnimationFrame(frame);
+  }, []);
 
   const isPatient = role === "patient";
   const isDoctor = role === "doctor";
@@ -264,6 +262,11 @@ export function Sidebar({ onNavigate }: SidebarProps) {
             <div className="px-2 py-4 text-center text-sm text-muted-foreground">
               加载中...
             </div>
+          ) : effectiveSessions.length === 0 ? (
+            <div className="px-3 py-7 text-center">
+              <p className="text-sm font-medium">还没有对话</p>
+              <p className="mt-1 text-xs leading-relaxed text-muted-foreground">点击“新建对话”，用语音或文字开始健康咨询。</p>
+            </div>
           ) : (
             (Object.keys(groupedSessions) as SessionGroup[]).map((group) => {
               const list = groupedSessions[group];
@@ -392,17 +395,22 @@ export function Sidebar({ onNavigate }: SidebarProps) {
 
             <DropdownMenuSeparator />
             <DropdownMenuGroup>
-              <DropdownMenuItem className="cursor-pointer">
+              <DropdownMenuItem className="cursor-pointer" onClick={() => setRightPanel("settings")}>
                 <Settings className="size-4" />
                 设置
               </DropdownMenuItem>
-              <DropdownMenuItem className="cursor-pointer">
+              <DropdownMenuItem className="cursor-pointer" onClick={() => toast.show("帮助中心正在整理中；您可以先选择患者模式或医生模式开始咨询。")}>
                 <HelpCircle className="size-4" />
                 帮助
               </DropdownMenuItem>
             </DropdownMenuGroup>
             <DropdownMenuSeparator />
-            <DropdownMenuItem className="cursor-pointer">
+            <DropdownMenuItem className="cursor-pointer" onClick={() => {
+              setRole("visitor");
+              setCurrentSession(null);
+              closeRightPanel();
+              toast.show("已返回访客模式");
+            }}>
               <LogOut className="size-4" />
               退出
             </DropdownMenuItem>

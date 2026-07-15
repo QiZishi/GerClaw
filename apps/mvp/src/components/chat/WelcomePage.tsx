@@ -66,13 +66,13 @@ export function WelcomePage({
   const patientCards = [
     {
       icon: Pill,
-      label: "五大处方生成",
+      label: "五大处方",
       desc: "用药、运动、营养、心理、康复",
       action: "prescription" as const,
     },
     {
       icon: ClipboardCheck,
-      label: "老年综合评估",
+      label: "综合评估（CGA）",
       desc: "CGA 多维度健康评估",
       action: "cga" as const,
     },

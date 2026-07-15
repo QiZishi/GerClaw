@@ -24,6 +24,10 @@ const proxyRules: Array<{ pattern: RegExp; methods: ReadonlySet<string> }> = [
   },
   { pattern: /^chat$/, methods: new Set(["POST"]) },
   {
+    pattern: /^runtime\/approvals\/[0-9a-f-]{36}(?:\/(?:cancel|decision|review))?$/,
+    methods: new Set(["GET", "POST"]),
+  },
+  {
     pattern: /^chat\/trace_[A-Za-z0-9][A-Za-z0-9_.:-]{7,57}\/cancel$/,
     methods: new Set(["POST"]),
   },
