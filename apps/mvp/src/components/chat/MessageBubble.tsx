@@ -255,8 +255,9 @@ export function MessageBubble({
     !isUser &&
     isLastMessage &&
     onRegenerate &&
-    (message.status === "done" || message.status === "stopped");
+    (message.status === "done" || message.status === "stopped" || message.status === "error");
   const stoppedAssistant = !isUser && message.status === "stopped";
+  const errorAssistant = !isUser && message.status === "error";
 
   return (
     <div
@@ -467,7 +468,7 @@ export function MessageBubble({
           </div>
         )}
 
-        {(message.status === "done" || stoppedAssistant) && (
+        {(message.status === "done" || stoppedAssistant || errorAssistant) && (
           <div className="relative">
             <div
               data-message-actions
@@ -475,12 +476,12 @@ export function MessageBubble({
               className={cn(
                 "flex items-center gap-0.5 transition-opacity duration-150",
                 "rounded-full bg-muted/40 border border-border/40 px-1 py-0.5",
-                seniorMode
+                seniorMode || errorAssistant
                   ? "flex-wrap gap-1 rounded-xl px-2 py-1 opacity-100"
                   : "opacity-0 group-hover:opacity-100 focus-within:opacity-100"
               )}
             >
-              {!isUser && !stoppedAssistant ? (
+              {!isUser && message.status === "done" ? (
                 <>
                   <Tooltip>
                     <TooltipTrigger
@@ -522,7 +523,7 @@ export function MessageBubble({
                 </>
               ) : null}
 
-              {!stoppedAssistant && <Tooltip>
+              {message.status === "done" && <Tooltip>
                 <TooltipTrigger
                   render={
                     <Button
@@ -564,11 +565,11 @@ export function MessageBubble({
                 </Tooltip>
               )}
 
-              {!isUser && !stoppedAssistant && plainText && (
+              {!isUser && message.status === "done" && plainText && (
                 <VoiceReadButton text={plainText} seniorMode={seniorMode} />
               )}
 
-              {!stoppedAssistant && <Tooltip>
+              {message.status === "done" && <Tooltip>
                 <TooltipTrigger
                   render={
                     <Button
@@ -586,7 +587,7 @@ export function MessageBubble({
                 <TooltipContent>分享/导出</TooltipContent>
               </Tooltip>}
 
-              {!isUser && !stoppedAssistant ? (
+              {!isUser && message.status === "done" ? (
                 <DropdownMenu>
                   <DropdownMenuTrigger
                     render={
