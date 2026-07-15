@@ -60,6 +60,17 @@ class CgaService:
         score: int,
     ) -> CgaAssessmentRead:
         record = await self._repository.lock(assessment_id, tenant_id=tenant_id, actor_id=actor_id)
+        answers = self._answers(record)
+        if question_id in answers:
+            if answers[question_id] == score:
+                return self._read(record)
+            if record.status != "active" or record.revision != expected_revision:
+                raise CgaAssessmentConflictError("assessment has changed; refresh before editing")
+            answers[question_id] = score
+            risk_for_answer(question_id, score)
+            record.answers = answers
+            record.revision += 1
+            return self._read(record)
         if record.status != "active" or record.revision != expected_revision:
             raise CgaAssessmentConflictError("assessment has changed; refresh before answering")
         question = PHQ9_QUESTIONS[record.current_position - 1]
@@ -67,7 +78,6 @@ class CgaService:
             raise CgaAssessmentConflictError(
                 "answer must match the server-provided current question"
             )
-        answers = self._answers(record)
         answers[question_id] = score
         risk_for_answer(question_id, score)
         record.answers = answers

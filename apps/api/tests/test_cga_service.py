@@ -63,6 +63,26 @@ async def test_phq9_state_machine_rejects_skips_and_preserves_resume_position() 
     assert answered.answered_count == 1
     assert resumed.next_question is not None and resumed.next_question.id == "phq9_2"
 
+    replayed = await service.answer(
+        started.assessment_id,
+        tenant_id="tenant_public0001",
+        actor_id="usr_patient_test0001",
+        expected_revision=started.revision,
+        question_id="phq9_1",
+        score=0,
+    )
+    assert replayed.revision == answered.revision
+    edited = await service.answer(
+        started.assessment_id,
+        tenant_id="tenant_public0001",
+        actor_id="usr_patient_test0001",
+        expected_revision=answered.revision,
+        question_id="phq9_1",
+        score=2,
+    )
+    assert edited.revision == answered.revision + 1
+    assert edited.answered_count == 1
+
 
 @pytest.mark.asyncio
 async def test_phq9_cannot_complete_before_all_server_defined_answers_exist() -> None:
