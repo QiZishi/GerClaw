@@ -81,11 +81,12 @@ export const approvalSchema = z
 
 export type RuntimeApproval = z.infer<typeof approvalSchema>;
 
-const cgaOptionSchema = z.tuple([z.number().int().min(0).max(3), z.string().min(1).max(80)]);
+const cgaScaleIdSchema = z.enum(["phq9", "sas"]);
+const cgaOptionSchema = z.tuple([z.number().int().min(0).max(4), z.string().min(1).max(80)]);
 export const cgaQuestionSchema = z
   .object({
-    id: z.string().regex(/^phq9_[1-9]$/),
-    position: z.number().int().min(1).max(9),
+    id: z.string().regex(/^(?:phq9_[1-9]|sas_(?:[1-9]|1[0-9]|20))$/),
+    position: z.number().int().min(1).max(30),
     text: z.string().min(1).max(500),
     sensitive_prefix: z.string().min(1).max(200).nullable(),
     options: z.array(cgaOptionSchema).length(4),
@@ -101,11 +102,11 @@ const cgaRiskSchema = z
 export const cgaAssessmentSchema = z
   .object({
     assessment_id: z.string().uuid(),
-    scale_id: z.literal("phq9"),
+    scale_id: cgaScaleIdSchema,
     definition_version: z.string().min(1).max(32),
     status: z.enum(["active", "completed", "abandoned"]),
     revision: z.number().int().positive(),
-    answered_count: z.number().int().min(0).max(9),
+    answered_count: z.number().int().min(0).max(30),
     next_question: cgaQuestionSchema.nullable(),
     risk: cgaRiskSchema,
   })
@@ -115,21 +116,24 @@ export const cgaScalesSchema = z
     scales: z.array(
       z
         .object({
-          id: z.literal("phq9"),
+          id: cgaScaleIdSchema,
           version: z.string().min(1).max(32),
-          name: z.literal("PHQ-9"),
+          name: z.enum(["PHQ-9", "SAS"]),
           description: z.string().min(1).max(200),
-          question_count: z.literal(9),
-          questions: z.array(cgaQuestionSchema).length(9),
+          question_count: z.number().int().min(1).max(30),
+          questions: z.array(cgaQuestionSchema).min(1).max(30),
         })
         .strict()
-    ).length(1),
+    ).min(1).max(2),
   })
   .strict();
 export const cgaReportSchema = z
   .object({
-    total_score: z.number().int().min(0).max(27),
-    severity: z.enum(["minimal", "mild", "moderate", "moderately_severe", "severe"]),
+    total_score: z.number().int().min(0).max(100),
+    score_max: z.number().int().min(1).max(100),
+    raw_score: z.number().int().min(0).max(100).nullable(),
+    standard_score: z.number().int().min(0).max(100).nullable(),
+    severity: z.enum(["none", "minimal", "mild", "moderate", "moderately_severe", "severe"]),
     self_harm_signal: z.boolean(),
     requires_immediate_safety_assessment: z.boolean(),
     high_severity_follow_up: z.boolean(),

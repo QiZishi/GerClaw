@@ -6,6 +6,7 @@ import pytest
 
 from gerclaw_api.database.models import CgaAssessment
 from gerclaw_api.modules.cga.phq9 import PHQ9_QUESTIONS
+from gerclaw_api.modules.cga.sas import SAS_QUESTIONS
 from gerclaw_api.services.cga_service import CgaAssessmentConflictError, CgaService
 
 
@@ -145,3 +146,65 @@ async def test_phq9_item_nine_signal_and_completion_report_are_server_calculated
     )
     assert report.self_harm_signal is True
     assert report.requires_immediate_safety_assessment is True
+
+
+@pytest.mark.asyncio
+async def test_sas_state_machine_uses_server_order_and_persists_standard_score() -> None:
+    service = CgaService(_Repository())  # type: ignore[arg-type]
+    state = await service.start(
+        tenant_id="tenant_public0001", actor_id="usr_patient_test0001", scale_id="sas"
+    )
+
+    assert state.scale_id == "sas"
+    assert state.next_question is not None and state.next_question.id == "sas_1"
+    assert state.next_question.options[0][0] == 1
+    for question in SAS_QUESTIONS:
+        state = await service.answer(
+            state.assessment_id,
+            tenant_id="tenant_public0001",
+            actor_id="usr_patient_test0001",
+            expected_revision=state.revision,
+            question_id=question.id,
+            score=1 if question.reverse_scored else 4,
+        )
+    completed = await service.complete(
+        state.assessment_id,
+        tenant_id="tenant_public0001",
+        actor_id="usr_patient_test0001",
+        expected_revision=state.revision,
+    )
+    assert completed.status == "completed"
+    report = await service.report(
+        state.assessment_id, tenant_id="tenant_public0001", actor_id="usr_patient_test0001"
+    )
+    assert report.raw_score == 80
+    assert report.standard_score == 100
+    assert report.total_score == 100
+    assert report.score_max == 100
+    assert report.requires_immediate_safety_assessment is False
+
+
+@pytest.mark.asyncio
+async def test_legacy_phq9_report_remains_readable_after_multiscale_contract_change() -> None:
+    repository = _Repository()
+    service = CgaService(repository)  # type: ignore[arg-type]
+    state = await service.start(tenant_id="tenant_public0001", actor_id="usr_patient_test0001")
+    assert repository.record is not None
+    repository.record.status = "completed"
+    repository.record.report = {
+        "total_score": 4,
+        "severity": "minimal",
+        "self_harm_signal": False,
+        "requires_immediate_safety_assessment": False,
+        "high_severity_follow_up": False,
+        "safety_messages": [],
+        "disclaimer": "筛查结果不能替代临床诊断。",
+    }
+
+    report = await service.report(
+        state.assessment_id, tenant_id="tenant_public0001", actor_id="usr_patient_test0001"
+    )
+
+    assert report.score_max == 27
+    assert report.raw_score is None
+    assert report.standard_score is None

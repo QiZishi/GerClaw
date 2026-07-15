@@ -1,4 +1,4 @@
-"""Authenticated deterministic PHQ-9 assessment endpoints."""
+"""Authenticated deterministic CGA assessment endpoints."""
 
 from __future__ import annotations
 
@@ -21,6 +21,7 @@ from gerclaw_api.modules.cga.models import (
     CgaStartRequest,
 )
 from gerclaw_api.modules.cga.phq9 import PHQ9_OPTIONS, PHQ9_QUESTIONS, PHQ9_VERSION
+from gerclaw_api.modules.cga.sas import SAS_OPTIONS, SAS_QUESTIONS, SAS_VERSION
 from gerclaw_api.repositories.cga import CgaAssessmentNotFoundError, SqlAlchemyCgaRepository
 from gerclaw_api.services.cga_service import CgaAssessmentConflictError, CgaService
 
@@ -35,7 +36,7 @@ async def list_scales(identity: ReadIdentity) -> CgaScalesRead:
     """Expose only server-supported, versioned definitions."""
 
     del identity
-    questions = [
+    phq9_questions = [
         CgaQuestionRead(
             id=item.id,
             position=item.position,
@@ -45,6 +46,15 @@ async def list_scales(identity: ReadIdentity) -> CgaScalesRead:
         )
         for item in PHQ9_QUESTIONS
     ]
+    sas_questions = [
+        CgaQuestionRead(
+            id=item.id,
+            position=item.position,
+            text=item.text,
+            options=list(SAS_OPTIONS),
+        )
+        for item in SAS_QUESTIONS
+    ]
     return CgaScalesRead(
         scales=[
             CgaScaleRead(
@@ -52,8 +62,17 @@ async def list_scales(identity: ReadIdentity) -> CgaScalesRead:
                 version=PHQ9_VERSION,
                 name="PHQ-9",
                 description="过去两周抑郁症状筛查量表",
-                questions=questions,
-            )
+                question_count=len(phq9_questions),
+                questions=phq9_questions,
+            ),
+            CgaScaleRead(
+                id="sas",
+                version=SAS_VERSION,
+                name="SAS",
+                description="最近一周焦虑症状筛查量表",
+                question_count=len(sas_questions),
+                questions=sas_questions,
+            ),
         ]
     )
 
@@ -62,11 +81,10 @@ async def list_scales(identity: ReadIdentity) -> CgaScalesRead:
 async def start_assessment(
     payload: CgaStartRequest, session: SessionDependency, identity: WriteIdentity
 ) -> CgaAssessmentRead:
-    """Start a server-owned PHQ-9 state machine for the current principal."""
+    """Start a server-owned deterministic assessment for the current principal."""
 
-    del payload
     result = await CgaService(SqlAlchemyCgaRepository(session)).start(
-        tenant_id=identity.tenant_id, actor_id=identity.actor_id
+        tenant_id=identity.tenant_id, actor_id=identity.actor_id, scale_id=payload.scale_id
     )
     await session.commit()
     return result

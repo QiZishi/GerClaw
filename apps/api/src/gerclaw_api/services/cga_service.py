@@ -1,9 +1,9 @@
-"""Server-owned PHQ-9 assessment state machine."""
+"""Server-owned, deterministic CGA assessment state machines."""
 
 from __future__ import annotations
 
 import uuid
-from typing import Any
+from typing import Any, Literal
 
 from gerclaw_api.database.models import CgaAssessment
 from gerclaw_api.modules.cga.models import (
@@ -21,6 +21,14 @@ from gerclaw_api.modules.cga.phq9 import (
     risk_for_answer,
     score_phq9,
 )
+from gerclaw_api.modules.cga.sas import (
+    SAS_HIGH_SCORE_MESSAGE,
+    SAS_OPTIONS,
+    SAS_QUESTIONS,
+    SAS_SCALE_ID,
+    SAS_VERSION,
+    score_sas,
+)
 from gerclaw_api.repositories.cga import SqlAlchemyCgaRepository
 
 
@@ -32,12 +40,15 @@ class CgaService:
     def __init__(self, repository: SqlAlchemyCgaRepository) -> None:
         self._repository = repository
 
-    async def start(self, *, tenant_id: str, actor_id: str) -> CgaAssessmentRead:
+    async def start(
+        self, *, tenant_id: str, actor_id: str, scale_id: Literal["phq9", "sas"] = "phq9"
+    ) -> CgaAssessmentRead:
+        version = PHQ9_VERSION if scale_id == PHQ9_SCALE_ID else SAS_VERSION
         record = await self._repository.create(
             tenant_id=tenant_id,
             actor_id=actor_id,
-            scale_id=PHQ9_SCALE_ID,
-            definition_version=PHQ9_VERSION,
+            scale_id=scale_id,
+            definition_version=version,
         )
         return self._read(record)
 
@@ -63,27 +74,30 @@ class CgaService:
         if record.status != "active":
             raise CgaAssessmentConflictError("completed assessments cannot accept more answers")
         answers = self._answers(record)
+        self._validate_score(record.scale_id, score)
         if question_id in answers:
             if answers[question_id] == score:
                 return self._read(record)
             if record.revision != expected_revision:
                 raise CgaAssessmentConflictError("assessment has changed; refresh before editing")
             answers[question_id] = score
-            risk_for_answer(question_id, score)
+            if record.scale_id == PHQ9_SCALE_ID:
+                risk_for_answer(question_id, score)
             record.answers = answers
             record.revision += 1
             return self._read(record)
         if record.revision != expected_revision:
             raise CgaAssessmentConflictError("assessment has changed; refresh before answering")
-        question = PHQ9_QUESTIONS[record.current_position - 1]
+        question = self._questions(record.scale_id)[record.current_position - 1]
         if question.id != question_id:
             raise CgaAssessmentConflictError(
                 "answer must match the server-provided current question"
             )
         answers[question_id] = score
-        risk_for_answer(question_id, score)
+        if record.scale_id == PHQ9_SCALE_ID:
+            risk_for_answer(question_id, score)
         record.answers = answers
-        if record.current_position < len(PHQ9_QUESTIONS):
+        if record.current_position < len(self._questions(record.scale_id)):
             record.current_position += 1
         record.revision += 1
         return self._read(record)
@@ -95,21 +109,13 @@ class CgaService:
         if record.status != "active" or record.revision != expected_revision:
             raise CgaAssessmentConflictError("assessment has changed; refresh before completing")
         try:
-            result = score_phq9(self._answers(record))
+            report = self._report(record)
         except ValueError as error:
             raise CgaAssessmentConflictError(
-                "all server-defined PHQ-9 answers are required before completing"
+                "all server-defined assessment answers are required before completing"
             ) from error
         record.status = "completed"
-        record.report = CgaReportRead(
-            total_score=result.total_score,
-            severity=result.severity,
-            self_harm_signal=result.self_harm_signal,
-            requires_immediate_safety_assessment=result.requires_immediate_safety_assessment,
-            high_severity_follow_up=result.high_severity_follow_up,
-            safety_messages=list(result.safety_messages),
-            disclaimer=result.disclaimer,
-        ).model_dump(mode="json")
+        record.report = report.model_dump(mode="json")
         record.revision += 1
         return self._read(record)
 
@@ -126,38 +132,100 @@ class CgaService:
     def _read(self, record: CgaAssessment) -> CgaAssessmentRead:
         answers = self._answers(record)
         report = record.report or {}
-        messages = risk_for_answer("phq9_9", answers.get("phq9_9", 0))
+        messages = (
+            risk_for_answer("phq9_9", answers.get("phq9_9", 0))
+            if record.scale_id == PHQ9_SCALE_ID
+            else ()
+        )
         high_follow_up = report.get("high_severity_follow_up") is True
-        if high_follow_up and HIGH_SCORE_SAFETY_MESSAGE not in messages:
-            messages += (HIGH_SCORE_SAFETY_MESSAGE,)
+        high_score_message = (
+            HIGH_SCORE_SAFETY_MESSAGE
+            if record.scale_id == PHQ9_SCALE_ID
+            else SAS_HIGH_SCORE_MESSAGE
+        )
+        if high_follow_up and high_score_message not in messages:
+            messages += (high_score_message,)
         next_question = None
-        if record.status == "active" and len(answers) < len(PHQ9_QUESTIONS):
-            next_question = self._question(record.current_position)
+        if record.status == "active" and len(answers) < len(self._questions(record.scale_id)):
+            next_question = self._question(record.scale_id, record.current_position)
         return CgaAssessmentRead(
             assessment_id=record.id,
-            scale_id="phq9",
+            scale_id=record.scale_id,
             definition_version=record.definition_version,
             status=record.status,
             revision=record.revision,
             answered_count=len(answers),
             next_question=next_question,
             risk=CgaRiskRead(
-                requires_immediate_safety_assessment=bool(messages and answers.get("phq9_9", 0)),
+                requires_immediate_safety_assessment=(
+                    record.scale_id == PHQ9_SCALE_ID and answers.get("phq9_9", 0) > 0
+                ),
                 high_severity_follow_up=high_follow_up,
                 messages=list(messages),
             ),
         )
 
     @staticmethod
-    def _question(position: int) -> CgaQuestionRead:
-        question = PHQ9_QUESTIONS[position - 1]
+    def _question(scale_id: str, position: int) -> CgaQuestionRead:
+        question = CgaService._questions(scale_id)[position - 1]
         return CgaQuestionRead(
             id=question.id,
             position=question.position,
             text=question.text,
-            sensitive_prefix=question.sensitive_prefix,
-            options=list(PHQ9_OPTIONS),
+            sensitive_prefix=getattr(question, "sensitive_prefix", None),
+            options=list(CgaService._options(scale_id)),
         )
+
+    @staticmethod
+    def _questions(scale_id: str) -> tuple[Any, ...]:
+        if scale_id == PHQ9_SCALE_ID:
+            return PHQ9_QUESTIONS
+        if scale_id == SAS_SCALE_ID:
+            return SAS_QUESTIONS
+        raise CgaAssessmentConflictError("assessment uses an unsupported scale")
+
+    @staticmethod
+    def _options(scale_id: str) -> tuple[tuple[int, str], ...]:
+        if scale_id == PHQ9_SCALE_ID:
+            return PHQ9_OPTIONS
+        if scale_id == SAS_SCALE_ID:
+            return SAS_OPTIONS
+        raise CgaAssessmentConflictError("assessment uses an unsupported scale")
+
+    @classmethod
+    def _validate_score(cls, scale_id: str, score: int) -> None:
+        valid_scores = {value for value, _label in cls._options(scale_id)}
+        if isinstance(score, bool) or score not in valid_scores:
+            raise CgaAssessmentConflictError(
+                "answer score is invalid for this server-defined question"
+            )
+
+    def _report(self, record: CgaAssessment) -> CgaReportRead:
+        if record.scale_id == PHQ9_SCALE_ID:
+            phq9_result = score_phq9(self._answers(record))
+            return CgaReportRead(
+                total_score=phq9_result.total_score,
+                score_max=27,
+                severity=phq9_result.severity,
+                self_harm_signal=phq9_result.self_harm_signal,
+                requires_immediate_safety_assessment=phq9_result.requires_immediate_safety_assessment,
+                high_severity_follow_up=phq9_result.high_severity_follow_up,
+                safety_messages=list(phq9_result.safety_messages),
+                disclaimer=phq9_result.disclaimer,
+            )
+        if record.scale_id == SAS_SCALE_ID:
+            sas_result = score_sas(self._answers(record))
+            return CgaReportRead(
+                total_score=sas_result.standard_score,
+                score_max=100,
+                raw_score=sas_result.raw_score,
+                standard_score=sas_result.standard_score,
+                severity=sas_result.severity,
+                high_severity_follow_up=sas_result.high_severity_follow_up,
+                safety_messages=list(sas_result.safety_messages),
+                disclaimer=sas_result.disclaimer,
+            )
+        raise CgaAssessmentConflictError("assessment uses an unsupported scale")
 
     @staticmethod
     def _answers(record: CgaAssessment) -> dict[str, int]:
