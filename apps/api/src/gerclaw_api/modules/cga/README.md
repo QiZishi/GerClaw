@@ -8,6 +8,7 @@ This module supplies versioned, deterministic geriatric screening scale definiti
 | --- | --- | --- | --- |
 | PHQ-9 | `phq9.py` | 0–27 total and PHQ-9 severity bands | A non-zero item 9 answer immediately asks for safety assessment; total ≥20 requests prompt clinical follow-up. |
 | SAS | `sas.py` | 20 items, five reverse-scored items, raw score × 1.25 with half-up rounding | Standard score ≥60 requests prompt clinical follow-up; it is not an immediate self-harm signal. |
+| PSQI | `psqi.py` | 19 self-report items, seven component scores and a 0–21 total | Item 5J may retain an optional encrypted explanation outside scoring; high scores request clinical follow-up. |
 
 The state machine is implemented by `services/cga_service.py`, with encrypted answers and reports in `cga_assessments`.  It enforces owner/tenant scope, sequential server-selected questions, revision checks, idempotent same-answer retries, and completion only after every item has an allowed value.
 
@@ -17,4 +18,4 @@ Authenticated callers use `GET /api/v1/cga/scales`, then start, read, answer, co
 
 ## Scope and limitations
 
-The patient UI reads the server scale directory and supports separately recoverable PHQ-9, SAS and the score-bearing PSQI self-report flow; it never renders legacy static scale data as a source of truth.  PSQI item 5J's optional free-text detail is not persisted yet.  Mini-Cog, MMSE, clinician-authorized viewing, fatigue pause, historical comparison, and report export remain unimplemented.  All results are screening information and cannot replace clinical diagnosis or emergency care.
+The patient UI reads the server scale directory and supports separately recoverable PHQ-9, SAS and the score-bearing PSQI self-report flow; it never renders legacy static scale data as a source of truth. PSQI item 5J's optional free-text detail is encrypted separately from numeric answers; it is never scored, listed in history, returned in the public report, or exported. Completed reports can be exported as Markdown and the caller can open their own bounded report history. Mini-Cog, MMSE, clinician-authorized viewing, fatigue pause, and historical comparison remain unimplemented. All results are screening information and cannot replace clinical diagnosis or emergency care.

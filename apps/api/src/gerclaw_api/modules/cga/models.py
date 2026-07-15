@@ -51,6 +51,7 @@ class CgaAnswerRequest(BaseModel):
         pattern=r"^(?:phq9_[1-9]|sas_(?:[1-9]|1[0-9]|20)|psqi_(?:[1-9]|10|5[a-j]))$"
     )
     score: int = Field(ge=0, le=1_439)
+    supplemental_detail: str | None = Field(default=None, max_length=500)
 
 
 class CgaCompleteRequest(BaseModel):

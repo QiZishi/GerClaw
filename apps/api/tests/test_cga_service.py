@@ -4,8 +4,10 @@ import uuid
 from datetime import UTC, datetime
 
 import pytest
+from pydantic import ValidationError
 
 from gerclaw_api.database.models import CgaAssessment
+from gerclaw_api.modules.cga.models import CgaAnswerRequest
 from gerclaw_api.modules.cga.phq9 import PHQ9_QUESTIONS
 from gerclaw_api.modules.cga.psqi import PSQI_QUESTIONS
 from gerclaw_api.modules.cga.sas import SAS_QUESTIONS
@@ -325,3 +327,99 @@ async def test_psqi_rejects_impossible_sleep_duration_before_persisting_it() -> 
     )
     assert resumed.revision == state.revision
     assert resumed.next_question is not None and resumed.next_question.id == "psqi_4"
+
+
+@pytest.mark.asyncio
+async def test_psqi_5j_supplemental_detail_is_separate_from_score_or_report_data() -> None:
+    repository = _Repository()
+    service = CgaService(repository)  # type: ignore[arg-type]
+    state = await service.start(
+        tenant_id="tenant_public0001", actor_id="usr_patient_test0001", scale_id="psqi"
+    )
+    for question in PSQI_QUESTIONS:
+        if question.id == "psqi_5j":
+            break
+        state = await service.answer(
+            state.assessment_id,
+            tenant_id="tenant_public0001",
+            actor_id="usr_patient_test0001",
+            expected_revision=state.revision,
+            question_id=question.id,
+            score={"psqi_1": 23 * 60, "psqi_3": 7 * 60, "psqi_4": 8 * 60}.get(question.id, 0),
+        )
+
+    state = await service.answer(
+        state.assessment_id,
+        tenant_id="tenant_public0001",
+        actor_id="usr_patient_test0001",
+        expected_revision=state.revision,
+        question_id="psqi_5j",
+        score=2,
+        supplemental_detail="夜间施工噪声",
+    )
+    assert repository.record is not None
+    assert repository.record.notes == {"psqi_5j": "夜间施工噪声"}
+    assert state.next_question is not None and state.next_question.id == "psqi_6"
+
+    replayed = await service.answer(
+        state.assessment_id,
+        tenant_id="tenant_public0001",
+        actor_id="usr_patient_test0001",
+        expected_revision=state.revision,
+        question_id="psqi_5j",
+        score=2,
+    )
+    assert replayed.revision == state.revision
+    assert repository.record.notes == {"psqi_5j": "夜间施工噪声"}
+
+    with pytest.raises(CgaAssessmentConflictError):
+        await service.answer(
+            state.assessment_id,
+            tenant_id="tenant_public0001",
+            actor_id="usr_patient_test0001",
+            expected_revision=state.revision,
+            question_id="psqi_6",
+            score=0,
+            supplemental_detail="不得附加到其他题目",
+        )
+
+    for question in PSQI_QUESTIONS:
+        if question.position <= 14:
+            continue
+        state = await service.answer(
+            state.assessment_id,
+            tenant_id="tenant_public0001",
+            actor_id="usr_patient_test0001",
+            expected_revision=state.revision,
+            question_id=question.id,
+            score=0,
+        )
+    completed = await service.complete(
+        state.assessment_id,
+        tenant_id="tenant_public0001",
+        actor_id="usr_patient_test0001",
+        expected_revision=state.revision,
+    )
+    report = await service.report(
+        completed.assessment_id,
+        tenant_id="tenant_public0001",
+        actor_id="usr_patient_test0001",
+    )
+    assert "夜间施工噪声" not in report.model_dump_json()
+
+    repository.record.updated_at = datetime(2026, 7, 16, tzinfo=UTC)
+    repository.history_records = [repository.record]
+    history = await service.history(
+        tenant_id="tenant_public0001", actor_id="usr_patient_test0001", limit=10
+    )
+    assert "夜间施工噪声" not in history.model_dump_json()
+
+
+def test_cga_answer_contract_rejects_oversized_supplemental_detail() -> None:
+    with pytest.raises(ValidationError):
+        CgaAnswerRequest(
+            expected_revision=1,
+            question_id="psqi_5j",
+            score=0,
+            supplemental_detail="x" * 501,
+        )

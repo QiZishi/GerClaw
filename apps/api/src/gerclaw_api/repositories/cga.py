@@ -33,6 +33,7 @@ class SqlAlchemyCgaRepository:
             current_position=1,
             revision=1,
             answers={},
+            notes={},
         )
         self._session.add(record)
         await self._session.flush()

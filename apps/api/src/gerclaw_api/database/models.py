@@ -165,6 +165,9 @@ class CgaAssessment(TimestampMixin, Base):
     current_position: Mapped[int] = mapped_column(Integer, default=1, nullable=False)
     revision: Mapped[int] = mapped_column(Integer, default=1, nullable=False)
     answers: Mapped[dict[str, Any]] = mapped_column(EncryptedJSON(), default=dict, nullable=False)
+    notes: Mapped[dict[str, Any] | None] = mapped_column(
+        EncryptedJSON(), default=dict, nullable=True
+    )
     report: Mapped[dict[str, Any] | None] = mapped_column(EncryptedJSON(), nullable=True)
 
 

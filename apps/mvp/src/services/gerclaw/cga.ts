@@ -16,6 +16,7 @@ const answerRequestSchema = z
     expected_revision: z.number().int().positive(),
     question_id: z.string().regex(/^(?:phq9_[1-9]|sas_(?:[1-9]|1[0-9]|20)|psqi_(?:[1-9]|10|5[a-j]))$/),
     score: z.number().int().min(0).max(1439),
+    supplemental_detail: z.string().trim().min(1).max(500).optional(),
   })
   .strict();
 
@@ -46,13 +47,15 @@ export async function listCgaHistory() {
 export async function submitCgaAnswer(
   assessment: CgaAssessment,
   questionId: string,
-  score: number
+  score: number,
+  supplementalDetail?: string
 ): Promise<CgaAssessment> {
   const parsedAssessment = cgaAssessmentSchema.parse(assessment);
   const payload = answerRequestSchema.parse({
     expected_revision: parsedAssessment.revision,
     question_id: questionId,
     score,
+    ...(supplementalDetail?.trim() ? { supplemental_detail: supplementalDetail.trim() } : {}),
   });
   return gerclawRequest(
     `cga/assessments/${encodeURIComponent(parsedAssessment.assessment_id)}/answers`,

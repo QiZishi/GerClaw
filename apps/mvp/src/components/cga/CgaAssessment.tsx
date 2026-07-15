@@ -89,6 +89,8 @@ export function CgaAssessment({ onExit }: CgaAssessmentProps) {
   const [notice, setNotice] = useState<string | null>(null);
   const [historyError, setHistoryError] = useState<string | null>(null);
   const [manualInput, setManualInput] = useState("");
+  const [selectedOrdinalScore, setSelectedOrdinalScore] = useState<number | null>(null);
+  const [supplementalDetail, setSupplementalDetail] = useState("");
 
   const selectedScale = useMemo(
     () => scales.find((scale) => scale.id === selectedScaleId) ?? null,
@@ -188,13 +190,15 @@ export function CgaAssessment({ onExit }: CgaAssessmentProps) {
     }
   };
 
-  const choose = async (score: number) => {
+  const choose = async (score: number, detail?: string) => {
     if (!assessment?.next_question || saving) return;
     setSaving(true);
     setError(null);
     try {
-      setAssessment(await submitCgaAnswer(assessment, assessment.next_question.id, score));
+      setAssessment(await submitCgaAnswer(assessment, assessment.next_question.id, score, detail));
       setManualInput("");
+      setSelectedOrdinalScore(null);
+      setSupplementalDetail("");
     } catch {
       setError("这道题没有保存成功。请重试；如网络较慢，请先等待当前结果出现。");
     } finally {
@@ -222,6 +226,9 @@ export function CgaAssessment({ onExit }: CgaAssessmentProps) {
     localStorage.removeItem(assessmentKey(selectedScale.id));
     setAssessment(null);
     setReport(null);
+    setManualInput("");
+    setSelectedOrdinalScore(null);
+    setSupplementalDetail("");
     void begin(selectedScale);
   };
 
@@ -242,6 +249,8 @@ export function CgaAssessment({ onExit }: CgaAssessmentProps) {
     setError(null);
     setNotice(null);
     setManualInput("");
+    setSelectedOrdinalScore(null);
+    setSupplementalDetail("");
     void loadHistory();
   };
 
@@ -270,6 +279,8 @@ export function CgaAssessment({ onExit }: CgaAssessmentProps) {
     }
     void choose(duration);
   };
+
+  const isPsqiSupplementalQuestion = assessment?.next_question?.id === "psqi_5j";
 
   return (
     <section className="mx-auto w-full max-w-2xl px-4 py-6" aria-live="polite">
@@ -375,11 +386,55 @@ export function CgaAssessment({ onExit }: CgaAssessmentProps) {
               <p className={cn("text-muted-foreground", textClass)}>第 {assessment.next_question.position} / {selectedScale.question_count} 题</p>
               {assessment.next_question.sensitive_prefix && <p className={cn("mt-3 text-amber-800 dark:text-amber-200", textClass)}>{assessment.next_question.sensitive_prefix}</p>}
               <h4 className={cn("mt-3 font-medium leading-relaxed", seniorMode ? "text-xl" : "text-lg")}>{assessment.next_question.text}</h4>
-              {assessment.next_question.input_kind === "ordinal" ? (
+              {assessment.next_question.input_kind === "ordinal" && !isPsqiSupplementalQuestion ? (
                 <div className="mt-5 grid gap-3">
                   {assessment.next_question.options.map(([value, label]) => (
                     <Button key={value} variant="outline" className={cn("h-auto justify-start whitespace-normal px-5 py-4 text-left", actionClass)} onClick={() => void choose(value)} disabled={saving}>{label}</Button>
                   ))}
+                </div>
+              ) : assessment.next_question.input_kind === "ordinal" ? (
+                <div className="mt-5 space-y-4">
+                  <div className="grid gap-3" role="radiogroup" aria-label="影响睡眠事情发生频率">
+                    {assessment.next_question.options.map(([value, label]) => (
+                      <Button
+                        key={value}
+                        type="button"
+                        variant={selectedOrdinalScore === value ? "default" : "outline"}
+                        className={cn("h-auto justify-start whitespace-normal px-5 py-4 text-left", actionClass)}
+                        onClick={() => setSelectedOrdinalScore(value)}
+                        disabled={saving}
+                        role="radio"
+                        aria-checked={selectedOrdinalScore === value}
+                      >
+                        {label}
+                      </Button>
+                    ))}
+                  </div>
+                  <div className="rounded-lg border border-sky-200 bg-sky-50 p-4 dark:border-sky-900/50 dark:bg-sky-950/20">
+                    <label htmlFor="psqi-5j-detail" className={cn("block font-medium", textClass)}>
+                      如有其他影响睡眠的事情，请简要说明（可不填）
+                    </label>
+                    <textarea
+                      id="psqi-5j-detail"
+                      value={supplementalDetail}
+                      onChange={(event) => setSupplementalDetail(event.target.value)}
+                      maxLength={500}
+                      rows={3}
+                      disabled={saving}
+                      className={cn("mt-3 w-full resize-y rounded-md border bg-background px-4 py-3 leading-relaxed outline-none focus-visible:ring-2 focus-visible:ring-ring", textClass)}
+                      aria-describedby="psqi-5j-detail-help"
+                    />
+                    <p id="psqi-5j-detail-help" className={cn("mt-2 text-muted-foreground", textClass)}>
+                      这项说明不会参与分数计算，也不会显示在历史摘要或导出的筛查报告中。
+                    </p>
+                  </div>
+                  <Button
+                    className={actionClass}
+                    onClick={() => selectedOrdinalScore !== null && void choose(selectedOrdinalScore, supplementalDetail)}
+                    disabled={saving || selectedOrdinalScore === null}
+                  >
+                    保存这一题
+                  </Button>
                 </div>
               ) : (
                 <div className="mt-5 space-y-3">

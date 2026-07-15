@@ -154,6 +154,7 @@ async def answer_assessment(
             expected_revision=payload.expected_revision,
             question_id=payload.question_id,
             score=payload.score,
+            supplemental_detail=payload.supplemental_detail,
         )
     except CgaAssessmentNotFoundError as error:
         raise HTTPException(status_code=404, detail={"code": "CGA_NOT_FOUND"}) from error

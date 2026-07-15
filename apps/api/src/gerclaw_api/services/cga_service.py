@@ -89,14 +89,22 @@ class CgaService:
         expected_revision: int,
         question_id: str,
         score: int,
+        supplemental_detail: str | None = None,
     ) -> CgaAssessmentRead:
         record = await self._repository.lock(assessment_id, tenant_id=tenant_id, actor_id=actor_id)
         if record.status != "active":
             raise CgaAssessmentConflictError("completed assessments cannot accept more answers")
         answers = self._answers(record)
+        detail = self._validate_supplemental_detail(
+            record.scale_id, question_id, supplemental_detail
+        )
+        notes = self._notes(record)
         self._validate_score(record.scale_id, question_id, score)
         if question_id in answers:
-            if answers[question_id] == score:
+            same_supplemental_detail = (
+                supplemental_detail is None or notes.get(question_id) == detail
+            )
+            if answers[question_id] == score and same_supplemental_detail:
                 return self._read(record)
             if record.revision != expected_revision:
                 raise CgaAssessmentConflictError("assessment has changed; refresh before editing")
@@ -105,6 +113,9 @@ class CgaService:
             if record.scale_id == PHQ9_SCALE_ID:
                 risk_for_answer(question_id, score)
             record.answers = answers
+            record.notes = self._updated_notes(
+                notes, question_id, detail, supplemental_detail is not None
+            )
             record.revision += 1
             return self._read(record)
         if record.revision != expected_revision:
@@ -119,6 +130,9 @@ class CgaService:
         if record.scale_id == PHQ9_SCALE_ID:
             risk_for_answer(question_id, score)
         record.answers = answers
+        record.notes = self._updated_notes(
+            notes, question_id, detail, supplemental_detail is not None
+        )
         if record.current_position < len(self._questions(record.scale_id)):
             record.current_position += 1
         record.revision += 1
@@ -326,3 +340,48 @@ class CgaService:
         if any(isinstance(value, bool) or not isinstance(value, int) for value in values.values()):
             raise CgaAssessmentConflictError("stored assessment state is invalid")
         return dict(values)
+
+    @staticmethod
+    def _notes(record: CgaAssessment) -> dict[str, str]:
+        if record.notes is None:
+            return {}
+        if not isinstance(record.notes, dict):
+            raise CgaAssessmentConflictError("stored supplemental assessment detail is invalid")
+        values: dict[str, Any] = record.notes
+        if (
+            set(values) - {"psqi_5j"}
+            or any(
+                not isinstance(value, str) or not value.strip() or len(value) > 500
+                for value in values.values()
+            )
+        ):
+            raise CgaAssessmentConflictError("stored supplemental assessment detail is invalid")
+        return dict(values)
+
+    @staticmethod
+    def _validate_supplemental_detail(
+        scale_id: str, question_id: str, supplemental_detail: str | None
+    ) -> str | None:
+        if supplemental_detail is None:
+            return None
+        if scale_id != PSQI_SCALE_ID or question_id != "psqi_5j":
+            raise CgaAssessmentConflictError(
+                "supplemental detail is only permitted for PSQI item 5J"
+            )
+        detail = supplemental_detail.strip()
+        if len(detail) > 500:
+            raise CgaAssessmentConflictError("supplemental detail is too long")
+        return detail or None
+
+    @staticmethod
+    def _updated_notes(
+        notes: dict[str, str],
+        question_id: str,
+        detail: str | None,
+        detail_was_submitted: bool,
+    ) -> dict[str, str]:
+        if question_id != "psqi_5j" or not detail_was_submitted:
+            return notes
+        if detail is None:
+            return {}
+        return {"psqi_5j": detail}
