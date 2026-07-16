@@ -174,6 +174,27 @@ async def test_intake_hides_missing_records_across_principals() -> None:
 
 
 @pytest.mark.asyncio
+async def test_intake_rejects_an_unsupported_persisted_definition_version() -> None:
+    repository = _Repository()
+    service = ClinicalIntakeService(repository)  # type: ignore[arg-type]
+    started = await service.start(
+        tenant_id="tenant_public0001",
+        actor_id="usr_patient_intake0001",
+        session_id=uuid.uuid4(),
+        kind="prescription",
+    )
+    assert repository.record is not None
+    repository.record.definition_version = "clinical-intake-v0"
+
+    with pytest.raises(ClinicalIntakeConflictError, match="definition"):
+        await service.get(
+            started.intake_id,
+            tenant_id="tenant_public0001",
+            actor_id="usr_patient_intake0001",
+        )
+
+
+@pytest.mark.asyncio
 async def test_prescription_intake_keeps_owner_scoped_uploaded_documents_as_input_references(
 ) -> None:
     document_id = uuid.uuid4()

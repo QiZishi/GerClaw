@@ -214,6 +214,8 @@ class ClinicalIntakeService:
     @classmethod
     def _read(cls, record: ClinicalIntake) -> ClinicalIntakeRead:
         definition = intake_definition(cast(ClinicalIntakeKind, record.kind))
+        if record.definition_version != definition.version:
+            raise ClinicalIntakeConflictError("persisted intake definition is unsupported")
         answers = cls._answers(record)
         document_ids = cls._document_ids(record)
         missing = [
