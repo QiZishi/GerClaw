@@ -91,17 +91,20 @@ export function Toaster() {
   if (!mounted) return null;
 
   return createPortal(
-    <div className="fixed bottom-6 left-1/2 -translate-x-1/2 z-[100] flex max-w-[min(92vw,42rem)] flex-col items-center gap-2 pointer-events-none" aria-live="polite">
+    <div
+      className="pointer-events-none fixed bottom-6 left-1/2 z-[100] flex w-[calc(100vw-2rem)] max-w-2xl -translate-x-1/2 flex-col items-stretch gap-2 sm:items-center"
+      aria-live="polite"
+    >
       {items.map((item) => (
         <div
           key={item.id}
           role="status"
           className={cn(
-            "pointer-events-auto flex items-center gap-3 rounded-lg bg-foreground text-background px-4 py-3 text-base shadow-lg animate-in fade-in slide-in-from-bottom-2 duration-200",
+            "pointer-events-auto flex w-full min-w-0 max-w-full items-center gap-3 rounded-lg bg-foreground px-4 py-3 text-base text-background shadow-lg animate-in fade-in slide-in-from-bottom-2 duration-200 sm:w-fit",
             seniorMode && "text-lg"
           )}
         >
-          <span className="min-w-0 flex-1">{item.message}</span>
+          <span className="min-w-0 flex-1 break-words">{item.message}</span>
           <button
             type="button"
             className={cn(
