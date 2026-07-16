@@ -71,6 +71,8 @@ function EmergencyWarningCard({
   message: string;
   seniorMode: boolean;
 }) {
+  const displayMessage = message.replace(/^\s*⚠️\s*/, "");
+
   return (
     <section
       aria-label="紧急医疗警告"
@@ -85,12 +87,8 @@ function EmergencyWarningCard({
         <span>紧急医疗警告</span>
       </div>
       <p className={cn("mt-3 font-medium leading-relaxed", seniorMode ? "text-lg" : "text-base")}>
-        {message}
+        {displayMessage}
       </p>
-      <p className={cn("mt-3 font-bold leading-relaxed", seniorMode ? "text-lg" : "text-base")}>
-        请立即拨打 120 急救电话或前往最近医院急诊科。
-      </p>
-      <p className="sr-only">系统已确认紧急风险，请立即按提示就医。</p>
     </section>
   );
 }
