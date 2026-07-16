@@ -575,7 +575,7 @@ export function ChatArea() {
                   ? block.content || "该操作已安全暂停，等待人工授权。"
                   : partialContent
                     ? `${partialContent}\n\n---\n\n${incompleteNotice}`
-                    : `系统暂时未能完成本次回答，请稍后重试。\n\n${incompleteNotice}`,
+                    : `${error.message}\n\n${incompleteNotice}`,
                 streaming: false,
               };
             }
