@@ -6,7 +6,12 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from verify_docs import check_markdown_links, check_placeholders, check_requirement_matrix
+from verify_docs import (
+    check_markdown_links,
+    check_module_documents,
+    check_placeholders,
+    check_requirement_matrix,
+)
 
 
 class VerifyDocsTests(unittest.TestCase):
@@ -53,6 +58,23 @@ class VerifyDocsTests(unittest.TestCase):
                 encoding="utf-8",
             )
             self.assertIn("README.md -> docs/missing.md", check_markdown_links(workspace))
+
+    def test_module_document_check_requires_agents_and_readme_for_python_modules(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            workspace = Path(directory)
+            module = workspace / "apps/api/src/gerclaw_api/modules/example"
+            module.mkdir(parents=True)
+            (module / "implementation.py").write_text("VALUE = 1\n", encoding="utf-8")
+            self.assertEqual(
+                check_module_documents(workspace),
+                [
+                    "apps/api/src/gerclaw_api/modules/example missing AGENTS.md",
+                    "apps/api/src/gerclaw_api/modules/example missing README.md",
+                ],
+            )
+            (module / "AGENTS.md").write_text("# Rules\n", encoding="utf-8")
+            (module / "README.md").write_text("# Example\n", encoding="utf-8")
+            self.assertEqual(check_module_documents(workspace), [])
 
 
 if __name__ == "__main__":

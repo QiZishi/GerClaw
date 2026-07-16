@@ -12,7 +12,7 @@ scripts/quality-gate.sh <mode>
 
 | 模式 | 内容 | 是否调用外部/容器 |
 |---|---|---|
-| `docs` | 文档结构、placeholder、需求 ID 覆盖、自检 | 否 |
+| `docs` | 文档结构、placeholder、需求 ID 覆盖、核心模块 AGENTS/README 自检 | 否 |
 | `backend` | Ruff format/check、strict mypy、单一 Alembic head、pytest+coverage | 否；integration/external 自动跳过 |
 | `frontend` | ESLint、Next production build | 否 |
 | `quick` | docs + backend + frontend + 门禁负向自检；默认 PR/本地门禁 | 否 |
@@ -54,7 +54,8 @@ CI 使用 `uv sync --locked` 构造项目 `.venv`；`security` 同时用 `uv exp
 
 - 未知 mode 返回 2。
 - 缺少真实依赖变量或外部调用授权立即非零退出，不自动选择业务数据库或模拟 Provider。
-- 文档缺章节、遗留 placeholder、需求矩阵漏 ID/重复 ID 返回 1。
+- 文档缺章节、遗留 placeholder、需求矩阵漏 ID/重复 ID，或任一含实现源码的核心
+  Python 模块缺少 AGENTS.md/README.md，均返回 1。
 - coverage 使用两位小数；低于 80.00% 返回 1，不能因整数舍入放行。
 - backend 必须恰有一个 Alembic head；integration 在 pytest 前对隔离库执行 `upgrade head` 和 `alembic check`。
 - 任一 lint、type、test、build、scan 或 Docker 命令失败，整个 mode 失败。

@@ -266,6 +266,26 @@ def check_required_dirs(workspace: Path) -> list:
     return missing
 
 
+def check_module_documents(workspace: Path) -> list[str]:
+    """Require operational docs beside every first-party Python module package."""
+
+    modules_root = workspace / "apps/api/src/gerclaw_api/modules"
+    if not modules_root.is_dir():
+        return ["apps/api/src/gerclaw_api/modules is missing"]
+    issues: list[str] = []
+    for module in sorted(path for path in modules_root.iterdir() if path.is_dir()):
+        has_python_source = any(
+            path.suffix == ".py" and path.name != "__init__.py" for path in module.iterdir()
+        )
+        if not has_python_source:
+            continue
+        for filename in ("AGENTS.md", "README.md"):
+            document = module / filename
+            if not document.is_file() or count_lines(document) == 0:
+                issues.append(f"{module.relative_to(workspace)} missing {filename}")
+    return issues
+
+
 MIN_REQUIREMENT_COUNT = 59
 
 
@@ -413,6 +433,10 @@ def verify(workspace_path: str) -> bool:
     plan_issues = check_exec_plans_exist(workspace)
     for issue in plan_issues:
         warnings.append(f"EXEC PLAN:    {issue}")
+
+    module_issues = check_module_documents(workspace)
+    for issue in module_issues:
+        errors.append(f"MODULE DOCS:  {issue}")
 
     print()
     if errors:
