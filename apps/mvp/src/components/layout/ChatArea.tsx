@@ -715,18 +715,21 @@ const handleExampleClick = (text: string) => {
       {/* 粘性头部 — 功能模式下始终显示功能标题栏 */}
       {(chatAction !== "cga" && (chatAction !== "none" || (currentSessionId && messages.length > 0))) && (
         <header
-          className="sticky top-0 z-10 flex items-center justify-between px-4 h-12 border-b border-border bg-background/95 backdrop-blur"
+          className={cn(
+            "sticky top-0 z-10 flex h-12 items-center px-4 border-b border-border bg-background/95 backdrop-blur",
+            chatAction !== "none" ? "justify-end sm:justify-between" : "justify-between"
+          )}
           style={sidebarCollapsed ? { paddingLeft: "112px" } : undefined}
         >
           {chatAction !== "none" ? (
             <>
-              <span className="font-medium">
+              <span className="hidden font-medium sm:block">
                 {actionTitles[chatAction]}
               </span>
               <Button
                 variant="ghost"
                 onClick={handleExitAction}
-                className={cn("min-h-10 px-3 text-sm text-muted-foreground hover:text-foreground", seniorMode && "min-h-12 text-base")}
+                className={cn("min-h-10 px-3 text-sm text-muted-foreground hover:text-foreground", seniorMode && "min-h-12 text-lg")}
               >
                 退出
               </Button>
