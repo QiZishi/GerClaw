@@ -98,6 +98,7 @@ export function CgaAssessment({ onExit }: CgaAssessmentProps) {
   );
   const textClass = seniorMode ? "text-lg" : "text-sm";
   const actionClass = seniorMode ? "min-h-12 text-lg" : "min-h-10 text-sm";
+  const exitLabel = assessment?.status === "active" ? "休息，稍后继续" : "退出评估";
 
   const loadHistory = useCallback(async () => {
     setLoadingHistory(true);
@@ -289,7 +290,7 @@ export function CgaAssessment({ onExit }: CgaAssessmentProps) {
           <h2 className={cn("font-semibold", seniorMode ? "text-2xl" : "text-xl")}>老年综合评估</h2>
           <p className={cn("mt-2 text-muted-foreground", textClass)}>选择一项筛查量表，答案会安全保存，之后可以继续作答。</p>
         </div>
-        <Button variant="outline" onClick={onExit} className={actionClass}>退出评估</Button>
+        <Button variant="outline" onClick={onExit} className={actionClass}>{exitLabel}</Button>
       </div>
 
       {error && (

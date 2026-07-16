@@ -1394,7 +1394,7 @@ const handleExampleClick = (text: string) => {
           <DialogHeader>
             <DialogTitle className="flex items-center gap-2">
               <AlertTriangle className="size-5 text-amber-500" />
-              确认退出？
+              {exitConfirmType === "cga-server" ? "确认暂时休息？" : "确认退出？"}
             </DialogTitle>
           </DialogHeader>
           <p className={cn("text-muted-foreground", seniorMode ? "text-base" : "text-sm")}>
@@ -1409,7 +1409,7 @@ const handleExampleClick = (text: string) => {
           <DialogFooter className="gap-2">
             <DialogClose render={<Button variant="outline" className={cn(seniorMode && "min-h-12 px-4 text-lg")}>取消</Button>} />
             <Button variant="destructive" className={cn(seniorMode && "min-h-12 px-4 text-lg")} onClick={doExitAction}>
-              确认退出
+              {exitConfirmType === "cga-server" ? "保存并休息" : "确认退出"}
             </Button>
           </DialogFooter>
         </DialogContent>
