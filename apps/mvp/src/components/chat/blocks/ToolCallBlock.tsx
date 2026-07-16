@@ -32,10 +32,10 @@ function isLocalKnowledgeSearch(toolName: string): boolean {
 
 function getToolDisplayName(toolName: string): string {
   if (toolName === "search_memory") {
-    return "核对健康记录";
+    return "健康记录";
   }
   if (toolName === "search_knowledge") {
-    return "检索医学知识";
+    return "医学检索";
   }
   if (isWebSearch(toolName)) {
     return "联网搜索";
