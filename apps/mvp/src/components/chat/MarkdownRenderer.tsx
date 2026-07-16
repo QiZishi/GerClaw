@@ -9,7 +9,7 @@ import { cn } from "@/lib/utils";
 import { CitationPopover } from "@/components/search/CitationPopover";
 import { useAppStore } from "@/stores/appStore";
 import type { Citation } from "@/types";
-import { MARKDOWN_GFM_OPTIONS } from "@/lib/markdown-gfm";
+import { MARKDOWN_GFM_OPTIONS, normalizeChatMarkdown } from "@/lib/markdown-gfm";
 
 interface MarkdownRendererProps {
   content: string;
@@ -528,6 +528,7 @@ export function MarkdownRenderer({
   style,
 }: MarkdownRendererProps) {
   const seniorMode = useAppStore((s) => s.seniorMode);
+  const presentationContent = useMemo(() => normalizeChatMarkdown(content), [content]);
 
   const components = useMemo(
     () => createMarkdownComponents(citations, seniorMode),
@@ -547,7 +548,7 @@ export function MarkdownRenderer({
         remarkPlugins={[[remarkGfm, MARKDOWN_GFM_OPTIONS]]}
         components={components as Record<string, unknown>}
       >
-        {content}
+        {presentationContent}
       </ReactMarkdown>
     </div>
   );

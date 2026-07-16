@@ -90,6 +90,18 @@ def test_diagnosis_rewrite_preserves_a_clear_system_limitation() -> None:
     assert sanitize_medical_text(unsafe) == "不能对任何疾病作出最终临床判断。"
 
 
+@pytest.mark.parametrize(
+    "safe_text",
+    [
+        "不将上传文档直接作为确诊依据。",
+        "确诊标准需要由医生结合完整病史判断。",
+        "这项检查不能替代确诊流程。",
+    ],
+)
+def test_diagnosis_rewrite_preserves_non_assertive_clinical_compounds(safe_text: str) -> None:
+    assert sanitize_medical_text(safe_text) == safe_text
+
+
 def test_citation_projection_deduplicates_and_bounds_results() -> None:
     results = [_result(index) for index in range(55)]
     results.insert(1, results[0])

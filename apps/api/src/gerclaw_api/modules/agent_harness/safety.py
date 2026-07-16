@@ -39,7 +39,16 @@ _DETERMINISTIC_DIAGNOSIS_ASSERTIONS: tuple[re.Pattern[str], ...] = (
     ),
 )
 _DETERMINISTIC_DIAGNOSIS_REWRITES: tuple[tuple[re.Pattern[str], str], ...] = (
-    (re.compile(r"(?<!明)(?:已经|已|明确|可以)?确诊(?![为是])"), "尚需由医生进一步评估"),
+    # ``确诊依据`` / ``确诊标准`` describe evidence or a process, not an
+    # assertion about a patient.  Rewriting the word inside such a compound
+    # makes otherwise safe explanations unreadable.
+    (
+        re.compile(
+            r"(?<!明)(?:已经|已|明确|可以)?确诊"
+            r"(?![为是依据标准检查流程方法率时间病例证据技术工具能力路径结果前后中])"
+        ),
+        "尚需由医生进一步评估",
+    ),
     (re.compile(r"(?:您|患者|病人)(?:已经|已)?患有"), "您可能存在"),
     (re.compile(r"(?:您|患者|病人)(?:已经|已)?(?:得了|就是得了)"), "您可能存在"),
     (re.compile(r"(?:一定|肯定|必然)(?:是|患有|属于)"), "可能是"),

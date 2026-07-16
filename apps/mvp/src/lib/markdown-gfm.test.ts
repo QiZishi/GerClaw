@@ -5,7 +5,7 @@ import { unified } from "unified";
 import remarkParse from "remark-parse";
 import remarkGfm from "remark-gfm";
 
-import { MARKDOWN_GFM_OPTIONS } from "./markdown-gfm.ts";
+import { MARKDOWN_GFM_OPTIONS, normalizeChatMarkdown } from "./markdown-gfm.ts";
 
 function parsedTree(markdown: string): string {
   const processor = unified().use(remarkParse).use(remarkGfm, MARKDOWN_GFM_OPTIONS);
@@ -22,4 +22,13 @@ test("keeps single-tilde numeric ranges as literal clinical text", () => {
 
 test("preserves explicit double-tilde deletion support", () => {
   assert.match(parsedTree("~~已撤销~~"), /"type":"delete"/);
+});
+
+test("restores common missing block boundaries in streamed Markdown", () => {
+  const normalized = normalizeChatMarkdown(
+    "说明。6. **下一项**：内容。---### 三、系统边界\n7. **最后一项**：内容。"
+  );
+
+  assert.match(normalized, /说明。\n6\. \*\*下一项\*\*/);
+  assert.match(normalized, /。\n\n---\n\n### 三、系统边界\n7\. \*\*最后一项\*\*/);
 });
