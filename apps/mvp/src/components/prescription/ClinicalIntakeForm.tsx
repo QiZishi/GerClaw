@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
-import { AlertTriangle, CheckCircle2, FileText, LoaderCircle, Paperclip, Save, X } from "lucide-react";
+import { AlertTriangle, CheckCircle2, FileText, Paperclip, Save, X } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 import { toast } from "@/components/ui/toast";
@@ -39,6 +39,13 @@ function documentMediaType(file: File): string | null {
 
 const intakeStorageKey = (sessionId: string, kind: ClinicalIntakeKind) =>
   `gerclaw:clinical-intake:${sessionId}:${kind}`;
+
+function formatElapsed(elapsedSeconds: number): string {
+  const normalizedSeconds = Math.max(0, elapsedSeconds);
+  const minutes = Math.floor(normalizedSeconds / 60);
+  const seconds = normalizedSeconds % 60;
+  return `${String(minutes).padStart(2, "0")}:${String(seconds).padStart(2, "0")}`;
+}
 
 function readStoredIntakeId(sessionId: string, kind: ClinicalIntakeKind): string | null {
   try {
@@ -83,6 +90,7 @@ export function ClinicalIntakeForm({
   const [loadState, setLoadState] = useState<"loading" | "ready" | "error">("loading");
   const [saving, setSaving] = useState(false);
   const [documentState, setDocumentState] = useState<"idle" | "parsing" | "saving">("idle");
+  const [documentElapsedSeconds, setDocumentElapsedSeconds] = useState(0);
   const [documentNames, setDocumentNames] = useState<Record<string, string>>({});
   const [reloadNonce, setReloadNonce] = useState(0);
   const [showValidation, setShowValidation] = useState(false);
@@ -92,6 +100,15 @@ export function ClinicalIntakeForm({
     key: string;
     promise: Promise<ClinicalIntake>;
   } | null>(null);
+
+  useEffect(() => {
+    if (documentState === "idle") return;
+    const timer = window.setInterval(
+      () => setDocumentElapsedSeconds((elapsed) => elapsed + 1),
+      1_000
+    );
+    return () => window.clearInterval(timer);
+  }, [documentState]);
 
   useEffect(() => {
     let live = true;
@@ -196,6 +213,7 @@ export function ClinicalIntakeForm({
 
   const updateDocumentReferences = async (documentIds: string[]) => {
     if (!intake || saving || documentState !== "idle") return;
+    setDocumentElapsedSeconds(0);
     setDocumentState("saving");
     try {
       const next = await updateClinicalIntake({
@@ -209,6 +227,7 @@ export function ClinicalIntakeForm({
       toast.show(error instanceof Error ? error.message : "资料关联暂未保存，请重试");
     } finally {
       setDocumentState("idle");
+      setDocumentElapsedSeconds(0);
     }
   };
 
@@ -219,10 +238,14 @@ export function ClinicalIntakeForm({
       toast.show("仅支持 PDF、Word、Markdown 或文本资料");
       return;
     }
+    setDocumentElapsedSeconds(0);
     setDocumentState("parsing");
     let registeredDocumentId: string | null = null;
     try {
       const parsed = await parseFile(file);
+      // MinerU extraction is already complete. Keep the next write visibly
+      // distinct so a long registration does not look like a stalled parser.
+      setDocumentState("saving");
       const registered = await registerParsedDocument({
         localSessionId,
         filename: file.name,
@@ -253,6 +276,7 @@ export function ClinicalIntakeForm({
       toast.show(error instanceof Error ? error.message : "资料解析或保存失败，请重试");
     } finally {
       setDocumentState("idle");
+      setDocumentElapsedSeconds(0);
     }
   };
 
@@ -387,11 +411,19 @@ export function ClinicalIntakeForm({
                 disabled={saving || documentState !== "idle" || intake.document_ids.length >= 5}
               >
                 {documentState === "parsing" || documentState === "saving" ? (
-                  <LoaderCircle className="size-4 animate-spin" aria-hidden="true" />
+                  <span className="codex-activity-dots text-primary" aria-hidden="true">
+                    <span className="codex-activity-dot" />
+                    <span className="codex-activity-dot" />
+                    <span className="codex-activity-dot" />
+                  </span>
                 ) : (
                   <Paperclip className="size-4" aria-hidden="true" />
                 )}
-                {documentState === "parsing" ? "正在用 MinerU 解析" : documentState === "saving" ? "正在保存资料" : "上传补充资料"}
+                {documentState === "parsing"
+                  ? `正在用 MinerU 解析 · 已等待 ${formatElapsed(documentElapsedSeconds)}`
+                  : documentState === "saving"
+                    ? `正在保存资料 · 已等待 ${formatElapsed(documentElapsedSeconds)}`
+                    : "上传补充资料"}
               </Button>
               <span className={cn("text-muted-foreground", seniorMode ? "text-lg" : "text-sm")} aria-live="polite">
                 已附 {intake.document_ids.length} / 5 份资料
