@@ -13,7 +13,17 @@ interface UseAudioRecorderReturn {
   error: string | null;
 }
 
-export function useAudioRecorder(): UseAudioRecorderReturn {
+interface UseAudioRecorderOptions {
+  /**
+   * 仅在界面确实展示声波时采样音量。关闭后不创建 AudioContext 或每帧刷新 React 状态，
+   * 避免简单的“开始/停止录音”控件造成无意义的持续重渲染。
+   */
+  captureAudioLevel?: boolean;
+}
+
+export function useAudioRecorder({
+  captureAudioLevel = true,
+}: UseAudioRecorderOptions = {}): UseAudioRecorderReturn {
   const [isRecording, setIsRecording] = useState(false);
   const [recordingDuration, setRecordingDuration] = useState(0);
   const [audioLevel, setAudioLevel] = useState(0);
@@ -125,28 +135,30 @@ export function useAudioRecorder(): UseAudioRecorderReturn {
         }
       };
 
-      const audioContext = new AudioContext();
-      audioContextRef.current = audioContext;
-      const source = audioContext.createMediaStreamSource(stream);
-      const analyser = audioContext.createAnalyser();
-      analyser.fftSize = 256;
-      source.connect(analyser);
-      analyserRef.current = analyser;
+      if (captureAudioLevel) {
+        const audioContext = new AudioContext();
+        audioContextRef.current = audioContext;
+        const source = audioContext.createMediaStreamSource(stream);
+        const analyser = audioContext.createAnalyser();
+        analyser.fftSize = 256;
+        source.connect(analyser);
+        analyserRef.current = analyser;
 
-      const dataArray = new Uint8Array(analyser.frequencyBinCount);
-      const updateAudioLevel = () => {
-        if (!analyserRef.current) return;
-        analyserRef.current.getByteFrequencyData(dataArray);
-        let sum = 0;
-        for (let i = 0; i < dataArray.length; i++) {
-          sum += dataArray[i];
-        }
-        const average = sum / dataArray.length;
-        const level = Math.min(1, average / 128);
-        setAudioLevel(level);
-        animationFrameRef.current = requestAnimationFrame(updateAudioLevel);
-      };
-      updateAudioLevel();
+        const dataArray = new Uint8Array(analyser.frequencyBinCount);
+        const updateAudioLevel = () => {
+          if (!analyserRef.current) return;
+          analyserRef.current.getByteFrequencyData(dataArray);
+          let sum = 0;
+          for (let i = 0; i < dataArray.length; i++) {
+            sum += dataArray[i];
+          }
+          const average = sum / dataArray.length;
+          const level = Math.min(1, average / 128);
+          setAudioLevel(level);
+          animationFrameRef.current = requestAnimationFrame(updateAudioLevel);
+        };
+        updateAudioLevel();
+      }
 
       startTimeRef.current = Date.now();
       setRecordingDuration(0);
@@ -173,7 +185,7 @@ export function useAudioRecorder(): UseAudioRecorderReturn {
       setError(message);
       throw new Error(message);
     }
-  }, [cleanup]);
+  }, [captureAudioLevel, cleanup]);
 
   const stopRecording = useCallback((): Promise<Blob> => {
     return new Promise((resolve, reject) => {

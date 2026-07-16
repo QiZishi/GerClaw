@@ -112,7 +112,7 @@ export function QuestionCard({ data, onSubmit, disabled = false }: QuestionCardP
     isRecording,
     startRecording,
     stopRecording,
-  } = useAudioRecorder();
+  } = useAudioRecorder({ captureAudioLevel: false });
 
   const handleInputChange = (questionId: string, value: string) => {
     setAnswers((prev) => ({ ...prev, [questionId]: value }));
@@ -143,7 +143,12 @@ export function QuestionCard({ data, onSubmit, disabled = false }: QuestionCardP
       }
     } else {
       setActiveQuestionId(questionId);
-      await startRecording();
+      try {
+        await startRecording();
+      } catch (error) {
+        setActiveQuestionId(null);
+        toast.show(error instanceof Error ? error.message : "无法启动录音，请检查麦克风权限");
+      }
     }
   };
 
@@ -233,7 +238,8 @@ export function QuestionCard({ data, onSubmit, disabled = false }: QuestionCardP
                   disabled={disabled}
                   rows={question.type === "textarea" ? 2 : 1}
                   className={cn(
-                    "w-full rounded-xl border border-input bg-background px-3 py-2.5 pr-10",
+                    "w-full rounded-xl border border-input bg-background px-3 py-2.5",
+                    seniorMode ? "pr-32 min-h-12" : "pr-10",
                     "placeholder:text-muted-foreground/60",
                     "focus:outline-none focus:ring-2 focus:ring-primary/20 focus:border-primary",
                     "resize-none transition-colors",
@@ -252,21 +258,49 @@ export function QuestionCard({ data, onSubmit, disabled = false }: QuestionCardP
                   onClick={() => handleVoiceInput(question.id)}
                   disabled={disabled || isTranscribing}
                   className={cn(
-                    "absolute right-2 top-1/2 -translate-y-1/2 p-1.5 rounded-lg transition-colors",
+                    "absolute right-2 top-1/2 -translate-y-1/2 inline-flex items-center justify-center rounded-lg font-medium transition-colors",
                     isActive
-                      ? "bg-red-100 text-red-600 dark:bg-red-900/30 dark:text-red-400 animate-pulse"
+                      ? "bg-red-700 text-white shadow-sm ring-2 ring-red-700/20 dark:bg-red-500 dark:ring-red-400/30"
                       : "text-muted-foreground hover:text-foreground hover:bg-muted",
-                    "disabled:opacity-50"
+                    seniorMode ? "min-h-12 gap-1.5 px-3 text-base" : "size-8",
+                    "disabled:opacity-50 disabled:cursor-not-allowed"
                   )}
-                  title={isRecording ? "停止录音" : "语音输入"}
+                  aria-label={
+                    isTranscribing
+                      ? "正在识别语音"
+                      : isActive
+                        ? "停止录音并开始识别"
+                        : "语音输入"
+                  }
+                  aria-busy={isTranscribing}
+                  aria-pressed={isActive}
+                  title={isTranscribing ? "正在识别语音" : isActive ? "停止录音并开始识别" : "语音输入"}
                 >
                   {isTranscribing ? (
-                    <Loader2 className="size-4 animate-spin" />
+                    <Loader2 className="size-4" />
                   ) : (
-                    <Mic className={cn(isActive ? "size-4" : "size-4")} />
+                    <Mic className="size-4" />
+                  )}
+                  {seniorMode && (
+                    <span>
+                      {isTranscribing ? "识别中" : isActive ? "停止录音" : "语音输入"}
+                    </span>
                   )}
                 </button>
               </div>
+              {isActive && (
+                <p
+                  className={cn(
+                    "flex items-center gap-1.5 text-red-700 dark:text-red-300",
+                    seniorMode ? "text-base" : "text-sm"
+                  )}
+                  role="status"
+                  aria-live="polite"
+                >
+                  <span className="size-2 shrink-0 rounded-full bg-red-700 dark:bg-red-400" aria-hidden="true" />
+                  正在录音。点击“停止录音”后开始识别。
+                </p>
+              )}
             </div>
           );
         })}
