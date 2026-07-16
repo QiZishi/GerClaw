@@ -13,6 +13,12 @@
 6. 文本按句经过确定性诊断措辞改写，红旗症状先发 120/急诊提示；AgentScope final-only 正文从本 turn 的 AgentState 安全补齐，纯格式空白差异以已发布 SSE 为权威，任何非空白正文分叉 fail closed；完成输出强制追加统一免责声明和本地 citation。
 7. 成功与失败终态都在 Redis lease 尚未释放时复验 owner，并以 PostgreSQL session 行锁同时校验 fencing token 与 Trace ID。成功路径原子提交 assistant、审计事件和 completed Trace 后才发送 `done`；失败路径原子提交 SYSTEM_ERROR、failed/cancelled Trace 和 Bad Case。
 
+## 日常交流的提示语与预算
+
+- 日常诊疗提示语只要求安全、证据和适合受众的表达，不设置回答字数上限，也不要求模型为固定格式或重复自检额外推理；内容完整度由用户问题决定。
+- 输出安全由证据绑定、红旗短路、确定性诊断措辞过滤、引用校验和统一免责声明保障，不依赖模型自行复述检查过程。
+- ReAct 默认最多 6 轮；每类检索首次默认只调用一次，只有没有可用证据或存在独立子问题时才允许追加一次，防止同义检索循环。
+
 ## SSE 契约
 
 `POST /api/v1/chat` 返回标准 `text/event-stream`：
