@@ -36,6 +36,7 @@ _GUEST_SCOPES = {
     "skill:write",
     "trace:read",
     "trace:write",
+    "voice:use",
 }
 _VISITOR_ID = re.compile(r"^[a-f0-9]{32}$")
 _VISITOR_SIGNATURE = re.compile(r"^[a-f0-9]{64}$")

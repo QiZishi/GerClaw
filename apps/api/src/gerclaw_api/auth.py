@@ -239,6 +239,14 @@ async def require_search_read(
     return authorize_scope(identity, "search:read")
 
 
+async def require_voice_use(
+    identity: Annotated[AuthContext, Depends(authenticate)],
+) -> AuthContext:
+    """Require access to external ASR/TTS without exposing provider credentials."""
+
+    return authorize_scope(identity, "voice:use")
+
+
 async def require_skill_read(
     identity: Annotated[AuthContext, Depends(authenticate)],
 ) -> AuthContext:

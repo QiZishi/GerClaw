@@ -23,6 +23,7 @@ from gerclaw_api.api.routes.rag import router as rag_router
 from gerclaw_api.api.routes.search import router as search_router
 from gerclaw_api.api.routes.skills import router as skills_router
 from gerclaw_api.api.routes.traces import router as traces_router
+from gerclaw_api.api.routes.voice import router as voice_router
 from gerclaw_api.config import Settings, get_settings
 from gerclaw_api.database.session import Database
 from gerclaw_api.encryption import configure_field_encryption
@@ -53,6 +54,7 @@ from gerclaw_api.modules.skill import (
     UnsafeSkillArchiveError,
     UnsafeSkillError,
 )
+from gerclaw_api.modules.voice import create_voice_module
 from gerclaw_api.repositories.approval import (
     ApprovalConflictError,
     ApprovalForbiddenError,
@@ -101,6 +103,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             api_key=qdrant_api_key or None,
         )
         rag_runtime = create_rag_runtime(resolved, qdrant_client)
+        voice_module = create_voice_module(resolved)
         search_runtime = create_search_runtime(resolved)
         memory_store = create_memory_store(resolved, qdrant_client)
         model_configs = resolved.agent_model_configs
@@ -111,6 +114,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         app.state.chat_cancellations = chat_cancellations
         app.state.qdrant = qdrant_client
         app.state.rag_runtime = rag_runtime
+        app.state.voice_module = voice_module
         app.state.search_runtime = search_runtime
         app.state.memory_store = memory_store
         app.state.agentic_rag_middleware = build_agentic_rag_middleware(rag_runtime.module)
@@ -140,6 +144,8 @@ def create_app(settings: Settings | None = None) -> FastAPI:
                 await agent_model.aclose()
             await search_runtime.aclose()
             await rag_runtime.aclose()
+            if voice_module is not None:
+                await voice_module.aclose()
             await qdrant_client.close()
             await redis_client.aclose()
             await database.dispose()
@@ -174,6 +180,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     app.include_router(cga_router, prefix=resolved.api_prefix)
     app.include_router(memory_router, prefix=resolved.api_prefix)
     app.include_router(skills_router, prefix=resolved.api_prefix)
+    app.include_router(voice_router, prefix=resolved.api_prefix)
 
     @app.exception_handler(TraceNotFoundError)
     async def trace_not_found(_request: Request, error: TraceNotFoundError) -> JSONResponse:
