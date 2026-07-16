@@ -1,284 +1,145 @@
-# ARCHITECTURE.md
+# GerClaw 架构
 
-> 系统架构总览 | 基于PRD.md生成
-
----
+> 本文描述仓库的**当前真实架构**和强制边界；设计目标以 [gerclaw设计要求.md](docs/references/gerclaw设计要求.md) 为最高权威，逐项完成度以 [需求→模块→验收矩阵](docs/REQUIREMENTS_MATRIX.md) 为准。本文不把计划、静态 UI 或未审核临床规则表述为已交付能力。
 
 ## 1. 系统目标
 
-GerClaw是面向老年患者与老年科医生的Web端AI双向诊疗平台：
-- **历史MVP（一阶段）**：纯前端原型，仅作为交互基线保留。
-- **当前实现（二阶段）**：Next.js BFF + FastAPI + AgentScope 2.0.4 的前后端分离系统；普通对话、RAG、Memory、Search 和 Skill 已进入后端生产链路，浏览器不再直连模型或检索 Provider。
-- **交付阶段**：在全功能与前后端回归完成后再封装应用 Docker 并部署到 ModelScope；本地 Docker 现阶段只承载 PostgreSQL、Redis、Qdrant 开发依赖。
+GerClaw 是面向老年患者与老年科医生的 Web 端 AI 辅助诊疗与康养系统。它以语音优先、适老化交互、透明执行过程、医疗安全与可追溯证据为目标；系统不作确定性诊断，不把未审核临床规则或前端界面当作可执行医疗服务。
 
-核心价值：语音优先适老化交互、专业CGA老年综合评估、五大处方体系、医患双向诊疗、医疗安全底线保障。
+## 2. 当前部署单元与边界
 
-## 2. 数据流图
-
-### MVP阶段数据流（纯前端）
-
-```
-用户（老年患者/医生）
-    ↓ (浏览器)
-Next.js 15 前端 (App Router, 静态导出)
-├── UI层 (app/ + components/shadcn/ui + Tailwind CSS 4)
-├── 状态层 (Zustand + React Context, localStorage持久化)
-├── Hooks层 (hooks/ - 封装可复用逻辑)
-└── API Client层 (services/ - 统一封装外部API调用)
-         ↓ (HTTPS)
-    ┌────┼────────┬──────────┬─────────┐
-    ↓    ↓        ↓          ↓         ↓
-  LLM   ASR      TTS      Search    MinerU
-(GPT-4o (Mimo   (Mimo   (AnySearch/ (文档解析
-主模型, ASR)   TTS)   Tavily)   云API)
-qwen等
-备份模型)
-```
-
-### 二阶段数据流（全栈）
-
-```
-用户
-    ↓
-Next.js前端 (SSR/SSG)
-    ↓ 同源 BFF（HttpOnly 访客 JWT + Zod 校验）
-FastAPI后端
-├── API Routes (routes/)
-├── Service层 (services/ - 业务逻辑)
-├── AgentScope多智能体编排
-│   ├── 全科医生智能体
-│   ├── 老年专科医生智能体（复核）
-│   ├── 用药审查智能体（规则引擎+LLM）
-│   ├── CGA评估智能体（状态机骨架+LLM柔性层）
-│   ├── Agentic RAG middleware（search_knowledge工具）
-│   ├── Memory middleware（加密事实源+语义召回）
-│   └── AgentScope Skill Toolkit（声明式 Skill viewer）
-├── Repository层 (repositories/)
-│   ├── PostgreSQL (用户/会话/健康档案)
-│   ├── Redis (缓存/限流/会话)
-│   └── Qdrant (BGE-M3 dense + 中英文 lexical sparse + RRF)
-└── Providers层
-    ├── LLM Provider (GPT-4o/qwen/claude)
-    ├── Voice Provider (Mimo ASR/TTS)
-    ├── Search Provider (AnySearch/Tavily)
-    ├── RAG Provider (SiliconFlow embedding/rerank)
-    └── MinerU Provider (文档解析)
-```
-
-### 二阶段当前对话闭环（0019）
+`apps/mvp` 是当前唯一功能性 Web 客户端（Next.js 16 + React 19），同时承载浏览器可访问页面和 server-only BFF 路由；`apps/web` 是刻意保留的空目录，不是运行入口，也不应复制出第二套前端。`apps/api` 是 FastAPI + AgentScope 2.0.4 服务，使用 PostgreSQL、Redis 与 Qdrant。根目录 `app.py` 是开发启动入口。
 
 ```text
-POST /api/v1/chat
-  → JWT chat:write + tenant/actor + Redis principal rate limit
-  → PostgreSQL 单调 fencing token + Redis session owner lease
-  → session token claim + PostgreSQL 加密历史 + 幂等 user message
-  → AgentScope ContextConfig 压缩短期历史 + 加密 session summary
-  → 加密健康画像 + Qdrant 当前 revision allowlist 跨会话召回
-  → 确定性红旗症状门
-       ├── 命中：立即输出 120/急诊提示 + 免责声明并结束，不调用 RAG/模型
-       └── 未命中：进入本地医学证据门（dense+sparse RRF + rerank）
-  → AgentScope Agent/ReAct
-       ├── primary → backup1 → backup2 model router
-       ├── agentic search_knowledge → 同一 production RAG
-       ├── read-only web_search → AnySearch JSON-RPC → Tavily fallback
-       ├── Mem0Middleware → search_memory/add_memory → GerClaw Memory adapter
-       └── AgentScope Skill viewer → PostgreSQL 会话级已授权声明式 Skill
-  → 按句医疗安全后处理 + citation + 免责声明
-  → Redis owner + PostgreSQL token 复验
-  → session 行锁 + Redis owner 双重终态校验
-  → 用户原文证据约束的 Memory 抽取与画像更新
-  → 显式停止：identity-scoped cancel → Redis TTL/PubSub → active task
-    → active tool_result(cancelled) → cancelled Trace 原子事务 → SSE cancelled
-  → 加密 assistant/message/profile/facts/revision history + memory.update + completed Trace 原子事务
-    / SYSTEM_ERROR + failed Trace + Bad Case 原子事务
-  → SSE done（仅持久化提交后）
+患者 / 医生浏览器
+  │  HTTPS；只发送浏览器安全的请求体
+  ▼
+apps/mvp (Next.js 页面 + BFF)
+  │  server-only 短期访客 JWT；Zod 校验
+  ▼
+apps/api (FastAPI)
+  ├─ 认证、限流、Pydantic 校验与统一错误边界
+  ├─ Runtime / Agent Harness 与安全后处理
+  ├─ 业务模块（Chat、RAG、Memory、Skill、Search、CGA、资料登记、临床信息收集）
+  ├─ PostgreSQL（加密事实源）与 Redis（租约、限流、取消）
+  └─ Qdrant（公开医学语料 / 无 PHI 的记忆引用向量）
+       │
+       ├─ 本地知识库（仅服务端摄取）
+       └─ 经环境变量配置的 LLM、Search、ASR/TTS、MinerU、Embedding/Rerank Provider
 ```
 
-共享的是无状态 provider client；`AgentState`、RAG/Memory middleware、事件缓冲和模型尝试审计均按 turn 隔离。PostgreSQL 加密列是会话与健康事实源；`memory_facts` 保存当前投影，`memory_fact_revisions` 保存每次变更前的不可变密文快照。Qdrant 只保存 HMAC namespace 下的 revisioned reference vector，AgentScope 热状态和 mem0 默认存储均不承担跨请求持久化。
-
-Skill current/revision 只保存 AES-GCM 密文正文，参数 schema 每次从密文 `SKILL.md` 重新解析，不保留可读副本；归一化名称使用 SHA-256 blind index 保证同一 tenant/actor 内唯一。session selection 先以 `(tenant_id, actor_id, user_id)` 三列外键把 actor/user 绑定为同一主体，再以 tenant/user/session 复合外键绑定会话，数据库层和 repository 层同时阻断跨主体拼接。Skill ID 与 Trace 审计字符串先通过 PHI 拒绝策略，前端上传走无副作用 preview，完整审阅确认后才注册。
+浏览器不得直连模型、检索、数据库或 Provider。Provider key、数据库凭证、MinerU 上传凭证和 FastAPI JWT 均不得进入浏览器 bundle、localStorage、Trace 或日志。
 
 ## 3. 推荐技术栈
 
-### 3.1 MVP阶段（纯前端）
+| 层级 | 当前技术 | 使用边界 |
+|---|---|---|
+| Web | Next.js 16、React 19、TypeScript、Tailwind、Zod | `apps/mvp` 是唯一功能前端与 BFF；外部 Provider 仅由 server-only route 调用 |
+| API / Agent | FastAPI、Pydantic、AgentScope 2.0.4 | 认证、Runtime Harness、业务模块、SSE 与 Provider adapter |
+| 持久化 | PostgreSQL、Redis、Qdrant | PostgreSQL 为加密事实源；Redis 处理租约/限流/取消；Qdrant 不存 PHI 正文 |
+| 部署 | Docker Compose、Alembic、uv/npm | 基础编排可用于开发；最终应用 Docker 交付仍未完成 |
 
-| 层级 | 技术 | 版本 | 选型理由 |
-|------|------|------|---------|
-| 前端框架 | Next.js | 15 (App Router) | React生态成熟，支持SSG静态导出适配IGA Pages部署 |
-| UI库 | React | 18+ | 组件化开发，生态丰富 |
-| 样式 | Tailwind CSS | 4 | 原子化CSS，快速构建适老化UI，主题切换方便 |
-| 组件库 | shadcn/ui | latest | 高质量基础组件，可定制，符合现代设计品味 |
-| AI SDK | Vercel AI SDK | latest | 流式输出封装、多模型调用统一接口、SSE支持好 |
-| 状态管理 | Zustand + React Context | latest | Zustand轻量适合会话/配置状态，Context适合跨组件主题/角色状态；localStorage持久化 |
-| 类型校验 | Zod | latest | 运行时schema校验，API请求/响应、环境变量、表单验证 |
-| 语音录制 | MediaRecorder API | 浏览器原生 | 麦克风录音WAV/MP3，无额外依赖 |
-| 音频播放 | Web Audio API | 浏览器原生 | PCM16流式播放TTS |
-| 文档导出 | jsPDF + docx.js | latest | 前端导出PDF/Word，无需后端 |
-| 部署平台 | IGA Pages | - | 静态网站托管，支持环境变量注入API Key |
+所有模型、外部 URL、密钥和协议均通过环境变量配置；实现选择应遵循“设计要求优先、AgentScope 能力优先、必要时才引入补充依赖”。
 
-### 3.2 二阶段（全栈生产）
+## 4. 已实现的运行链路
 
-| 层级 | 技术 | 版本 | 选型理由 |
-|------|------|------|---------|
-| 前端 | Next.js | 15 | 同MVP，支持SSR/SSG |
-| 后端 | FastAPI | latest | Python高性能异步API，与AgentScope同技术栈 |
-| 智能体框架 | AgentScope | latest | 多智能体编排、工具调用、记忆管理、权限引擎，已有医疗参考实现 |
-| 关系数据库 | PostgreSQL | 16 | 用户数据、会话记录、健康档案，JSONB支持灵活 schema |
-| 缓存 | Redis | 7+ | 会话缓存、限流、热数据缓存、状态持久化 |
-| 向量数据库 | Qdrant | latest | RAG知识库向量存储与检索 |
-| 嵌入模型 | BAAI/bge-m3 | SiliconFlow API | 多语言文本向量化 |
-| 重排模型 | BAAI/bge-reranker-v2-m3 | SiliconFlow API | 检索结果精排 |
-| 部署 | Docker + ModelScope Studio | - | 容器化全栈部署，环境一致 |
+### 2.1 通用对话
 
-## 4. 目录结构
+`POST /api/v1/chat` 经过 BFF 访客身份、FastAPI scope/tenant/actor 校验、Redis 主体限流、PostgreSQL fencing token 和 Redis 会话 owner lease。服务端按 turn 隔离 AgentScope 状态，执行红旗症状短路、RAG/Memory/Skill/Search 的受限调用、模型 failover、医疗安全后处理和 PHI-free Trace。完成、失败与取消终态必须写入一致的数据库事务；SSE `done` 只会在提交后发送。
 
-### MVP阶段目录结构
+红旗症状在模型和 RAG 前使用确定性安全回应结束；这不是模型或临床诊断结论。普通聊天产生医疗内容时，需要可验证的本地证据与引用；证据不可用则 fail closed。
 
-```
-gerclaw-main/
-├── apps/
-│   └── mvp/                    # MVP前端应用（纯前端）
-│       └── src/
-│           ├── app/            # Next.js App Router (页面/路由/layout/loading/error)
-│           │   ├── (patient)/  # 患者端路由组
-│           │   ├── (doctor)/   # 医生端路由组
-│           │   └── layout.tsx
-│           ├── components/     # React组件（按功能模块组织）
-│           │   ├── chat/       # 通用对话组件
-│           │   ├── voice/      # 语音交互组件
-│           │   ├── prescription/ # 五大处方组件
-│           │   ├── cga/        # CGA评估组件
-│           │   ├── drug-review/ # 用药审查组件
-│           │   ├── search/     # 联网搜索组件
-│           │   ├── skills/     # 技能管理组件
-│           │   ├── document/   # 文档解析组件
-│           │   ├── layout/     # 三栏布局/侧边栏/右侧面板
-│           │   ├── theme/      # 主题切换
-│           │   ├── role/       # 角色切换
-│           │   └── ui/         # shadcn/ui基础组件
-│           ├── hooks/          # 自定义React Hooks
-│           ├── context/        # React Context (主题/角色/对话状态)
-│           ├── services/       # API Client层（统一封装外部API）
-│           │   ├── llm/        # LLM API封装（openai/dashscope/anthropic协议）
-│           │   ├── voice/      # ASR/TTS API封装
-│           │   ├── search/     # AnySearch/Tavily搜索封装
-│           │   ├── document/   # MinerU文档解析封装
-│           │   └── api-client.ts # 统一API客户端基类（超时/重试/降级/熔断）
-│           ├── lib/            # 工具函数/常量/配置加载
-│           │   ├── config.ts   # 环境变量加载与Zod校验
-│           │   ├── storage.ts  # localStorage封装
-│           │   └── utils.ts
-│           ├── stores/         # Zustand状态 stores
-│           ├── types/          # TypeScript类型定义（零依赖）
-│           ├── data/           # 静态数据（量表题库、DDI规则、Beers标准等）
-│           │   └── mock/       # Mock 数据（仅第一阶段使用，第二阶段删除）
-│           └── styles/         # 全局样式/Tailwind配置
-├── docs/                       # 文档体系
-│   ├── product-specs/          # 产品功能规范
-│   ├── design-docs/            # 技术设计文档
-│   ├── references/             # 参考资料
-│   ├── exec-plans/             # 执行计划
-│   │   ├── active/
-│   │   └── completed/
-│   ├── PRD.md
-│   ├── ARCHITECTURE.md
-│   ├── SECURITY.md
-│   ├── RELIABILITY.md
-│   └── ...
-└── AGENTS.md
-```
+### 2.2 当前 Runtime Harness
 
-### 二阶段目录结构（演进方向）
+`apps/api/src/gerclaw_api/modules/runtime/` 提供版本化 Capability、`RuntimePrincipal`、Pydantic Tool 输入边界、预算、PermissionEngine 与 AgentScope `GovernedTool` 代理。执行顺序是：服务器拥有的注册表 → schema/字节数校验 → AgentScope 与 Runtime 双重授权 → 超时/输出上限 → Trace/终态。
 
-```
-gerclaw-main/
-├── apps/
-│   ├── mvp/                    # MVP代码归档保留（只读参考）
-│   ├── web/                    # Next.js前端（SSR/SSG）
-│   └── api/                    # FastAPI后端
-│       └── src/
-│           ├── routes/         # API路由
-│           ├── services/       # 业务逻辑层
-│           ├── agents/         # AgentScope智能体定义
-│           ├── repositories/   # 数据访问层
-│           ├── providers/      # 外部服务封装
-│           └── types/
-├── packages/                   # 共享包（类型定义、工具函数）
-└── docs/
-```
+- 未注册工具、版本不匹配、缺 scope/角色、未验证患者访问、未脱敏的敏感外发与 critical action 默认拒绝。
+- 高风险或副作用工具需要幂等键和持久化人工审批；当前临床副作用 resume executor 尚未投入业务流程。
+- Runtime 预算限制步骤、重试、模型/工具调用、token、输出和 wall clock，不能由浏览器或模型扩大。
+
+### 2.3 数据与信任边界
+
+| 边界 | 当前强制控制 | 事实来源 / 未完成边界 |
+|---|---|---|
+| 身份与会话 | BFF 签名访客 cookie、短期 JWT、scope、tenant/actor 所有权、限流 | 当前只有访客身份；患者/医生账号、RBAC、患者授权未实现 |
+| 对话与 Trace | Pydantic/Zod、会话 lease、加密消息、PHI-free Trace | 反馈/Bad Case 的完整授权晋升、回放治理尚未完成 |
+| RAG | 本地 Markdown 白名单、内容净化、不可信证据隔离、Qdrant public payload | 当前知识库已真实进入 Chat；RAG 专项评测仍不完整 |
+| Memory | PostgreSQL 加密事实与 revision 审计；Qdrant 仅无 PHI reference vector | 生命周期删除、受控再识别与完整分类注册表未实现 |
+| 文档 | Next.js server-only MinerU BFF；FastAPI 加密会话资料登记与租户绑定 | 私有向量检索、病毒扫描、真实账号授权和 FastAPI Provider adapter 未完成 |
+| 语音 | Next.js server-only MiMo ASR/TTS BFF、请求大小/格式约束 | FastAPI Runtime adapter、PCM16 流、统一审计/故障评测未完成 |
+| CGA | PHQ-9、SAS、PSQI 的版本化状态机、确定性计分、加密持久化与报告导出 | Mini-Cog/MMSE 人工确认、医生授权和跨时间比较未完成 |
+| 临床收集 | 五大处方/用药审查的加密、版本化最小信息收集与 MinerU 资料绑定 | 没有经医学审核的模板/规则/报告/审批；不能输出处方、药物调整或诊断结论 |
 
 ## 5. 分层依赖
 
-严格依赖方向（MVP前端）：
+```text
+apps/mvp
+  app / components
+       ↓
+  services（唯一业务 API client）
+       ↓
+  BFF routes（server-only 凭证与 Zod boundary）
+       ↓
+  FastAPI
 
-```
-types → lib(config/storage/utils) → services(API Client) → stores/context → hooks → components → app
-data → services/components
-```
-
-- **types/**：纯TypeScript类型定义和interface，零依赖
-- **lib/**：工具函数、配置加载、localStorage封装，依赖types
-- **data/**：静态数据（量表、规则等），无依赖或仅依赖types
-- **services/**：API Client层，依赖types+lib，封装所有外部API调用（超时/重试/降级/熔断逻辑在这里实现）
-- **stores/ + context/**：状态管理层，依赖types+lib+services
-- **hooks/**：自定义Hooks，依赖types+lib+services+stores
-- **components/**：React组件，依赖types+lib+hooks+stores+services
-- **app/**：Next.js页面路由，依赖components+context
-
-**二阶段后端分层依赖**：
-```
-types → config → providers → repositories → services → agents → routes(FastAPI)
+apps/api
+  api/routes → services → modules / repositories / providers
+                         ↓
+                 database + Redis + Qdrant + configured providers
 ```
 
-**禁止**：反向依赖、跨层直接依赖、循环依赖。components不能直接import app里的东西；services不能依赖components/hooks。
+- React 组件只能调用 `services/`，不得嵌入 Provider URL、业务结果或密钥。
+- FastAPI 路由只负责 HTTP/SSE、认证、错误映射和依赖注入；业务逻辑在 `services/`，可替换能力在 `modules/`，存取在 `repositories/`。
+- `modules/` 的对外契约使用严格 Pydantic model；前端 BFF 边界使用 Zod。未知字段、超限输入和不兼容版本应拒绝而非静默兼容。
+- 每个核心模块的 `AGENTS.md` 约束依赖与测试；`README.md` 描述接口、配置和未完成边界。未实际接入的模块不得凭目录或文档宣称可用。
 
 ## 6. 数据边界
 
-| 信任边界 | 校验要求 |
-|---------|---------|
-| 用户文本输入 | Zod schema校验、长度限制（单次≤4000字符）、XSS防护（React自动转义） |
-| 用户文件上传 | 类型校验（PDF/Word/图片/文本）、大小限制（≤10MB）、MinerU解析结果加隔离标记 |
-| 语音录音输入 | 格式校验（WAV/MP3）、时长限制、仅存内存不持久化 |
-| 角色切换 | 纯前端UI切换，无后端权限（MVP阶段），二阶段后端校验RBAC |
-| localStorage数据 | 读取时try-catch+schema校验，损坏时清除并提示用户 |
-| 外部LLM输出 | 后处理检查：确定性诊断用语拦截、有害内容检测、免责声明附加、结构化输出schema验证 |
-| 联网搜索结果 | 加隔离标记（BEGIN/END SEARCH RESULT包裹），剥离指令性文字，来源角标可追溯 |
-| 技能内容(skill.md) | 加载前安全检查，禁止包含修改系统角色的指令 |
-| 外部API响应 | 前端 Zod / 后端 Pydantic schema 校验、超时处理、错误捕获、主备切换 |
-| 本地医学知识库 | 仅允许根目录内 UTF-8 Markdown；大小、相对路径、HTML 指令载体、embedding 维度、Qdrant payload 和 citation 均在后端边界校验 |
-| 健康记忆 | 只抽取 user 原文可逐字验证的 evidence；PostgreSQL tenant/user ownership + revision 为权威，Qdrant 只返回当前 revision 的无 PHI 引用 |
-| 环境变量 | 启动时Zod校验，缺失关键变量直接失败不启动 |
+所有下列对象都按不可信输入处理，先做认证、版本/schema、大小与内容策略验证，再向下游传递：浏览器请求、上传文件、MinerU/ASR/TTS/LLM Provider 响应、检索片段、网页内容、工具输入输出和数据库回读。
+
+| 数据流 | 允许的处理 | 禁止行为 |
+|---|---|---|
+| 浏览器 → BFF/API | Zod/Pydantic 验证、限流、所有权校验、可观察的稳定错误 | 浏览器自报角色、患者授权、预算或 Provider 凭证 |
+| 文档 / 网页 / RAG | 限大小、净化、来源元数据和“不可信数据”隔离 | 将正文中的指令视作系统指令或编造引用 |
+| PHI / 临床资料 | 最小化、服务端加密、tenant/actor/session 绑定、PHI-free Trace | 写入日志、评测集、Qdrant 正文、前端 bundle 或不必要第三方 |
+| Agent / tool 输出 | 严格 schema、Runtime policy、预算、超时与安全后处理 | 未验证输出直接执行工具、持久化或作为医疗结论展示 |
 
 ## 7. Agent-Legible Invariants
 
-智能体必须保留的架构不变量：
+1. 浏览器只连 BFF；所有外部 Provider 只能由服务端 services/provider adapter 调用。
+2. 任何不可信输入都先验证、限长、隔离，再进入下一层；失败按风险 fail closed。
+3. 未通过 schema 与 Runtime policy 的模型输出不得调用工具、写入数据库/Memory 或作为医疗结论展示。
+4. 临床高风险行为默认 fail closed；未审核规则、未获授权或未获人工批准时不得生成可执行处方、药物调整或确定性诊断。
+5. Trace、日志、评测和向量库默认不保存不必要的 PHI、凭据、用户原文或隐藏推理。
+6. 前端页面、静态数据和安全降级不是后端业务完成证据；功能完成需要代码、测试和真实运行证据同时成立。
 
-1. **所有外部API调用通过services/层封装**：禁止组件直接fetch外部API，必须走统一API Client以统一实现超时/重试/降级/熔断/trace_id
-2. **环境变量经lib/config.ts Zod校验后使用**：禁止直接读取process.env，必须从config模块导入类型安全的配置对象
-3. **用药审查100%确定性规则引擎**：DDI/Beers/剂量检查必须用确定性规则（data/中的规则数据），不依赖LLM判断，LLM只负责结果解读和建议生成
-4. **CGA/五大处方"状态机骨架+LLM柔性层"混合架构**：评估流程、量表计分、处方结构由代码状态机保证确定性，LLM只负责自然语言对话引导和内容生成
-5. **所有医疗输出必经后处理**：输出前必须经过医疗安全检查（确定性诊断拦截+免责声明附加+循证引用检查）
-6. **API Client层抽象适配**：services/层的API接口定义要为二阶段迁移后端预留，切换到FastAPI时只需替换实现不修改业务组件
-7. **状态管理分层**：Zustand管理跨页面/需要持久化的可序列化状态（会话/配置/侧边栏/右侧面板），React Context管理主题/角色/老年模式等跨组件UI状态；Zustand stores只存可序列化数据，不存组件/函数引用
-8. **组件按功能模块组织**：components/下按功能分子目录（chat/voice/prescription/...），不按类型放（buttons/forms/...）
-9. **两阶段 Mock 策略**：UI 构建阶段（第一个计划）允许在 `src/data/mock/` 集中放置 Mock 数据用于交互调试；功能实现阶段（第二个计划起）必须删除所有 Mock 数据，所有外部 API 调用必须真实调用模型服务和工具服务
+## 8. 模块状态
 
-## 8. 关键决策
+| 模块 | 当前真实能力 | 关键限制 |
+|---|---|---|
+| `agent_harness` | AgentScope ReAct、SSE、模型 failover、取消、医疗安全后处理 | 多智能体临床复核与临床副作用 workflow 未接入 |
+| `runtime` | Capability registry、ALLOW/DENY/ASK、预算、审批与 checkpoint 契约 | 临床恢复 executor 未启用 |
+| `rag` | 本地知识库摄取、混合检索、重排、引用与 Agent 工具 | 专项质量/安全评测缺口见矩阵 |
+| `memory` | 加密会话事实、健康画像与无 PHI 语义引用 | 正式身份授权和生命周期治理未完成 |
+| `search` | AnySearch 优先、Tavily 兜底、SSRF 与不可信内容隔离 | 不应替代本地循证证据 |
+| `skill` | 声明式注册、版本、会话选择与 AgentScope viewer | 只允许受控 Markdown/ZIP；不执行上传代码 |
+| `input_output` / `document` | BFF 的 ASR/TTS 与 MinerU 真调用；文档会话登记 | FastAPI adapter 和完整受控文件生命周期未完成 |
+| `cga` | PHQ-9/SAS/PSQI 确定性评估；版本绑定题干/选项音频 | 不等于完整 CGA 或医生临床结论 |
+| `prescription` | 受限临床信息收集 | 不是处方生成或用药审查；等待医学审核内容与授权 |
+| `evals` | 合成、人工审阅的确定性安全 golden case | 不回放真实输入；模型/RAG/医疗评测尚缺 |
 
-| 决策编号 | 决策内容 | 原因 | 替代方案 | 日期 |
-|---------|---------|------|---------|------|
-| ADR-001 | MVP纯前端Next.js静态导出，部署IGA Pages | IGA Pages不支持Python后端运行，纯前端可快速验证核心价值，部署简单 | 直接做全栈→开发周期长，无法快速演示；用其他支持Python的平台→与后续ModelScope部署路径不一致 | 2026-07-04 |
-| ADR-002 | 主模型GPT-4o + 国内模型自动降级（qwen-plus等备份） | GPT-4o医疗能力最强，但存在数据出境和网络风险；模型配置完全环境变量化支持一键切换 | 只用国内模型→医疗能力可能不足；只用GPT-4o→网络不稳定风险高 | 2026-07-04 |
-| ADR-003 | 语音使用Mimo ASR/TTS（mimo-v2.5-asr/tts，冰糖音色） | Mimo提供OpenAI兼容API，中文识别质量好，支持流式PCM16播放；冰糖音色适合老年用户 | 用OpenAI Whisper/TTS→中文方言支持弱；用其他国内厂商→API协议不统一增加复杂度 | 2026-07-04 |
-| ADR-004 | 用药审查100%确定性规则引擎（DDI/Beers/剂量检查） | 用药安全是医疗安全底线，LLM存在幻觉风险不能用于药物相互作用判断；规则引擎结果100%可复现可审计 | 纯用LLM做用药审查→幻觉风险不可接受；规则+LLM各做一半→边界不清难以审计 | 2026-07-04 |
-| ADR-005 | CGA评估/五大处方采用"状态机骨架+LLM柔性层"混合架构 | 量表计分、处方结构、评估流程需要确定性保证；自然语言对话引导、健康建议生成需要LLM柔性处理；两者结合兼顾安全和体验 | 纯状态机表单→老年用户体验差不会填表；纯LLM自由对话→计分和结构无法保证准确性 | 2026-07-04 |
-| ADR-006 | 两阶段 Mock 策略（UI 阶段允许 mock，实现阶段禁止 mock） | 第一个计划需构建完整可交互 UI 壳子，真实 API 调用会阻塞 UI 开发；第二个计划起逐模块接入真实 API，必须用真实数据验证 | 全程禁止 Mock→UI 开发被 API 调试阻塞；全程允许 Mock→功能实现阶段无法验证真实能力 | 2026-07-05 |
-| ADR-007 | AgentScope agentic middleware + GerClaw hybrid KnowledgeBase adapter | 保留 AgentScope 2.0.4 的工具决策与权限边界，同时补齐其内置 Qdrant store 缺少的 sparse RRF、外部 rerank、引用元数据和全量增量索引能力 | 仅用内置 dense store→不满足设计要求；自研完整 agent loop→重复造轮子且偏离 AgentScope 优先级 | 2026-07-15 |
-| ADR-008 | 每 turn 隔离 AgentScope State + PostgreSQL 加密事实源 + Redis session lease | 避免跨请求共享可变 Agent/RAG 状态；支持多副本会话串行化、断线取消、幂等消息和 completed Trace 重放 | 进程内长期 Agent 对象→跨租户污染且无法横向扩展；只靠数据库锁→长模型流占用连接且租约失联难以 fail-stop | 2026-07-15 |
-| ADR-009 | 三模型仅在未产生可见/工具输出前 failover | 保证 primary→backup1→backup2 可用性，同时避免流中断后重放造成重复或相互矛盾的医疗正文 | 任意时刻切模型→用户可能收到两套冲突建议；完全不切换→单 provider 故障直接中断 | 2026-07-15 |
-| ADR-010 | Redis owner lease + PostgreSQL 单调 fencing token/Trace 绑定 + terminal 原子事务 | Redis 负责长模型调用期间低成本互斥；新 owner 通过 session 行发布更高 token 与当前 Trace，成功和失败终态均在 lease 内以 session 行锁加 Redis compare-and-renew 双重校验；assistant/成功 Trace 一次提交，SYSTEM_ERROR/失败 Trace/Bad Case 一次提交，避免租约丢失或提交故障形成矛盾终态 | 仅 owner-token→丢锁检测存在窗口；长事务数据库锁→占用连接；多次独立 commit→消息、Trace 与 Bad Case 状态可分裂 | 2026-07-15 |
-| ADR-011 | AgentScope Mem0Middleware 生命周期 + 加密 PostgreSQL Memory authority/revision audit + PHI-free Qdrant reference vectors | 保留 AgentScope 自动/工具式记忆控制，同时满足医疗 evidence、用户确认、tenant 隔离、加密和 Trace 原子性；当前事实投影与变更前密文快照分离，重大事件按发生时间或 source Trace/evidence hash 保持可追溯；revision-fenced point ID 与 PostgreSQL allowlist 排除 stale/rollback vector | mem0 默认 SQLite/Qdrant 明文→隐私与事务不满足；原地覆盖且无历史→停药/剂量/事件来源不可审计；纯 PG 关键词检索→跨会话语义召回不足；自研 agent loop→重复框架能力 | 2026-07-15 |
-| ADR-012 | AnySearch-first SearchModule + AgentScope read-only web_search + 不可信证据隔离 | 符合指定 JSON-RPC 协议与主备顺序；统一 query 脱敏、来源分级、SSRF、Trace 和 SSE 卡片边界；普通 Chat 复用同一 async runtime，CGA 不注册工具 | 浏览器直连 Provider→密钥泄漏且无租户审计；只用 Tavily→违反设计优先级；网页正文当指令→prompt injection；自研 Agent loop→重复框架能力 | 2026-07-15 |
-| ADR-013 | 版本化声明式 Skill 注册表 + AgentScope LocalSkillLoader/Toolkit + 会话级选择 | 支持四个只读内置 Skill、自定义 Markdown/ZIP、真实模型生成草稿、加密修订历史和可审计执行，同时禁止上传任意代码；Next BFF 的稳定伪匿名访客身份让 JWT 换发不丢会话 | 浏览器拼 prompt→无权限与审计；执行上传代码→医疗和多租户风险不可接受；进程内 Skill→刷新/多副本丢失 | 2026-07-15 |
-| ADR-014 | 红旗症状在 RAG/模型前确定性短路且不伪造模型 Trace；模型单候选使用硬上限 60s 完整流 deadline 与 1024-token 上限 | 急症提示不能等待检索或被模型扩写成用药指令；模型流必须有不可被环境配置放大的资源边界，且不能复用搜索等短请求的 30s timeout | 先检索/生成再告警→延误且可能输出冲突建议；可见输出后切模型→正文重复；无限/超限输出→占用执行槽；短路仍记模型成功→审计失真 | 2026-07-15 |
-| ADR-015 | 显式 Chat 取消控制面 + Redis TTL/PubSub + 副本内 pre-commit intent fence | 用户停止必须跨副本命中 active turn，先终态化工具与 Trace，再让 UI 宣告停止；持久键覆盖注册竞态，Pub/Sub 负责低延迟投递，本地 intent 防止 AgentScope 清理吞掉 task cancellation 后误提交成功 | 浏览器直接 abort SSE→丢 terminal tool_result/Trace；仅进程内 task map→多副本失效；只依赖 task.cancel→框架清理可能吞掉取消；无界终态入队→消费者放弃后清理挂死 | 2026-07-15 |
+## 9. 前端与适老化架构约束
+
+患者端老年模式默认开启，关键正文原则上不低于 18px、主要操作不小于 48px、图标必须具有可见文字或等价可访问名称。窄屏收起侧栏并以覆盖面板展示任务；桌面保留三栏任务流。所有异步操作应显示稳定、可理解的 loading / elapsed-time / error / retry 状态，且不能以频闪或不可取消音频制造“卡死”感。
+
+CGA 题干和选项按 `scale_id + definition_version` 映射至 `apps/mvp/public/audio/cga/` 的预录制 WAV；实时 TTS 仅作受控兜底。播放必须可暂停、继续和停止；自动朗读只在患者老年模式的明确设置开启时针对新题目尝试一次。
+
+## 10. 可扩展性与性能边界
+
+应用服务以无状态请求处理为目标；持久化状态位于 PostgreSQL，短暂 ownership/限流/取消位于 Redis，向量数据位于 Qdrant，索引由独立 one-shot job 执行。会话 fencing、owner lease、有界 SSE queue、超时、预算与幂等键是横向扩展的基础，不是已经完成千级验证的证明。
+
+当前只有 Docker Compose 中 **10 并发确定性高风险短路 SSE** 的真实证据；结果不能外推到模型、RAG、临床 workflow 或千级并发。最终发布前仍需补齐容量规划、完整 ≤10 并发场景和空卷 Docker smoke。
+
+## 11. 验证与变更
+
+变更必须同步相应模块契约、测试、风险记录、[需求矩阵](docs/REQUIREMENTS_MATRIX.md) 与 active exec-plan。前端变化至少执行受影响的 lint/build 和真实 headless 关键路径；服务端契约、权限或持久化变化需要对应单元/集成测试和迁移验证。仅在所有必要功能实现并联调后，才执行全量门禁与最终 Docker 交付。
