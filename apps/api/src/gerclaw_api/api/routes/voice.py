@@ -9,18 +9,23 @@ from typing import Annotated, cast
 
 from fastapi import APIRouter, Depends, HTTPException, Request, status
 from fastapi.responses import StreamingResponse
+from sqlalchemy.ext.asyncio import AsyncSession
 
 from gerclaw_api.auth import AuthContext, require_voice_use
+from gerclaw_api.dependencies import get_database_session
+from gerclaw_api.modules.privacy_redaction.policy import redact_external_tts_text
 from gerclaw_api.modules.voice import (
     MiMoVoiceModule,
     VoiceProviderInvalidResponse,
     VoiceProviderUnavailable,
 )
 from gerclaw_api.modules.voice.models import VoiceASRRequest, VoiceASRResponse, VoiceTTSRequest
+from gerclaw_api.repositories.provider_egress import SqlAlchemyProviderEgressRepository
 from gerclaw_api.services.rate_limit import RateLimiter
 
 router = APIRouter(prefix="/voice", tags=["voice"])
 VoiceIdentity = Annotated[AuthContext, Depends(require_voice_use)]
+SessionDependency = Annotated[AsyncSession, Depends(get_database_session)]
 _MAX_ASR_AUDIO_BYTES = 7 * 1024 * 1024
 
 
@@ -97,25 +102,51 @@ async def synthesize(
     payload: VoiceTTSRequest,
     request: Request,
     identity: VoiceIdentity,
+    session: SessionDependency,
     module: VoiceModuleDependency,
 ) -> StreamingResponse:
     """Stream 24 kHz mono PCM16LE; clients own playback, pause and cancellation."""
 
     await _enforce_rate_limit(request, identity)
     voice = payload.voice or module.default_voice
-    stream = module.synthesize(payload.text.strip(), voice=voice, style=payload.style)
+    text_decision = redact_external_tts_text(payload.text.strip())
+    style_decision = redact_external_tts_text(payload.style) if payload.style is not None else None
+    egress = SqlAlchemyProviderEgressRepository(session)
+    event = await egress.record_prepared(
+        tenant_id=identity.tenant_id,
+        actor_id=identity.actor_id,
+        processor="mimo_tts",
+        decisions={
+            "text": text_decision,
+            **({"style": style_decision} if style_decision is not None else {}),
+        },
+    )
+    await session.commit()
+    stream = module.synthesize(
+        text_decision.text,
+        voice=voice,
+        style=style_decision.text if style_decision is not None else None,
+    )
     try:
         first_chunk = await anext(stream)
     except VoiceProviderUnavailable as error:
+        await egress.set_outcome(event, outcome="failed")
+        await session.commit()
         raise HTTPException(status_code=503, detail={"code": "VOICE_TTS_UNAVAILABLE"}) from error
     except VoiceProviderInvalidResponse as error:
+        await egress.set_outcome(event, outcome="failed")
+        await session.commit()
         raise HTTPException(
             status_code=502, detail={"code": "VOICE_TTS_INVALID_RESPONSE"}
         ) from error
     except StopAsyncIteration as error:
+        await egress.set_outcome(event, outcome="failed")
+        await session.commit()
         raise HTTPException(
             status_code=502, detail={"code": "VOICE_TTS_INVALID_RESPONSE"}
         ) from error
+    await egress.set_outcome(event, outcome="succeeded")
+    await session.commit()
     return StreamingResponse(
         _prepend_first_chunk(stream, first_chunk),
         media_type="audio/L16;rate=24000;channels=1",

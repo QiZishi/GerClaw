@@ -145,6 +145,44 @@ class IdentitySecurityEvent(Base):
     )
 
 
+class ProviderEgressEvent(Base):
+    """Immutable PHI-free record prepared before an external provider egress."""
+
+    __tablename__ = "provider_egress_events"
+    __table_args__ = (
+        CheckConstraint(
+            "purpose IN ('external_search_query','external_tts')",
+            name="valid_provider_egress_purpose",
+        ),
+        CheckConstraint(
+            "processor IN ('mimo_tts','anysearch','tavily')",
+            name="valid_provider_egress_processor",
+        ),
+        CheckConstraint(
+            "outcome IN ('prepared','succeeded','failed')",
+            name="valid_provider_egress_outcome",
+        ),
+        Index(
+            "ix_provider_egress_events_owner_created",
+            "tenant_id",
+            "actor_id",
+            "created_at",
+        ),
+    )
+
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    tenant_id: Mapped[str] = mapped_column(String(64), nullable=False, index=True)
+    actor_id: Mapped[str] = mapped_column(String(128), nullable=False, index=True)
+    purpose: Mapped[str] = mapped_column(String(32), nullable=False)
+    processor: Mapped[str] = mapped_column(String(32), nullable=False)
+    policy_version: Mapped[str] = mapped_column(String(32), nullable=False)
+    findings: Mapped[list[dict[str, Any]]] = mapped_column(JSONB, default=list, nullable=False)
+    outcome: Mapped[str] = mapped_column(String(16), nullable=False, default="prepared")
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), nullable=False
+    )
+
+
 class ConversationSession(TimestampMixin, Base):
     """Durable user conversation independent from AgentScope hot state."""
 
