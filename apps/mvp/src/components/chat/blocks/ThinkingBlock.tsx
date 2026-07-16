@@ -59,7 +59,7 @@ export function ThinkingBlock({ data }: ThinkingBlockProps) {
             expanded ? "grid-rows-[1fr]" : "grid-rows-[0fr]"
           )}
         >
-          <div className="overflow-hidden">
+          <div className="min-h-0 overflow-hidden">
             <div className="px-3 pb-3 pt-1 text-sm text-muted-foreground/80 whitespace-pre-wrap border-t border-border/30 leading-relaxed">
               {data.content}
             </div>

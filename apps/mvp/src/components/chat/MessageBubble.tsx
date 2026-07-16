@@ -448,7 +448,7 @@ export function MessageBubble({
 
       <div
         className={cn(
-          "flex flex-col gap-2 min-w-0 max-w-[80%]",
+          "flex min-w-0 max-w-[calc(100%-3rem)] flex-col gap-2 sm:max-w-[85%] lg:max-w-[80%]",
           isUser ? "items-end" : "items-start"
         )}
       >

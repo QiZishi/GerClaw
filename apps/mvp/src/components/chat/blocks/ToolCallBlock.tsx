@@ -31,6 +31,12 @@ function isLocalKnowledgeSearch(toolName: string): boolean {
 }
 
 function getToolDisplayName(toolName: string): string {
+  if (toolName === "search_memory") {
+    return "核对健康记录";
+  }
+  if (toolName === "search_knowledge") {
+    return "检索医学知识";
+  }
   if (isWebSearch(toolName)) {
     return "联网搜索";
   }
@@ -237,7 +243,7 @@ function WebSearchBlock({
           )}
           aria-hidden={!expanded}
         >
-          <div className="overflow-hidden">
+          <div className="min-h-0 overflow-hidden">
             {hasSearchResults ? (
               <div className="border-t border-border/30 max-h-80 overflow-y-auto">
                 {results.map((item, index) => (
@@ -389,7 +395,7 @@ function LocalKnowledgeSearchBlock({
           )}
           aria-hidden={!expanded}
         >
-          <div className="overflow-hidden">
+          <div className="min-h-0 overflow-hidden">
             <div className="border-t border-emerald-200/40 dark:border-emerald-900/30 max-h-80 overflow-y-auto">
               {chunks.map((chunk, index) => (
                 <div
@@ -476,9 +482,9 @@ export function ToolCallBlock({ data, onRetry }: ToolCallBlockProps) {
         aria-expanded={expanded}
         disabled={!hasDetails}
       >
-        <span className="flex min-w-0 items-center gap-2 text-sm text-muted-foreground/80">
-          {toolIconEl}
-          <span className="font-medium">{displayName}</span>
+          <span className="flex min-w-0 items-center gap-2 text-sm text-muted-foreground/80">
+            {toolIconEl}
+          <span className="min-w-0 truncate font-medium">{displayName}</span>
           <StatusBadge status={data.status} />
           {data.status === "failed" && data.errorMessage && (
             <span className="truncate text-xs text-destructive">{data.errorMessage}</span>
@@ -508,7 +514,7 @@ export function ToolCallBlock({ data, onRetry }: ToolCallBlockProps) {
           )}
           aria-hidden={!expanded}
         >
-          <div className="overflow-hidden">
+          <div className="min-h-0 overflow-hidden">
             <div className="border-t border-border/30 px-3 pb-3 pt-1 space-y-2 text-sm text-muted-foreground/80">
               {data.params && Object.keys(data.params).length > 0 && (
                 <div>
