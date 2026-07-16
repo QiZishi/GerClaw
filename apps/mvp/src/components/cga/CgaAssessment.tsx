@@ -1,12 +1,14 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { AlertTriangle, ArrowLeft, CheckCircle2, ClipboardList, Download, RefreshCw } from "lucide-react";
+import { AlertTriangle, ArrowLeft, CheckCircle2, ClipboardList, Download, Pause, RefreshCw, Square, Volume2 } from "lucide-react";
 import { z } from "zod";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 import { exportToMarkdown } from "@/lib/export";
+import { useAudioPlayer } from "@/hooks/useAudioPlayer";
 import { useAppStore } from "@/stores/appStore";
+import { toast } from "@/components/ui/toast";
 import {
   completeCgaAssessment,
   getCgaAssessment,
@@ -18,7 +20,7 @@ import {
   submitCgaAnswer,
 } from "@/services/gerclaw/cga";
 import { GerclawApiError } from "@/services/gerclaw/client";
-import type { CgaAssessment as Assessment, CgaHistoryItem, CgaReport, CgaScale, CgaScaleId } from "@/services/gerclaw/schemas";
+import type { CgaAssessment as Assessment, CgaHistoryItem, CgaQuestion, CgaReport, CgaScale, CgaScaleId } from "@/services/gerclaw/schemas";
 
 interface CgaAssessmentProps {
   onExit: () => void;
@@ -49,6 +51,14 @@ const COMPONENT_LABEL: Record<string, string> = {
 
 function assessmentKey(scaleId: CgaScaleId) {
   return `gerclaw:cga:${scaleId}:assessment`;
+}
+
+function buildQuestionSpeechText(question: CgaQuestion): string {
+  const parts = [question.sensitive_prefix, question.text];
+  if (question.options.length > 0) {
+    parts.push("可选择的答案有", ...question.options.map(([, label]) => label));
+  }
+  return parts.filter(Boolean).join("。") + "。";
 }
 
 const storedAssessmentIdSchema = z.string().uuid();
@@ -93,6 +103,16 @@ export function CgaAssessment({ onExit }: CgaAssessmentProps) {
   const [manualInput, setManualInput] = useState("");
   const [selectedOrdinalScore, setSelectedOrdinalScore] = useState<number | null>(null);
   const [supplementalDetail, setSupplementalDetail] = useState("");
+  const {
+    isPlaying: isQuestionPlaying,
+    isPaused: isQuestionPaused,
+    isLoading: isQuestionAudioLoading,
+    progress: questionAudioProgress,
+    play: playQuestion,
+    pause: pauseQuestion,
+    resume: resumeQuestion,
+    stop: stopQuestion,
+  } = useAudioPlayer();
 
   const selectedScale = useMemo(
     () => scales.find((scale) => scale.id === selectedScaleId) ?? null,
@@ -101,6 +121,25 @@ export function CgaAssessment({ onExit }: CgaAssessmentProps) {
   const textClass = seniorMode ? "text-lg" : "text-sm";
   const actionClass = seniorMode ? "min-h-12 text-lg" : "min-h-10 text-sm";
   const exitLabel = assessment?.status === "active" ? "休息，稍后继续" : "退出评估";
+
+  useEffect(() => {
+    // An answer changes the active question; continuing the old question would
+    // make the controls lie about what is currently being read aloud.
+    stopQuestion();
+  }, [assessment?.next_question?.id, stopQuestion]);
+
+  const startQuestionAudio = () => {
+    if (!assessment?.next_question) return;
+    void playQuestion(buildQuestionSpeechText(assessment.next_question)).catch(() => {
+      toast.show("题目朗读暂时不可用，请改用文字阅读后重试");
+    });
+  };
+
+  const resumeQuestionAudio = () => {
+    void resumeQuestion().catch(() => {
+      toast.show("无法继续朗读，请从头重新播放");
+    });
+  };
 
   const loadHistory = useCallback(async () => {
     setLoadingHistory(true);
@@ -436,6 +475,41 @@ export function CgaAssessment({ onExit }: CgaAssessmentProps) {
               <p className={cn("text-muted-foreground", textClass)}>第 {assessment.next_question.position} / {selectedScale.question_count} 题</p>
               {assessment.next_question.sensitive_prefix && <p className={cn("mt-3 text-amber-800 dark:text-amber-200", textClass)}>{assessment.next_question.sensitive_prefix}</p>}
               <h4 className={cn("mt-3 font-medium leading-relaxed", seniorMode ? "text-xl" : "text-lg")}>{assessment.next_question.text}</h4>
+              <div className="mt-4 flex flex-wrap items-center gap-2" role="group" aria-label="题目朗读控制">
+                {isQuestionAudioLoading ? (
+                  <Button variant="outline" className={cn("gap-2", actionClass)} onClick={stopQuestion}>
+                    <Volume2 className="size-4" />正在准备，点击取消
+                  </Button>
+                ) : isQuestionPlaying || isQuestionPaused ? (
+                  <>
+                    <Button
+                      variant="outline"
+                      className={cn("gap-2", actionClass)}
+                      onClick={isQuestionPlaying ? pauseQuestion : resumeQuestionAudio}
+                    >
+                      {isQuestionPlaying ? <Pause className="size-4" /> : <Volume2 className="size-4" />}
+                      {isQuestionPlaying ? "暂停朗读" : "继续朗读"}
+                    </Button>
+                    <Button variant="outline" className={cn("gap-2", actionClass)} onClick={stopQuestion}>
+                      <Square className="size-4" />停止朗读
+                    </Button>
+                    <div
+                      className="h-1.5 w-24 overflow-hidden rounded-full bg-muted"
+                      role="progressbar"
+                      aria-label="题目朗读进度"
+                      aria-valuemin={0}
+                      aria-valuemax={100}
+                      aria-valuenow={Math.round(questionAudioProgress * 100)}
+                    >
+                      <div className="h-full rounded-full bg-primary transition-[width] duration-150 motion-reduce:transition-none" style={{ width: `${Math.round(questionAudioProgress * 100)}%` }} />
+                    </div>
+                  </>
+                ) : (
+                  <Button variant="outline" className={cn("gap-2", actionClass)} onClick={startQuestionAudio}>
+                    <Volume2 className="size-4" />朗读本题
+                  </Button>
+                )}
+              </div>
               {assessment.next_question.input_kind === "ordinal" && !isPsqiSupplementalQuestion ? (
                 <div className="mt-5 grid gap-3">
                   {assessment.next_question.options.map(([value, label]) => (
