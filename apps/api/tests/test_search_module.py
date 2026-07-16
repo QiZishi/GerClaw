@@ -85,6 +85,22 @@ class FakeProvider:
         self.closed = True
 
 
+@pytest.mark.asyncio
+async def test_production_search_redacts_before_the_provider_boundary() -> None:
+    primary = FakeProvider(search_outcomes=[[_raw()]])
+    module = ProductionSearchModule(primary=primary, fallback=None)
+
+    await module.search(
+        "\u60a3\u8005\u59d3\u540d\uFF1A\u674E\u96F7 \u7535\u8BDD "
+        "13800138000 \u9AD8\u8840\u538B\u6307\u5357",
+        max_results=1,
+    )
+
+    assert primary.search_calls == [
+        ("\u60a3\u8005 \u7535\u8BDD [PHONE] \u9AD8\u8840\u538B\u6307\u5357", 1, "health")
+    ]
+
+
 def _anysearch(
     handler: Callable[[httpx.Request], httpx.Response | Awaitable[httpx.Response]],
     *,

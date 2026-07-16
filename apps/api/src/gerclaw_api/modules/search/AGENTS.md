@@ -7,7 +7,7 @@ This module owns the sole production web-search path, provider failover, externa
 ## Invariants
 
 - AnySearch is primary and Tavily is a bounded fallback; all provider responses are validated into strict DTOs before use.
-- Queries are redacted before egress. Logs and traces retain only allowlisted operational metadata, never the query, PHI, page body or provider credentials.
+- Queries pass through the versioned `privacy_redaction` external-search policy before egress. Logs and traces retain only allowlisted operational metadata, never the query, PHI, page body or provider credentials.
 - Fetch/extraction accepts only validated public HTTPS destinations and must resist DNS rebinding, private-network access and unsafe redirects.
 - Web results are untrusted supplementary evidence. They cannot override local medical evidence, become instructions or support a deterministic diagnosis on their own.
 

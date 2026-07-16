@@ -18,6 +18,7 @@ GerClaw 是面向老年患者与老年科医生的 Web 端 AI 双向诊疗平台
 - MinerU 签名上传、轮询和 Markdown 下载的 Next.js BFF；FastAPI 将会话资料加密登记并按 tenant/actor/session 绑定
 - 五大处方与用药审查的最小信息收集：真实 API、加密持久化、乐观 revision 与 PHI-free Trace；页面明确不会产生处方、诊断、停药、加药或剂量结论
 - 用户反馈、加密 Bad Case 与合成确定性安全 golden case 基线；golden case 不回放用户原文，也不调用模型或 RAG
+- 版本化 `privacy_redaction`：外部搜索 query 在 Provider 调用前最小化并脱敏，审计摘要只保留类别计数
 - Docker Compose API 的 10 并发高风险安全短路 SSE 证据（仅该确定性工作负载，非模型/RAG/临床 workflow 吞吐结论）
 
 已部分实现、但尚不能视为完整生产交付的能力：
@@ -29,6 +30,7 @@ GerClaw 是面向老年患者与老年科医生的 Web 端 AI 双向诊疗平台
 - 风险预警、慢病管理、情感陪伴的真实前后端 workflow 与安全边界
 - 患者授权、医生资质/RBAC、跨患者访问与账号登录/注册页面
 - Bad Case 的授权脱敏晋升、模型/RAG/医疗评测、趋势指标与安全回放闭环
+- 隐私策略目前只真实覆盖外部搜索 query；模型、MinerU、语音、导出、生命周期与用户数据用途透明度尚未统一接入
 - 全站响应式/适老化 E2E 和最终 Docker 空卷验收
 
 `apps/mvp` 是当前唯一功能性 Web 客户端，`apps/web` 仍是二阶段预留目录。任何 mock、占位内容或仅本地 UI 状态均不得作为生产能力使用；逐项完成状态以[需求矩阵](docs/REQUIREMENTS_MATRIX.md)为准。

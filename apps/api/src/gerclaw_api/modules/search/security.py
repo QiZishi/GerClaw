@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import asyncio
 import ipaddress
-import re
 import socket
 import ssl
 from collections.abc import Awaitable, Callable
@@ -14,15 +13,7 @@ from urllib.parse import urljoin, urlsplit, urlunsplit
 
 import httpx
 
-from gerclaw_api.security import redact_text
-
-_NAME_PATTERNS = (
-    re.compile(
-        r"(?:我叫|姓名(?:是|为|[:：])?|患者(?:姓名)?(?:是|为|[:：])?)\s*[\u4e00-\u9fff]{2,4}"
-    ),
-    re.compile(r"(?:name\s*[:=]\s*)[A-Za-z][A-Za-z .'-]{1,80}", re.IGNORECASE),
-)
-_CONTROL = re.compile(r"[\x00-\x08\x0b\x0c\x0e-\x1f\x7f]")
+from gerclaw_api.modules.privacy_redaction.policy import redact_external_search_query
 
 
 class UnsafeSearchURLError(ValueError):
@@ -30,15 +21,9 @@ class UnsafeSearchURLError(ValueError):
 
 
 def sanitize_search_query(query: str) -> str:
-    """Remove common direct identifiers while preserving clinical search intent."""
+    """Compatibility projection for the shared external-search privacy policy."""
 
-    sanitized = redact_text(_CONTROL.sub(" ", query))
-    for pattern in _NAME_PATTERNS:
-        sanitized = pattern.sub("患者", sanitized)
-    normalized = " ".join(sanitized.split()).strip()
-    if not normalized:
-        raise ValueError("search query cannot be blank after privacy filtering")
-    return normalized
+    return redact_external_search_query(query).text
 
 
 Resolver = Callable[[str, int], Awaitable[list[str]]]
