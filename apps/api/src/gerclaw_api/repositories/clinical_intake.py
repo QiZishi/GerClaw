@@ -6,6 +6,7 @@ import uuid
 from typing import cast
 
 from sqlalchemy import select
+from sqlalchemy.dialects.postgresql import insert as postgresql_insert
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from gerclaw_api.database.models import ClinicalIntake
@@ -30,19 +31,43 @@ class SqlAlchemyClinicalIntakeRepository:
         kind: str,
         definition_version: str,
     ) -> ClinicalIntake:
-        record = ClinicalIntake(
+        """Create once per principal/session/kind, including concurrent retries.
+
+        A client may retry while a previous request is still committing. The
+        database unique key is the authority for this idempotency boundary, so a
+        conflict returns the already-owned record instead of leaking a 500.
+        """
+
+        statement = (
+            postgresql_insert(ClinicalIntake)
+            .values(
+                tenant_id=tenant_id,
+                actor_id=actor_id,
+                session_id=session_id,
+                kind=kind,
+                definition_version=definition_version,
+                status="collecting",
+                revision=1,
+                answers={},
+            )
+            .on_conflict_do_nothing(
+                constraint="uq_clinical_intakes_principal_session_kind"
+            )
+            .returning(ClinicalIntake.id)
+        )
+        created_id = await self._session.scalar(statement)
+        if created_id is not None:
+            return await self.get(created_id, tenant_id=tenant_id, actor_id=actor_id)
+
+        existing = await self.find_by_session_kind(
             tenant_id=tenant_id,
             actor_id=actor_id,
             session_id=session_id,
             kind=kind,
-            definition_version=definition_version,
-            status="collecting",
-            revision=1,
-            answers={},
         )
-        self._session.add(record)
-        await self._session.flush()
-        return record
+        if existing is None:  # pragma: no cover - PostgreSQL conflict must expose the row.
+            raise RuntimeError("clinical intake conflict did not expose an existing record")
+        return existing
 
     async def find_by_session_kind(
         self,

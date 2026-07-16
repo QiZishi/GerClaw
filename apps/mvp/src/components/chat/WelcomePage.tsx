@@ -158,9 +158,9 @@ export function WelcomePage({
 
   return (
     <div className="flex-1 overflow-y-auto">
-      <div className="max-w-3xl mx-auto px-4 py-10 flex flex-col items-center text-center">
+      <div className="max-w-3xl mx-auto px-4 py-6 sm:py-10 flex flex-col items-center text-center">
         {/* Logo */}
-        <div className="flex items-center justify-center size-16 rounded-2xl bg-primary text-primary-foreground mb-4">
+        <div className="flex items-center justify-center size-14 sm:size-16 rounded-2xl bg-primary text-primary-foreground mb-3 sm:mb-4">
           <Stethoscope className="size-8" />
         </div>
 
@@ -168,12 +168,12 @@ export function WelcomePage({
         <h1
           className={cn(
             "font-bold text-foreground mb-2",
-            seniorMode ? "text-3xl" : "text-2xl"
+            seniorMode ? "text-2xl leading-tight sm:text-3xl" : "text-2xl"
           )}
         >
           {greeting}
         </h1>
-        <p className="text-muted-foreground text-sm mb-8">
+        <p className={cn("text-muted-foreground mb-5 sm:mb-8", seniorMode ? "text-lg leading-8" : "text-sm")}>
           {subtitle}
         </p>
 
@@ -205,7 +205,7 @@ export function WelcomePage({
 
         {/* 功能快捷入口（患者/医生模式）*/}
         {!isVisitor && (
-          <div className="grid grid-cols-2 gap-3 w-full mb-8">
+          <div className={cn("grid gap-3 w-full mb-8", seniorMode ? "grid-cols-1 sm:grid-cols-2" : "grid-cols-2")}>
             {quickCards.map((card) => (
               <button
                 key={card.label}
@@ -229,7 +229,7 @@ export function WelcomePage({
                   >
                     {card.label}
                   </div>
-                  <div className="text-xs text-muted-foreground mt-0.5">
+                  <div className={cn("text-muted-foreground mt-0.5", seniorMode ? "text-lg leading-7" : "text-xs")}>
                     {card.desc}
                   </div>
                 </div>
@@ -240,7 +240,7 @@ export function WelcomePage({
 
         {/* 示例提示词 */}
         <div className="w-full">
-          <div className="text-xs text-muted-foreground mb-2 text-left">
+          <div className={cn("text-muted-foreground mb-2 text-left", seniorMode ? "text-lg" : "text-xs")}>
             {isVisitor ? "了解平台功能：" : "您可以试试以下提问："}
           </div>
           <div className="flex flex-col gap-2">
@@ -251,7 +251,7 @@ export function WelcomePage({
                 onClick={() => onExampleClick?.(ex)}
                 className={cn(
                   "text-left text-sm rounded-lg border border-border bg-muted/40 px-4 py-2.5 hover:bg-muted hover:border-primary/40 transition-colors",
-                  seniorMode && "text-base py-3"
+                  seniorMode && "text-lg py-3"
                 )}
               >
                 {ex}

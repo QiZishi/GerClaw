@@ -62,12 +62,37 @@ export function ClinicalIntakeForm({
   const [reloadNonce, setReloadNonce] = useState(0);
   const [showValidation, setShowValidation] = useState(false);
   const fieldRefs = useRef<Record<string, HTMLTextAreaElement | null>>({});
+  const pendingStartRef = useRef<{
+    key: string;
+    promise: Promise<ClinicalIntake>;
+  } | null>(null);
 
   useEffect(() => {
     let live = true;
     const load = async () => {
       setLoadState("loading");
       const savedId = readStoredIntakeId(localSessionId, kind);
+      const startOrJoin = (): Promise<ClinicalIntake> => {
+        const key = `${localSessionId}:${kind}`;
+        const pending = pendingStartRef.current;
+        if (pending?.key === key) return pending.promise;
+
+        const promise = startClinicalIntake({ localSessionId, kind });
+        pendingStartRef.current = { key, promise };
+        void promise.then(
+          () => {
+            if (pendingStartRef.current?.promise === promise) {
+              pendingStartRef.current = null;
+            }
+          },
+          () => {
+            if (pendingStartRef.current?.promise === promise) {
+              pendingStartRef.current = null;
+            }
+          }
+        );
+        return promise;
+      };
       try {
         let next: ClinicalIntake;
         if (savedId) {
@@ -81,10 +106,10 @@ export function ClinicalIntakeForm({
               throw error;
             }
             clearStoredIntakeId(localSessionId, kind);
-            next = await startClinicalIntake({ localSessionId, kind });
+            next = await startOrJoin();
           }
         } else {
-          next = await startClinicalIntake({ localSessionId, kind });
+          next = await startOrJoin();
         }
         if (!live) return;
         storeIntakeId(localSessionId, kind, next.intake_id);
