@@ -249,7 +249,7 @@ function AssistantRunStatus({ startedAt, phase, seniorMode }: {
         <span className="font-medium">{phase}</span>
       </span>
       <span className="ml-auto shrink-0 whitespace-nowrap tabular-nums text-muted-foreground" aria-live="off">
-        已用时 {formatElapsedTime(now - startedAt)}
+        已执行 {formatElapsedTime(now - startedAt)}
       </span>
     </div>
   );
