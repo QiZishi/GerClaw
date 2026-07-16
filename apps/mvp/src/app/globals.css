@@ -379,43 +379,37 @@
   opacity: 0.65;
 }
 
-.thinking-dot {
-  display: inline-block;
-  width: 6px;
-  height: 6px;
+/* 单一、低频的 Codex 风格运行指示；文字与真实耗时承担主要反馈，不制造伪进度。 */
+.codex-activity-dots {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  min-width: 22px;
+}
+
+.codex-activity-dot {
+  width: 5px;
+  height: 5px;
   border-radius: 9999px;
-  background-color: hsl(var(--muted-foreground) / 0.45);
-  opacity: 0.65;
+  background: currentColor;
+  animation: codex-activity-dot 1.35s ease-in-out infinite;
 }
 
-.thinking-spinner {
-  animation-duration: 1.5s !important;
+.codex-activity-dot:nth-child(2) { animation-delay: 0.16s; }
+.codex-activity-dot:nth-child(3) { animation-delay: 0.32s; }
+
+@keyframes codex-activity-dot {
+  0%, 70%, 100% { opacity: 0.28; transform: scale(0.72); }
+  35% { opacity: 1; transform: scale(1); }
 }
 
-.typing-dot-1 { animation-delay: 0s; }
-.typing-dot-2 { animation-delay: 0.2s; }
-.typing-dot-3 { animation-delay: 0.4s; }
-
-.thinking-bounce-dot {
-  display: inline-block;
-  width: 6px;
-  height: 6px;
-  border-radius: 9999px;
-  background-color: currentColor;
-  opacity: 0.7;
+@media (prefers-reduced-motion: reduce) {
+  .codex-activity-dot { animation: none; opacity: 0.75; transform: none; }
 }
-
-.thinking-bounce-dot-1 { animation-delay: -0.32s; }
-.thinking-bounce-dot-2 { animation-delay: -0.16s; }
-.thinking-bounce-dot-3 { animation-delay: 0s; }
 
 /* 加载状态用稳定文字和静态标记表达，避免持续明暗闪烁。 */
 .animate-pulse {
   animation: none !important;
-}
-
-.senior-mode .animate-spin {
-  animation-duration: 1.8s !important;
 }
 
 /* 文档预览缩放覆盖 Markdown 子节点的固定字号；根字号由组件直接设置。 */

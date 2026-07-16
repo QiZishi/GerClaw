@@ -136,7 +136,7 @@ function StepTypeIcon({
   status: DecisionStep["status"];
 }) {
   if (status === "running") {
-    return <Loader2 className="size-3 animate-spin" />;
+    return <Loader2 className="size-3" aria-hidden />;
   }
   if (status === "failed") {
     return <X className="size-3" />;

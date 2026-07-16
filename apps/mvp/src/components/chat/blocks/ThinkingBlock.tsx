@@ -10,10 +10,6 @@ interface ThinkingBlockProps {
   data: ThinkingBlockData;
 }
 
-function ThinkingDots() {
-  return <span className="text-base leading-none" aria-hidden>...</span>;
-}
-
 export function ThinkingBlock({ data }: ThinkingBlockProps) {
   const [expanded, setExpanded] = useState(false);
   const reducedMotion = useReducedMotion();
@@ -21,12 +17,9 @@ export function ThinkingBlock({ data }: ThinkingBlockProps) {
   const hasContent = data.content.length > 0;
 
   if (isThinking && !hasContent) {
-    return (
-      <div className="flex items-center gap-2 py-1 text-sm text-muted-foreground/60">
-        <ThinkingDots />
-        <span>思考中</span>
-      </div>
-    );
+    // The message-level status bar owns the single animated indicator and
+    // elapsed clock, so nested blocks never create a distracting loader wall.
+    return null;
   }
 
   return (

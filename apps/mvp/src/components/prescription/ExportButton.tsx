@@ -215,7 +215,7 @@ export function ExportButton({
               {exported ? (
                 <Check className="size-3.5 text-green-600" />
               ) : exportingFormat ? (
-                <Loader2 className="size-3.5 animate-spin" />
+                <Loader2 className="size-3.5" aria-hidden />
               ) : (
                 <Download className="size-3.5" />
               )}
@@ -262,7 +262,7 @@ export function ExportButton({
             {exported && isExporting ? (
               <Check className="size-3.5 text-green-600" />
             ) : isExporting ? (
-              <Loader2 className="size-3.5 animate-spin" />
+              <Loader2 className="size-3.5" aria-hidden />
             ) : (
               opt.icon
             )}

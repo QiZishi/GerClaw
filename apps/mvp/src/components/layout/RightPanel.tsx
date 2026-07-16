@@ -271,7 +271,7 @@ function PanelContent({
       return (
         <UnavailablePanel
           title="还没有处方报告"
-          description="处方工作流尚未接入生产后端。您可以先在对话中描述健康情况，系统不会生成伪报告。"
+          description="请先在对话区启动“五大处方生成”，按步骤保存健康信息。完成后，系统才会在这里展示可导出的报告；不会用示例内容代替真实结果。"
         />
       );
 

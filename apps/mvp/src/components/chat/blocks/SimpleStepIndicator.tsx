@@ -15,7 +15,7 @@ function StepIcon({ icon, status }: { icon: SimpleStepIcon; status: SimpleStepSt
   const IconComponent = icon === "thinking" ? Brain : icon === "search" ? Search : MessageSquare;
 
   if (status === "running") {
-    return <Loader2 className="size-3.5 animate-spin" />;
+    return <Loader2 className="size-3.5" aria-hidden />;
   }
   if (status === "done") {
     return <Check className="size-3.5" />;

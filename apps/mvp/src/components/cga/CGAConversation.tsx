@@ -698,7 +698,7 @@ export function CGAConversation({
           >
             {isTranscribing ? (
               <>
-                <Loader2 className={cn("animate-spin", seniorMode ? "size-5" : "size-4")} />
+                <Loader2 className={cn(seniorMode ? "size-5" : "size-4")} aria-hidden />
                 识别中
               </>
             ) : (

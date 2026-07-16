@@ -302,7 +302,7 @@ export function ChatInput({
       onStartAction(action);
       return;
     }
-    toast.show("该临床工作流正在接入。您仍可在对话中描述情况，GerClaw 会基于真实后端证据提供一般健康咨询。");
+    toast.show("当前页面暂时无法启动该流程。请返回对话页面后重试，或使用文字描述您的情况。");
   };
 
   const [text, setText] = useState("");

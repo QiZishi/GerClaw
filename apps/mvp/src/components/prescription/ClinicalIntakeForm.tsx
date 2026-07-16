@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { AlertTriangle, CheckCircle2, Save, X } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
@@ -60,6 +60,8 @@ export function ClinicalIntakeForm({
   const [loadState, setLoadState] = useState<"loading" | "ready" | "error">("loading");
   const [saving, setSaving] = useState(false);
   const [reloadNonce, setReloadNonce] = useState(0);
+  const [showValidation, setShowValidation] = useState(false);
+  const fieldRefs = useRef<Record<string, HTMLTextAreaElement | null>>({});
 
   useEffect(() => {
     let live = true;
@@ -106,6 +108,14 @@ export function ClinicalIntakeForm({
 
   const save = async () => {
     if (!intake || saving) return;
+    const missingRequiredFields = intake.fields.filter(
+      (field) => field.required && !(answers[field.id] ?? "").trim()
+    );
+    if (missingRequiredFields.length > 0) {
+      setShowValidation(true);
+      fieldRefs.current[missingRequiredFields[0].id]?.focus();
+      return;
+    }
     setSaving(true);
     try {
       const next = await updateClinicalIntake({
@@ -155,6 +165,14 @@ export function ClinicalIntakeForm({
   }
 
   const complete = intake.status === "information_complete_pending_governance";
+  const missingRequiredFieldIds = new Set(
+    intake.fields
+      .filter((field) => field.required && !(answers[field.id] ?? "").trim())
+      .map((field) => field.id)
+  );
+  const missingRequiredLabels = intake.fields
+    .filter((field) => missingRequiredFieldIds.has(field.id))
+    .map((field) => field.label);
   return (
     <section className="mx-auto flex w-full max-w-3xl flex-1 flex-col gap-5 overflow-y-auto p-4 md:p-6">
       <header className="space-y-2">
@@ -176,23 +194,42 @@ export function ClinicalIntakeForm({
       </div>
 
       <div className="space-y-5">
+        {showValidation && missingRequiredLabels.length > 0 && (
+          <div
+            className={cn("rounded-xl border border-destructive/50 bg-destructive/10 p-4 text-destructive", seniorMode ? "text-base" : "text-sm")}
+            role="alert"
+          >
+            请先填写必填内容：{missingRequiredLabels.join("、")}。
+          </div>
+        )}
         {intake.fields.map((field) => (
           <label key={field.id} className="block space-y-2">
             <span className={cn("font-medium text-foreground", seniorMode ? "text-lg" : "text-base")}>
               {field.label}{field.required ? "（必填）" : "（可选）"}
             </span>
             <textarea
+              ref={(node) => {
+                fieldRefs.current[field.id] = node;
+              }}
               value={answers[field.id] ?? ""}
               onChange={(event) => setAnswers((previous) => ({ ...previous, [field.id]: event.target.value.slice(0, field.max_length) }))}
               placeholder={field.placeholder}
               disabled={saving}
               rows={seniorMode ? 4 : 3}
               maxLength={field.max_length}
+              aria-invalid={showValidation && missingRequiredFieldIds.has(field.id)}
+              aria-describedby={showValidation && missingRequiredFieldIds.has(field.id) ? `clinical-intake-${field.id}-error` : undefined}
               className={cn(
                 "w-full resize-y rounded-xl border border-input bg-background px-4 py-3 leading-relaxed outline-none transition-colors focus:border-primary focus:ring-2 focus:ring-primary/20 disabled:cursor-not-allowed disabled:opacity-60",
+                showValidation && missingRequiredFieldIds.has(field.id) && "border-destructive focus:border-destructive focus:ring-destructive/20",
                 seniorMode ? "min-h-28 text-lg" : "min-h-24 text-base"
               )}
             />
+            {showValidation && missingRequiredFieldIds.has(field.id) && (
+              <span id={`clinical-intake-${field.id}-error`} className={cn("block text-destructive", seniorMode ? "text-base" : "text-sm")}>
+                请填写“{field.label}”后再保存。
+              </span>
+            )}
           </label>
         ))}
       </div>

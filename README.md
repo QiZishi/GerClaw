@@ -75,6 +75,14 @@ Next.js BFF ── short-lived JWT ──> FastAPI/API boundary
 
 ## 本地启动
 
+最快方式是从仓库根目录运行：
+
+```bash
+python3 app.py
+```
+
+它默认只启动当前 MVP 前端（`http://127.0.0.1:3000`），不会无意启动数据服务；前端设计与体验验收阶段推荐使用这个命令。需要本地联调 API 时使用 `python3 app.py --api`，脚本会启动开发数据依赖、执行迁移，并同时启动 FastAPI 与前端。`python3 app.py --help` 可查看端口等选项。
+
 ### 1. 配置
 
 ```bash

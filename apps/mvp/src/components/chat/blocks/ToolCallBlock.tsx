@@ -96,12 +96,12 @@ function useToolElapsed(data: ToolCallBlockData): number | undefined {
   return undefined;
 }
 
-function StatusBadge({ status, isLocalKB, reducedMotion }: { status: ToolCallBlockData["status"]; isLocalKB?: boolean; reducedMotion: boolean }) {
+function StatusBadge({ status, isLocalKB }: { status: ToolCallBlockData["status"]; isLocalKB?: boolean }) {
   switch (status) {
     case "running":
       return (
         <Badge variant="secondary" className={cn("gap-1", isLocalKB ? "text-emerald-600" : "text-blue-600")}>
-          <Loader2 className={cn("size-3", !reducedMotion && "animate-spin")} />
+          <Loader2 className="size-3" aria-hidden />
           {isLocalKB ? "检索中" : "搜索中"}
         </Badge>
       );
@@ -154,7 +154,7 @@ function WebSearchBlock({
   const chevronTransition = reducedMotion ? "" : "transition-transform duration-200 ease-out";
 
   const toolIconEl = isRunning ? (
-    <Loader2 className={cn("size-4 shrink-0", !reducedMotion && "animate-spin")} />
+    <Loader2 className="size-4 shrink-0" aria-hidden />
   ) : (
     <Search className="size-4 shrink-0" />
   );
@@ -191,7 +191,7 @@ function WebSearchBlock({
           ) : null}
         </span>
         <span className="flex items-center gap-1 shrink-0">
-          <StatusBadge status={data.status} reducedMotion={reducedMotion} />
+          <StatusBadge status={data.status} />
           {isFailed && onRetry && (
             <Button
               size="sm"
@@ -306,7 +306,7 @@ function LocalKnowledgeSearchBlock({
   const chevronTransition = reducedMotion ? "" : "transition-transform duration-200 ease-out";
 
   const toolIconEl = isRunning ? (
-    <Loader2 className={cn("size-4 shrink-0 text-emerald-600", !reducedMotion && "animate-spin")} />
+    <Loader2 className="size-4 shrink-0 text-emerald-600" aria-hidden />
   ) : (
     <BookOpen className="size-4 shrink-0 text-emerald-600" />
   );
@@ -343,7 +343,7 @@ function LocalKnowledgeSearchBlock({
           ) : null}
         </span>
         <span className="flex items-center gap-1 shrink-0">
-          <StatusBadge status={data.status} isLocalKB reducedMotion={reducedMotion} />
+          <StatusBadge status={data.status} isLocalKB />
           {isFailed && onRetry && (
             <Button
               size="sm"
@@ -462,7 +462,7 @@ export function ToolCallBlock({ data, onRetry }: ToolCallBlockProps) {
   const isRunning = data.status === "running";
 
   const toolIconEl = isRunning ? (
-    <Loader2 className={cn("size-4 shrink-0", !reducedMotion && "animate-spin")} />
+    <Loader2 className="size-4 shrink-0" aria-hidden />
   ) : (
     <Wrench className="size-4 shrink-0" />
   );
@@ -479,7 +479,7 @@ export function ToolCallBlock({ data, onRetry }: ToolCallBlockProps) {
         <span className="flex min-w-0 items-center gap-2 text-sm text-muted-foreground/80">
           {toolIconEl}
           <span className="font-medium">{displayName}</span>
-          <StatusBadge status={data.status} reducedMotion={reducedMotion} />
+          <StatusBadge status={data.status} />
           {data.status === "failed" && data.errorMessage && (
             <span className="truncate text-xs text-destructive">{data.errorMessage}</span>
           )}

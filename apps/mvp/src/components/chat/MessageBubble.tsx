@@ -191,6 +191,52 @@ function VoiceReadButton({ text, seniorMode }: { text: string; seniorMode: boole
   );
 }
 
+function formatElapsedTime(elapsedMs: number): string {
+  const elapsedSeconds = Math.max(0, Math.floor(elapsedMs / 1000));
+  const minutes = Math.floor(elapsedSeconds / 60);
+  const seconds = elapsedSeconds % 60;
+  return `${String(minutes).padStart(2, "0")}:${String(seconds).padStart(2, "0")}`;
+}
+
+/**
+ * A restrained, Codex-style activity indicator: three gentle dots plus a
+ * real elapsed clock. It is displayed once per active response, rather than
+ * starting a competing animation inside every nested tool card.
+ */
+function AssistantRunStatus({ startedAt, phase, seniorMode }: {
+  startedAt: number;
+  phase: string;
+  seniorMode: boolean;
+}) {
+  const [now, setNow] = useState(() => Date.now());
+
+  useEffect(() => {
+    const timer = window.setInterval(() => setNow(Date.now()), 1000);
+    return () => window.clearInterval(timer);
+  }, []);
+
+  return (
+    <div
+      className={cn(
+        "flex w-full flex-wrap items-center gap-2 rounded-xl border border-primary/20 bg-primary/5 px-3 py-2 text-primary",
+        seniorMode ? "min-h-12 text-base" : "text-sm"
+      )}
+    >
+      <span className="inline-flex items-center gap-2 whitespace-nowrap" role="status">
+        <span className="codex-activity-dots" aria-hidden>
+          <span className="codex-activity-dot" />
+          <span className="codex-activity-dot" />
+          <span className="codex-activity-dot" />
+        </span>
+        <span className="font-medium">{phase}</span>
+      </span>
+      <span className="ml-auto shrink-0 whitespace-nowrap tabular-nums text-muted-foreground" aria-live="off">
+        已用时 {formatElapsedTime(now - startedAt)}
+      </span>
+    </div>
+  );
+}
+
 function extractPlainText(blocks: MessageBlock[]): string {
   return blocks
     .filter((b): b is Extract<MessageBlock, { kind: "text" }> => b.kind === "text")
@@ -359,6 +405,13 @@ export function MessageBubble({
           isUser ? "items-end" : "items-start"
         )}
       >
+        {!isUser && message.status === "streaming" && (
+          <AssistantRunStatus
+            startedAt={message.createdAt}
+            phase={hasActiveThinking ? "正在分析您的问题" : "正在生成答复"}
+            seniorMode={seniorMode}
+          />
+        )}
         <div
           className={cn(
             "rounded-2xl px-4 py-2.5 shadow-sm",

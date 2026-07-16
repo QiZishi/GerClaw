@@ -112,7 +112,7 @@ function StatusBadge({ status }: { status: SubAgentNode["status"] }) {
     case "running":
       return (
         <Badge variant="secondary" className="gap-1 text-blue-600">
-          <Loader2 className="size-3 animate-spin" />
+          <Loader2 className="size-3" aria-hidden />
           运行中
         </Badge>
       );

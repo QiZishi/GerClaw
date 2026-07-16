@@ -140,7 +140,7 @@ export function RuntimeApprovalCard({ data }: { data: RuntimeApprovalBlockData }
           disabled={loading}
           className={cn("gap-1.5", isSeniorPatient && "min-h-12 px-4 text-base")}
         >
-          <RefreshCw className={cn("size-3.5", loading && "animate-spin")} />刷新状态
+          <RefreshCw className="size-3.5" aria-hidden />{loading ? "正在刷新" : "刷新状态"}
         </Button>
         {statusConfirmed && status === "pending" && (
           <Button
