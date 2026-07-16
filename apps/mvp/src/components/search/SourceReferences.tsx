@@ -21,6 +21,15 @@ function getFaviconUrl(url: string): string {
   }
 }
 
+function isExternalCitationUrl(url: string): boolean {
+  try {
+    const parsed = new URL(url);
+    return parsed.protocol === "https:" || parsed.protocol === "http:";
+  } catch {
+    return false;
+  }
+}
+
 export function SourceReferences({ citations, className }: SourceReferencesProps) {
   const [expanded, setExpanded] = useState(false);
   const seniorMode = useAppStore((s) => s.seniorMode);
@@ -90,80 +99,83 @@ export function SourceReferences({ citations, className }: SourceReferencesProps
           <ul className="space-y-1.5">
             {citations.map((c) => {
               const faviconUrl = getFaviconUrl(c.url);
-              return (
-                <li key={c.id}>
-                  <a
-                    href={c.url}
-                    target="_blank"
-                    rel="noopener noreferrer"
+              const externalUrl = isExternalCitationUrl(c.url);
+              const itemClassName = cn(
+                "flex items-start gap-2 rounded-md px-2 py-1.5",
+                externalUrl && "cursor-pointer transition-colors hover:bg-muted/60 group",
+                seniorMode ? "py-2" : "py-1.5"
+              );
+              const citationContent = (
+                <>
+                  <span
                     className={cn(
-                      "flex items-start gap-2 rounded-md px-2 py-1.5 hover:bg-muted/60 transition-colors group",
-                      seniorMode ? "py-2" : "py-1.5"
+                      "inline-flex items-center justify-center shrink-0 rounded-full bg-primary/10 text-primary font-semibold mt-0.5",
+                      seniorMode ? "size-6 text-xs" : "size-4 text-[10px]"
                     )}
                   >
-                    <span
-                      className={cn(
-                        "inline-flex items-center justify-center shrink-0 rounded-full bg-primary/10 text-primary font-semibold mt-0.5",
-                        seniorMode ? "size-6 text-xs" : "size-4 text-[10px]"
-                      )}
-                    >
-                      {c.id}
-                    </span>
-                    {faviconUrl ? (
-                      <Image
-                        src={faviconUrl}
-                        alt=""
-                        width={seniorMode ? 20 : 16}
-                        height={seniorMode ? 20 : 16}
-                        className={cn("shrink-0 rounded mt-0.5", seniorMode ? "size-5" : "size-4")}
-                        unoptimized
-                        onError={(e) => {
-                          (e.target as HTMLImageElement).style.display = "none";
-                          const next = (e.target as HTMLImageElement).nextElementSibling as HTMLElement | null;
-                          if (next) next.classList.remove("hidden");
-                        }}
-                      />
-                    ) : null}
-                    <Globe
-                      className={cn(
-                        "shrink-0 text-muted-foreground/50 mt-0.5 hidden",
-                        seniorMode ? "size-5" : "size-4",
-                        !faviconUrl && "block"
-                      )}
+                    {c.id}
+                  </span>
+                  {faviconUrl ? (
+                    <Image
+                      src={faviconUrl}
+                      alt=""
+                      width={seniorMode ? 20 : 16}
+                      height={seniorMode ? 20 : 16}
+                      className={cn("shrink-0 rounded mt-0.5", seniorMode ? "size-5" : "size-4")}
+                      unoptimized
+                      onError={(e) => {
+                        (e.target as HTMLImageElement).style.display = "none";
+                        const next = (e.target as HTMLImageElement).nextElementSibling as HTMLElement | null;
+                        if (next) next.classList.remove("hidden");
+                      }}
                     />
-                    <div className="flex-1 min-w-0">
-                      <div className="flex items-start gap-1">
-                        <span
-                          className={cn(
-                            "font-medium leading-snug text-foreground group-hover:text-primary transition-colors line-clamp-1",
-                            seniorMode ? "text-sm" : "text-xs"
-                          )}
-                        >
-                          {c.title}
-                        </span>
-                        <ExternalLink
-                          className={cn(
-                            "shrink-0 text-muted-foreground/40 mt-0.5 opacity-0 group-hover:opacity-100 transition-opacity",
-                            seniorMode ? "size-3.5" : "size-3"
-                          )}
-                        />
-                      </div>
-                      <div
+                  ) : null}
+                  <Globe
+                    className={cn(
+                      "shrink-0 text-muted-foreground/50 mt-0.5 hidden",
+                      seniorMode ? "size-5" : "size-4",
+                      !faviconUrl && "block"
+                    )}
+                  />
+                  <div className="flex-1 min-w-0">
+                    <div className="flex items-start gap-1">
+                      <span
                         className={cn(
-                          "text-muted-foreground/70 mt-0.5 flex items-center gap-1 flex-wrap",
-                          seniorMode ? "text-xs" : "text-[11px]"
+                          "font-medium leading-snug text-foreground line-clamp-1",
+                          externalUrl && "group-hover:text-primary transition-colors",
+                          seniorMode ? "text-sm" : "text-xs"
                         )}
                       >
-                        <span className="truncate">{c.source}</span>
-                        {c.publishedDate && (
-                          <>
-                            <span>·</span>
-                            <span>{c.publishedDate}</span>
-                          </>
-                        )}
-                      </div>
+                        {c.title}
+                      </span>
+                      {externalUrl && <ExternalLink className={cn("shrink-0 text-muted-foreground/40 mt-0.5", seniorMode ? "size-3.5" : "size-3")} />}
                     </div>
-                  </a>
+                    <div
+                      className={cn(
+                        "text-muted-foreground/70 mt-0.5 flex items-center gap-1 flex-wrap",
+                        seniorMode ? "text-xs" : "text-[11px]"
+                      )}
+                    >
+                      <span className="truncate">{c.source}</span>
+                      {c.publishedDate && (
+                        <>
+                          <span>·</span>
+                          <span>{c.publishedDate}</span>
+                        </>
+                      )}
+                    </div>
+                  </div>
+                </>
+              );
+              return (
+                <li key={c.id}>
+                  {externalUrl ? (
+                    <a href={c.url} target="_blank" rel="noopener noreferrer" className={itemClassName}>
+                      {citationContent}
+                    </a>
+                  ) : (
+                    <div className={itemClassName}>{citationContent}</div>
+                  )}
                 </li>
               );
             })}

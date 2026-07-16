@@ -130,7 +130,7 @@ export function CitationList({
 
       <Separator />
       <div className={cn("px-3 py-2 text-[11px] text-muted-foreground", seniorMode && "text-base leading-relaxed")}>
-        引用来自本次对话实际使用的知识库、网页或上传文档；请打开来源核对原文。
+        引用来自本次对话实际使用的知识库、网页或上传文档；请结合题名、摘录和可用的公开链接核对原文。
       </div>
     </div>
   );
@@ -141,7 +141,17 @@ interface CitationItemProps {
   seniorMode: boolean;
 }
 
+function isExternalCitationUrl(url: string): boolean {
+  try {
+    const parsed = new URL(url);
+    return parsed.protocol === "https:" || parsed.protocol === "http:";
+  } catch {
+    return false;
+  }
+}
+
 function CitationItem({ citation, seniorMode }: CitationItemProps) {
+  const externalUrl = isExternalCitationUrl(citation.url);
   return (
     <article className="rounded-lg border border-border bg-card p-2.5">
       <header className="flex items-start gap-2">
@@ -176,15 +186,21 @@ function CitationItem({ citation, seniorMode }: CitationItemProps) {
         <p className="line-clamp-3">{citation.snippet}</p>
       </div>
       <div className={cn("mt-2 pl-7", seniorMode && "pl-10")}>
-        <a
-          href={citation.url}
-          target="_blank"
-          rel="noopener noreferrer"
-          className={cn("inline-flex items-center gap-1 text-xs text-primary hover:underline", seniorMode && "min-h-12 text-base")}
-        >
-          <ExternalLink className="size-3" />
-          查看原文
-        </a>
+        {externalUrl ? (
+          <a
+            href={citation.url}
+            target="_blank"
+            rel="noopener noreferrer"
+            className={cn("inline-flex items-center gap-1 text-xs text-primary hover:underline", seniorMode && "min-h-12 text-base")}
+          >
+            <ExternalLink className="size-3" />
+            查看原文
+          </a>
+        ) : (
+          <p className={cn("text-xs text-muted-foreground", seniorMode && "text-base leading-relaxed")}>
+            此来源没有公开原文链接；请核对题名与摘录。
+          </p>
+        )}
       </div>
     </article>
   );

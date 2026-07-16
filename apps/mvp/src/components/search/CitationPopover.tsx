@@ -18,6 +18,15 @@ interface CitationPopoverProps {
   allCitations?: Citation[];
 }
 
+function isExternalCitationUrl(url: string): boolean {
+  try {
+    const parsed = new URL(url);
+    return parsed.protocol === "https:" || parsed.protocol === "http:";
+  } catch {
+    return false;
+  }
+}
+
 /**
  * 引用角标弹出卡片
  * 点击 [1] 弹出引用详情（标题、摘要、链接）
@@ -28,6 +37,7 @@ export function CitationPopover({ citation, index, allCitations }: CitationPopov
   const seniorMode = useAppStore((s) => s.seniorMode);
   const setRightPanel = useAppStore((s) => s.setRightPanel);
   const setCurrentCitations = useAppStore((s) => s.setCurrentCitations);
+  const externalUrl = isExternalCitationUrl(citation.url);
 
   const handleOpenAllCitations = () => {
     if (allCitations && allCitations.length > 0) {
@@ -75,15 +85,19 @@ export function CitationPopover({ citation, index, allCitations }: CitationPopov
             </div>
           )}
           <div className="flex items-center gap-2 pt-1">
-            <a
-              href={citation.url}
-              target="_blank"
-              rel="noopener noreferrer"
-              className="inline-flex items-center gap-1 text-xs text-primary hover:underline"
-            >
-              <ExternalLink className="size-3" />
-              查看原文
-            </a>
+            {externalUrl ? (
+              <a
+                href={citation.url}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="inline-flex items-center gap-1 text-xs text-primary hover:underline"
+              >
+                <ExternalLink className="size-3" />
+                查看原文
+              </a>
+            ) : (
+              <span className="text-xs text-muted-foreground">此来源无公开链接</span>
+            )}
             <button
               type="button"
               onClick={handleOpenAllCitations}
