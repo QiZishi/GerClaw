@@ -706,10 +706,10 @@ export function ChatInput({
       ? "正在恢复当前会话的技能，请稍候…"
     : role === "doctor"
       ? seniorMode
-        ? "请描述患者病情或需要评估的内容…"
+        ? "请描述患者病情或评估需求…"
         : "请输入患者病情或评估需求…"
       : seniorMode
-        ? "请描述您的不适或健康问题，例如：我最近血压偏高…"
+        ? "请描述您想咨询的健康问题…"
         : "描述您的健康问题…";
   const hasUnboundParsedDocuments = pendingDocuments.some(
     (document) =>
