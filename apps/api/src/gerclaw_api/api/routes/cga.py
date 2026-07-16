@@ -2,14 +2,19 @@
 
 from __future__ import annotations
 
+import json
 import uuid
+from time import monotonic
 from typing import Annotated
 
-from fastapi import APIRouter, Depends, HTTPException, Query, status
+from fastapi import APIRouter, Depends, HTTPException, Query, Request, status
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from gerclaw_api.auth import AuthContext, require_cga_read, require_cga_write
-from gerclaw_api.dependencies import get_database_session
+from gerclaw_api.dependencies import get_database_session, get_trace_service
+from gerclaw_api.domain.enums import TraceEventStatus, TraceEventType, TraceStatus
+from gerclaw_api.domain.trace_schemas import TraceEventCreate, TraceFinishRequest, TraceStartRequest
+from gerclaw_api.middleware import set_active_trace
 from gerclaw_api.modules.cga.models import (
     CgaActiveAssessmentsRead,
     CgaAnswerRequest,
@@ -26,12 +31,125 @@ from gerclaw_api.modules.cga.phq9 import PHQ9_OPTIONS, PHQ9_QUESTIONS, PHQ9_VERS
 from gerclaw_api.modules.cga.psqi import PSQI_QUESTIONS, PSQI_VERSION, psqi_options_for
 from gerclaw_api.modules.cga.sas import SAS_OPTIONS, SAS_QUESTIONS, SAS_VERSION
 from gerclaw_api.repositories.cga import CgaAssessmentNotFoundError, SqlAlchemyCgaRepository
+from gerclaw_api.security import audit_hmac_digest
 from gerclaw_api.services.cga_service import CgaAssessmentConflictError, CgaService
+from gerclaw_api.services.trace_service import TraceConflictError, TraceService
 
 router = APIRouter(prefix="/cga", tags=["cga"])
 SessionDependency = Annotated[AsyncSession, Depends(get_database_session)]
 ReadIdentity = Annotated[AuthContext, Depends(require_cga_read)]
 WriteIdentity = Annotated[AuthContext, Depends(require_cga_write)]
+
+
+def _trace_service(request: Request, session: SessionDependency) -> TraceService:
+    return get_trace_service(
+        session, max_events_per_trace=request.app.state.settings.max_events_per_trace
+    )
+
+
+TraceServiceDependency = Annotated[TraceService, Depends(_trace_service)]
+
+
+def _request_fingerprint(
+    request: Request,
+    payload: CgaStartRequest | CgaAnswerRequest | CgaCompleteRequest,
+) -> str:
+    """Bind a write request without retaining screening answers in audit storage."""
+
+    canonical = json.dumps(
+        payload.model_dump(mode="json"),
+        ensure_ascii=False,
+        allow_nan=False,
+        sort_keys=True,
+        separators=(",", ":"),
+    )
+    return audit_hmac_digest(
+        request.app.state.settings.auth_jwt_secret.get_secret_value().encode(),
+        canonical.encode(),
+    )
+
+
+async def _start_write_trace(
+    *,
+    request: Request,
+    traces: TraceService,
+    identity: AuthContext,
+    scale_id: str,
+    operation: str,
+    payload: CgaStartRequest | CgaAnswerRequest | CgaCompleteRequest,
+) -> tuple[str, float]:
+    trace_id = str(request.state.trace_id)
+    set_active_trace(request.scope, trace_id)
+    started = monotonic()
+    result = await traces.start_trace_with_status(
+        TraceStartRequest(
+            execution_type="cga.assessment",
+            attributes={
+                "feature": "cga",
+                "module": "cga",
+                "operation": operation,
+                "request_fingerprint": _request_fingerprint(request, payload),
+                "scale": scale_id,
+            },
+        ),
+        str(request.state.request_id),
+        trace_id=trace_id,
+        tenant_id=identity.tenant_id,
+        actor_id=identity.actor_id,
+        commit=False,
+    )
+    if not result.created:
+        raise TraceConflictError("CGA assessment trace is already in use")
+    return trace_id, started
+
+
+async def _finish_write_trace(
+    *,
+    traces: TraceService,
+    tenant_id: str,
+    trace_id: str,
+    operation: str,
+    elapsed_started_at: float,
+    result: CgaAssessmentRead,
+) -> None:
+    trace_suffix = trace_id.removeprefix("trace_")
+    await traces.append_event(
+        tenant_id,
+        trace_id,
+        TraceEventCreate(
+            event_id=f"event_{trace_suffix}_{operation}",
+            event_type=TraceEventType.CGA_ASSESSMENT,
+            status=TraceEventStatus.SUCCEEDED,
+            payload={
+                "feature": "cga",
+                "operation": operation,
+                "scale": result.scale_id,
+                "version": result.definition_version,
+                "answered_count": result.answered_count,
+                "outcome": result.status,
+                "success": True,
+            },
+            duration_ms=max(0, int((monotonic() - elapsed_started_at) * 1_000)),
+        ),
+        commit=False,
+    )
+    await traces.finish_trace(
+        tenant_id,
+        trace_id,
+        TraceFinishRequest(
+            idempotency_key=f"finish_{trace_suffix}_{operation}",
+            status=TraceStatus.COMPLETED,
+            attributes={
+                "feature": "cga",
+                "module": "cga",
+                "operation": operation,
+                "result_code": result.status,
+                "scale": result.scale_id,
+                "version": result.definition_version,
+            },
+        ),
+        commit=False,
+    )
 
 
 @router.get("/scales", response_model=CgaScalesRead)
@@ -100,12 +218,35 @@ async def list_scales(identity: ReadIdentity) -> CgaScalesRead:
 
 @router.post("/assessments", response_model=CgaAssessmentRead, status_code=status.HTTP_201_CREATED)
 async def start_assessment(
-    payload: CgaStartRequest, session: SessionDependency, identity: WriteIdentity
+    payload: CgaStartRequest,
+    request: Request,
+    session: SessionDependency,
+    identity: WriteIdentity,
+    traces: TraceServiceDependency,
 ) -> CgaAssessmentRead:
     """Start a server-owned deterministic assessment for the current principal."""
 
+    try:
+        trace_id, started_at = await _start_write_trace(
+            request=request,
+            traces=traces,
+            identity=identity,
+            scale_id=payload.scale_id,
+            operation="start",
+            payload=payload,
+        )
+    except TraceConflictError as error:
+        raise HTTPException(status_code=409, detail={"code": "CGA_TRACE_CONFLICT"}) from error
     result = await CgaService(SqlAlchemyCgaRepository(session)).start(
         tenant_id=identity.tenant_id, actor_id=identity.actor_id, scale_id=payload.scale_id
+    )
+    await _finish_write_trace(
+        traces=traces,
+        tenant_id=identity.tenant_id,
+        trace_id=trace_id,
+        operation="start",
+        elapsed_started_at=started_at,
+        result=result,
     )
     await session.commit()
     return result
@@ -155,11 +296,24 @@ async def get_assessment(
 async def answer_assessment(
     assessment_id: uuid.UUID,
     payload: CgaAnswerRequest,
+    request: Request,
     session: SessionDependency,
     identity: WriteIdentity,
+    traces: TraceServiceDependency,
 ) -> CgaAssessmentRead:
     service = CgaService(SqlAlchemyCgaRepository(session))
     try:
+        current = await service.get(
+            assessment_id, tenant_id=identity.tenant_id, actor_id=identity.actor_id
+        )
+        trace_id, started_at = await _start_write_trace(
+            request=request,
+            traces=traces,
+            identity=identity,
+            scale_id=current.scale_id,
+            operation="answer",
+            payload=payload,
+        )
         result = await service.answer(
             assessment_id,
             tenant_id=identity.tenant_id,
@@ -173,6 +327,16 @@ async def answer_assessment(
         raise HTTPException(status_code=404, detail={"code": "CGA_NOT_FOUND"}) from error
     except CgaAssessmentConflictError as error:
         raise HTTPException(status_code=409, detail={"code": "CGA_CONFLICT"}) from error
+    except TraceConflictError as error:
+        raise HTTPException(status_code=409, detail={"code": "CGA_TRACE_CONFLICT"}) from error
+    await _finish_write_trace(
+        traces=traces,
+        tenant_id=identity.tenant_id,
+        trace_id=trace_id,
+        operation="answer",
+        elapsed_started_at=started_at,
+        result=result,
+    )
     await session.commit()
     return result
 
@@ -181,11 +345,24 @@ async def answer_assessment(
 async def complete_assessment(
     assessment_id: uuid.UUID,
     payload: CgaCompleteRequest,
+    request: Request,
     session: SessionDependency,
     identity: WriteIdentity,
+    traces: TraceServiceDependency,
 ) -> CgaAssessmentRead:
     service = CgaService(SqlAlchemyCgaRepository(session))
     try:
+        current = await service.get(
+            assessment_id, tenant_id=identity.tenant_id, actor_id=identity.actor_id
+        )
+        trace_id, started_at = await _start_write_trace(
+            request=request,
+            traces=traces,
+            identity=identity,
+            scale_id=current.scale_id,
+            operation="complete",
+            payload=payload,
+        )
         result = await service.complete(
             assessment_id,
             tenant_id=identity.tenant_id,
@@ -196,6 +373,16 @@ async def complete_assessment(
         raise HTTPException(status_code=404, detail={"code": "CGA_NOT_FOUND"}) from error
     except CgaAssessmentConflictError as error:
         raise HTTPException(status_code=409, detail={"code": "CGA_CONFLICT"}) from error
+    except TraceConflictError as error:
+        raise HTTPException(status_code=409, detail={"code": "CGA_TRACE_CONFLICT"}) from error
+    await _finish_write_trace(
+        traces=traces,
+        tenant_id=identity.tenant_id,
+        trace_id=trace_id,
+        operation="complete",
+        elapsed_started_at=started_at,
+        result=result,
+    )
     await session.commit()
     return result
 

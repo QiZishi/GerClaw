@@ -223,6 +223,42 @@ async def test_clinical_intake_trace_event_is_count_only_and_phi_free() -> None:
 
 
 @pytest.mark.asyncio
+async def test_cga_assessment_trace_event_is_count_only_and_phi_free() -> None:
+    repository = FakeTraceRepository()
+    service = TraceService(repository)
+    await _start(service)
+
+    event = await service.append_event(
+        TENANT,
+        TRACE_ID,
+        TraceEventCreate(
+            event_id="event_cga_0001",
+            event_type=TraceEventType.CGA_ASSESSMENT,
+            status=TraceEventStatus.SUCCEEDED,
+            payload={
+                "feature": "cga",
+                "operation": "answer",
+                "scale": "phq9",
+                "version": "phq9-v1",
+                "answered_count": 1,
+                "outcome": "active",
+                "success": True,
+            },
+        ),
+    )
+
+    assert event.payload == {
+        "feature": "cga",
+        "operation": "answer",
+        "scale": "phq9",
+        "version": "phq9-v1",
+        "answered_count": 1,
+        "outcome": "active",
+        "success": True,
+    }
+
+
+@pytest.mark.asyncio
 async def test_trace_start_status_distinguishes_creator_from_replay() -> None:
     repository = FakeTraceRepository()
     service = TraceService(repository)

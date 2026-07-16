@@ -8,6 +8,7 @@ This module owns versioned, deterministic screening-scale definitions and scorin
 
 - A client may submit only a server-provided current `question_id` and an option value defined by that scale.  Never accept client-supplied wording, score totals, severity, or report content.
 - Screening is not diagnosis.  Every report must retain a medical disclaimer.  PHQ-9 item 9 safety handling must remain distinct from aggregate-score follow-up.
+- Start, answer and complete writes create an atomic Runtime Trace containing only scale/version, operation, answer count and status. Never add question IDs, scores, risk flags, notes, assessment IDs or raw request bodies to that Trace.
 - Scale source, item order, option values, reverse scoring, thresholds, and definition version are immutable facts.  Add a new version rather than silently changing a published definition.
 - This module must not call LLMs, RAG, web search, TTS, or external clinical services.
 
