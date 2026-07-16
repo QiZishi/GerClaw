@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, useRef, useCallback } from "react";
-import { CheckCircle2, Mic, Send, Loader2 } from "lucide-react";
+import { CheckCircle2, Mic, Send, Loader2, Clock3 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
 import { useAppStore } from "@/stores/appStore";
@@ -305,13 +305,14 @@ export function StageIndicator({ title, description, active = true }: StageIndic
     )}>
       <div className={cn(
         "size-8 rounded-full flex items-center justify-center shrink-0",
-        active ? "bg-primary text-primary-foreground animate-pulse" : "bg-muted text-muted-foreground"
+        active ? "bg-primary text-primary-foreground" : "bg-muted text-muted-foreground"
       )}>
-        <Loader2 className={cn("size-4", active && "animate-spin")} />
+        {active ? <Clock3 className="size-4" /> : <CheckCircle2 className="size-4" />}
       </div>
       <div className="min-w-0">
-        <p className={cn("font-medium text-foreground", seniorMode ? "text-base" : "text-sm")}>
+        <p className={cn("font-medium text-foreground", seniorMode ? "text-base" : "text-sm")} aria-live="polite">
           {title}
+          {active && <span className="ml-2 text-muted-foreground">进行中</span>}
         </p>
         {description && (
           <p className={cn("text-muted-foreground", seniorMode ? "text-sm" : "text-xs")}>
