@@ -10,6 +10,7 @@ export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
 const COOKIE_NAME = "gerclaw_guest_token";
+const ACCOUNT_COOKIE_NAME = "gerclaw_account_access";
 const VISITOR_COOKIE_NAME = "gerclaw_visitor_id";
 const visitorIdSchema = z.string().regex(/^[a-f0-9]{32}$/);
 const proxyTraceIdSchema = z.string().regex(/^trace_[a-f0-9]{32}$/);
@@ -160,15 +161,18 @@ async function proxy(request: NextRequest, context: RouteContext): Promise<Respo
     );
   }
   let credential: GuestCredential | null = null;
-  let accessToken = request.cookies.get(COOKIE_NAME)?.value;
+  const accountAccessToken = request.cookies.get(ACCOUNT_COOKIE_NAME)?.value;
+  let accessToken = accountAccessToken ?? request.cookies.get(COOKIE_NAME)?.value;
   const cookieVisitorId = visitorIdSchema.safeParse(
     request.cookies.get(VISITOR_COOKIE_NAME)?.value
   );
   const headerVisitorId = visitorIdSchema.safeParse(
     request.headers.get("x-gerclaw-visitor-id")
   );
-  let visitorId: string;
-  if (cookieVisitorId.success) {
+  let visitorId: string | null = null;
+  if (accountAccessToken) {
+    // Account access is server-issued and must not be rebound to a visitor identity.
+  } else if (cookieVisitorId.success) {
     visitorId = cookieVisitorId.data;
   } else if (headerVisitorId.success) {
     visitorId = headerVisitorId.data;
@@ -178,7 +182,7 @@ async function proxy(request: NextRequest, context: RouteContext): Promise<Respo
       { status: 400 }
     );
   }
-  const visitorCookieRequired = !cookieVisitorId.success;
+  const visitorCookieRequired = !accountAccessToken && !cookieVisitorId.success;
   if (visitorCookieRequired) {
     // A token without its identity cookie cannot be proven to match the client-generated ID.
     accessToken = undefined;
@@ -186,7 +190,7 @@ async function proxy(request: NextRequest, context: RouteContext): Promise<Respo
 
   try {
     if (!accessToken) {
-      credential = await issueGuestCredential(apiBase, visitorId);
+      credential = await issueGuestCredential(apiBase, visitorId!);
       accessToken = credential.accessToken;
     }
 
@@ -207,8 +211,8 @@ async function proxy(request: NextRequest, context: RouteContext): Promise<Respo
     };
 
     let upstream = await callUpstream(accessToken);
-    if (upstream.status === 401) {
-      credential = await issueGuestCredential(apiBase, visitorId);
+    if (upstream.status === 401 && !accountAccessToken) {
+      credential = await issueGuestCredential(apiBase, visitorId!);
       accessToken = credential.accessToken;
       upstream = await callUpstream(accessToken);
     }
@@ -226,7 +230,7 @@ async function proxy(request: NextRequest, context: RouteContext): Promise<Respo
         maxAge: credential.expiresIn,
       });
     }
-    if (visitorCookieRequired) {
+    if (visitorCookieRequired && visitorId !== null) {
       response.cookies.set(VISITOR_COOKIE_NAME, visitorId, {
         httpOnly: true,
         sameSite: "lax",
