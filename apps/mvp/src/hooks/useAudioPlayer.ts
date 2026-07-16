@@ -2,6 +2,7 @@
 
 import { useState, useRef, useCallback, useEffect } from "react";
 import { synthesizeSpeech } from "@/services/voice/tts";
+import { splitTtsText } from "@/lib/tts-text";
 import {
   claimActiveAudioPlayer,
   releaseActiveAudioPlayer,
@@ -29,6 +30,11 @@ export function useAudioPlayer(): UseAudioPlayerReturn {
   const objectUrlRef = useRef<string | null>(null);
   const abortControllerRef = useRef<AbortController | null>(null);
   const playerIdRef = useRef(Symbol("audio-player"));
+  const queueRef = useRef<string[]>([]);
+  const totalCharactersRef = useRef(0);
+  const completedCharactersRef = useRef(0);
+  const playbackIdRef = useRef(0);
+  const playNextRef = useRef<(playbackId: number) => Promise<void>>(async () => undefined);
 
   const releaseMedia = useCallback(() => {
     abortControllerRef.current?.abort();
@@ -53,6 +59,10 @@ export function useAudioPlayer(): UseAudioPlayerReturn {
   }, []);
 
   const stop = useCallback(() => {
+    playbackIdRef.current += 1;
+    queueRef.current = [];
+    totalCharactersRef.current = 0;
+    completedCharactersRef.current = 0;
     releaseMedia();
     releaseActiveAudioPlayer(playerIdRef.current);
     setIsPlaying(false);
@@ -99,26 +109,84 @@ export function useAudioPlayer(): UseAudioPlayerReturn {
     syncProgress();
   }, [stop]);
 
-  const play = useCallback(async (text: string) => {
-    claimPlayer();
+  const playNext = useCallback(async (playbackId: number) => {
+    if (playbackId !== playbackIdRef.current) return;
+    const chunk = queueRef.current.shift();
+    if (!chunk) {
+      stop();
+      return;
+    }
 
+    if (audioRef.current?.ended) {
+      audioRef.current = null;
+    }
+    if (objectUrlRef.current) {
+      URL.revokeObjectURL(objectUrlRef.current);
+      objectUrlRef.current = null;
+    }
+    setIsLoading(true);
     const controller = new AbortController();
     abortControllerRef.current = controller;
     try {
-      const audioBlob = await synthesizeSpeech(text, controller.signal);
-      if (controller.signal.aborted) return;
+      const audioBlob = await synthesizeSpeech(chunk, controller.signal);
+      if (controller.signal.aborted || playbackId !== playbackIdRef.current) return;
 
       const url = URL.createObjectURL(audioBlob);
       objectUrlRef.current = url;
-      await startAudio(url);
-      if (controller.signal.aborted) return;
+      const audio = new Audio(url);
+      audio.preload = "auto";
+      audioRef.current = audio;
+      audio.onerror = () => stop();
+      audio.onplay = () => {
+        if (audioRef.current !== audio || playbackId !== playbackIdRef.current) return;
+        setIsLoading(false);
+        setIsPlaying(true);
+        setIsPaused(false);
+      };
+      audio.onpause = () => {
+        if (audioRef.current !== audio || audio.ended || playbackId !== playbackIdRef.current) return;
+        setIsPlaying(false);
+        setIsPaused(true);
+      };
+      const syncProgress = () => {
+        if (audioRef.current !== audio || playbackId !== playbackIdRef.current) return;
+        const total = totalCharactersRef.current;
+        if (!total || !Number.isFinite(audio.duration) || audio.duration <= 0) return;
+        const current = Math.max(0, Math.min(1, audio.currentTime / audio.duration));
+        setProgress(Math.max(0, Math.min(1, (completedCharactersRef.current + chunk.length * current) / total)));
+      };
+      audio.ontimeupdate = syncProgress;
+      audio.ondurationchange = syncProgress;
+      audio.onended = () => {
+        if (playbackId !== playbackIdRef.current) return;
+        completedCharactersRef.current += chunk.length;
+        setProgress(Math.min(1, completedCharactersRef.current / totalCharactersRef.current));
+        void playNextRef.current(playbackId);
+      };
+      await audio.play();
+      syncProgress();
     } catch (error) {
-      if (!controller.signal.aborted) {
+      if (!controller.signal.aborted && playbackId === playbackIdRef.current) {
         stop();
         throw error;
       }
     }
-  }, [claimPlayer, startAudio, stop]);
+  }, [stop]);
+
+  useEffect(() => {
+    playNextRef.current = playNext;
+  }, [playNext]);
+
+  const play = useCallback(async (text: string) => {
+    claimPlayer();
+    const chunks = splitTtsText(text);
+    if (chunks.length === 0) return;
+    queueRef.current = chunks;
+    totalCharactersRef.current = chunks.reduce((total, chunk) => total + chunk.length, 0);
+    completedCharactersRef.current = 0;
+    setProgress(0);
+    await playNext(playbackIdRef.current);
+  }, [claimPlayer, playNext]);
 
   const playSource = useCallback(async (sourceUrl: string) => {
     claimPlayer();

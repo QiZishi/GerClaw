@@ -1,5 +1,6 @@
 import { NextRequest } from "next/server";
 import { z } from "zod";
+import { API_TIMEOUT } from "@/lib/constants";
 import { getVoiceProvider, mimoAuthorizationHeaders } from "@/server/voice-provider";
 import {
   parseTtsRequest,
@@ -25,7 +26,10 @@ const ttsResponseSchema = z.object({
 export async function POST(request: NextRequest) {
   try {
     takeVoiceRequestSlot(request);
-    const operationSignal = AbortSignal.any([request.signal, AbortSignal.timeout(10_000)]);
+    // A complete assistant reply can take longer than a short voice check to
+    // synthesize. Use the shared TTS deadline and keep the client abort signal
+    // in the race so “正在准备，点击取消” always stops the upstream request.
+    const operationSignal = AbortSignal.any([request.signal, AbortSignal.timeout(API_TIMEOUT.tts)]);
     const { text, voice } = await parseTtsRequest(request, operationSignal);
     const { url: ttsUrl, apiKey: ttsApiKey, model: ttsModel, voice: ttsVoice } = getVoiceProvider("tts");
     if (!ttsUrl || !ttsApiKey) {

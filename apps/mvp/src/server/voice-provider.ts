@@ -2,14 +2,11 @@ import "server-only";
 
 type VoiceService = "asr" | "tts";
 
-const LEGACY_PUBLIC_PREFIX = "NEXT_PUBLIC_";
-
 function readVoiceSetting(service: VoiceService, setting: "URL" | "MODEL"): string {
   const prefix = service === "asr" ? "ASR" : "TTS";
   return (
     process.env[`MIMO_${prefix}_${setting}`] ||
     process.env[`${prefix}_${setting}`] ||
-    process.env[`${LEGACY_PUBLIC_PREFIX}${prefix}_${setting}`] ||
     ""
   );
 }
@@ -19,7 +16,6 @@ function readVoiceApiKey(service: VoiceService): string {
   return (
     process.env.MIMO_API_KEY ||
     process.env[`${prefix}_API_KEY`] ||
-    process.env[`${LEGACY_PUBLIC_PREFIX}${prefix}_API_KEY`] ||
     ""
   );
 }
@@ -31,7 +27,7 @@ export function getVoiceProvider(service: VoiceService) {
     model: readVoiceSetting(service, "MODEL") || `mimo-v2.5-${service}`,
     voice:
       service === "tts"
-        ? process.env.TTS_VOICE || process.env.NEXT_PUBLIC_TTS_VOICE || "冰糖"
+        ? process.env.TTS_VOICE || "冰糖"
         : undefined,
   };
 }
