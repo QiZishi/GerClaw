@@ -22,6 +22,9 @@ interface AppState {
   seniorMode: boolean;
   setSeniorMode: (senior: boolean) => void;
   toggleSeniorMode: () => void;
+  /** 患者老年模式下，完成的 AI 回复是否自动开始朗读。 */
+  autoTtsPlayback: boolean;
+  setAutoTtsPlayback: (enabled: boolean) => void;
 
   // === 侧边栏折叠 ===
   sidebarCollapsed: boolean;
@@ -122,6 +125,8 @@ export const useAppStore = create<AppState>()(
       setSeniorMode: (seniorMode) => set({ seniorMode }),
       toggleSeniorMode: () =>
         set({ seniorMode: !get().seniorMode }),
+      autoTtsPlayback: true,
+      setAutoTtsPlayback: (autoTtsPlayback) => set({ autoTtsPlayback }),
 
       // === 侧边栏 ===
       sidebarCollapsed: false,
@@ -240,6 +245,7 @@ export const useAppStore = create<AppState>()(
         theme: state.theme,
         role: state.role,
         seniorMode: state.seniorMode,
+        autoTtsPlayback: state.autoTtsPlayback,
         sidebarCollapsed: state.sidebarCollapsed,
         rightPanelWidth: state.rightPanelWidth,
       }),

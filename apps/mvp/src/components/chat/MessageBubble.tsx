@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import Image from "next/image";
 import {
   AlertTriangle,
@@ -105,12 +105,30 @@ interface MessageBubbleProps {
   isLastMessage?: boolean;
 }
 
-function VoiceReadButton({ text, seniorMode }: { text: string; seniorMode: boolean }) {
+function VoiceReadButton({ text, seniorMode, autoPlay }: { text: string; seniorMode: boolean; autoPlay: boolean }) {
   const { isPlaying, isPaused, isLoading, progress, play, pause, resume, stop } = useAudioPlayer();
+  const autoPlaybackStartedRef = useRef(false);
+  const autoPlaybackTimerRef = useRef<number | null>(null);
 
   const reportPlaybackError = () => toast.show("语音播放失败，请稍后重试");
   const start = () => void play(text).catch(reportPlaybackError);
   const continuePlayback = () => void resume().catch(reportPlaybackError);
+
+  useEffect(() => {
+    if (!autoPlay || autoPlaybackStartedRef.current || !text) return;
+    autoPlaybackTimerRef.current = window.setTimeout(() => {
+      autoPlaybackTimerRef.current = null;
+      autoPlaybackStartedRef.current = true;
+      // 自动朗读的失败不打断咨询；用户仍可点击“朗读”重试。
+      void play(text).catch(() => undefined);
+    }, 500);
+    return () => {
+      if (autoPlaybackTimerRef.current !== null) {
+        window.clearTimeout(autoPlaybackTimerRef.current);
+        autoPlaybackTimerRef.current = null;
+      }
+    };
+  }, [autoPlay, play, text]);
 
   if (isLoading) {
     return (
@@ -264,6 +282,9 @@ export function MessageBubble({
   const [feedbackText, setFeedbackText] = useState("");
   const [feedbackSubmitting, setFeedbackSubmitting] = useState(false);
   const seniorMode = useAppStore((s) => s.seniorMode);
+  const role = useAppStore((s) => s.role);
+  const autoTtsPlayback = useAppStore((s) => s.autoTtsPlayback);
+  const ttsAvailable = useAppStore((s) => s.ttsAvailable);
   const setRightPanel = useAppStore((s) => s.setRightPanel);
   const setPanelContent = useAppStore((s) => s.setPanelContent);
   const setMessageFeedback = useChatStore((s) => s.setMessageFeedback);
@@ -698,7 +719,11 @@ export function MessageBubble({
               )}
 
               {!isUser && message.status === "done" && plainText && (
-                <VoiceReadButton text={plainText} seniorMode={seniorMode} />
+                <VoiceReadButton
+                  text={plainText}
+                  seniorMode={seniorMode}
+                  autoPlay={role === "patient" && seniorMode && autoTtsPlayback && ttsAvailable && Boolean(isLastMessage)}
+                />
               )}
 
               {message.status === "done" && <Tooltip>

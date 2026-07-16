@@ -24,6 +24,8 @@ export function SettingsPanel() {
   const role = useAppStore((state) => state.role);
   const seniorMode = useAppStore((state) => state.seniorMode);
   const setSeniorMode = useAppStore((state) => state.setSeniorMode);
+  const autoTtsPlayback = useAppStore((state) => state.autoTtsPlayback);
+  const setAutoTtsPlayback = useAppStore((state) => state.setAutoTtsPlayback);
   const isOnline = useAppStore((state) => state.isOnline);
   const asrAvailable = useAppStore((state) => state.asrAvailable);
   const ttsAvailable = useAppStore((state) => state.ttsAvailable);
@@ -92,6 +94,20 @@ export function SettingsPanel() {
           </div>
           {!isPatient && (
             <p className="text-xs text-muted-foreground">切换到患者模式后可调整适老模式。</p>
+          )}
+          {isPatient && seniorMode && (
+            <div className="flex min-h-16 items-center justify-between gap-4 rounded-xl border border-border px-3 py-2.5">
+              <div>
+                <div className="text-lg font-medium">自动朗读回复</div>
+                <div className="mt-1 text-base leading-relaxed text-muted-foreground">回答完成后自动开始朗读，您可以随时暂停、继续或停止。</div>
+              </div>
+              <Switch
+                size="lg"
+                checked={autoTtsPlayback}
+                onCheckedChange={setAutoTtsPlayback}
+                aria-label="切换自动朗读回复"
+              />
+            </div>
           )}
         </section>
 
