@@ -32,6 +32,7 @@ async def test_voice_module_parses_asr_and_pcm16_sse_without_retaining_payloads(
                     [
                         {"choices": [{"delta": {"content": "您好"}}]},
                         {"choices": [{"delta": {"content": "，请说。"}}]},  # noqa: RUF001
+                        {"choices": []},
                     ]
                 ),
             )
@@ -44,7 +45,8 @@ async def test_voice_module_parses_asr_and_pcm16_sse_without_retaining_payloads(
                         "choices": [
                             {"delta": {"audio": {"data": base64.b64encode(pcm).decode()}}}
                         ]
-                    }
+                    },
+                    {"choices": []},
                 ]
             ),
         )

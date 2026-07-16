@@ -52,7 +52,11 @@ class _Choice(BaseModel):
 class _StreamEvent(BaseModel):
     model_config = ConfigDict(extra="ignore")
 
-    choices: list[_Choice] = Field(min_length=1, max_length=10)
+    # MiMo emits an otherwise-empty final SSE event (`choices: []`) before or
+    # alongside `[DONE]`.  It is a valid stream terminator, not a malformed
+    # provider response.  Treating it as invalid would tear down an already
+    # playing PCM stream at the last packet.
+    choices: list[_Choice] = Field(max_length=10)
 
 
 class MiMoVoiceModule:
