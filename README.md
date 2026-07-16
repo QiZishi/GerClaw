@@ -27,7 +27,7 @@ GerClaw 是面向老年患者与老年科医生的 Web 端 AI 双向诊疗平台
 - CGA 仅覆盖 PHQ-9、SAS、PSQI；Mini-Cog/MMSE 人工确认、医生授权查看及跨时间比较未实现
 - 五大处方和用药审查只有受限信息收集；缺经医学审核的模板、规则集、证据校验、报告生成、医生批准与患者授权
 - 风险预警、慢病管理、情感陪伴的真实前后端 workflow 与安全边界
-- 患者授权、医生资质/RBAC、跨患者访问与 BFF HttpOnly cookie/CSRF
+- 患者授权、医生资质/RBAC、跨患者访问与账号登录/注册页面
 - Bad Case 的授权脱敏晋升、模型/RAG/医疗评测、趋势指标与安全回放闭环
 - 全站响应式/适老化 E2E 和最终 Docker 空卷验收
 
@@ -190,7 +190,7 @@ docker compose -f docker-compose.yml -f docker-compose.dev.yml ps
 |---|---|---|
 | 未审核临床规则/模板可能被误当成建议 | 处方与用药页面仅允许信息收集，明确禁用处方、诊断及药物调整结论 | 0029 医学内容、规则、审批与授权 |
 | Runtime 临床副作用恢复/复核尚未接线 | Permission/HITL/预算/checkpoint 基础已存在，但临床 executor 仍 fail closed | 0021 与各临床 workflow 接入 |
-| IAM 仍未完整 | 本地账号会话已落地；医生资质、授权、跨患者访问和 BFF cookie/CSRF 尚未完成 | 0025、0032 |
+| IAM 仍未完整 | 本地账号会话及 BFF HttpOnly Cookie/CSRF 已落地；医生资质、授权、跨患者访问和账号 UI 尚未完成 | 0025、0032 |
 | 全出口 PHI/密钥泄露面未统一验证 | 核心日志/Trace/vector 有局部测试；文档、导出和临床流程尚未完整覆盖 | 0022 Privacy 与 0026 Eval/Bad Case |
 | 风险预警/慢病管理/情感陪伴尚无真实闭环 | Chat 仅有红旗/自伤安全后处理，不等于业务功能 | 0023 临床 workflow 与安全陪伴 |
 | 容量与容器恢复证据不足 | 只声明已真实验证的范围 | 0026 并发、0028 空卷 Docker 验收 |
