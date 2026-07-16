@@ -11,6 +11,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from gerclaw_api.auth import AuthContext, require_cga_read, require_cga_write
 from gerclaw_api.dependencies import get_database_session
 from gerclaw_api.modules.cga.models import (
+    CgaActiveAssessmentsRead,
     CgaAnswerRequest,
     CgaAssessmentRead,
     CgaCompleteRequest,
@@ -124,6 +125,18 @@ async def list_assessment_history(
         )
     except CgaAssessmentConflictError as error:
         raise HTTPException(status_code=409, detail={"code": "CGA_HISTORY_UNAVAILABLE"}) from error
+
+
+@router.get("/assessments/active", response_model=CgaActiveAssessmentsRead)
+async def list_active_assessments(
+    session: SessionDependency,
+    identity: ReadIdentity,
+) -> CgaActiveAssessmentsRead:
+    """List only the caller's unfinished assessments for explicit resume UI."""
+
+    return await CgaService(SqlAlchemyCgaRepository(session)).active(
+        tenant_id=identity.tenant_id, actor_id=identity.actor_id, limit=3
+    )
 
 
 @router.get("/assessments/{assessment_id}", response_model=CgaAssessmentRead)

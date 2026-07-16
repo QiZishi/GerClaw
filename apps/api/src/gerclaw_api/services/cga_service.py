@@ -3,10 +3,11 @@
 from __future__ import annotations
 
 import uuid
-from typing import Any, Literal
+from typing import Any, Literal, cast
 
 from gerclaw_api.database.models import CgaAssessment
 from gerclaw_api.modules.cga.models import (
+    CgaActiveAssessmentsRead,
     CgaAssessmentRead,
     CgaHistoryItemRead,
     CgaHistoryRead,
@@ -186,13 +187,23 @@ class CgaService:
             items.append(
                 CgaHistoryItemRead(
                     assessment_id=record.id,
-                    scale_id=record.scale_id,
+                    scale_id=cast(Literal["phq9", "sas", "psqi"], record.scale_id),
                     definition_version=record.definition_version,
                     completed_at=record.updated_at,
                     report=report,
                 )
             )
         return CgaHistoryRead(items=items)
+
+    async def active(
+        self, *, tenant_id: str, actor_id: str, limit: int
+    ) -> CgaActiveAssessmentsRead:
+        """List the caller's resumable server-owned states without raw answers."""
+
+        records = await self._repository.list_active(
+            tenant_id=tenant_id, actor_id=actor_id, limit=limit
+        )
+        return CgaActiveAssessmentsRead(items=[self._read(record) for record in records])
 
     def _read(self, record: CgaAssessment) -> CgaAssessmentRead:
         answers = self._answers(record)
@@ -217,9 +228,9 @@ class CgaService:
             next_question = self._question(record.scale_id, record.current_position)
         return CgaAssessmentRead(
             assessment_id=record.id,
-            scale_id=record.scale_id,
+            scale_id=cast(Literal["phq9", "sas", "psqi"], record.scale_id),
             definition_version=record.definition_version,
-            status=record.status,
+            status=cast(Literal["active", "completed", "abandoned"], record.status),
             revision=record.revision,
             answered_count=len(answers),
             next_question=next_question,

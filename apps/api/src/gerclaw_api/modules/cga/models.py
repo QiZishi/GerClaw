@@ -129,3 +129,11 @@ class CgaHistoryRead(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     items: list[CgaHistoryItemRead] = Field(default_factory=list, max_length=20)
+
+
+class CgaActiveAssessmentsRead(BaseModel):
+    """A bounded list of the caller's resumable screenings only."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    items: list[CgaAssessmentRead] = Field(default_factory=list, max_length=3)

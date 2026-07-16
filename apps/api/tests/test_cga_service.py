@@ -18,6 +18,7 @@ class _Repository:
     def __init__(self) -> None:
         self.record: CgaAssessment | None = None
         self.history_records: list[CgaAssessment] = []
+        self.active_records: list[CgaAssessment] = []
 
     async def create(self, **kwargs: str) -> CgaAssessment:
         self.record = CgaAssessment(
@@ -39,6 +40,9 @@ class _Repository:
 
     async def list_completed(self, **_kwargs: object) -> list[CgaAssessment]:
         return self.history_records
+
+    async def list_active(self, **_kwargs: object) -> list[CgaAssessment]:
+        return self.active_records
 
 
 @pytest.mark.asyncio
@@ -91,6 +95,22 @@ async def test_phq9_state_machine_rejects_skips_and_preserves_resume_position() 
     )
     assert edited.revision == answered.revision + 1
     assert edited.answered_count == 1
+
+
+@pytest.mark.asyncio
+async def test_active_list_exposes_only_resumable_read_models() -> None:
+    repository = _Repository()
+    service = CgaService(repository)  # type: ignore[arg-type]
+    started = await service.start(tenant_id="tenant_public0001", actor_id="usr_patient_test0001")
+    repository.active_records = [repository.record] if repository.record is not None else []
+
+    active = await service.active(
+        tenant_id="tenant_public0001", actor_id="usr_patient_test0001", limit=3
+    )
+
+    assert [item.assessment_id for item in active.items] == [started.assessment_id]
+    assert active.items[0].status == "active"
+    assert active.items[0].next_question is not None
 
 
 @pytest.mark.asyncio

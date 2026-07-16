@@ -85,3 +85,20 @@ class SqlAlchemyCgaRepository:
             .limit(limit)
         )
         return list((await self._session.scalars(statement)).all())
+
+    async def list_active(
+        self, *, tenant_id: str, actor_id: str, limit: int
+    ) -> list[CgaAssessment]:
+        """Return only resumable assessments owned by the authenticated caller."""
+
+        statement = (
+            select(CgaAssessment)
+            .where(
+                CgaAssessment.tenant_id == tenant_id,
+                CgaAssessment.actor_id == actor_id,
+                CgaAssessment.status == "active",
+            )
+            .order_by(CgaAssessment.updated_at.desc(), CgaAssessment.id.desc())
+            .limit(limit)
+        )
+        return list((await self._session.scalars(statement)).all())

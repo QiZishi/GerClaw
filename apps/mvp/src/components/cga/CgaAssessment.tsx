@@ -10,6 +10,7 @@ import { useAppStore } from "@/stores/appStore";
 import {
   completeCgaAssessment,
   getCgaAssessment,
+  listActiveCgaAssessments,
   listCgaHistory,
   getCgaReport,
   listCgaScales,
@@ -114,7 +115,14 @@ export function CgaAssessment({ onExit }: CgaAssessmentProps) {
   }, []);
 
   const loadSavedAssessments = useCallback(async (availableScales: CgaScale[]) => {
+    const fromServer = (await listActiveCgaAssessments()).items;
+    const savedByScale: Partial<Record<CgaScaleId, Assessment>> = {};
+    for (const item of fromServer) {
+      savedByScale[item.scale_id] = item;
+      localStorage.setItem(assessmentKey(item.scale_id), item.assessment_id);
+    }
     const saved = await Promise.all(availableScales.map(async (scale) => {
+      if (savedByScale[scale.id]) return null;
       const storedId = localStorage.getItem(assessmentKey(scale.id));
       const parsedStoredId = storedAssessmentIdSchema.safeParse(storedId);
       if (!parsedStoredId.success) return null;
@@ -128,7 +136,7 @@ export function CgaAssessment({ onExit }: CgaAssessmentProps) {
         return null;
       }
     }));
-    const next: Partial<Record<CgaScaleId, Assessment>> = {};
+    const next: Partial<Record<CgaScaleId, Assessment>> = { ...savedByScale };
     for (const item of saved) {
       if (item) next[item.scale_id] = item;
     }

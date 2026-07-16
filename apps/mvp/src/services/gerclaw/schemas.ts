@@ -156,11 +156,17 @@ export const cgaHistorySchema = z
     ).max(20),
   })
   .strict();
+export const cgaActiveAssessmentsSchema = z
+  .object({
+    items: z.array(cgaAssessmentSchema).max(3),
+  })
+  .strict();
 
 export type CgaAssessment = z.infer<typeof cgaAssessmentSchema>;
 export type CgaQuestion = z.infer<typeof cgaQuestionSchema>;
 export type CgaReport = z.infer<typeof cgaReportSchema>;
 export type CgaHistoryItem = z.infer<typeof cgaHistorySchema>["items"][number];
+export type CgaActiveAssessment = z.infer<typeof cgaActiveAssessmentsSchema>["items"][number];
 export type CgaScale = z.infer<typeof cgaScalesSchema>["scales"][number];
 export type CgaScaleId = z.infer<typeof cgaScaleIdSchema>;
 
