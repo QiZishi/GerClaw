@@ -162,7 +162,7 @@ export function ClinicalIntakeForm({
     }
   };
 
-  const actionClass = seniorMode ? "min-h-12 px-5 text-base" : "min-h-10 px-4";
+  const actionClass = seniorMode ? "min-h-12 px-5 text-lg" : "min-h-10 px-4";
 
   if (loadState === "loading") {
     return (
@@ -212,7 +212,7 @@ export function ClinicalIntakeForm({
       <div className="rounded-xl border border-amber-500/40 bg-amber-50/70 p-4 text-amber-950 dark:bg-amber-950/20 dark:text-amber-100">
         <div className="flex items-start gap-2">
           <AlertTriangle className="mt-0.5 size-5 shrink-0" />
-          <p className={cn("leading-relaxed", seniorMode ? "text-base" : "text-sm")}>
+          <p className={cn("leading-relaxed", seniorMode ? "text-lg" : "text-sm")}>
             {intake.governance_notice}
           </p>
         </div>
@@ -221,7 +221,7 @@ export function ClinicalIntakeForm({
       <div className="space-y-5">
         {showValidation && missingRequiredLabels.length > 0 && (
           <div
-            className={cn("rounded-xl border border-destructive/50 bg-destructive/10 p-4 text-destructive", seniorMode ? "text-base" : "text-sm")}
+            className={cn("rounded-xl border border-destructive/50 bg-destructive/10 p-4 text-destructive", seniorMode ? "text-lg" : "text-sm")}
             role="alert"
           >
             请先填写必填内容：{missingRequiredLabels.join("、")}。
@@ -251,7 +251,7 @@ export function ClinicalIntakeForm({
               )}
             />
             {showValidation && missingRequiredFieldIds.has(field.id) && (
-              <span id={`clinical-intake-${field.id}-error`} className={cn("block text-destructive", seniorMode ? "text-base" : "text-sm")}>
+              <span id={`clinical-intake-${field.id}-error`} className={cn("block text-destructive", seniorMode ? "text-lg" : "text-sm")}>
                 请填写“{field.label}”后再保存。
               </span>
             )}
@@ -262,7 +262,7 @@ export function ClinicalIntakeForm({
       {complete && (
         <div className="flex items-start gap-2 rounded-xl border border-primary/30 bg-primary/5 p-4">
           <CheckCircle2 className="mt-0.5 size-5 shrink-0 text-primary" />
-          <p className={cn("leading-relaxed text-foreground", seniorMode ? "text-base" : "text-sm")}>
+          <p className={cn("leading-relaxed text-foreground", seniorMode ? "text-lg" : "text-sm")}>
             信息已保存。医学规则、医生审核和患者授权尚未启用，因此不会提供处方、停药、加药或剂量调整建议。
           </p>
         </div>
