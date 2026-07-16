@@ -73,10 +73,10 @@ export function CitationPopover({ citation, index, allCitations }: CitationPopov
           <div className="text-xs text-muted-foreground">
             引用 #{index} · {citation.source}
           </div>
-          <div className="font-medium text-sm leading-snug">
+          <div className="break-words font-medium text-sm leading-snug">
             {citation.title}
           </div>
-          <div className="text-xs text-muted-foreground leading-relaxed line-clamp-3">
+          <div className="break-words text-xs text-muted-foreground leading-relaxed line-clamp-3">
             {citation.snippet}
           </div>
           {citation.publishedDate && (

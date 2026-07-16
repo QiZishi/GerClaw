@@ -152,6 +152,9 @@ function isExternalCitationUrl(url: string): boolean {
 
 function CitationItem({ citation, seniorMode }: CitationItemProps) {
   const externalUrl = isExternalCitationUrl(citation.url);
+  const [excerptExpanded, setExcerptExpanded] = useState(false);
+  const hasExpandableExcerpt =
+    citation.snippet.length > 180 || /\S{25}/.test(citation.snippet);
   return (
     <article className="rounded-lg border border-border bg-card p-2.5">
       <header className="flex items-start gap-2">
@@ -161,7 +164,7 @@ function CitationItem({ citation, seniorMode }: CitationItemProps) {
         <div className="flex-1 min-w-0">
           <h4
             className={cn(
-              "font-medium leading-snug",
+              "break-words font-medium leading-snug",
               seniorMode ? "text-base" : "text-sm"
             )}
           >
@@ -183,8 +186,25 @@ function CitationItem({ citation, seniorMode }: CitationItemProps) {
       </header>
       <div className={cn("mt-2 flex items-start gap-1.5 text-xs text-muted-foreground leading-relaxed pl-7", seniorMode && "pl-10 text-base leading-8")}>
         <Quote className="size-3 shrink-0 mt-0.5 opacity-50" />
-        <p className="line-clamp-3">{citation.snippet}</p>
+        <p className={cn("min-w-0 flex-1 break-words", !excerptExpanded && "line-clamp-3")}>
+          {citation.snippet}
+        </p>
       </div>
+      {hasExpandableExcerpt && (
+        <div className={cn("mt-1 pl-7", seniorMode && "pl-10")}>
+          <button
+            type="button"
+            onClick={() => setExcerptExpanded((expanded) => !expanded)}
+            className={cn(
+              "text-xs text-primary underline-offset-4 hover:underline",
+              seniorMode && "min-h-12 px-1 text-base"
+            )}
+            aria-expanded={excerptExpanded}
+          >
+            {excerptExpanded ? "收起摘录" : "展开摘录"}
+          </button>
+        </div>
+      )}
       <div className={cn("mt-2 pl-7", seniorMode && "pl-10")}>
         {externalUrl ? (
           <a
