@@ -206,15 +206,15 @@ function FunctionButtonGroup({
               size={seniorMode ? "default" : "icon"}
               className={cn("btn-icon shrink-0", seniorMode && "order-2 h-12 gap-2 px-3 text-base")}
               onClick={() => onSetChatAction("prescription")}
-              aria-label="五大处方生成"
+              aria-label="五大处方信息收集"
               disabled={disabled}
             />
           }
         >
           <Pill className="size-4" />
-          {seniorMode && <span>处方</span>}
+          {seniorMode && <span>处方信息</span>}
         </TooltipTrigger>
-        <TooltipContent>五大处方生成</TooltipContent>
+        <TooltipContent>五大处方信息收集</TooltipContent>
       </Tooltip>
       <Tooltip>
         <TooltipTrigger
@@ -243,15 +243,15 @@ function FunctionButtonGroup({
                 size={seniorMode ? "default" : "icon"}
                 className={cn("btn-icon shrink-0", seniorMode && "h-12 gap-2 px-3 text-base")}
                 onClick={() => onSetChatAction("drug-review")}
-                aria-label="用药审查"
+                aria-label="用药信息收集"
                 disabled={disabled}
               />
             }
           >
             <FileSearch className="size-4" />
-            {seniorMode && <span>审查</span>}
+            {seniorMode && <span>用药信息</span>}
           </TooltipTrigger>
-          <TooltipContent>用药审查</TooltipContent>
+          <TooltipContent>用药信息收集</TooltipContent>
         </Tooltip>
       )}
       {(isDoctor || (mounted && role === "patient")) && (

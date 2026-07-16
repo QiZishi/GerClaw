@@ -60,14 +60,14 @@ export function WelcomePage({
     ? "请选择您的使用模式开始体验"
     : isPatient
     ? "您可以文字或语音描述健康问题，我会尽力帮助您。"
-    : "可辅助您完成诊疗决策、用药评估、CGA 评估等任务。";
+    : "可检索循证资料、完成可用的 CGA 量表，或安全记录待审核信息。";
 
   // 患者端快捷卡片：两大功能入口
   const patientCards = [
     {
       icon: Pill,
-      label: "五大处方",
-      desc: "用药、运动、营养、心理、康复",
+      label: "五大处方信息收集",
+      desc: "保存健康信息；当前不生成医疗建议",
       action: "prescription" as const,
     },
     {
@@ -88,8 +88,8 @@ export function WelcomePage({
   const doctorCards = [
     {
       icon: Pill,
-      label: "五大处方生成",
-      desc: "为患者生成多维度处方",
+      label: "五大处方信息收集",
+      desc: "记录处方所需信息；当前不生成处方建议",
       action: "prescription" as const,
     },
     {
@@ -100,8 +100,8 @@ export function WelcomePage({
     },
     {
       icon: FileSearch,
-      label: "用药审查",
-      desc: "审查多药相互作用与 Beers 标准",
+      label: "用药信息收集",
+      desc: "记录用药信息；当前不输出审查结论",
       action: "drug-review" as const,
     },
     {

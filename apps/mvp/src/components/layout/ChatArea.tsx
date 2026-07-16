@@ -659,9 +659,9 @@ const handleExampleClick = (text: string) => {
   };
 
   const actionTitles: Record<string, string> = {
-    prescription: "五大处方生成",
+    prescription: "五大处方信息收集",
     cga: "老年综合评估",
-    "drug-review": "用药审查",
+    "drug-review": "用药信息收集",
     "health-profile": "查看健康画像",
   };
 
