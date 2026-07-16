@@ -171,6 +171,39 @@ class CgaAssessment(TimestampMixin, Base):
     report: Mapped[dict[str, Any] | None] = mapped_column(EncryptedJSON(), nullable=True)
 
 
+class RiskAlert(TimestampMixin, Base):
+    """Encrypted, caller-owned risk signal requiring explicit acknowledgement."""
+
+    __tablename__ = "risk_alerts"
+    __table_args__ = (
+        CheckConstraint("source IN ('cga')", name="valid_source"),
+        CheckConstraint("status IN ('active','acknowledged')", name="valid_status"),
+        CheckConstraint("revision > 0", name="positive_revision"),
+        UniqueConstraint(
+            "tenant_id", "actor_id", "source_fingerprint", name="uq_risk_alerts_owner_source"
+        ),
+        Index(
+            "ix_risk_alerts_owner_status_updated",
+            "tenant_id",
+            "actor_id",
+            "status",
+            "updated_at",
+        ),
+    )
+
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    tenant_id: Mapped[str] = mapped_column(String(64), nullable=False, index=True)
+    actor_id: Mapped[str] = mapped_column(String(128), nullable=False, index=True)
+    source: Mapped[str] = mapped_column(String(32), nullable=False)
+    source_fingerprint: Mapped[str] = mapped_column(String(64), nullable=False)
+    policy_version: Mapped[str] = mapped_column(String(32), nullable=False)
+    details: Mapped[dict[str, Any]] = mapped_column(EncryptedJSON(), nullable=False)
+    status: Mapped[str] = mapped_column(String(16), nullable=False, default="active")
+    revision: Mapped[int] = mapped_column(Integer, nullable=False, default=1)
+    acknowledgement_idempotency_key: Mapped[str | None] = mapped_column(String(128), nullable=True)
+    acknowledged_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+
+
 class UploadedDocument(TimestampMixin, Base):
     """Encrypted, revocable parsed document scoped to one conversation owner."""
 

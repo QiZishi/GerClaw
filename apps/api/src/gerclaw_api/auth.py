@@ -215,6 +215,22 @@ async def require_cga_write(
     return authorize_scope(identity, "cga:write")
 
 
+async def require_risk_alert_read(
+    identity: Annotated[AuthContext, Depends(authenticate)],
+) -> AuthContext:
+    """Require access to the caller's own deterministic risk alerts."""
+
+    return authorize_scope(identity, "risk_alert:read")
+
+
+async def require_risk_alert_write(
+    identity: Annotated[AuthContext, Depends(authenticate)],
+) -> AuthContext:
+    """Require acknowledgement access to the caller's own risk alerts."""
+
+    return authorize_scope(identity, "risk_alert:write")
+
+
 async def require_clinical_intake_read(
     identity: Annotated[AuthContext, Depends(authenticate)],
 ) -> AuthContext:

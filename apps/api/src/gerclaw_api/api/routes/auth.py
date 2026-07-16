@@ -30,6 +30,8 @@ _GUEST_SCOPES = {
     "memory:read",
     "memory:write",
     "rag:read",
+    "risk_alert:read",
+    "risk_alert:write",
     "search:read",
     "skill:execute",
     "skill:read",

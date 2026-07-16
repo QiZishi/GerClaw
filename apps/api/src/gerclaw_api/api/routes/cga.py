@@ -30,7 +30,9 @@ from gerclaw_api.modules.cga.models import (
 from gerclaw_api.modules.cga.phq9 import PHQ9_OPTIONS, PHQ9_QUESTIONS, PHQ9_VERSION
 from gerclaw_api.modules.cga.psqi import PSQI_QUESTIONS, PSQI_VERSION, psqi_options_for
 from gerclaw_api.modules.cga.sas import SAS_OPTIONS, SAS_QUESTIONS, SAS_VERSION
+from gerclaw_api.modules.risk_alert.service import RiskAlertService
 from gerclaw_api.repositories.cga import CgaAssessmentNotFoundError, SqlAlchemyCgaRepository
+from gerclaw_api.repositories.risk_alert import SqlAlchemyRiskAlertRepository
 from gerclaw_api.security import audit_hmac_digest
 from gerclaw_api.services.cga_service import CgaAssessmentConflictError, CgaService
 from gerclaw_api.services.trace_service import TraceConflictError, TraceService
@@ -152,6 +154,41 @@ async def _finish_write_trace(
     )
 
 
+def _risk_source_fingerprint(request: Request, *, assessment_id: uuid.UUID, kind: str) -> str:
+    """Deduplicate a sensitive source without storing its assessment identifier."""
+
+    material = f"risk-alert:v1:cga:{kind}:{assessment_id}".encode()
+    return audit_hmac_digest(
+        request.app.state.settings.auth_jwt_secret.get_secret_value().encode(), material
+    )
+
+
+async def _sync_risk_alerts(
+    *,
+    request: Request,
+    session: AsyncSession,
+    identity: AuthContext,
+    result: CgaAssessmentRead,
+) -> None:
+    """Persist only server-derived CGA safety signals in the current transaction."""
+
+    if not (
+        result.risk.requires_immediate_safety_assessment or result.risk.high_severity_follow_up
+    ):
+        return
+    await RiskAlertService(SqlAlchemyRiskAlertRepository(session)).sync_cga_risk(
+        tenant_id=identity.tenant_id,
+        actor_id=identity.actor_id,
+        immediate_source_fingerprint=_risk_source_fingerprint(
+            request, assessment_id=result.assessment_id, kind="immediate"
+        ),
+        follow_up_source_fingerprint=_risk_source_fingerprint(
+            request, assessment_id=result.assessment_id, kind="follow_up"
+        ),
+        risk=result.risk,
+    )
+
+
 @router.get("/scales", response_model=CgaScalesRead)
 async def list_scales(identity: ReadIdentity) -> CgaScalesRead:
     """Expose only server-supported, versioned definitions."""
@@ -240,6 +277,7 @@ async def start_assessment(
     result = await CgaService(SqlAlchemyCgaRepository(session)).start(
         tenant_id=identity.tenant_id, actor_id=identity.actor_id, scale_id=payload.scale_id
     )
+    await _sync_risk_alerts(request=request, session=session, identity=identity, result=result)
     await _finish_write_trace(
         traces=traces,
         tenant_id=identity.tenant_id,
@@ -329,6 +367,7 @@ async def answer_assessment(
         raise HTTPException(status_code=409, detail={"code": "CGA_CONFLICT"}) from error
     except TraceConflictError as error:
         raise HTTPException(status_code=409, detail={"code": "CGA_TRACE_CONFLICT"}) from error
+    await _sync_risk_alerts(request=request, session=session, identity=identity, result=result)
     await _finish_write_trace(
         traces=traces,
         tenant_id=identity.tenant_id,
@@ -375,6 +414,7 @@ async def complete_assessment(
         raise HTTPException(status_code=409, detail={"code": "CGA_CONFLICT"}) from error
     except TraceConflictError as error:
         raise HTTPException(status_code=409, detail={"code": "CGA_TRACE_CONFLICT"}) from error
+    await _sync_risk_alerts(request=request, session=session, identity=identity, result=result)
     await _finish_write_trace(
         traces=traces,
         tenant_id=identity.tenant_id,
