@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import base64
 import json
+import time
 from collections.abc import AsyncGenerator
 from typing import cast
 
@@ -11,6 +12,7 @@ import httpx
 from pydantic import BaseModel, ConfigDict, Field, ValidationError
 
 from gerclaw_api.config import Settings
+from gerclaw_api.metrics import VOICE_PROVIDER_LATENCY, VOICE_PROVIDER_REQUESTS
 from gerclaw_api.modules.voice.models import VOICE_NAMES, AudioFormat, VoiceName
 
 _DEFAULT_STYLE = "用温柔体贴的语调，语速适中，像在关心一位老人的健康状况"  # noqa: RUF001
@@ -98,6 +100,13 @@ class MiMoVoiceModule:
         except (json.JSONDecodeError, ValidationError) as error:
             raise VoiceProviderInvalidResponse("voice provider returned invalid SSE") from error
 
+    @staticmethod
+    def _record(operation: str, outcome: str, started: float) -> None:
+        """Record low-cardinality provider telemetry without any user content."""
+
+        VOICE_PROVIDER_REQUESTS.labels(operation=operation, outcome=outcome).inc()
+        VOICE_PROVIDER_LATENCY.labels(operation=operation).observe(time.perf_counter() - started)
+
     async def transcribe(self, audio_data: bytes, *, audio_format: AudioFormat) -> str:
         encoded = base64.b64encode(audio_data).decode("ascii")
         payload = {
@@ -116,25 +125,35 @@ class MiMoVoiceModule:
             "stream": True,
         }
         fragments: list[str] = []
+        started = time.perf_counter()
+        outcome = "invalid_response"
         try:
-            async with self._client.stream("POST", self._asr_url, json=payload) as response:
-                if response.status_code >= 400:
-                    raise VoiceProviderUnavailable("voice ASR provider rejected the request")
-                async for line in response.aiter_lines():
-                    event = self._event(line)
-                    if event is None:
-                        continue
-                    for choice in event.choices:
-                        if choice.delta.content:
-                            fragments.append(choice.delta.content)
-        except httpx.TimeoutException as error:
-            raise VoiceProviderUnavailable("voice ASR provider timed out") from error
-        except httpx.RequestError as error:
-            raise VoiceProviderUnavailable("voice ASR provider is unavailable") from error
-        transcript = "".join(fragments).strip()
-        if not transcript or len(transcript) > 4_000:
-            raise VoiceProviderInvalidResponse("voice ASR provider returned no usable transcript")
-        return transcript
+            try:
+                async with self._client.stream("POST", self._asr_url, json=payload) as response:
+                    if response.status_code >= 400:
+                        raise VoiceProviderUnavailable("voice ASR provider rejected the request")
+                    async for line in response.aiter_lines():
+                        event = self._event(line)
+                        if event is None:
+                            continue
+                        for choice in event.choices:
+                            if choice.delta.content:
+                                fragments.append(choice.delta.content)
+            except httpx.TimeoutException as error:
+                outcome = "timeout"
+                raise VoiceProviderUnavailable("voice ASR provider timed out") from error
+            except httpx.RequestError as error:
+                outcome = "network_error"
+                raise VoiceProviderUnavailable("voice ASR provider is unavailable") from error
+            transcript = "".join(fragments).strip()
+            if not transcript or len(transcript) > 4_000:
+                raise VoiceProviderInvalidResponse(
+                    "voice ASR provider returned no usable transcript"
+                )
+            outcome = "success"
+            return transcript
+        finally:
+            self._record("asr", outcome, started)
 
     async def synthesize(
         self, text: str, *, voice: VoiceName, style: str | None = None
@@ -149,6 +168,8 @@ class MiMoVoiceModule:
             "stream": True,
         }
         yielded = False
+        started = time.perf_counter()
+        outcome = "invalid_response"
         try:
             async with self._client.stream("POST", self._tts_url, json=payload) as response:
                 if response.status_code >= 400:
@@ -174,11 +195,17 @@ class MiMoVoiceModule:
                         yielded = True
                         yield chunk
         except httpx.TimeoutException as error:
+            outcome = "timeout"
             raise VoiceProviderUnavailable("voice TTS provider timed out") from error
         except httpx.RequestError as error:
+            outcome = "network_error"
             raise VoiceProviderUnavailable("voice TTS provider is unavailable") from error
-        if not yielded:
-            raise VoiceProviderInvalidResponse("voice TTS provider returned no audio")
+        else:
+            if not yielded:
+                raise VoiceProviderInvalidResponse("voice TTS provider returned no audio")
+            outcome = "success"
+        finally:
+            self._record("tts", outcome, started)
 
     async def aclose(self) -> None:
         await self._client.aclose()

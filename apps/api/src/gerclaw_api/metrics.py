@@ -81,6 +81,17 @@ SEARCH_PROVIDER_LATENCY = Histogram(
     ("provider", "operation"),
     buckets=(0.05, 0.1, 0.25, 0.5, 1, 2.5, 5, 10, 30),
 )
+VOICE_PROVIDER_REQUESTS = Counter(
+    "gerclaw_voice_provider_requests_total",
+    "Voice provider requests by operation and bounded outcome",
+    ("operation", "outcome"),
+)
+VOICE_PROVIDER_LATENCY = Histogram(
+    "gerclaw_voice_provider_request_duration_seconds",
+    "Voice provider request latency without audio, transcript, or text labels",
+    ("operation",),
+    buckets=(0.05, 0.1, 0.25, 0.5, 1, 2.5, 5, 10, 30),
+)
 
 
 def render_metrics() -> tuple[bytes, str]:
