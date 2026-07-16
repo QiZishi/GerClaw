@@ -14,6 +14,18 @@ The state machine is implemented by `services/cga_service.py`, with encrypted an
 
 Start, answer and complete operations atomically create a PHI-free Runtime Trace. It contains only scale, definition version, operation, answer count and outcome; it never stores question IDs, scores, risk flags, notes, assessment IDs or request bodies.
 
+## Version-bound audio release assets
+
+The screening module remains network-free: it never calls TTS at request time.
+apps/mvp/scripts/generate_cga_audio_assets.py is a release-time command that
+reads these immutable public definitions and, after an explicit confirmation,
+uses the configured TTS provider to create WAV files under
+apps/mvp/public/audio/cga/. It emits a SHA-256 manifest and the generated
+client manifest. The patient UI plays a file only if scale_id,
+definition_version, and question_id all match the server response; a missing
+matching asset falls back to the separately controlled live TTS accessibility
+path. The generation command sends no patient data.
+
 ## API contract
 
 Authenticated callers use `GET /api/v1/cga/scales`, then start, read, answer, complete, and fetch a report under `/api/v1/cga/assessments`.  API Pydantic schemas live in `models.py`; the Next.js BFF validates the corresponding response/request shapes with Zod.  A report always includes a disclaimer and `score_max`; the PHQ-9 legacy default is retained so encrypted reports written before multi-scale support remain readable.

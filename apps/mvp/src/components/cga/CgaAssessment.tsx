@@ -6,6 +6,7 @@ import { z } from "zod";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 import { exportToMarkdown } from "@/lib/export";
+import { recordedCgaQuestionAudio } from "@/lib/cga-audio";
 import { useAudioPlayer } from "@/hooks/useAudioPlayer";
 import { useAppStore } from "@/stores/appStore";
 import { toast } from "@/components/ui/toast";
@@ -109,6 +110,7 @@ export function CgaAssessment({ onExit }: CgaAssessmentProps) {
     isLoading: isQuestionAudioLoading,
     progress: questionAudioProgress,
     play: playQuestion,
+    playSource: playQuestionSource,
     pause: pauseQuestion,
     resume: resumeQuestion,
     stop: stopQuestion,
@@ -130,7 +132,15 @@ export function CgaAssessment({ onExit }: CgaAssessmentProps) {
 
   const startQuestionAudio = () => {
     if (!assessment?.next_question) return;
-    void playQuestion(buildQuestionSpeechText(assessment.next_question)).catch(() => {
+    const source = recordedCgaQuestionAudio(
+      assessment.scale_id,
+      assessment.definition_version,
+      assessment.next_question
+    );
+    const playback = source
+      ? playQuestionSource(source)
+      : playQuestion(buildQuestionSpeechText(assessment.next_question));
+    void playback.catch(() => {
       toast.show("题目朗读暂时不可用，请改用文字阅读后重试");
     });
   };
