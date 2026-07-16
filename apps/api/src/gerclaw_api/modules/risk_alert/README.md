@@ -14,3 +14,8 @@ acknowledging does not dismiss an alert or change its urgency.
 It is deliberately not a clinician notification, emergency dispatch, diagnosis,
 or a replacement for medical care. Cross-patient queues, human escalation and
 contact notifications remain blocked on the account/RBAC/authorisation plan.
+
+For operational visibility, `gerclaw_risk_alerts_total` counts only the bounded
+source (`cga` or `chat`), severity and lifecycle outcome (creation,
+deduplication, acknowledgement or idempotent acknowledgement replay). It intentionally has no patient, alert,
+assessment, session, free-text or guidance label.

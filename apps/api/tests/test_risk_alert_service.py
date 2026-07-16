@@ -8,6 +8,7 @@ from datetime import UTC, datetime
 import pytest
 
 from gerclaw_api.database.models import RiskAlert
+from gerclaw_api.metrics import RISK_ALERTS
 from gerclaw_api.modules.cga.models import CgaRiskRead
 from gerclaw_api.modules.risk_alert.service import RiskAlertConflictError, RiskAlertService
 
@@ -169,3 +170,43 @@ async def test_chat_red_flag_is_deduplicated_without_retaining_chat_content() ->
     assert len(repository.records) == 1
     assert repository.records[0].source == "chat"
     assert "source_fingerprint" not in first.model_dump()
+
+
+@pytest.mark.asyncio
+async def test_alert_metrics_are_bounded_and_track_lifecycle_without_identifiers() -> None:
+    repository = _Repository()
+    service = RiskAlertService(repository)  # type: ignore[arg-type]
+    created_metric = RISK_ALERTS.labels(source="chat", severity="critical", outcome="created")
+    deduplicated_metric = RISK_ALERTS.labels(
+        source="chat", severity="critical", outcome="deduplicated"
+    )
+    acknowledged_metric = RISK_ALERTS.labels(
+        source="chat", severity="critical", outcome="acknowledged"
+    )
+    before = (
+        created_metric._value.get(),
+        deduplicated_metric._value.get(),
+        acknowledged_metric._value.get(),
+    )
+
+    alert = await service.sync_chat_red_flag(
+        tenant_id="tenant_public0001",
+        actor_id="usr_patient_alert0001",
+        source_fingerprint="c" * 64,
+    )
+    await service.sync_chat_red_flag(
+        tenant_id="tenant_public0001",
+        actor_id="usr_patient_alert0001",
+        source_fingerprint="c" * 64,
+    )
+    await service.acknowledge(
+        alert_id=alert.alert_id,
+        tenant_id="tenant_public0001",
+        actor_id="usr_patient_alert0001",
+        expected_revision=1,
+        idempotency_key="idem_risk_alert_metric0001",
+    )
+
+    assert created_metric._value.get() == before[0] + 1
+    assert deduplicated_metric._value.get() == before[1] + 1
+    assert acknowledged_metric._value.get() == before[2] + 1

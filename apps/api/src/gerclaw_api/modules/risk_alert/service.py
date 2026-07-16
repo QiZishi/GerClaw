@@ -7,6 +7,7 @@ from datetime import UTC, datetime
 from typing import Protocol
 
 from gerclaw_api.database.models import RiskAlert
+from gerclaw_api.metrics import RISK_ALERTS
 from gerclaw_api.modules.cga.models import CgaRiskRead
 from gerclaw_api.modules.risk_alert.models import (
     RISK_ALERT_POLICY_VERSION,
@@ -150,6 +151,7 @@ class RiskAlertService:
         if record.status == "acknowledged":
             if record.acknowledgement_idempotency_key != idempotency_key:
                 raise RiskAlertConflictError("risk alert has already been acknowledged")
+            self._record_metric(record, outcome="acknowledgement_replayed")
             return self._read(record)
         if record.revision != expected_revision:
             raise RiskAlertConflictError("risk alert has changed; refresh before acknowledging")
@@ -159,6 +161,7 @@ class RiskAlertService:
         record.acknowledged_at = acknowledged_at
         record.updated_at = acknowledged_at
         record.revision += 1
+        self._record_metric(record, outcome="acknowledged")
         return self._read(record)
 
     async def _ensure(
@@ -182,7 +185,22 @@ class RiskAlertService:
                 policy_version=RISK_ALERT_POLICY_VERSION,
                 details=details.model_dump(mode="json"),
             )
+            RISK_ALERTS.labels(source=source, severity=details.severity, outcome="created").inc()
+        else:
+            self._record_metric(existing, outcome="deduplicated")
         return self._read(existing)
+
+    @staticmethod
+    def _record_metric(record: RiskAlert, *, outcome: str) -> None:
+        """Count only bounded operational state, never owner or alert content."""
+
+        try:
+            details = RiskAlertDetails.model_validate(record.details)
+        except ValueError:
+            return
+        if record.source not in {"cga", "chat"}:
+            return
+        RISK_ALERTS.labels(source=record.source, severity=details.severity, outcome=outcome).inc()
 
     @staticmethod
     def _read(record: RiskAlert) -> RiskAlertRead:

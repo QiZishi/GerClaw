@@ -15,6 +15,9 @@ or make a clinical recommendation.
   question IDs, answers, free text, or user identifiers in alert metadata.
 - Risk kind, severity and user-facing guidance are encrypted at rest. Read
   routes return only the authenticated caller's validated alert projection.
+- Prometheus may record only the bounded `source`, `severity` and lifecycle
+  `outcome`; it must never use any owner, alert, assessment, session, question,
+  answer or text value as a metric label.
 - Deduplication is deterministic per source signal. Acknowledgement is
   idempotent and revision-fenced; it never resolves or downgrades a risk.
 - Alert creation is a persistence side effect of a deterministic source state,

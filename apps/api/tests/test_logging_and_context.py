@@ -54,6 +54,7 @@ def test_logging_configuration_metrics_and_header_ids() -> None:
 
     body, media_type = render_metrics()
     assert b"gerclaw_http_requests_total" in body
+    assert b"gerclaw_risk_alerts_total" in body
     assert "text/plain" in media_type
     assert _safe_header_id("request_valid_001", "req") == "request_valid_001"
     assert _safe_header_id("bad", "req").startswith("req_")

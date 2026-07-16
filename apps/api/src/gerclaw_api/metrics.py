@@ -92,6 +92,11 @@ VOICE_PROVIDER_LATENCY = Histogram(
     ("operation",),
     buckets=(0.05, 0.1, 0.25, 0.5, 1, 2.5, 5, 10, 30),
 )
+RISK_ALERTS = Counter(
+    "gerclaw_risk_alerts_total",
+    "Deterministic safety-alert lifecycle events without patient identifiers or content",
+    ("source", "severity", "outcome"),
+)
 
 
 def render_metrics() -> tuple[bytes, str]:
