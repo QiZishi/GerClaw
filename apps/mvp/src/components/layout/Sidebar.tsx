@@ -8,6 +8,7 @@ import {
   LogOut,
   Menu,
   Moon,
+  Pencil,
   Pin,
   Plus,
   Search,
@@ -22,9 +23,18 @@ import { Avatar, AvatarFallback } from "@/components/ui/avatar";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Separator } from "@/components/ui/separator";
 import { Switch } from "@/components/ui/switch";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -83,6 +93,10 @@ export function Sidebar({ onNavigate }: SidebarProps) {
   const togglePinSession = useChatStore((s) => s.togglePinSession);
 
   const [searchQuery, setSearchQuery] = useState("");
+  const [renameTarget, setRenameTarget] = useState<Session | null>(null);
+  const [renameTitle, setRenameTitle] = useState("");
+  const [deleteTarget, setDeleteTarget] = useState<Session | null>(null);
+  const [pendingRole, setPendingRole] = useState<"visitor" | "patient" | "doctor" | null>(null);
 
   useEffect(() => {
     const frame = requestAnimationFrame(() => setMounted(true));
@@ -196,9 +210,50 @@ export function Sidebar({ onNavigate }: SidebarProps) {
     toggleSidebar();
   };
 
-  const handleRoleChange = (nextRole: "visitor" | "patient" | "doctor") => {
-    setRole(nextRole);
+  const requestRoleChange = (nextRole: "visitor" | "patient" | "doctor") => {
+    if (nextRole === role) return;
+    setPendingRole(nextRole);
+  };
+
+  const confirmRoleChange = () => {
+    if (!pendingRole) return;
+    setRole(pendingRole);
+    setPendingRole(null);
     onNavigate?.();
+  };
+
+  const openRename = (session: Session) => {
+    setRenameTarget(session);
+    setRenameTitle(session.title);
+  };
+
+  const confirmRename = () => {
+    const title = renameTitle.trim();
+    if (!renameTarget || !title) return;
+    renameSession(renameTarget.id, title);
+    setRenameTarget(null);
+    toast.show("对话名称已更新");
+  };
+
+  const confirmDelete = () => {
+    if (!deleteTarget) return;
+    const wasCurrentSession = deleteTarget.id === currentSessionId;
+    removeSession(deleteTarget.id);
+    if (wasCurrentSession) {
+      setCurrentSession(null);
+      setMainView("chat");
+      setPanelContent("");
+      closeRightPanel();
+    }
+    setDeleteTarget(null);
+    toast.show("对话已删除");
+    onNavigate?.();
+  };
+
+  const roleLabel = (value: "visitor" | "patient" | "doctor") => {
+    if (value === "patient") return "患者模式";
+    if (value === "doctor") return "医生模式";
+    return "访客模式";
   };
 
   const handleOpenSettings = () => {
@@ -319,8 +374,8 @@ export function Sidebar({ onNavigate }: SidebarProps) {
                       session={s}
                       active={currentSessionId === s.id}
                       onSelect={() => handleSelectSession(s.id)}
-                      onRename={(title) => renameSession(s.id, title)}
-                      onDelete={() => removeSession(s.id)}
+                      onRename={() => openRename(s)}
+                      onDelete={() => setDeleteTarget(s)}
                       onTogglePin={() => togglePinSession(s.id)}
                       seniorMode={seniorMode}
                     />
@@ -378,7 +433,7 @@ export function Sidebar({ onNavigate }: SidebarProps) {
               <DropdownMenuLabel className="text-xs font-normal text-muted-foreground">选择模式</DropdownMenuLabel>
               <DropdownMenuItem
                 className={cn("cursor-pointer gap-2", seniorMode && "min-h-12 text-base", isVisitor && "bg-accent")}
-                onClick={() => handleRoleChange("visitor")}
+                onClick={() => requestRoleChange("visitor")}
               >
                 <Users className="size-4 text-gray-500" />
                 <span>访客模式</span>
@@ -386,7 +441,7 @@ export function Sidebar({ onNavigate }: SidebarProps) {
               </DropdownMenuItem>
               <DropdownMenuItem
                 className={cn("cursor-pointer gap-2", seniorMode && "min-h-12 text-base", isPatient && "bg-accent")}
-                onClick={() => handleRoleChange("patient")}
+                onClick={() => requestRoleChange("patient")}
               >
                 <User className="size-4 text-primary" />
                 <span>患者模式</span>
@@ -394,7 +449,7 @@ export function Sidebar({ onNavigate }: SidebarProps) {
               </DropdownMenuItem>
               <DropdownMenuItem
                 className={cn("cursor-pointer gap-2", seniorMode && "min-h-12 text-base", isDoctor && "bg-accent")}
-                onClick={() => handleRoleChange("doctor")}
+                onClick={() => requestRoleChange("doctor")}
               >
                 <Stethoscope className="size-4 text-blue-600" />
                 <span>医生模式</span>
@@ -453,6 +508,96 @@ export function Sidebar({ onNavigate }: SidebarProps) {
           </DropdownMenuContent>
         </DropdownMenu>
       </div>
+
+      <Dialog
+        open={renameTarget !== null}
+        onOpenChange={(open) => {
+          if (!open) setRenameTarget(null);
+        }}
+      >
+        <DialogContent showCloseButton={!seniorMode} className={cn("sm:max-w-md", seniorMode && "p-5")}>
+          <form
+            onSubmit={(event) => {
+              event.preventDefault();
+              confirmRename();
+            }}
+          >
+            <DialogHeader>
+              <DialogTitle className={cn(seniorMode && "text-2xl")}>重命名对话</DialogTitle>
+              <DialogDescription className={cn(seniorMode && "text-lg leading-8")}>
+                用一个容易识别的名称，方便您下次继续这次咨询。
+              </DialogDescription>
+            </DialogHeader>
+            <div className="mt-5">
+              <Label htmlFor="session-title" className={cn(seniorMode && "text-lg")}>对话名称</Label>
+              <Input
+                id="session-title"
+                autoFocus
+                value={renameTitle}
+                maxLength={80}
+                onChange={(event) => setRenameTitle(event.target.value)}
+                className={cn("mt-2", seniorMode && "h-12 text-lg")}
+              />
+            </div>
+            <DialogFooter className={cn("mt-5", seniorMode && "flex-row justify-end gap-3 p-5")}>
+              <Button type="button" variant="outline" className={cn(seniorMode && "min-h-12 text-lg")} onClick={() => setRenameTarget(null)}>
+                取消
+              </Button>
+              <Button type="submit" className={cn(seniorMode && "min-h-12 text-lg")} disabled={!renameTitle.trim()}>
+                保存名称
+              </Button>
+            </DialogFooter>
+          </form>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog
+        open={deleteTarget !== null}
+        onOpenChange={(open) => {
+          if (!open) setDeleteTarget(null);
+        }}
+      >
+        <DialogContent showCloseButton={!seniorMode} className={cn("sm:max-w-md", seniorMode && "p-5")}>
+          <DialogHeader>
+            <DialogTitle className={cn("text-destructive", seniorMode && "text-2xl")}>确认删除对话</DialogTitle>
+            <DialogDescription className={cn(seniorMode && "text-lg leading-8")}>
+              删除“{deleteTarget?.title}”后，其中的所有内容将无法恢复。
+            </DialogDescription>
+          </DialogHeader>
+          <DialogFooter className={cn("mt-5", seniorMode && "flex-row justify-end gap-3 p-5")}>
+            <Button variant="outline" className={cn(seniorMode && "min-h-12 text-lg")} onClick={() => setDeleteTarget(null)}>
+              取消
+            </Button>
+            <Button variant="destructive" className={cn(seniorMode && "min-h-12 text-lg")} onClick={confirmDelete}>
+              确认删除
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog
+        open={pendingRole !== null}
+        onOpenChange={(open) => {
+          if (!open) setPendingRole(null);
+        }}
+      >
+        <DialogContent showCloseButton={!seniorMode} className={cn("sm:max-w-md", seniorMode && "p-5")}>
+          <DialogHeader>
+            <DialogTitle className={cn(seniorMode && "text-2xl")}>切换到{pendingRole ? roleLabel(pendingRole) : ""}</DialogTitle>
+            <DialogDescription className={cn(seniorMode && "text-lg leading-8")}>
+              切换后会显示适合该身份的功能。当前对话会保留在本机，您可以稍后从历史对话继续查看。
+            </DialogDescription>
+          </DialogHeader>
+          <DialogFooter className={cn("mt-5", seniorMode && "flex-row justify-end gap-3 p-5")}>
+            <Button variant="outline" className={cn(seniorMode && "min-h-12 text-lg")} onClick={() => setPendingRole(null)}>
+              取消
+            </Button>
+            <Button className={cn(seniorMode && "min-h-12 text-lg")} onClick={confirmRoleChange}>
+              确认切换
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </aside>
   );
 }
@@ -470,14 +615,11 @@ function SessionItem({
   session: Session;
   active: boolean;
   onSelect: () => void;
-  onRename: (title: string) => void;
+  onRename: () => void;
   onDelete: () => void;
   onTogglePin: () => void;
   seniorMode: boolean;
 }) {
-  // onRename 当前未接入 UI（重命名弹窗在 Phase 4 接入）
-  void onRename;
-
   return (
     <div
       data-session-item
@@ -510,6 +652,21 @@ function SessionItem({
         "flex items-center gap-0.5 opacity-0 group-hover:opacity-100 focus-within:opacity-100 transition-opacity duration-150 ease-out",
         seniorMode && "justify-end gap-2 opacity-100"
       )}>
+        <button
+          type="button"
+          className={cn(
+            "p-1.5 rounded-lg hover:bg-background text-muted-foreground hover:text-foreground transition-colors",
+            seniorMode && "inline-flex min-h-12 items-center gap-1.5 px-3 text-base"
+          )}
+          onClick={(e) => {
+            e.stopPropagation();
+            onRename();
+          }}
+          aria-label="重命名"
+        >
+          <Pencil className="size-3.5" />
+          {seniorMode && <span>重命名</span>}
+        </button>
         <button
           type="button"
           className={cn(
