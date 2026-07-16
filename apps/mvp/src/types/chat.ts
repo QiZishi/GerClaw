@@ -234,10 +234,14 @@ export interface Message {
   uploadedFiles?: string[];
   /** 是否含免责声明 */
   hasDisclaimer?: boolean;
+  /** 服务端完成本次聊天执行后返回的 Trace ID；只允许用于同主体反馈。 */
+  traceId?: string;
   /** 用户反馈 */
   feedback?: "up" | "down" | null;
   /** 反馈文字 */
   feedbackText?: string;
+  /** 未知网络结果重试时复用，避免创建重复反馈。 */
+  feedbackIdempotencyKey?: string;
 }
 
 /** 会话 */

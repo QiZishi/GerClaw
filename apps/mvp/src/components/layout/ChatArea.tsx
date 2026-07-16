@@ -471,7 +471,7 @@ export function ChatArea() {
             hasDisclaimer: true,
           });
         },
-        onDone: (fullText, citations) => {
+        onDone: (fullText, citations, traceId) => {
           abortControllerRef.current = null;
           const currentId = currentThinkingBlockIdRef.current;
           if (currentId && !thinkingFinished) finalizeMessageThinking(assistantMsgId, currentId);
@@ -488,6 +488,7 @@ export function ChatArea() {
             blocks: updatedBlocks,
             citations: emergencyShortCircuit || citations.length === 0 ? undefined : citations,
             hasDisclaimer: true,
+            traceId,
           });
           setGenerating(false);
           if (!isRegenerate) {

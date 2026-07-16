@@ -1,4 +1,9 @@
 import { z } from "zod";
+import {
+  feedbackCategorySchema,
+  feedbackIdempotencyKeySchema,
+  traceIdSchema,
+} from "./feedback-contract";
 
 const skillIdSchema = z.string().regex(/^[a-z][a-z0-9_.-]{1,63}$/);
 
@@ -242,3 +247,21 @@ export const uploadedDocumentDeletedSchema = z
   .strict();
 
 export type UploadedDocument = z.infer<typeof uploadedDocumentSchema>;
+
+export { feedbackSubmitSchema } from "./feedback-contract";
+
+export const feedbackReadSchema = z
+  .object({
+    id: z.string().uuid(),
+    idempotency_key: feedbackIdempotencyKeySchema,
+    trace_id: traceIdSchema,
+    actor_id: z.string().min(1).max(128),
+    rating: z.enum(["positive", "negative"]),
+    categories: z.array(feedbackCategorySchema).max(20),
+    comment: z.string().nullable(),
+    feedback_metadata: z.record(z.string(), z.unknown()),
+    created_at: z.string().datetime(),
+  })
+  .strict();
+
+export type FeedbackRead = z.infer<typeof feedbackReadSchema>;

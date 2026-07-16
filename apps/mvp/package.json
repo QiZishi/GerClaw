@@ -9,6 +9,7 @@
     "lint": "eslint",
     "test:audio": "node --test src/lib/audioPlaybackCoordinator.test.mjs src/server/voice-request.test.mjs",
     "test:document": "node --test src/server/mineru-contract.test.ts",
+    "test:feedback": "node --test src/services/gerclaw/feedback.test.ts",
     "test:search": "node --test src/server/search-retry.test.mjs"
   },
   "dependencies": {

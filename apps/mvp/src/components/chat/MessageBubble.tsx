@@ -62,6 +62,7 @@ import { toast } from "@/components/ui/toast";
 import { useAudioPlayer } from "@/hooks/useAudioPlayer";
 import { InfoCollectionCard, StageIndicator } from "./InfoCollectionCard";
 import { RuntimeApprovalCard } from "./blocks/RuntimeApprovalCard";
+import { createFeedbackIdempotencyKey, submitFeedback } from "@/services/gerclaw/feedback";
 
 function EmergencyWarningCard({
   message,
@@ -215,10 +216,12 @@ export function MessageBubble({
   const [showFeedbackDialog, setShowFeedbackDialog] = useState(false);
   const [feedbackType, setFeedbackType] = useState<"up" | "down" | null>(null);
   const [feedbackText, setFeedbackText] = useState("");
+  const [feedbackSubmitting, setFeedbackSubmitting] = useState(false);
   const seniorMode = useAppStore((s) => s.seniorMode);
   const setRightPanel = useAppStore((s) => s.setRightPanel);
   const setPanelContent = useAppStore((s) => s.setPanelContent);
   const setMessageFeedback = useChatStore((s) => s.setMessageFeedback);
+  const updateMessage = useChatStore((s) => s.updateMessage);
 
   const feedback = message.feedback ?? null;
 
@@ -248,6 +251,7 @@ export function MessageBubble({
   };
 
   const handleFeedbackClick = (type: "up" | "down") => {
+    if (!message.traceId || feedback || feedbackSubmitting) return;
     setFeedbackType(type);
     setFeedbackText("");
     setShowFeedbackDialog(true);
@@ -259,12 +263,27 @@ export function MessageBubble({
     setFeedbackType(null);
   };
 
-  const submitFeedback = () => {
-    if (feedbackType) {
-      setMessageFeedback(message.id, feedbackType, feedbackText.trim() || undefined);
-      toast.show("感谢反馈");
+  const submitMessageFeedback = async () => {
+    if (!feedbackType || !message.traceId || feedbackSubmitting) return;
+    const idempotencyKey = message.feedbackIdempotencyKey ?? createFeedbackIdempotencyKey();
+    const comment = feedbackText.trim();
+    updateMessage(message.id, { feedbackIdempotencyKey: idempotencyKey });
+    setFeedbackSubmitting(true);
+    try {
+      await submitFeedback({
+        traceId: message.traceId,
+        idempotencyKey,
+        rating: feedbackType === "up" ? "positive" : "negative",
+        ...(comment ? { comment } : {}),
+      });
+      setMessageFeedback(message.id, feedbackType, comment || undefined);
+      toast.show("反馈已提交，感谢您的帮助");
+      dismissFeedbackDialog();
+    } catch {
+      toast.show("反馈暂未提交，请检查网络后重试");
+    } finally {
+      setFeedbackSubmitting(false);
     }
-    dismissFeedbackDialog();
   };
 
   const handleEditInDoc = () => {
@@ -539,7 +558,7 @@ export function MessageBubble({
                   : "opacity-0 group-hover:opacity-100 focus-within:opacity-100"
               )}
             >
-              {!isUser && message.status === "done" ? (
+              {!isUser && message.status === "done" && message.traceId ? (
                 <>
                   <Tooltip>
                     <TooltipTrigger
@@ -549,7 +568,8 @@ export function MessageBubble({
                           size={btnSize}
                           className={cn(seniorActionClass, feedback === 'up' && "text-primary bg-primary/10")}
                           onClick={() => handleFeedbackClick('up')}
-                          aria-label="赞"
+                          disabled={Boolean(feedback) || feedbackSubmitting}
+                          aria-label={feedback === "up" ? "已提交有帮助反馈" : "有帮助"}
                         />
                       }
                     >
@@ -567,7 +587,8 @@ export function MessageBubble({
                           size={btnSize}
                           className={cn(seniorActionClass, feedback === 'down' && "text-primary bg-primary/10")}
                           onClick={() => handleFeedbackClick('down')}
-                          aria-label="踩"
+                          disabled={Boolean(feedback) || feedbackSubmitting}
+                          aria-label={feedback === "down" ? "已提交没帮助反馈" : "没帮助"}
                         />
                       }
                     >
@@ -703,7 +724,7 @@ export function MessageBubble({
       <Dialog
         open={showFeedbackDialog}
         onOpenChange={(open) => {
-          if (!open) dismissFeedbackDialog();
+          if (!open && !feedbackSubmitting) dismissFeedbackDialog();
         }}
       >
         <DialogContent className="sm:max-w-[425px]">
@@ -716,6 +737,7 @@ export function MessageBubble({
             value={feedbackText}
             onChange={(e) => setFeedbackText(e.target.value)}
             placeholder="请输入您的评价（可选）"
+            disabled={feedbackSubmitting}
             className={cn(
               "w-full rounded-md border border-border bg-background px-3 py-2 text-sm ring-offset-background placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 resize-none",
               seniorMode && "min-h-32 text-lg"
@@ -723,8 +745,14 @@ export function MessageBubble({
             rows={4}
           />
           <DialogFooter className="gap-2">
-            <DialogClose render={<Button variant="outline" className={cn(seniorMode && "min-h-12 px-4 text-base")}>取消</Button>} />
-            <Button className={cn(seniorMode && "min-h-12 px-4 text-base")} onClick={submitFeedback}>提交反馈</Button>
+            <DialogClose render={<Button variant="outline" disabled={feedbackSubmitting} className={cn(seniorMode && "min-h-12 px-4 text-base")}>取消</Button>} />
+            <Button
+              className={cn(seniorMode && "min-h-12 px-4 text-base")}
+              onClick={() => void submitMessageFeedback()}
+              disabled={feedbackSubmitting}
+            >
+              {feedbackSubmitting ? "正在提交" : "提交反馈"}
+            </Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>
