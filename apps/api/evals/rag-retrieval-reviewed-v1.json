@@ -1,0 +1,16 @@
+{
+  "schema_version": "rag-retrieval-case-set-v1",
+  "cases": [
+    {
+      "case_id": "rag-retrieval.polypharmacy-safety-consensus",
+      "title": "多重用药安全的合成公共检索基线",
+      "synthetic_query": "老年人多重用药时，应如何与医生共同评估用药安全？",
+      "expected_document_ids": [
+        "d6966bb3d1eb8b868c61b8d9d97835a4683df979bbd0c5bb787f634f1b173f1b"
+      ],
+      "minimum_expected_hits": 1,
+      "index_version": "markdown-heading-v1:lexical-cjk-ngram-v1:BAAI/bge-m3:1024",
+      "provenance": "synthetic_reviewed"
+    }
+  ]
+}

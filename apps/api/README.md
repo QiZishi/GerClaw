@@ -42,6 +42,19 @@ docker compose -f docker-compose.yml -f docker-compose.dev.yml \
 
 2026-07-15 的真实全量结果为 436/436 文档、39,837 chunks、失败 0；第二次同步为 `indexed=0, skipped=436, chunks_written=0`。跌倒、压疮、焦虑、肌少症、冠心病五类代表查询均在 top-3 命中对应本地目录文献。
 
+回归检索仅接受已审阅的合成用例，默认不会调用 embedding 或 rerank 服务。需要在同一不可变索引上进行一次显式的真实检索复验时，使用以下受限命令；输出只包含 case ID、匹配数和索引版本，不回显查询、文献正文或检索结果：
+
+```bash
+uv run python -m gerclaw_api.modules.evals.rag_cli \
+  --allow-external-rag \
+  --cases evals/rag-retrieval-reviewed-v1.json \
+  --index-version markdown-heading-v1:lexical-cjk-ngram-v1:BAAI/bge-m3:1024 \
+  --top-k 3 \
+  --max-cases 1
+```
+
+该评测只验证特定合成问题对特定公共语料的召回契约；它不证明医学正确性、模型质量、完整临床 workflow 或系统吞吐能力。
+
 ## 联网医疗证据 Search
 
 `ProductionSearchModule` 是后端唯一联网证据入口。它在 query 出站前脱敏手机号、证件号、邮箱和显式姓名；AnySearch 瞬态失败最多重试一次，随后才切换 Tavily，认证或 schema 错误直接降级。双 Provider 都失败时返回 `SEARCH_UNAVAILABLE`，不允许模型记忆冒充最新信息。

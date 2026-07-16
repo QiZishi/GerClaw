@@ -239,6 +239,16 @@ def test_rag_cli_loads_only_versioned_reviewed_case_sets(tmp_path: Path) -> None
     )
 
 
+def test_committed_rag_case_set_stays_versioned_and_synthetic() -> None:
+    case_file = Path(__file__).resolve().parents[1] / "evals" / "rag-retrieval-reviewed-v1.json"
+
+    loaded = load_rag_case_set(case_file)
+
+    assert len(loaded.cases) == 1
+    assert loaded.cases[0].case_id == "rag-retrieval.polypharmacy-safety-consensus"
+    assert loaded.cases[0].provenance == "synthetic_reviewed"
+
+
 def test_rag_cli_rejects_unreviewed_or_unapproved_input_without_echoing_content(
     tmp_path: Path,
 ) -> None:
