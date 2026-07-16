@@ -30,7 +30,7 @@
 - [x] 请求和响应严格校验；提交前持久化 idempotency key，网络错误不显示成功且可使用同一 key 重试。
 - [x] 负反馈真实进入 Bad Case，且不向浏览器披露其他主体的 Trace/snapshot。
 - [ ] 定向测试、前端 build、真实 Compose 浏览器路径和独立审阅通过（缺独立审阅）。
-- [ ] 在真实 Compose 依赖上保留可重复的 ≤10 并发性能报告；该报告只覆盖已声明工作负载，不能代替临床 workflow、外部模型或千级容量验收。
+- [x] 在真实 Compose 依赖上保留可重复的 ≤10 并发性能报告；该报告只覆盖已声明工作负载，不能代替临床 workflow、外部模型或千级容量验收。
 
 ## 实现与验证记录（2026-07-16）
 
@@ -40,3 +40,4 @@
 - 后端真实依赖测试：在 Compose 网络的一次性容器中运行 `test_real_trace_feedback_bad_case_encryption_and_readiness_flow`，结果 `1 passed`；验证了负反馈幂等入库、Bad Case、租户隔离与加密快照。容器退出已自动删除。
 - 浏览器在 `http://127.0.0.1:3048` 验证了失败响应不显示反馈入口；另以 transport mock 模拟一个合规的已完成 SSE，验证 trace 门槛、点踩弹窗、提交状态、禁用重复提交和请求 payload。模拟 `503` 时弹窗保留、按钮仍可用且仅显示可重试提示。该 mock 仅验证前端交互，不替代上述真实后端证据。
 - 2026-07-17：新增受版本绑定的合成 RAG 检索用例 `apps/api/evals/rag-retrieval-reviewed-v1.json`。默认 Eval 仍不会调用外部服务；仅以 `--allow-external-rag` 明确 opt-in 后，才使用当前 immutable index `markdown-heading-v1:lexical-cjk-ngram-v1:BAAI/bge-m3:1024` 执行 embedding 与 rerank。Compose 真实运行 1 个公共、合成多重用药安全问题，top-3 中预期文献命中 1/1；机器报告不回显 query、正文或检索来源。该结果只证明这条检索回归契约，不代表医学正确性、模型质量、临床 workflow 或性能容量。
+- 2026-07-17：用 `apps/api/scripts/perf_sse_safety_short_circuit.py` 在当前 Compose API 重跑 10 并发确定性安全短路。10/10 HTTP 200 与 SSE `done`，失败率 0，p50 114ms、p95 115ms；每个会话的 completed Trace、持久化 assistant 消息和跨访客 404 都由脚本复核。原始 PHI-free JSON 已保存至 `docs/evidence/perf-sse-safety-short-circuit-compose-2026-07-17.json`。这不是模型、RAG、临床 workflow 或千级容量基准。

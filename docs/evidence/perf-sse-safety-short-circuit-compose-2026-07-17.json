@@ -1,0 +1,34 @@
+{
+  "concurrency": 10,
+  "failure_rate": 0.0,
+  "generated_at": "2026-07-16T18:09:56.058524+00:00",
+  "http_statuses": {
+    "200": 10
+  },
+  "latency_ms": {
+    "max": 115,
+    "min": 112,
+    "p50": 114,
+    "p95": 115
+  },
+  "ok": true,
+  "schema_version": "perf-sse-safety-short-circuit-v1",
+  "session": {
+    "created_count": 10,
+    "cross_actor_read_status": 404,
+    "persisted_message_verified_count": 10
+  },
+  "sse_terminals": {
+    "done": 10
+  },
+  "timeout_seconds": 30.0,
+  "trace": {
+    "completed_count": 10,
+    "unique_count": 10
+  },
+  "workload": {
+    "claim_boundary": "This is not an LLM/RAG throughput or thousand-concurrency benchmark.",
+    "external_model_or_rag": false,
+    "kind": "deterministic_high_risk_safety_short_circuit"
+  }
+}
