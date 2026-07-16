@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import Image from "next/image";
 import {
   AlertTriangle,
@@ -129,9 +129,19 @@ interface MessageBubbleProps {
   isLastMessage?: boolean;
 }
 
-function VoiceReadButton({ text, seniorMode, autoPlay }: { text: string; seniorMode: boolean; autoPlay: boolean }) {
+function VoiceReadButton({
+  text,
+  seniorMode,
+  autoPlay,
+  onAutoPlayConsumed,
+}: {
+  text: string;
+  seniorMode: boolean;
+  autoPlay: boolean;
+  onAutoPlayConsumed: () => void;
+}) {
   const { isPlaying, isPaused, isLoading, progress, play, pause, resume, stop } = useAudioPlayer();
-  const autoPlaybackStartedRef = useRef(false);
+  const autoPlaybackClaimedRef = useRef(false);
   const autoPlaybackTimerRef = useRef<number | null>(null);
 
   const reportPlaybackError = () => toast.show("语音播放失败，请稍后重试");
@@ -139,20 +149,30 @@ function VoiceReadButton({ text, seniorMode, autoPlay }: { text: string; seniorM
   const continuePlayback = () => void resume().catch(reportPlaybackError);
 
   useEffect(() => {
-    if (!autoPlay || autoPlaybackStartedRef.current || !text) return;
+    if (!autoPlay || autoPlaybackClaimedRef.current || !text) return;
+    // 先消费一次性信号，再延迟播放，避免重新打开历史会话时误触发朗读。
+    autoPlaybackClaimedRef.current = true;
+    onAutoPlayConsumed();
     autoPlaybackTimerRef.current = window.setTimeout(() => {
       autoPlaybackTimerRef.current = null;
-      autoPlaybackStartedRef.current = true;
       // 自动朗读的失败不打断咨询；用户仍可点击“朗读”重试。
       void play(text).catch(() => undefined);
     }, 500);
     return () => {
-      if (autoPlaybackTimerRef.current !== null) {
+      // 消费信号会导致本 effect 重新执行；此时保留已排定的首播计时器。
+      if (!autoPlaybackClaimedRef.current && autoPlaybackTimerRef.current !== null) {
         window.clearTimeout(autoPlaybackTimerRef.current);
         autoPlaybackTimerRef.current = null;
       }
     };
-  }, [autoPlay, play, text]);
+  }, [autoPlay, onAutoPlayConsumed, play, text]);
+
+  useEffect(() => () => {
+    if (autoPlaybackTimerRef.current !== null) {
+      window.clearTimeout(autoPlaybackTimerRef.current);
+      autoPlaybackTimerRef.current = null;
+    }
+  }, []);
 
   if (isLoading) {
     return (
@@ -313,6 +333,25 @@ export function MessageBubble({
   const setPanelContent = useAppStore((s) => s.setPanelContent);
   const setMessageFeedback = useChatStore((s) => s.setMessageFeedback);
   const updateMessage = useChatStore((s) => s.updateMessage);
+
+  const autoPlayEligible = Boolean(
+    message.autoTtsPending &&
+    role === "patient" &&
+    seniorMode &&
+    autoTtsPlayback &&
+    ttsAvailable
+  );
+  const markAutoPlaybackConsumed = useCallback(() => {
+    updateMessage(message.id, { autoTtsPending: false });
+  }, [message.id, updateMessage]);
+
+  useEffect(() => {
+    // 用户在生成结束后关闭自动朗读、离开患者模式或语音服务不可用时，
+    // 不保留待播信号，避免随后打开历史消息时突然出声。
+    if (message.autoTtsPending && !autoPlayEligible) {
+      markAutoPlaybackConsumed();
+    }
+  }, [autoPlayEligible, markAutoPlaybackConsumed, message.autoTtsPending]);
 
   const feedback = message.feedback ?? null;
 
@@ -747,7 +786,8 @@ export function MessageBubble({
                 <VoiceReadButton
                   text={plainText}
                   seniorMode={seniorMode}
-                  autoPlay={role === "patient" && seniorMode && autoTtsPlayback && ttsAvailable && Boolean(isLastMessage)}
+                  autoPlay={autoPlayEligible}
+                  onAutoPlayConsumed={markAutoPlaybackConsumed}
                 />
               )}
 

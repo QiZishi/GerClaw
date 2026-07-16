@@ -202,7 +202,13 @@ export function ChatArea() {
     const messagesToRemove = messages.slice(userMsgIndex + 1, aiMsgIndex + 1);
     messagesToRemove.forEach((m) => removeMessage(m.id));
     
-    doSend(currentSessionId, userText, true, userImages.length > 0 ? userImages : undefined);
+    doSend(
+      currentSessionId,
+      userText,
+      true,
+      userImages.length > 0 ? userImages : undefined,
+      userMsg.uploadedFiles ?? []
+    );
   };
 
   /** 请求删除消息 - 显示确认对话框 */
@@ -325,6 +331,7 @@ export function ChatArea() {
       blocks: userBlocks,
       status: "done",
       createdAt: Date.now(),
+      uploadedFiles: uploadedDocumentIds.length > 0 ? uploadedDocumentIds : undefined,
     };
     if (!isRegenerate) {
       addMessage(userMsg);
@@ -482,6 +489,11 @@ export function ChatArea() {
             citations: emergencyShortCircuit || citations.length === 0 ? undefined : citations,
             hasDisclaimer: true,
             traceId,
+            // 只给本次刚结束的正常回复一次自动朗读机会；历史消息没有该信号。
+            autoTtsPending: !emergencyShortCircuit && (() => {
+              const appState = useAppStore.getState();
+              return appState.role === "patient" && appState.seniorMode && appState.autoTtsPlayback && appState.ttsAvailable;
+            })(),
           });
           setGenerating(false);
           if (!isRegenerate) {

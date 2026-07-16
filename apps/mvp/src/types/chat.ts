@@ -234,6 +234,11 @@ export interface Message {
   uploadedFiles?: string[];
   /** 是否含免责声明 */
   hasDisclaimer?: boolean;
+  /**
+   * 仅用于刚完成的一次回复的自动朗读信号。组件开始朗读后会立即消费，
+   * 因此重新打开历史会话或刷新页面不会朗读旧消息。
+   */
+  autoTtsPending?: boolean;
   /** 服务端完成本次聊天执行后返回的 Trace ID；只允许用于同主体反馈。 */
   traceId?: string;
   /** 用户反馈 */
