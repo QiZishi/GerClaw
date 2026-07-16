@@ -79,6 +79,7 @@ export function CgaAssessment({ onExit }: CgaAssessmentProps) {
   const seniorMode = useAppStore((state) => state.seniorMode);
   const [scales, setScales] = useState<CgaScale[]>([]);
   const [assessment, setAssessment] = useState<Assessment | null>(null);
+  const [savedAssessments, setSavedAssessments] = useState<Partial<Record<CgaScaleId, Assessment>>>({});
   const [report, setReport] = useState<CgaReport | null>(null);
   const [history, setHistory] = useState<CgaHistoryItem[]>([]);
   const [selectedScaleId, setSelectedScaleId] = useState<CgaScaleId | null>(null);
@@ -112,18 +113,42 @@ export function CgaAssessment({ onExit }: CgaAssessmentProps) {
     }
   }, []);
 
+  const loadSavedAssessments = useCallback(async (availableScales: CgaScale[]) => {
+    const saved = await Promise.all(availableScales.map(async (scale) => {
+      const storedId = localStorage.getItem(assessmentKey(scale.id));
+      const parsedStoredId = storedAssessmentIdSchema.safeParse(storedId);
+      if (!parsedStoredId.success) return null;
+      try {
+        const existing = await getCgaAssessment(parsedStoredId.data);
+        return existing.scale_id === scale.id ? existing : null;
+      } catch (caught) {
+        if (caught instanceof GerclawApiError && caught.code === "CGA_NOT_FOUND") {
+          localStorage.removeItem(assessmentKey(scale.id));
+        }
+        return null;
+      }
+    }));
+    const next: Partial<Record<CgaScaleId, Assessment>> = {};
+    for (const item of saved) {
+      if (item) next[item.scale_id] = item;
+    }
+    setSavedAssessments(next);
+  }, []);
+
   const loadDirectory = useCallback(async () => {
     setLoadingDirectory(true);
     setError(null);
     void loadHistory();
     try {
-      setScales((await listCgaScales()).scales);
+      const availableScales = (await listCgaScales()).scales;
+      setScales(availableScales);
+      await loadSavedAssessments(availableScales);
     } catch {
       setError("评估目录暂时无法连接。请检查网络后重试。");
     } finally {
       setLoadingDirectory(false);
     }
-  }, [loadHistory]);
+  }, [loadHistory, loadSavedAssessments]);
 
   useEffect(() => {
     const timer = window.setTimeout(() => void loadDirectory(), 0);
@@ -157,6 +182,7 @@ export function CgaAssessment({ onExit }: CgaAssessmentProps) {
       }
       if (!next) next = await startCgaAssessment(scale.id);
       localStorage.setItem(key, next.assessment_id);
+      setSavedAssessments((current) => ({ ...current, [scale.id]: next! }));
       setSelectedScaleId(scale.id);
       setAssessment(next);
       setReport(next.status === "completed" ? await getCgaReport(next.assessment_id) : null);
@@ -214,6 +240,7 @@ export function CgaAssessment({ onExit }: CgaAssessmentProps) {
     try {
       const completed = await completeCgaAssessment(assessment);
       setAssessment(completed);
+      setSavedAssessments((current) => ({ ...current, [completed.scale_id]: completed }));
       setReport(await getCgaReport(completed.assessment_id));
     } catch {
       setError("结果尚未生成。请重试；您的已答内容仍会保留。");
@@ -252,7 +279,7 @@ export function CgaAssessment({ onExit }: CgaAssessmentProps) {
     setManualInput("");
     setSelectedOrdinalScore(null);
     setSupplementalDetail("");
-    void loadHistory();
+    void loadDirectory();
   };
 
   const submitManualAnswer = () => {
@@ -308,7 +335,15 @@ export function CgaAssessment({ onExit }: CgaAssessmentProps) {
         <div className="space-y-6">
           {loadingDirectory ? (
             <p className={cn("rounded-lg border p-5 text-muted-foreground", textClass)}>正在准备评估项目…</p>
-          ) : scales.map((scale) => (
+          ) : scales.map((scale) => {
+            const savedAssessment = savedAssessments[scale.id];
+            const actionVerb = savedAssessment?.status === "active"
+              ? "继续"
+              : savedAssessment?.status === "completed"
+                ? "查看"
+                : "开始";
+            const actionLabel = `${actionVerb} ${scale.name} 筛查`;
+            return (
             <article key={scale.id} className="rounded-xl border bg-card p-5 shadow-sm">
               <div className="flex items-start gap-3">
                 <div className="mt-0.5 rounded-full bg-primary/10 p-2 text-primary"><ClipboardList className="size-5" /></div>
@@ -318,13 +353,17 @@ export function CgaAssessment({ onExit }: CgaAssessmentProps) {
                     <span className={cn("text-muted-foreground", textClass)}>{scale.question_count} 题</span>
                   </div>
                   <p className={cn("mt-2 text-muted-foreground", textClass)}>{scale.description}</p>
+                  {savedAssessment?.status === "active" && (
+                    <p className={cn("mt-3 font-medium text-primary", textClass)}>已保存进度，可从第 {savedAssessment.next_question?.position ?? savedAssessment.answered_count + 1} 题继续。</p>
+                  )}
                   <Button className={cn("mt-4", actionClass)} onClick={() => void begin(scale)} disabled={saving}>
-                    开始 {scale.name} 筛查
+                    {actionLabel}
                   </Button>
                 </div>
               </div>
             </article>
-          ))}
+            );
+          })}
           <section aria-labelledby="cga-history-title" className="border-t pt-6">
             <div className="flex flex-wrap items-baseline justify-between gap-2">
               <h3 id="cga-history-title" className={cn("font-semibold", seniorMode ? "text-xl" : "text-lg")}>我的历史筛查结果</h3>
