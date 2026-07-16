@@ -6,11 +6,22 @@ import hashlib
 import hmac
 import re
 import uuid
+from datetime import UTC, datetime, timedelta
+from typing import Annotated, Literal, cast
 
-from fastapi import APIRouter, Request
+from fastapi import APIRouter, Depends, HTTPException, Request, status
 from pydantic import BaseModel, ConfigDict, Field
+from sqlalchemy.ext.asyncio import AsyncSession
 
 from gerclaw_api.auth import create_access_token
+from gerclaw_api.dependencies import get_database_session
+from gerclaw_api.modules.identity.passwords import hash_password, verify_password
+from gerclaw_api.repositories.account import (
+    AccountConflictError,
+    AccountNotFoundError,
+    SqlAlchemyAccountRepository,
+)
+from gerclaw_api.security import audit_hmac_digest
 from gerclaw_api.services.rate_limit import RateLimiter
 
 router = APIRouter(prefix="/auth", tags=["auth"])
@@ -44,6 +55,9 @@ _GUEST_SCOPES = {
 }
 _VISITOR_ID = re.compile(r"^[a-f0-9]{32}$")
 _VISITOR_SIGNATURE = re.compile(r"^[a-f0-9]{64}$")
+_ACCOUNT_NAME = r"^[A-Za-z0-9][A-Za-z0-9_.-]{2,47}$"
+_ACCOUNT_TENANT = "tenant_public0001"
+AccountSessionDependency = Annotated[AsyncSession, Depends(get_database_session)]
 
 
 class GuestTokenRead(BaseModel):
@@ -55,6 +69,142 @@ class GuestTokenRead(BaseModel):
     token_type: str = "bearer"
     expires_in: int = Field(ge=300, le=86_400)
     actor_id: str = Field(pattern=r"^usr_guest_[a-f0-9]{32}$")
+
+
+class AccountRegisterRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    username: str = Field(pattern=_ACCOUNT_NAME)
+    password: str = Field(min_length=12, max_length=128)
+    role: Literal["patient", "doctor"]
+
+
+class AccountLoginRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    username: str = Field(pattern=_ACCOUNT_NAME)
+    password: str = Field(min_length=1, max_length=128)
+
+
+class AccountSessionRead(BaseModel):
+    """Tokens are returned to the same-origin BFF, never persisted by the API."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    access_token: str = Field(min_length=32)
+    refresh_token: str = Field(min_length=32)
+    token_type: Literal["bearer"] = "bearer"
+    expires_in: int = Field(ge=300, le=86_400)
+    actor_id: str = Field(pattern=r"^usr_account_[a-f0-9]{32}$")
+    role: Literal["patient", "doctor"]
+
+
+def _account_scopes() -> set[str]:
+    """Account role is not a substitute for patient or clinical authorisation."""
+
+    return set(_GUEST_SCOPES)
+
+
+def _username_fingerprint(request: Request, username: str) -> str:
+    normalized = username.strip().casefold()
+    return audit_hmac_digest(
+        request.app.state.settings.auth_jwt_secret.get_secret_value().encode(),
+        f"local-account-name:v1:{normalized}".encode(),
+    )
+
+
+async def _issue_account_session(
+    request: Request,
+    repository: SqlAlchemyAccountRepository,
+    *,
+    user_id: uuid.UUID,
+    actor_id: str,
+    role: Literal["patient", "doctor"],
+) -> AccountSessionRead:
+    settings = request.app.state.settings
+    refresh_token = uuid.uuid4().hex + uuid.uuid4().hex
+    await repository.create_refresh_session(
+        tenant_id=_ACCOUNT_TENANT,
+        user_id=user_id,
+        token_fingerprint=audit_hmac_digest(
+            settings.auth_jwt_secret.get_secret_value().encode(),
+            f"local-account-refresh:v1:{refresh_token}".encode(),
+        ),
+        expires_at=datetime.now(UTC) + timedelta(days=30),
+    )
+    return AccountSessionRead(
+        access_token=create_access_token(
+            settings,
+            actor_id=actor_id,
+            tenant_id=_ACCOUNT_TENANT,
+            scopes=_account_scopes(),
+            role=role,
+            lifetime_seconds=900,
+        ),
+        refresh_token=refresh_token,
+        expires_in=900,
+        actor_id=actor_id,
+        role=role,
+    )
+
+
+@router.post("/register", response_model=AccountSessionRead, status_code=status.HTTP_201_CREATED)
+async def register_account(
+    payload: AccountRegisterRequest,
+    request: Request,
+    session: AccountSessionDependency,
+) -> AccountSessionRead:
+    """Register a password account; doctor role has no clinical authority yet."""
+
+    limiter: RateLimiter = request.app.state.rate_limiter
+    fingerprint = _username_fingerprint(request, payload.username)
+    await limiter.check(tenant_id=_ACCOUNT_TENANT, actor_id=f"register_{fingerprint[:24]}")
+    repository = SqlAlchemyAccountRepository(session)
+    actor_id = f"usr_account_{uuid.uuid4().hex}"
+    try:
+        user = await repository.create(
+            tenant_id=_ACCOUNT_TENANT,
+            actor_id=actor_id,
+            role=payload.role,
+            username_fingerprint=fingerprint,
+            username=payload.username.strip(),
+            password_hash=hash_password(payload.password),
+        )
+    except AccountConflictError as error:
+        raise HTTPException(status_code=409, detail={"code": "ACCOUNT_UNAVAILABLE"}) from error
+    result = await _issue_account_session(
+        request, repository, user_id=user.id, actor_id=actor_id, role=payload.role
+    )
+    await session.commit()
+    return result
+
+
+@router.post("/login", response_model=AccountSessionRead)
+async def login_account(
+    payload: AccountLoginRequest,
+    request: Request,
+    session: AccountSessionDependency,
+) -> AccountSessionRead:
+    """Verify one local account with an enumeration-safe public failure."""
+
+    limiter: RateLimiter = request.app.state.rate_limiter
+    fingerprint = _username_fingerprint(request, payload.username)
+    await limiter.check(tenant_id=_ACCOUNT_TENANT, actor_id=f"login_{fingerprint[:24]}")
+    repository = SqlAlchemyAccountRepository(session)
+    try:
+        user, credential = await repository.find_by_username(
+            tenant_id=_ACCOUNT_TENANT, username_fingerprint=fingerprint
+        )
+    except AccountNotFoundError as error:
+        raise HTTPException(status_code=401, detail={"code": "ACCOUNT_LOGIN_INVALID"}) from error
+    if not verify_password(payload.password, credential.password_hash):
+        raise HTTPException(status_code=401, detail={"code": "ACCOUNT_LOGIN_INVALID"})
+    role = cast(Literal["patient", "doctor"], user.role)
+    result = await _issue_account_session(
+        request, repository, user_id=user.id, actor_id=user.external_id, role=role
+    )
+    await session.commit()
+    return result
 
 
 @router.post("/guest", response_model=GuestTokenRead)

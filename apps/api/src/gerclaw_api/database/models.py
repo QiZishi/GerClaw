@@ -60,6 +60,48 @@ class User(TimestampMixin, Base):
     is_active: Mapped[bool] = mapped_column(default=True, nullable=False)
 
 
+class AccountCredential(TimestampMixin, Base):
+    """One local account login; searchable only by a keyed username fingerprint."""
+
+    __tablename__ = "account_credentials"
+    __table_args__ = (
+        UniqueConstraint("tenant_id", "username_fingerprint", name="uq_account_credentials_name"),
+        UniqueConstraint("tenant_id", "user_id", name="uq_account_credentials_user"),
+        CheckConstraint("password_version > 0", name="positive_password_version"),
+    )
+
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    tenant_id: Mapped[str] = mapped_column(String(64), nullable=False, index=True)
+    user_id: Mapped[uuid.UUID] = mapped_column(
+        ForeignKey("users.id", ondelete="CASCADE"), nullable=False, index=True
+    )
+    username_fingerprint: Mapped[str] = mapped_column(String(64), nullable=False)
+    username: Mapped[str] = mapped_column(EncryptedText(), nullable=False)
+    password_hash: Mapped[str] = mapped_column(String(512), nullable=False)
+    password_version: Mapped[int] = mapped_column(Integer, default=1, nullable=False)
+
+
+class AccountRefreshSession(TimestampMixin, Base):
+    """Opaque refresh token server record; only its keyed fingerprint is retained."""
+
+    __tablename__ = "account_refresh_sessions"
+    __table_args__ = (
+        UniqueConstraint("token_fingerprint", name="uq_account_refresh_sessions_token"),
+        CheckConstraint("token_version > 0", name="positive_token_version"),
+    )
+
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    tenant_id: Mapped[str] = mapped_column(String(64), nullable=False, index=True)
+    user_id: Mapped[uuid.UUID] = mapped_column(
+        ForeignKey("users.id", ondelete="CASCADE"), nullable=False, index=True
+    )
+    token_fingerprint: Mapped[str] = mapped_column(String(64), nullable=False)
+    token_version: Mapped[int] = mapped_column(Integer, default=1, nullable=False)
+    expires_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    revoked_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    replaced_by_id: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True), nullable=True)
+
+
 class ConversationSession(TimestampMixin, Base):
     """Durable user conversation independent from AgentScope hot state."""
 

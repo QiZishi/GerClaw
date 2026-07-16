@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from datetime import UTC, datetime, timedelta
-from typing import Annotated
+from typing import Annotated, Literal
 
 import jwt
 from fastapi import Depends, HTTPException, Request, status
@@ -25,6 +25,7 @@ class AuthContext(BaseModel):
 
     actor_id: str = Field(pattern=SAFE_IDENTIFIER_PATTERN)
     tenant_id: str = Field(pattern=SAFE_IDENTIFIER_PATTERN)
+    role: Literal["guest", "patient", "doctor", "admin"] = "guest"
     scopes: frozenset[str]
 
     @field_validator("actor_id", "tenant_id")
@@ -41,6 +42,7 @@ def create_access_token(
     actor_id: str,
     tenant_id: str,
     scopes: set[str],
+    role: Literal["guest", "patient", "doctor", "admin"] = "guest",
     lifetime_seconds: int = 300,
 ) -> str:
     """Issue a short-lived HS256 token for a trusted identity provider or test harness."""
@@ -50,6 +52,7 @@ def create_access_token(
         "sub": actor_id,
         "tenant_id": tenant_id,
         "scope": " ".join(sorted(scopes)),
+        "role": role,
         "iss": settings.auth_jwt_issuer,
         "aud": settings.auth_jwt_audience,
         "iat": now,
@@ -91,6 +94,7 @@ async def authenticate(
             actor_id=claims["sub"],
             tenant_id=claims["tenant_id"],
             scopes=frozenset(scope_value.split()),
+            role=claims.get("role", "guest"),
         )
     except (InvalidTokenError, KeyError, ValidationError, TypeError) as error:
         raise HTTPException(
