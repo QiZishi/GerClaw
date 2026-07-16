@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import base64
 import binascii
+from collections.abc import AsyncGenerator
 from typing import Annotated, cast
 
 from fastapi import APIRouter, Depends, HTTPException, Request, status
@@ -57,6 +58,19 @@ def _decode_audio(value: str) -> bytes:
     return decoded
 
 
+async def _prepend_first_chunk(
+    stream: AsyncGenerator[bytes, None], first_chunk: bytes
+) -> AsyncGenerator[bytes, None]:
+    """Keep the verified first PCM16 chunk while releasing a cancelled provider stream."""
+
+    try:
+        yield first_chunk
+        async for chunk in stream:
+            yield chunk
+    finally:
+        await stream.aclose()
+
+
 @router.post("/asr", response_model=VoiceASRResponse)
 async def transcribe(
     payload: VoiceASRRequest,
@@ -89,16 +103,21 @@ async def synthesize(
 
     await _enforce_rate_limit(request, identity)
     voice = payload.voice or module.default_voice
+    stream = module.synthesize(payload.text.strip(), voice=voice, style=payload.style)
     try:
-        stream = module.synthesize(payload.text.strip(), voice=voice, style=payload.style)
-        return StreamingResponse(
-            stream,
-            media_type="audio/L16;rate=24000;channels=1",
-            headers={"Cache-Control": "no-store", "X-Content-Type-Options": "nosniff"},
-        )
+        first_chunk = await anext(stream)
     except VoiceProviderUnavailable as error:
         raise HTTPException(status_code=503, detail={"code": "VOICE_TTS_UNAVAILABLE"}) from error
     except VoiceProviderInvalidResponse as error:
         raise HTTPException(
             status_code=502, detail={"code": "VOICE_TTS_INVALID_RESPONSE"}
         ) from error
+    except StopAsyncIteration as error:
+        raise HTTPException(
+            status_code=502, detail={"code": "VOICE_TTS_INVALID_RESPONSE"}
+        ) from error
+    return StreamingResponse(
+        _prepend_first_chunk(stream, first_chunk),
+        media_type="audio/L16;rate=24000;channels=1",
+        headers={"Cache-Control": "no-store", "X-Content-Type-Options": "nosniff"},
+    )

@@ -3,13 +3,14 @@
 from __future__ import annotations
 
 import base64
-from collections.abc import AsyncIterator
+from collections.abc import AsyncGenerator
 
 import pytest
 from httpx import ASGITransport, AsyncClient
 
 from gerclaw_api.application import create_app
 from gerclaw_api.auth import create_access_token
+from gerclaw_api.modules.voice import VoiceProviderUnavailable
 from tests.conftest import make_settings
 
 
@@ -25,8 +26,14 @@ class _Voice:
         assert audio_data == b"audio"
         return "测试转写"
 
-    async def synthesize(self, _text: str, **_kwargs: str) -> AsyncIterator[bytes]:
+    async def synthesize(self, _text: str, **_kwargs: str) -> AsyncGenerator[bytes, None]:
         yield b"\x01\x00"
+
+
+class _UnavailableVoice(_Voice):
+    async def synthesize(self, _text: str, **_kwargs: str) -> AsyncGenerator[bytes, None]:
+        raise VoiceProviderUnavailable("test")
+        yield b""  # pragma: no cover - preserves the async-generator contract
 
 
 @pytest.mark.asyncio
@@ -79,3 +86,26 @@ async def test_voice_routes_reject_missing_scope_and_invalid_audio() -> None:
         forbidden = await client.post("/api/v1/voice/tts", json={"text": "测试"})
 
     assert forbidden.status_code == 403
+
+
+@pytest.mark.asyncio
+async def test_voice_tts_projects_a_first_packet_provider_failure_before_headers() -> None:
+    settings = make_settings()
+    app = create_app(settings)
+    app.state.rate_limiter = _RateLimiter()
+    app.state.voice_module = _UnavailableVoice()
+    token = create_access_token(
+        settings,
+        actor_id="usr_patient_voice0001",
+        tenant_id="tenant_public0001",
+        scopes={"voice:use"},
+    )
+    async with AsyncClient(
+        transport=ASGITransport(app=app),
+        base_url="http://testserver",
+        headers={"Authorization": f"Bearer {token}"},
+    ) as client:
+        response = await client.post("/api/v1/voice/tts", json={"text": "测试"})
+
+    assert response.status_code == 503
+    assert response.json()["detail"]["code"] == "VOICE_TTS_UNAVAILABLE"

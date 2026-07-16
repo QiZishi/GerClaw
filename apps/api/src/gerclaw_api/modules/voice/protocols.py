@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from collections.abc import AsyncIterator
+from collections.abc import AsyncGenerator
 from typing import Protocol
 
 from gerclaw_api.modules.voice.models import AudioFormat, VoiceName
@@ -16,7 +16,7 @@ class VoiceModule(Protocol):
 
     async def synthesize(
         self, text: str, *, voice: VoiceName, style: str | None = None
-    ) -> AsyncIterator[bytes]:
+    ) -> AsyncGenerator[bytes, None]:
         """Yield 24 kHz mono PCM16LE chunks."""
 
     async def aclose(self) -> None:

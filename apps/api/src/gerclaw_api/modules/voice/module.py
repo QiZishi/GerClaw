@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import base64
 import json
-from collections.abc import AsyncIterator
+from collections.abc import AsyncGenerator
 from typing import cast
 
 import httpx
@@ -138,7 +138,7 @@ class MiMoVoiceModule:
 
     async def synthesize(
         self, text: str, *, voice: VoiceName, style: str | None = None
-    ) -> AsyncIterator[bytes]:
+    ) -> AsyncGenerator[bytes, None]:
         payload = {
             "model": self._tts_model,
             "messages": [
