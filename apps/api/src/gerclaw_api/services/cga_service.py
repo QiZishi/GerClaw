@@ -203,7 +203,16 @@ class CgaService:
         records = await self._repository.list_active(
             tenant_id=tenant_id, actor_id=actor_id, limit=limit
         )
-        return CgaActiveAssessmentsRead(items=[self._read(record) for record in records])
+        newest_by_scale: list[CgaAssessmentRead] = []
+        seen_scales: set[str] = set()
+        for record in records:
+            if record.scale_id in seen_scales:
+                continue
+            seen_scales.add(record.scale_id)
+            newest_by_scale.append(self._read(record))
+            if len(newest_by_scale) == 3:
+                break
+        return CgaActiveAssessmentsRead(items=newest_by_scale)
 
     def _read(self, record: CgaAssessment) -> CgaAssessmentRead:
         answers = self._answers(record)

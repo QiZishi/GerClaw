@@ -114,6 +114,37 @@ async def test_active_list_exposes_only_resumable_read_models() -> None:
 
 
 @pytest.mark.asyncio
+async def test_active_list_keeps_only_the_newest_state_per_scale() -> None:
+    repository = _Repository()
+    service = CgaService(repository)  # type: ignore[arg-type]
+    older = await service.start(tenant_id="tenant_public0001", actor_id="usr_patient_test0001")
+    newer = await service.start(tenant_id="tenant_public0001", actor_id="usr_patient_test0001")
+    assert repository.record is not None
+    repository.record.answers = {"phq9_1": 0}
+    repository.record.current_position = 2
+    repository.active_records = [repository.record, CgaAssessment(
+        id=older.assessment_id,
+        tenant_id="tenant_public0001",
+        actor_id="usr_patient_test0001",
+        scale_id="phq9",
+        definition_version="phq9-v1",
+        status="active",
+        current_position=1,
+        revision=1,
+        answers={},
+        notes={},
+    )]
+
+    active = await service.active(
+        tenant_id="tenant_public0001", actor_id="usr_patient_test0001", limit=20
+    )
+
+    assert [item.assessment_id for item in active.items] == [newer.assessment_id]
+    assert active.items[0].next_question is not None
+    assert active.items[0].next_question.id == "phq9_2"
+
+
+@pytest.mark.asyncio
 async def test_phq9_cannot_complete_before_all_server_defined_answers_exist() -> None:
     service = CgaService(_Repository())  # type: ignore[arg-type]
     started = await service.start(tenant_id="tenant_public0001", actor_id="usr_patient_test0001")

@@ -118,8 +118,10 @@ export function CgaAssessment({ onExit }: CgaAssessmentProps) {
     const fromServer = (await listActiveCgaAssessments()).items;
     const savedByScale: Partial<Record<CgaScaleId, Assessment>> = {};
     for (const item of fromServer) {
-      savedByScale[item.scale_id] = item;
-      localStorage.setItem(assessmentKey(item.scale_id), item.assessment_id);
+      if (!savedByScale[item.scale_id]) {
+        savedByScale[item.scale_id] = item;
+        localStorage.setItem(assessmentKey(item.scale_id), item.assessment_id);
+      }
     }
     const saved = await Promise.all(availableScales.map(async (scale) => {
       if (savedByScale[scale.id]) return null;

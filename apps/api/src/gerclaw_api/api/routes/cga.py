@@ -135,7 +135,7 @@ async def list_active_assessments(
     """List only the caller's unfinished assessments for explicit resume UI."""
 
     return await CgaService(SqlAlchemyCgaRepository(session)).active(
-        tenant_id=identity.tenant_id, actor_id=identity.actor_id, limit=3
+        tenant_id=identity.tenant_id, actor_id=identity.actor_id, limit=20
     )
 
 
