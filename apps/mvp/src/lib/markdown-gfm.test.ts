@@ -26,9 +26,9 @@ test("preserves explicit double-tilde deletion support", () => {
 
 test("restores common missing block boundaries in streamed Markdown", () => {
   const normalized = normalizeChatMarkdown(
-    "说明。6. **下一项**：内容。---### 三、系统边界\n7. **最后一项**：内容。"
+    "说明。6. **下一项**：内容。---### 三、系统边界\n10. **最后一项**：内容。"
   );
 
   assert.match(normalized, /说明。\n6\. \*\*下一项\*\*/);
-  assert.match(normalized, /。\n\n---\n\n### 三、系统边界\n7\. \*\*最后一项\*\*/);
+  assert.match(normalized, /。\n\n---\n\n### 三、系统边界\n10\. \*\*最后一项\*\*/);
 });
