@@ -15,6 +15,12 @@ export function ThinkingBlock({ data }: ThinkingBlockProps) {
   const reducedMotion = useReducedMotion();
   const isThinking = data.status === "thinking";
   const hasContent = data.content.length > 0;
+  // Runtime only projects safe progress summaries here, never chain-of-thought.
+  // Once the turn is done, a past-tense summary avoids the contradictory
+  // “已思考 / 正在分析” state that makes a finished response feel stuck.
+  const displayContent = isThinking
+    ? data.content
+    : "本次分析已完成。为保护安全与隐私，系统不展示内部推理；相关资料和工具结果会在消息中单独列出。";
 
   if (isThinking && !hasContent) {
     // The message-level status bar owns the single animated indicator and
@@ -38,7 +44,7 @@ export function ThinkingBlock({ data }: ThinkingBlockProps) {
             )} 
           />
           <span className="font-medium">
-            {isThinking ? "思考中" : expanded ? "收起思考" : "已思考"}
+            {isThinking ? "正在分析" : expanded ? "收起分析" : "分析已完成"}
           </span>
         </span>
         {hasContent && (
@@ -61,7 +67,7 @@ export function ThinkingBlock({ data }: ThinkingBlockProps) {
         >
           <div className="min-h-0 overflow-hidden">
             <div className="px-3 pb-3 pt-1 text-sm text-muted-foreground/80 whitespace-pre-wrap border-t border-border/30 leading-relaxed">
-              {data.content}
+              {displayContent}
             </div>
           </div>
         </div>
