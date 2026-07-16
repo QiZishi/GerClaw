@@ -204,6 +204,63 @@ class RiskAlert(TimestampMixin, Base):
     acknowledged_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
 
 
+class ChronicCareCondition(TimestampMixin, Base):
+    """Caller-owned self-reported condition without clinical confirmation."""
+
+    __tablename__ = "chronic_care_conditions"
+    __table_args__ = (
+        CheckConstraint(
+            "confirmation_status IN ('self_reported')", name="valid_confirmation_status"
+        ),
+        CheckConstraint("revision > 0", name="positive_revision"),
+        UniqueConstraint("tenant_id", "actor_id", "id", name="uq_chronic_care_conditions_owner_id"),
+        Index("ix_chronic_care_conditions_owner_updated", "tenant_id", "actor_id", "updated_at"),
+    )
+
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    tenant_id: Mapped[str] = mapped_column(String(64), nullable=False, index=True)
+    actor_id: Mapped[str] = mapped_column(String(128), nullable=False, index=True)
+    confirmation_status: Mapped[str] = mapped_column(
+        String(32), nullable=False, default="self_reported"
+    )
+    revision: Mapped[int] = mapped_column(Integer, nullable=False, default=1)
+    details: Mapped[dict[str, Any]] = mapped_column(EncryptedJSON(), nullable=False)
+
+
+class ChronicCareMeasurement(Base):
+    """Append-only encrypted measurement attached to an owned condition."""
+
+    __tablename__ = "chronic_care_measurements"
+    __table_args__ = (
+        ForeignKeyConstraint(
+            ["tenant_id", "actor_id", "condition_id"],
+            [
+                "chronic_care_conditions.tenant_id",
+                "chronic_care_conditions.actor_id",
+                "chronic_care_conditions.id",
+            ],
+            ondelete="CASCADE",
+            name="fk_chronic_care_measurements_owned_condition",
+        ),
+        Index(
+            "ix_chronic_care_measurements_owner_condition_created",
+            "tenant_id",
+            "actor_id",
+            "condition_id",
+            "created_at",
+        ),
+    )
+
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    tenant_id: Mapped[str] = mapped_column(String(64), nullable=False, index=True)
+    actor_id: Mapped[str] = mapped_column(String(128), nullable=False, index=True)
+    condition_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), nullable=False)
+    details: Mapped[dict[str, Any]] = mapped_column(EncryptedJSON(), nullable=False)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), nullable=False
+    )
+
+
 class UploadedDocument(TimestampMixin, Base):
     """Encrypted, revocable parsed document scoped to one conversation owner."""
 

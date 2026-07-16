@@ -37,6 +37,7 @@ class TraceEventType(StrEnum):
     MEMORY_UPDATE = "memory.update"
     CLINICAL_INTAKE = "clinical_intake.update"
     CGA_ASSESSMENT = "cga.assessment"
+    CHRONIC_CARE = "chronic_care.update"
     SAFETY_CHECK = "safety.check"
     VOICE_CALL = "voice.call"
     SYSTEM_ERROR = "system.error"

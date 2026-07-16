@@ -215,6 +215,22 @@ async def require_cga_write(
     return authorize_scope(identity, "cga:write")
 
 
+async def require_chronic_care_read(
+    identity: Annotated[AuthContext, Depends(authenticate)],
+) -> AuthContext:
+    """Require access to the caller's own chronic-care ledger."""
+
+    return authorize_scope(identity, "chronic_care:read")
+
+
+async def require_chronic_care_write(
+    identity: Annotated[AuthContext, Depends(authenticate)],
+) -> AuthContext:
+    """Require append-only writes to the caller's chronic-care ledger."""
+
+    return authorize_scope(identity, "chronic_care:write")
+
+
 async def require_risk_alert_read(
     identity: Annotated[AuthContext, Depends(authenticate)],
 ) -> AuthContext:

@@ -128,6 +128,9 @@ EVENT_AUDIT_KEYS: dict[TraceEventType, frozenset[str]] = {
     TraceEventType.CGA_ASSESSMENT: frozenset(
         {"answered_count", "feature", "operation", "outcome", "scale", "success", "version"}
     ),
+    TraceEventType.CHRONIC_CARE: frozenset(
+        {"event_count", "feature", "operation", "outcome", "success", "version"}
+    ),
     TraceEventType.SAFETY_CHECK: frozenset({"duration_ms", "outcome", "safety_flags", "success"}),
     TraceEventType.VOICE_CALL: frozenset(
         {"duration_ms", "error_code", "model", "operation", "provider", "success"}
