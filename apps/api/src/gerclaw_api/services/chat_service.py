@@ -31,6 +31,7 @@ from gerclaw_api.modules.document import DocumentService
 from gerclaw_api.modules.memory.memory_module import ProductionMemoryModule
 from gerclaw_api.modules.memory.models import MemoryUpdateResult
 from gerclaw_api.modules.rag import HybridRAGModule
+from gerclaw_api.modules.risk_alert.service import RiskAlertService
 from gerclaw_api.modules.runtime.models import (
     ActorRole,
     ApprovalCreate,
@@ -112,6 +113,7 @@ class ChatService:
         skill_module: ProductionSkillModule | None = None,
         approval_repository: SqlAlchemyApprovalRepository | None = None,
         document_service: DocumentService | None = None,
+        risk_alert_service: RiskAlertService | None = None,
     ) -> None:
         self._settings = settings
         self._conversation = conversation
@@ -124,6 +126,7 @@ class ChatService:
         self._skill_module = skill_module
         self._approval_repository = approval_repository
         self._document_service = document_service
+        self._risk_alert_service = risk_alert_service
 
     async def process(
         self,
@@ -601,6 +604,16 @@ class ChatService:
             # AsyncSession. Stage the assistant plus success events, then let the
             # terminal Trace transition commit the whole success unit atomically.
             await lease_guard.assert_owned()
+            if response.emergency_short_circuit and self._risk_alert_service is not None:
+                source_fingerprint = audit_hmac_digest(
+                    self._settings.auth_jwt_secret.get_secret_value().encode(),
+                    f"risk-alert:v1:chat:{trace_id}".encode(),
+                )
+                await self._risk_alert_service.sync_chat_red_flag(
+                    tenant_id=identity.tenant_id,
+                    actor_id=identity.actor_id,
+                    source_fingerprint=source_fingerprint,
+                )
             conversation = await self._conversation.assert_fencing_token(
                 payload.session_id,
                 tenant_id=identity.tenant_id,

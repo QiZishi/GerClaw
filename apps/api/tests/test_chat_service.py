@@ -286,6 +286,14 @@ class _TraceFacade:
         return self.trace
 
 
+class _RiskAlertRecorder:
+    def __init__(self) -> None:
+        self.calls: list[dict[str, str]] = []
+
+    async def sync_chat_red_flag(self, **kwargs: str) -> None:
+        self.calls.append(kwargs)
+
+
 @pytest.mark.parametrize("created", [False, True])
 @pytest.mark.asyncio
 async def test_busy_retry_only_finishes_trace_created_by_this_request(
@@ -542,6 +550,7 @@ async def test_emergency_short_circuit_trace_does_not_claim_a_model_call(
 ) -> None:
     session_id = uuid.uuid4()
     traces = _TraceFacade(created=True, session_id=session_id)
+    alerts = _RiskAlertRecorder()
     service = ChatService(
         settings=unit_settings,
         conversation=cast(Any, _ConversationFacade(session_id)),
@@ -550,6 +559,7 @@ async def test_emergency_short_circuit_trace_does_not_claim_a_model_call(
         model=cast(Any, _TextModel()),
         rag_module=cast(Any, _NoopRAG()),
         memory_factory=_memory_factory(),
+        risk_alert_service=cast(Any, alerts),
     )
 
     async def callback(_event: object) -> None:
@@ -572,6 +582,10 @@ async def test_emergency_short_circuit_trace_does_not_claim_a_model_call(
     finish = next(event for event in traces.events if event.event_type.value == "agent.finish")
     assert "model" not in finish.payload
     assert "total_tokens" not in finish.payload
+    assert len(alerts.calls) == 1
+    assert alerts.calls[0]["tenant_id"] == "tenant_public0001"
+    assert alerts.calls[0]["actor_id"] == "usr_patient_unit0001"
+    assert len(alerts.calls[0]["source_fingerprint"]) == 52
 
 
 @pytest.mark.asyncio

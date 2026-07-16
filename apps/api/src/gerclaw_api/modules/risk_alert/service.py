@@ -61,6 +61,13 @@ _FOLLOW_UP_DETAILS = RiskAlertDetails(
     message="本次筛查提示需要尽快进行临床随访。",
     action="请尽快联系医生, 结合完整病史和专业评估确定下一步处理。",
 )
+_CHAT_RED_FLAG_DETAILS = RiskAlertDetails(
+    kind="chat_red_flag",
+    severity="critical",
+    title="需要立即就医",
+    message="本次对话提示可能存在紧急健康风险。",
+    action="请立即联系家人、医生或当地紧急医疗服务; 如有紧急危险, 请立即拨打当地急救电话。",
+)
 
 
 class RiskAlertService:
@@ -86,6 +93,7 @@ class RiskAlertService:
                 await self._ensure(
                     tenant_id=tenant_id,
                     actor_id=actor_id,
+                    source="cga",
                     source_fingerprint=immediate_source_fingerprint,
                     details=_IMMEDIATE_DETAILS,
                 )
@@ -95,11 +103,29 @@ class RiskAlertService:
                 await self._ensure(
                     tenant_id=tenant_id,
                     actor_id=actor_id,
+                    source="cga",
                     source_fingerprint=follow_up_source_fingerprint,
                     details=_FOLLOW_UP_DETAILS,
                 )
             )
         return tuple(created)
+
+    async def sync_chat_red_flag(
+        self,
+        *,
+        tenant_id: str,
+        actor_id: str,
+        source_fingerprint: str,
+    ) -> RiskAlertRead:
+        """Persist one emergency short-circuit without retaining chat content or codes."""
+
+        return await self._ensure(
+            tenant_id=tenant_id,
+            actor_id=actor_id,
+            source="chat",
+            source_fingerprint=source_fingerprint,
+            details=_CHAT_RED_FLAG_DETAILS,
+        )
 
     async def list(
         self, *, tenant_id: str, actor_id: str, status: str | None, limit: int
@@ -140,6 +166,7 @@ class RiskAlertService:
         *,
         tenant_id: str,
         actor_id: str,
+        source: str,
         source_fingerprint: str,
         details: RiskAlertDetails,
     ) -> RiskAlertRead:
@@ -150,7 +177,7 @@ class RiskAlertService:
             existing = await self._repository.create(
                 tenant_id=tenant_id,
                 actor_id=actor_id,
-                source="cga",
+                source=source,
                 source_fingerprint=source_fingerprint,
                 policy_version=RISK_ALERT_POLICY_VERSION,
                 details=details.model_dump(mode="json"),

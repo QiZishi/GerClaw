@@ -145,3 +145,27 @@ async def test_high_follow_up_is_owner_scoped_and_acknowledgement_is_revision_fe
             expected_revision=2,
             idempotency_key="idem_risk_alert_different_ack0001",
         )
+
+
+@pytest.mark.asyncio
+async def test_chat_red_flag_is_deduplicated_without_retaining_chat_content() -> None:
+    repository = _Repository()
+    service = RiskAlertService(repository)  # type: ignore[arg-type]
+
+    first = await service.sync_chat_red_flag(
+        tenant_id="tenant_public0001",
+        actor_id="usr_patient_alert0001",
+        source_fingerprint="c" * 64,
+    )
+    replayed = await service.sync_chat_red_flag(
+        tenant_id="tenant_public0001",
+        actor_id="usr_patient_alert0001",
+        source_fingerprint="c" * 64,
+    )
+
+    assert first.kind == "chat_red_flag"
+    assert first.severity == "critical"
+    assert replayed.alert_id == first.alert_id
+    assert len(repository.records) == 1
+    assert repository.records[0].source == "chat"
+    assert "source_fingerprint" not in first.model_dump()

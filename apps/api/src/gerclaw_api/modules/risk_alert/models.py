@@ -18,7 +18,7 @@ class RiskAlertDetails(BaseModel):
 
     model_config = ConfigDict(extra="forbid", frozen=True)
 
-    kind: Literal["cga_immediate_safety", "cga_high_follow_up"]
+    kind: Literal["cga_immediate_safety", "cga_high_follow_up", "chat_red_flag"]
     severity: Literal["critical", "high"]
     title: str = Field(min_length=1, max_length=120)
     message: str = Field(min_length=1, max_length=500)
@@ -31,7 +31,7 @@ class RiskAlertRead(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     alert_id: uuid.UUID
-    kind: Literal["cga_immediate_safety", "cga_high_follow_up"]
+    kind: Literal["cga_immediate_safety", "cga_high_follow_up", "chat_red_flag"]
     severity: Literal["critical", "high"]
     title: str
     message: str

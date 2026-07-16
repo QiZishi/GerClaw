@@ -36,6 +36,7 @@ from gerclaw_api.modules.agent_harness import StreamEvent
 from gerclaw_api.modules.document import DocumentService
 from gerclaw_api.modules.memory.memory_module import ProductionMemoryModule
 from gerclaw_api.modules.memory.runtime import create_memory_module
+from gerclaw_api.modules.risk_alert.service import RiskAlertService
 from gerclaw_api.modules.skill import ProductionSkillModule
 from gerclaw_api.repositories.approval import SqlAlchemyApprovalRepository
 from gerclaw_api.repositories.conversation import (
@@ -44,6 +45,7 @@ from gerclaw_api.repositories.conversation import (
 )
 from gerclaw_api.repositories.document import SqlAlchemyDocumentRepository
 from gerclaw_api.repositories.memory import SqlAlchemyMemoryRepository
+from gerclaw_api.repositories.risk_alert import SqlAlchemyRiskAlertRepository
 from gerclaw_api.repositories.skill import SqlAlchemySkillRepository
 from gerclaw_api.repositories.trace import SqlAlchemyTraceRepository
 from gerclaw_api.services.chat_cancellation import (
@@ -258,6 +260,9 @@ async def chat(
                     approval_repository=SqlAlchemyApprovalRepository(database_session),
                     document_service=DocumentService(
                         SqlAlchemyDocumentRepository(database_session), request.app.state.settings
+                    ),
+                    risk_alert_service=RiskAlertService(
+                        SqlAlchemyRiskAlertRepository(database_session)
                     ),
                 )
                 await service.process(

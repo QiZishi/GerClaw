@@ -176,7 +176,7 @@ class RiskAlert(TimestampMixin, Base):
 
     __tablename__ = "risk_alerts"
     __table_args__ = (
-        CheckConstraint("source IN ('cga')", name="valid_source"),
+        CheckConstraint("source IN ('cga','chat')", name="valid_source"),
         CheckConstraint("status IN ('active','acknowledged')", name="valid_status"),
         CheckConstraint("revision > 0", name="positive_revision"),
         UniqueConstraint(
