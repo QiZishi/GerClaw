@@ -25,8 +25,8 @@
 | AI-07 | MinerU Document | document module、上传 UI | PDF/Office/MD/TXT 真实解析、轮询、重试 | 🚧 Next.js BFF 已真实完成签名上传、轮询和 Markdown 下载；FastAPI 已登记加密会话文档。私有向量检索、长文档检索、跨会话保留、医生授权与病毒扫描待完成 |
 | AI-08 | Provider capability/version | services/adapters | schema/version/能力协商与不兼容拒绝 | 🚧 AgentScope 版本固定，其他 adapter 合同未统一 |
 | CLN-01 | CGA 后端闭环 | cga module/API/UI | 量表、答案、确定性计分、报告、历史 | 🚧 PHQ-9、SAS、PSQI 已具版本化 FastAPI 状态机、确定性计分、患者端真实 API、报告导出与本人历史；Mini-Cog/MMSE 的人工确认、医生授权与历史比较待完成 |
-| CLN-02 | 五大处方后端闭环 | prescription module/API/UI | 模板 JSON、四重校验、证据、版本、审批、导出 | ❌ 前端生成/表单含 mock |
-| CLN-03 | 用药审查规则 | medication module/API/UI | DDI/Beers/剂量/重复、版本和来源 | ❌ 当前为前端 mock/LLM 文案 |
+| CLN-02 | 五大处方后端闭环 | prescription module/API/UI | 模板 JSON、四重校验、证据、版本、审批、导出 | 🚧 真实、加密、版本化的最小信息收集与 MinerU 资料绑定已接入；没有医学审核的 JSON 模板、四重校验、证据、报告、导出或医生批准，页面不得生成处方建议 |
+| CLN-03 | 用药审查规则 | medication module/API/UI | DDI/Beers/剂量/重复、版本和来源 | 🚧 真实、加密、版本化的用药信息收集已接入；没有经医学审核的 DDI/Beers/剂量/重复用药规则、来源版本、审查结论或医生批准 |
 | CLN-04 | 健康画像产品 UI | memory API、RightPanel | 本人/授权医生读取、确认/退役、历史 | 🚧 当前访客可经受限 BFF 读取本人已确认事实，并确认/忽略待确认事实；账号、患者授权、医生跨患者读取与历史视图待完成 |
 | CLN-05 | 临床规则版本 | cga/prescription/medication/safety | 报告保存规则/模板/证据版本 | ❌ 临床后端尚未实现 |
 | CLN-06 | 统一风险预警闭环 | alert rules/workflow/API/患者医生 UI | 红旗/CGA/慢病/用药事件分级、通知确认、升级和紧急就医 | 🚧 Chat 红旗/自伤策略已有；缺统一事件、规则、通知与处置闭环 |
@@ -39,7 +39,7 @@
 | IAM-05 | 患者授权生命周期 | consent/RBAC/cache | 授予/到期/撤回，缓存与链接失效 | ❌ 缺账号和授权模型 |
 | IAM-06 | 管理/审计职责分离 | auth/RBAC | 无万能 scope；服务端角色校验 | ❌ 缺生产角色/RBAC |
 | UI-01 | 三栏响应式布局 | MVP layout | 四断点浏览器证据 | 🚧 desktop 已有，完整断点 E2E 待补 |
-| UI-02 | 多模态输入框 | ChatInput | 文本/语音/图片/10文件/Skill/处方/CGA/停止 | 🚧 UI 齐，文档与 Voice 后端未接 |
+| UI-02 | 多模态输入框 | ChatInput | 文本/语音/图片/10文件/Skill/处方/CGA/停止 | 🚧 文本、Skill、受限临床收集、CGA、server-only MiMo ASR/TTS BFF 与 MinerU BFF 已接入；图片多模态、FastAPI Voice/Document Runtime adapter 与完整异常 E2E 待补 |
 | UI-03 | Runtime 状态映射 | ChatArea/MessageBubble | 全 SSE 终态、错误恢复、HITL | 🚧 Chat/取消完成，缺 HITL/临床流程 |
 | UI-04 | 适老化与无障碍 | globals/components | ≥18px/≥48px/AAA/ARIA/键盘/reduced-motion | 🚧 关键 Skill/免责声明通过，需全站审计 |
 | UI-05 | 医疗安全呈现 | Message/clinical panels | 免责声明、引用、红旗、自伤、审批优先 | 🚧 Chat 已有，临床 mock 页面待统一 |

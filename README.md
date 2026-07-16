@@ -1,12 +1,12 @@
 # GerClaw
 
-GerClaw 是面向老年患者与老年科医生的 Web 端 AI 双向诊疗平台。当前仓库正在从已可用的 Next.js MVP 迁移到 FastAPI + AgentScope + PostgreSQL + Redis + Qdrant 的生产全栈。
+GerClaw 是面向老年患者与老年科医生的 Web 端 AI 双向诊疗平台。当前仓库已具备 Next.js BFF + FastAPI + AgentScope + PostgreSQL + Redis + Qdrant 的真实纵切面；它仍处于受控开发阶段，不能因页面、收集表单或基础设施可运行而表述为已完成生产临床交付。
 
 最高产品权威是 [gerclaw设计要求.md](docs/references/gerclaw设计要求.md)，生产范围见 [PRD](docs/PRD.md)，真实完成度见 [需求矩阵](docs/REQUIREMENTS_MATRIX.md)。README 不作为“功能已完成”的单独证据。
 
 ## 当前状态
 
-已通过独立审阅和真实依赖/模型验收的后端能力：
+已实现并有代码、定向测试或真实运行证据的能力：
 
 - AgentScope ReAct Agent Harness、三模型主备、SSE、取消、原子会话与 Trace
 - 436 份本地知识库的 Agentic RAG、混合检索、重排和引用
@@ -14,18 +14,24 @@ GerClaw 是面向老年患者与老年科医生的 Web 端 AI 双向诊疗平台
 - AnySearch→Tavily 联网证据、SSRF 防护与不可信网页隔离
 - 声明式 Skill 注册、版本、会话加载、AgentScope viewer 和安全策略
 - 访客短期 JWT/BFF、scope、tenant/actor 隔离、限流、readiness 与 metrics
+- PHQ-9、SAS、PSQI 的版本化 FastAPI 状态机、确定性计分、加密持久化、患者端断点恢复、报告 Markdown 导出与本人历史；量表题目使用版本绑定预录制 WAV，并保留受控实时 TTS 兜底
+- MinerU 签名上传、轮询和 Markdown 下载的 Next.js BFF；FastAPI 将会话资料加密登记并按 tenant/actor/session 绑定
+- 五大处方与用药审查的最小信息收集：真实 API、加密持久化、乐观 revision 与 PHI-free Trace；页面明确不会产生处方、诊断、停药、加药或剂量结论
+- 用户反馈、加密 Bad Case 与合成确定性安全 golden case 基线；golden case 不回放用户原文，也不调用模型或 RAG
+- Docker Compose API 的 10 并发高风险安全短路 SSE 证据（仅该确定性工作负载，非模型/RAG/临床 workflow 吞吐结论）
 
-仍未完成生产交付的能力：
+已部分实现、但尚不能视为完整生产交付的能力：
 
-- Runtime PermissionEngine 的 ALLOW/DENY/ASK、HITL 和多智能体复核
-- Voice、Privacy、MinerU Document 的完整 Python 后端
-- CGA、五大处方、用药审查的后端状态机、规则、持久化和审批
+- Runtime PermissionEngine 的 ALLOW/DENY/ASK、持久化 HITL、预算与 checkpoint 已有；临床副作用的恢复 executor、多智能体临床复核尚未接入
+- Voice 与 MinerU 均有 server-only Next.js BFF 真实调用及降级；缺 FastAPI Runtime adapter、PCM16 流、统一版本/审计和全故障评测
+- CGA 仅覆盖 PHQ-9、SAS、PSQI；Mini-Cog/MMSE 人工确认、医生授权查看及跨时间比较未实现
+- 五大处方和用药审查只有受限信息收集；缺经医学审核的模板、规则集、证据校验、报告生成、医生批准与患者授权
 - 风险预警、慢病管理、情感陪伴的真实前后端 workflow 与安全边界
 - 患者/医生账号、角色/RBAC、患者授权
-- Feedback→Bad Case→Eval 回放闭环、统一 10 并发报告
+- Bad Case 的授权脱敏晋升、模型/RAG/医疗评测、趋势指标与安全回放闭环
 - 全站响应式/适老化 E2E 和最终 Docker 空卷验收
 
-前端中仍存在的 `mock`、本地模拟或“Phase”注释都属于已登记缺口，不能作为生产能力使用。
+`apps/mvp` 是当前唯一功能性 Web 客户端，`apps/web` 仍是二阶段预留目录。任何 mock、占位内容或仅本地 UI 状态均不得作为生产能力使用；逐项完成状态以[需求矩阵](docs/REQUIREMENTS_MATRIX.md)为准。
 
 ## 仓库结构
 
@@ -170,22 +176,22 @@ docker compose -f docker-compose.yml -f docker-compose.dev.yml --profile ops run
 docker compose -f docker-compose.yml -f docker-compose.dev.yml ps
 ```
 
-当前 Docker 基础设施可用，但只有 [需求矩阵](docs/REQUIREMENTS_MATRIX.md) 的 `OPS-05` 完成最终空卷启动、应用 health、重启持久化和核心 E2E 后，才可声明生产容器交付完成。
+当前 Docker Compose 可构建并运行 API、PostgreSQL、Redis 与 Qdrant；只有[需求矩阵](docs/REQUIREMENTS_MATRIX.md)的 `OPS-05` 完成最终空卷启动、应用 health、重启持久化和核心 E2E 后，才可声明生产容器交付完成。
 
 ## 测试与性能状态
 
-截至 2026-07-15，本工作树已复现默认后端门禁 `349 passed, 31 skipped`、branch coverage `80.02%`；真实 PostgreSQL/Redis/Qdrant 集成为 `370 passed, 10 deselected`、coverage `87.06%`。MVP lint/build、Alembic upgrade/check 和 API image build 已通过。Bandit 通过；pip-audit 对 `uv.lock` 导出的完整适用依赖集报告无已知漏洞。任何后续代码变化仍须重新运行门禁，历史数字不能自动继承。
+历史全量门禁数字、独立审阅与完整命令见 [Development Harness](docs/DEVELOPMENT_HARNESS.md) 和各 active exec-plan，不能因后续变更自动继承。本次近期可复现实证包括：`apps/mvp` 的 `npm run lint`、`npm run test:audio`（8 passed）、`npm run test:cga-audio`、`npm run build`；`apps/api` 的 Eval 定向 Ruff/Mypy、27 项 pytest 和 `uv run gerclaw-eval-safety`（6/6）。Docker Compose 的确定性安全短路报告见 [`docs/evidence/`](docs/evidence/)。全量门禁、全站 E2E、临床 workflow 压测与最终 Docker 验收仍需在交付前重新执行。
 
-当前没有千级吞吐能力结论，也没有完成统一 10 并发验收。已有并发单测不能替代带资源、延迟、错误率、隔离与取消指标的性能报告；该验收归属 `OPS-04/OPS-08`。
+当前没有千级吞吐能力结论。Compose 已实际验证 10 个并发的确定性高风险安全短路 SSE（10/10 done、失败率 0、p50 153ms、p95 154ms、Trace/消息/跨访客隔离均通过）；这不能替代模型、RAG、临床 workflow、取消/限流/幂等的统一性能报告，后者仍归属 `OPS-04/OPS-08`。
 
 ## 风险与改进
 
 | 风险 | 当前控制 | 下一交付点 |
 |---|---|---|
-| 临床页面仍有 mock，可能被误当成真实结果 | README/矩阵明确标记，生产验收 fail closed | 0023–0024 后端状态机与审批 |
-| Runtime 缺统一 Permission/HITL/预算/checkpoint | 工具各自边界与 Trace 已有，不能代替统一合同 | 0021 Runtime Harness |
+| 未审核临床规则/模板可能被误当成建议 | 处方与用药页面仅允许信息收集，明确禁用处方、诊断及药物调整结论 | 0029 医学内容、规则、审批与授权 |
+| Runtime 临床副作用恢复/复核尚未接线 | Permission/HITL/预算/checkpoint 基础已存在，但临床 executor 仍 fail closed | 0021 与各临床 workflow 接入 |
 | 账号、RBAC、患者授权未完成 | 仅访客 scope/tenant 隔离，不声称生产 IAM | 0025 IAM 与授权生命周期 |
-| 全出口 PHI/密钥泄露面未统一验证 | 核心日志/Trace/vector 有局部测试 | 0022 Privacy 与 0026 Eval/Bad Case |
+| 全出口 PHI/密钥泄露面未统一验证 | 核心日志/Trace/vector 有局部测试；文档、导出和临床流程尚未完整覆盖 | 0022 Privacy 与 0026 Eval/Bad Case |
 | 风险预警/慢病管理/情感陪伴尚无真实闭环 | Chat 仅有红旗/自伤安全后处理，不等于业务功能 | 0023 临床 workflow 与安全陪伴 |
 | 容量与容器恢复证据不足 | 只声明已真实验证的范围 | 0026 并发、0028 空卷 Docker 验收 |
 
