@@ -69,14 +69,46 @@ function providerHeaders(apiKey: string): HeadersInit {
   return apiKey ? { Authorization: `Bearer ${apiKey}` } : {};
 }
 
-async function fetchWithTimeout(url: string, init?: RequestInit) {
+function throwIfAborted(signal?: AbortSignal): void {
+  if (signal?.aborted) {
+    throw new DOMException("document parsing cancelled", "AbortError");
+  }
+}
+
+async function fetchWithTimeout(url: string, init?: RequestInit, requestSignal?: AbortSignal) {
   const controller = new AbortController();
   const timeoutId = setTimeout(() => controller.abort(), REQUEST_TIMEOUT_MS);
+  const abortFromRequest = () => controller.abort(requestSignal?.reason);
+  if (requestSignal?.aborted) {
+    abortFromRequest();
+  } else {
+    requestSignal?.addEventListener("abort", abortFromRequest, { once: true });
+  }
   try {
     return await fetch(url, { ...init, signal: controller.signal });
   } finally {
     clearTimeout(timeoutId);
+    requestSignal?.removeEventListener("abort", abortFromRequest);
   }
+}
+
+async function waitForPoll(signal?: AbortSignal): Promise<void> {
+  throwIfAborted(signal);
+  await new Promise<void>((resolve, reject) => {
+    const state: { timeoutId?: ReturnType<typeof setTimeout> } = {};
+    const abort = () => {
+      if (state.timeoutId) clearTimeout(state.timeoutId);
+      cleanup();
+      reject(new DOMException("document parsing cancelled", "AbortError"));
+    };
+    const cleanup = () => signal?.removeEventListener("abort", abort);
+    state.timeoutId = setTimeout(() => {
+      cleanup();
+      resolve();
+    }, POLL_INTERVAL_MS);
+    signal?.addEventListener("abort", abort, { once: true });
+    if (signal?.aborted) abort();
+  });
 }
 
 async function readJsonResponse(response: Response): Promise<unknown> {
@@ -132,7 +164,7 @@ export async function POST(request: NextRequest): Promise<Response> {
     }
     assertAllowedProviderUrl(config.baseUrl, config.allowedHosts);
 
-    const markdown = await parseWithMinerU(entry, config);
+    const markdown = await parseWithMinerU(entry, config, request.signal);
     console.info("[GerClaw][Document] parse completed", { traceId, fileName });
     return Response.json({ success: true, markdown, fileName } satisfies ParseResponse);
   } catch (error) {
@@ -154,8 +186,10 @@ export async function POST(request: NextRequest): Promise<Response> {
 
 async function parseWithMinerU(
   file: File,
-  config: ReturnType<typeof getProviderConfig>
+  config: ReturnType<typeof getProviderConfig>,
+  requestSignal?: AbortSignal,
 ): Promise<string> {
+  throwIfAborted(requestSignal);
   const submitUrl = `${config.baseUrl}/parse/file`;
   const submitResponse = await fetchWithTimeout(submitUrl, {
     method: "POST",
@@ -170,7 +204,7 @@ async function parseWithMinerU(
       is_ocr: false,
       enable_formula: true,
     }),
-  });
+  }, requestSignal);
   if (!submitResponse.ok) throw new Error(`submit failed (${submitResponse.status})`);
 
   const submission = parseSubmitResponse(await readJsonResponse(submitResponse));
@@ -179,22 +213,24 @@ async function parseWithMinerU(
   const uploadResponse = await fetchWithTimeout(submission.fileUrl, {
     method: "PUT",
     body: await file.arrayBuffer(),
-  });
+  }, requestSignal);
   if (!uploadResponse.ok) throw new Error(`upload failed (${uploadResponse.status})`);
 
-  return pollForResult(submission.taskId, config);
+  return pollForResult(submission.taskId, config, requestSignal);
 }
 
 async function pollForResult(
   taskId: string,
-  config: ReturnType<typeof getProviderConfig>
+  config: ReturnType<typeof getProviderConfig>,
+  requestSignal?: AbortSignal,
 ): Promise<string> {
   const deadline = Date.now() + REQUEST_TIMEOUT_MS;
   while (Date.now() < deadline) {
-    await new Promise((resolve) => setTimeout(resolve, POLL_INTERVAL_MS));
+    await waitForPoll(requestSignal);
     const response = await fetchWithTimeout(
       `${config.baseUrl}/parse/${encodeURIComponent(taskId)}`,
-      { headers: providerHeaders(config.apiKey) }
+      { headers: providerHeaders(config.apiKey) },
+      requestSignal,
     );
     if (!response.ok) throw new Error(`poll failed (${response.status})`);
 
@@ -206,7 +242,7 @@ async function pollForResult(
     if (!result.markdownUrl) throw new Error("provider returned no markdown URL");
 
     assertAllowedProviderUrl(result.markdownUrl, config.allowedHosts);
-    const markdownResponse = await fetchWithTimeout(result.markdownUrl);
+    const markdownResponse = await fetchWithTimeout(result.markdownUrl, undefined, requestSignal);
     if (!markdownResponse.ok) {
       throw new Error(`markdown download failed (${markdownResponse.status})`);
     }

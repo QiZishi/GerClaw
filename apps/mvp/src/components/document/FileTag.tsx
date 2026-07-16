@@ -10,6 +10,7 @@ interface FileTagProps {
   data: FileTagData;
   onRemove?: (id: string) => void;
   onRetry?: (id: string) => void;
+  onCancel?: (id: string) => void;
   onClick?: (id: string) => void;
 }
 
@@ -18,7 +19,7 @@ interface FileTagProps {
  * 显示：文件名 + 类型图标 + 大小 + 状态（uploading/parsing/done/failed）+ × 移除
  * MinerU 是单次 BFF 请求，浏览器没有真实可观测的上传/解析百分比；解析中仅显示稳定文字，避免伪进度。
  */
-export function FileTag({ data, onRemove, onRetry, onClick }: FileTagProps) {
+export function FileTag({ data, onRemove, onRetry, onCancel, onClick }: FileTagProps) {
   const role = useAppStore((state) => state.role);
   const seniorMode = useAppStore((state) => state.seniorMode);
   const isSeniorPatient = role === "patient" && seniorMode;
@@ -97,6 +98,21 @@ export function FileTag({ data, onRemove, onRetry, onClick }: FileTagProps) {
           >
             <RotateCw className="size-3.5" />
             {isSeniorPatient && <span>重试</span>}
+          </button>
+        )}
+        {data.status === "parsing" && onCancel && (
+          <button
+            type="button"
+            onClick={(e) => {
+              e.stopPropagation();
+              onCancel(data.id);
+            }}
+            className={cn(
+              "shrink-0 text-xs text-muted-foreground underline-offset-2 hover:text-foreground hover:underline",
+              isSeniorPatient && "inline-flex min-h-12 items-center px-2 text-base"
+            )}
+          >
+            取消解析
           </button>
         )}
         {onRemove && (

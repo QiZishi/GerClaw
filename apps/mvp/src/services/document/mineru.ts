@@ -12,7 +12,7 @@ const parseResponseSchema = z.object({
   fileName: z.string(),
 });
 
-export async function parseFile(file: File): Promise<ParseResult> {
+export async function parseFile(file: File, signal?: AbortSignal): Promise<ParseResult> {
   const extension = file.name.split(".").pop()?.toLowerCase();
   if (extension === "md" || extension === "txt") {
     if (file.size > 1024 * 1024) throw new Error("文本文件超过 1MB 限制");
@@ -27,6 +27,7 @@ export async function parseFile(file: File): Promise<ParseResult> {
   const response = await fetch("/api/mineru/parse", {
     method: "POST",
     body: formData,
+    signal,
   });
 
   if (!response.ok) {

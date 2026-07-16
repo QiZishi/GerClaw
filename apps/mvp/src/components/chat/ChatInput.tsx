@@ -319,6 +319,7 @@ export function ChatInput({
   const imageInputRef = useRef<HTMLInputElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const transcriptionAbortRef = useRef<AbortController | null>(null);
+  const documentParseAbortRef = useRef<Map<string, AbortController>>(new Map());
 
   const handleRemoveLoadedSkill = async (id: string) => {
     const next = loadedSkillIds.filter((skillId) => skillId !== id);
@@ -359,6 +360,8 @@ export function ChatInput({
 
     const hadDraft = Boolean(text.trim()) || pendingImages.length > 0 || pendingDocuments.length > 0 || isTranscribing || isRecording;
     rawDocumentsRef.current.clear();
+    documentParseAbortRef.current.forEach((controller) => controller.abort());
+    documentParseAbortRef.current.clear();
     setPendingDocuments([]);
     setUploadedDocCount(0);
     setPendingImages((previous) => {
@@ -385,9 +388,11 @@ export function ChatInput({
   }, [cancelRecording, currentSessionId, isRecording, isTranscribing, pendingDocuments.length, pendingImages.length, text]);
 
   useEffect(() => {
+    const pendingParses = documentParseAbortRef.current;
     return () => {
       pendingImages.forEach((img) => URL.revokeObjectURL(img.previewUrl));
       transcriptionAbortRef.current?.abort();
+      pendingParses.forEach((controller) => controller.abort());
     };
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
@@ -420,6 +425,9 @@ export function ChatInput({
   };
 
   const parsePendingDocument = async (fileData: UploadFileTag, file: File) => {
+    documentParseAbortRef.current.get(fileData.id)?.abort();
+    const controller = new AbortController();
+    documentParseAbortRef.current.set(fileData.id, controller);
     const scopeAtStart = documentScopeRef.current;
     setPendingDocuments((previous) =>
       previous.map((item) =>
@@ -427,7 +435,10 @@ export function ChatInput({
       )
     );
     try {
-      const result = await parseFile(file);
+      const result = await parseFile(file, controller.signal);
+      if (controller.signal.aborted || documentParseAbortRef.current.get(fileData.id) !== controller) {
+        return;
+      }
       const mediaType = documentMediaType(file);
       if (!mediaType) throw new Error("文件类型无法安全识别");
       let serverDocumentId: string | undefined;
@@ -440,6 +451,12 @@ export function ChatInput({
           markdown: result.markdown,
         });
         serverDocumentId = registered.document_id;
+      }
+      if (controller.signal.aborted || documentParseAbortRef.current.get(fileData.id) !== controller) {
+        if (serverDocumentId && scopeAtStart) {
+          await revokeParsedDocument(scopeAtStart, serverDocumentId);
+        }
+        return;
       }
       if (documentScopeRef.current !== scopeAtStart) {
         if (serverDocumentId && scopeAtStart) {
@@ -478,6 +495,9 @@ export function ChatInput({
           : `${file.name} 已解析。请提出问题后发送，系统才会安全加入新对话`
       );
     } catch (error) {
+      if (controller.signal.aborted || documentParseAbortRef.current.get(fileData.id) !== controller) {
+        return;
+      }
       const errorMessage = error instanceof Error ? error.message : "文档解析失败，请稍后重试";
       setPendingDocuments((previous) =>
         previous.map((item) =>
@@ -487,7 +507,31 @@ export function ChatInput({
         )
       );
       toast.show(`解析 ${file.name} 失败：${errorMessage}`);
+    } finally {
+      if (documentParseAbortRef.current.get(fileData.id) === controller) {
+        documentParseAbortRef.current.delete(fileData.id);
+      }
     }
+  };
+
+  const cancelPendingDocument = (id: string) => {
+    const controller = documentParseAbortRef.current.get(id);
+    if (!controller) return;
+    controller.abort();
+    documentParseAbortRef.current.delete(id);
+    setPendingDocuments((previous) =>
+      previous.map((item) =>
+        item.id === id
+          ? {
+              ...item,
+              status: "failed",
+              progress: 0,
+              errorMessage: "已取消解析；如仍需要该文档，请点击重试",
+            }
+          : item
+      )
+    );
+    toast.show("已取消文档解析，原文件仍保留，可随时重试。");
   };
 
   const retryPendingDocument = (id: string) => {
@@ -508,6 +552,8 @@ export function ChatInput({
   };
 
   const removePendingDocument = async (id: string) => {
+    documentParseAbortRef.current.get(id)?.abort();
+    documentParseAbortRef.current.delete(id);
     const existing = pendingDocuments.find((item) => item.id === id);
     if (existing?.serverDocumentId && existing.documentSessionId) {
       try {
@@ -858,6 +904,7 @@ export function ChatInput({
                 <FileTag
                   data={file}
                   onRetry={file.status === "failed" ? retryPendingDocument : undefined}
+                  onCancel={file.status === "parsing" ? cancelPendingDocument : undefined}
                   onRemove={file.status === "failed" || file.status === "done" ? (id) => void removePendingDocument(id) : undefined}
                 />
                 {file.status === "done" && <DocumentToolCard data={file} />}
