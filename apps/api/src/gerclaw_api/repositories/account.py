@@ -6,7 +6,7 @@ import uuid
 from datetime import UTC, datetime
 from typing import Literal, cast
 
-from sqlalchemy import select
+from sqlalchemy import select, update
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -113,3 +113,32 @@ class SqlAlchemyAccountRepository:
 
     async def revoke_refresh_session(self, record: AccountRefreshSession) -> None:
         record.revoked_at = datetime.now(UTC)
+
+    async def lock_credential_by_actor(
+        self, *, tenant_id: str, actor_id: str
+    ) -> tuple[User, AccountCredential]:
+        statement = (
+            select(User, AccountCredential)
+            .join(AccountCredential, AccountCredential.user_id == User.id)
+            .where(
+                User.tenant_id == tenant_id,
+                User.external_id == actor_id,
+                User.is_active.is_(True),
+                AccountCredential.tenant_id == tenant_id,
+            )
+            .with_for_update()
+        )
+        row = (await self._session.execute(statement)).one_or_none()
+        if row is None:
+            raise AccountNotFoundError("account is unavailable")
+        return cast(User, row[0]), cast(AccountCredential, row[1])
+
+    async def revoke_all_refresh_sessions(self, *, user_id: uuid.UUID) -> None:
+        await self._session.execute(
+            update(AccountRefreshSession)
+            .where(
+                AccountRefreshSession.user_id == user_id,
+                AccountRefreshSession.revoked_at.is_(None),
+            )
+            .values(revoked_at=datetime.now(UTC))
+        )

@@ -13,7 +13,7 @@ from fastapi import APIRouter, Depends, HTTPException, Request, status
 from pydantic import BaseModel, ConfigDict, Field
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from gerclaw_api.auth import create_access_token
+from gerclaw_api.auth import AuthContext, authenticate, create_access_token
 from gerclaw_api.dependencies import get_database_session
 from gerclaw_api.modules.identity.passwords import hash_password, verify_password
 from gerclaw_api.repositories.account import (
@@ -90,6 +90,13 @@ class AccountRefreshRequest(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     refresh_token: str = Field(min_length=32, max_length=256)
+
+
+class AccountPasswordChangeRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    current_password: str = Field(min_length=1, max_length=128)
+    new_password: str = Field(min_length=12, max_length=128)
 
 
 class AccountSessionRead(BaseModel):
@@ -259,6 +266,34 @@ async def logout_account_session(
     except AccountNotFoundError:
         return None
     await repository.revoke_refresh_session(previous)
+    await session.commit()
+
+
+@router.post("/password", status_code=status.HTTP_204_NO_CONTENT)
+async def change_account_password(
+    payload: AccountPasswordChangeRequest,
+    request: Request,
+    session: AccountSessionDependency,
+    identity: Annotated[AuthContext, Depends(authenticate)],
+) -> None:
+    """Change one authenticated account password and revoke all refresh sessions."""
+
+    if identity.role not in {"patient", "doctor"}:
+        raise HTTPException(status_code=403, detail={"code": "ACCOUNT_REQUIRED"})
+    limiter: RateLimiter = request.app.state.rate_limiter
+    await limiter.check(tenant_id=identity.tenant_id, actor_id=identity.actor_id)
+    repository = SqlAlchemyAccountRepository(session)
+    try:
+        user, credential = await repository.lock_credential_by_actor(
+            tenant_id=identity.tenant_id, actor_id=identity.actor_id
+        )
+    except AccountNotFoundError as error:
+        raise HTTPException(status_code=403, detail={"code": "ACCOUNT_REQUIRED"}) from error
+    if not verify_password(payload.current_password, credential.password_hash):
+        raise HTTPException(status_code=401, detail={"code": "ACCOUNT_PASSWORD_INVALID"})
+    credential.password_hash = hash_password(payload.new_password)
+    credential.password_version += 1
+    await repository.revoke_all_refresh_sessions(user_id=user.id)
     await session.commit()
 
 
