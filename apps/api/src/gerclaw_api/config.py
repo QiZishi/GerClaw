@@ -93,7 +93,7 @@ class Settings(BaseSettings):
     rate_limit_requests: int = Field(default=100, ge=1, le=10_000)
     rate_limit_window_seconds: int = Field(default=60, ge=1, le=3_600)
     max_events_per_trace: int = Field(default=10_000, ge=100, le=100_000)
-    agent_max_react_iterations: int = Field(default=10, ge=1, le=20)
+    agent_max_react_iterations: int = Field(default=6, ge=1, le=20)
     agent_history_messages: int = Field(default=40, ge=2, le=200)
     agent_evidence_top_k: int = Field(default=5, ge=1, le=10)
     agent_model_timeout_seconds: float = Field(default=60.0, gt=0, le=60)
