@@ -19,7 +19,12 @@ from gerclaw_api.modules.evals.models import (
     EvalCaseResult,
     OutputSafetyEvalCase,
     OutputSafetyEvalCaseResult,
+    RAGEvaluationRunConfig,
+    RAGEvaluationRunReport,
+    RAGRetrievalEvalCase,
+    RAGRetrievalEvalCaseResult,
 )
+from gerclaw_api.modules.rag.protocols import RAGModule
 
 
 def run_case(case: EvalCase) -> EvalCaseResult:
@@ -83,3 +88,59 @@ def run_output_safety_golden_cases() -> tuple[OutputSafetyEvalCaseResult, ...]:
         failed = ", ".join(result.case_id for result in results if not result.passed)
         raise AssertionError(f"output safety golden cases failed: {failed}")
     return results
+
+
+async def run_rag_retrieval_case(
+    module: RAGModule,
+    case: RAGRetrievalEvalCase,
+    *,
+    top_k: int,
+) -> RAGRetrievalEvalCaseResult:
+    """Evaluate one reviewed synthetic case without retaining its query or results."""
+
+    results = await module.retrieve(case.synthetic_query, top_k=top_k)
+    returned_document_ids = {
+        value.casefold()
+        for result in results
+        if isinstance((value := result.metadata.get("document_id")), str)
+        and len(value) == 64
+        and all(character in "0123456789abcdefABCDEF" for character in value)
+    }
+    matched = len(returned_document_ids.intersection(case.expected_document_ids))
+    return RAGRetrievalEvalCaseResult(
+        case_id=case.case_id,
+        passed=matched >= case.minimum_expected_hits,
+        expected_document_count=len(case.expected_document_ids),
+        matched_expected_document_count=matched,
+        returned_result_count=len(results),
+        index_version=case.index_version,
+    )
+
+
+async def run_opt_in_rag_retrieval_evaluation(
+    module: RAGModule,
+    cases: tuple[RAGRetrievalEvalCase, ...],
+    *,
+    config: RAGEvaluationRunConfig,
+) -> RAGEvaluationRunReport:
+    """Run a bounded external RAG evaluation only after an explicit opt-in."""
+
+    if not config.allow_external_rag:  # pragma: no cover - enforced by Pydantic Literal
+        raise ValueError("external RAG evaluation requires an explicit opt-in")
+    if not cases:
+        raise ValueError("external RAG evaluation requires at least one reviewed synthetic case")
+    if len(cases) > config.max_cases:
+        raise ValueError("external RAG evaluation exceeds the approved case budget")
+    if any(case.index_version != config.index_version for case in cases):
+        raise ValueError("all retrieval cases must match the approved index version")
+
+    results: list[RAGRetrievalEvalCaseResult] = []
+    for case in cases:
+        results.append(await run_rag_retrieval_case(module, case, top_k=config.top_k))
+    return RAGEvaluationRunReport(
+        index_version=config.index_version,
+        case_count=len(results),
+        passed_count=sum(result.passed for result in results),
+        top_k=config.top_k,
+        results=tuple(results),
+    )

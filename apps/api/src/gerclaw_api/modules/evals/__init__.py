@@ -1,5 +1,13 @@
-"""Versioned, privacy-safe deterministic evaluation baselines."""
+"""Versioned, privacy-safe evaluation baselines and opt-in external runners."""
 
-from gerclaw_api.modules.evals.runner import run_golden_cases, run_output_safety_golden_cases
+from gerclaw_api.modules.evals.runner import (
+    run_golden_cases,
+    run_opt_in_rag_retrieval_evaluation,
+    run_output_safety_golden_cases,
+)
 
-__all__ = ["run_golden_cases", "run_output_safety_golden_cases"]
+__all__ = [
+    "run_golden_cases",
+    "run_opt_in_rag_retrieval_evaluation",
+    "run_output_safety_golden_cases",
+]
