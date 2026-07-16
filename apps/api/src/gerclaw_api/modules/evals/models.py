@@ -6,6 +6,11 @@ from typing import Final, Literal
 
 from pydantic import BaseModel, ConfigDict, Field, ValidationInfo, field_validator
 
+from gerclaw_api.modules.privacy_redaction.models import (
+    EgressPurpose,
+    RedactionFinding,
+)
+
 EVAL_CASE_SCHEMA_VERSION: Final = "eval-case-v1"
 
 
@@ -60,6 +65,35 @@ class OutputSafetyEvalCaseResult(BaseModel):
     case_id: str
     passed: bool
     policy_version: str
+
+
+class PrivacyRedactionEvalCase(BaseModel):
+    """A reviewed synthetic egress canary for one privacy-policy version."""
+
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    schema_version: Literal["privacy-redaction-case-v1"] = "privacy-redaction-case-v1"
+    case_id: str = Field(pattern=r"^privacy-redaction\.[a-z0-9_.-]{3,80}$")
+    title: str = Field(min_length=1, max_length=120)
+    synthetic_input: str = Field(min_length=1, max_length=500)
+    purpose: EgressPurpose
+    expected_redacted_text: str = Field(min_length=1, max_length=500)
+    expected_findings: tuple[RedactionFinding, ...] = Field(default_factory=tuple, max_length=6)
+    policy_version: Literal["1.1.0"] = "1.1.0"
+    provenance: Literal["synthetic_reviewed"] = "synthetic_reviewed"
+
+
+class PrivacyRedactionEvalCaseResult(BaseModel):
+    """PHI-free privacy canary result; neither source nor expected text is exposed."""
+
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    case_id: str
+    passed: bool
+    purpose: EgressPurpose
+    policy_version: str
+    expected_findings: tuple[RedactionFinding, ...]
+    actual_findings: tuple[RedactionFinding, ...]
 
 
 class RAGRetrievalEvalCase(BaseModel):

@@ -16,6 +16,10 @@ content and has written a new canonical case.
 - Safety baselines must not call LLM, RAG, search, tools, or external
   providers. External evaluations require a separately explicit opt-in and
   must record their budget and nondeterminism.
+- Privacy-policy canaries may use only reviewed synthetic input and may report
+  a purpose, policy version and PHI-free category counts. They must never emit
+  source text, expected redacted text, matched spans, replacement positions or
+  credentials.
 - A passing policy baseline does not prove clinical correctness, model quality,
   RAG quality, or capacity. Preserve the exact claim boundary in reports.
 

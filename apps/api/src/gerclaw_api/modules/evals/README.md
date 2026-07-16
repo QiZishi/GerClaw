@@ -7,6 +7,14 @@ medical-output rewrite used by the Agent Harness. It has no database, model,
 RAG, search, or provider dependency. The CLI emits only IDs and outcomes, never
 the reviewed synthetic input or expected public text.
 
+The same command also runs committed `privacy-redaction-case-v1` canaries for
+the server-owned `1.1.0` external-search and TTS policies. Their output contains
+only a case ID, purpose, policy version and PHI-free category counts; it never
+contains source text, expected redacted text, matching spans or credentials.
+They are deterministic text-policy regression checks only. They do not measure
+OCR, ASR, free-form structured fields, model-based detection, false-positive or
+false-negative production rates, and therefore do not prove full PHI coverage.
+
 Run:
 
 ```bash

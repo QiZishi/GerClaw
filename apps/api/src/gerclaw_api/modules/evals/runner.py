@@ -19,10 +19,18 @@ from gerclaw_api.modules.evals.models import (
     EvalCaseResult,
     OutputSafetyEvalCase,
     OutputSafetyEvalCaseResult,
+    PrivacyRedactionEvalCase,
+    PrivacyRedactionEvalCaseResult,
     RAGEvaluationRunConfig,
     RAGEvaluationRunReport,
     RAGRetrievalEvalCase,
     RAGRetrievalEvalCaseResult,
+)
+from gerclaw_api.modules.evals.privacy_cases import PRIVACY_REDACTION_GOLDEN_CASES
+from gerclaw_api.modules.privacy_redaction.models import EgressPurpose
+from gerclaw_api.modules.privacy_redaction.policy import (
+    redact_external_search_query,
+    redact_external_tts_text,
 )
 from gerclaw_api.modules.rag.protocols import RAGModule
 
@@ -87,6 +95,39 @@ def run_output_safety_golden_cases() -> tuple[OutputSafetyEvalCaseResult, ...]:
     if not all(result.passed for result in results):
         failed = ", ".join(result.case_id for result in results if not result.passed)
         raise AssertionError(f"output safety golden cases failed: {failed}")
+    return results
+
+
+def run_privacy_redaction_case(
+    case: PrivacyRedactionEvalCase,
+) -> PrivacyRedactionEvalCaseResult:
+    """Evaluate one synthetic privacy egress canary without exposing its text."""
+
+    if case.purpose is EgressPurpose.EXTERNAL_SEARCH_QUERY:
+        actual = redact_external_search_query(case.synthetic_input)
+    else:
+        actual = redact_external_tts_text(case.synthetic_input)
+    return PrivacyRedactionEvalCaseResult(
+        case_id=case.case_id,
+        passed=(
+            actual.text == case.expected_redacted_text
+            and actual.findings == case.expected_findings
+            and actual.policy_version == case.policy_version
+        ),
+        purpose=case.purpose,
+        policy_version=actual.policy_version,
+        expected_findings=case.expected_findings,
+        actual_findings=actual.findings,
+    )
+
+
+def run_privacy_redaction_golden_cases() -> tuple[PrivacyRedactionEvalCaseResult, ...]:
+    """Run the committed policy canaries without model, database, or provider calls."""
+
+    results = tuple(run_privacy_redaction_case(case) for case in PRIVACY_REDACTION_GOLDEN_CASES)
+    if not all(result.passed for result in results):
+        failed = ", ".join(result.case_id for result in results if not result.passed)
+        raise AssertionError(f"privacy redaction golden cases failed: {failed}")
     return results
 
 

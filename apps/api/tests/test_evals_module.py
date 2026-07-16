@@ -11,6 +11,7 @@ from pydantic import ValidationError
 from gerclaw_api.modules.evals.models import (
     EvalCase,
     OutputSafetyEvalCase,
+    PrivacyRedactionEvalCase,
     RAGEvaluationRunConfig,
     RAGRetrievalEvalCase,
 )
@@ -25,7 +26,10 @@ from gerclaw_api.modules.evals.runner import (
     run_opt_in_rag_retrieval_evaluation,
     run_output_safety_case,
     run_output_safety_golden_cases,
+    run_privacy_redaction_case,
+    run_privacy_redaction_golden_cases,
 )
+from gerclaw_api.modules.privacy_redaction.models import EgressPurpose
 from gerclaw_api.modules.rag.protocols import RetrievalResult
 
 
@@ -57,6 +61,19 @@ def test_output_safety_golden_cases_pass_without_echoing_synthetic_text() -> Non
     assert not hasattr(results[0], "expected_public_output")
 
 
+def test_privacy_redaction_golden_cases_pass_without_echoing_synthetic_text() -> None:
+    results = run_privacy_redaction_golden_cases()
+
+    assert len(results) == 4
+    assert all(result.passed for result in results)
+    serialized = results[0].model_dump_json()
+    assert "赵安" not in serialized
+    assert "13912345678" not in serialized
+    assert "synthetic-secret" not in serialized
+    assert not hasattr(results[0], "synthetic_input")
+    assert not hasattr(results[0], "expected_redacted_text")
+
+
 def test_eval_case_rejects_unknown_fields_and_unreviewed_provenance() -> None:
     with pytest.raises(ValidationError):
         EvalCase(
@@ -75,6 +92,16 @@ def test_eval_case_rejects_unknown_fields_and_unreviewed_provenance() -> None:
             expected_public_output="synthetic",
             provenance="raw_user_feedback",
             raw_model_output="must_not_be_stored",
+        )
+    with pytest.raises(ValidationError):
+        PrivacyRedactionEvalCase(
+            case_id="privacy-redaction.invalid_case",
+            title="invalid",
+            synthetic_input="synthetic",
+            purpose=EgressPurpose.EXTERNAL_TTS,
+            expected_redacted_text="synthetic",
+            provenance="raw_user_feedback",
+            raw_provider_payload="must_not_be_stored",
         )
     with pytest.raises(ValidationError):
         RAGRetrievalEvalCase(
@@ -115,6 +142,21 @@ def test_output_safety_eval_detects_a_policy_regression_without_echoing_text() -
 
     assert result.passed is False
     assert not hasattr(result, "synthetic_output")
+
+
+def test_privacy_redaction_eval_detects_a_policy_regression_without_echoing_text() -> None:
+    result = run_privacy_redaction_case(
+        PrivacyRedactionEvalCase(
+            case_id="privacy-redaction.expected_but_missing",
+            title="regression sentinel",
+            synthetic_input="请慢一点朗读。",
+            purpose=EgressPurpose.EXTERNAL_TTS,
+            expected_redacted_text="不应出现的结果。",
+        )
+    )
+
+    assert result.passed is False
+    assert not hasattr(result, "synthetic_input")
 
 
 @pytest.mark.asyncio
