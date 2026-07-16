@@ -8,7 +8,7 @@ from datetime import UTC, datetime
 import pytest
 
 from gerclaw_api.database.models import BadCase, ExecutionTrace, TraceEvent, UserFeedback
-from gerclaw_api.domain.enums import FeedbackRating, TraceStatus
+from gerclaw_api.domain.enums import FeedbackRating, TraceEventStatus, TraceEventType, TraceStatus
 from gerclaw_api.domain.trace_schemas import (
     FeedbackCreate,
     TraceEventCreate,
@@ -184,6 +184,42 @@ async def test_trace_lifecycle_is_idempotent_and_promotes_failure() -> None:
             TRACE_ID,
             event_request.model_copy(update={"event_id": "event_unit_0002"}),
         )
+
+
+@pytest.mark.asyncio
+async def test_clinical_intake_trace_event_is_count_only_and_phi_free() -> None:
+    repository = FakeTraceRepository()
+    service = TraceService(repository)
+    await _start(service)
+
+    event = await service.append_event(
+        TENANT,
+        TRACE_ID,
+        TraceEventCreate(
+            event_id="event_intake_0001",
+            event_type=TraceEventType.CLINICAL_INTAKE,
+            status=TraceEventStatus.SUCCEEDED,
+            payload={
+                "feature": "prescription",
+                "operation": "update",
+                "version": "clinical-intake-v1",
+                "event_count": 2,
+                "document_count": 1,
+                "outcome": "information_complete_pending_governance",
+                "success": True,
+            },
+        ),
+    )
+
+    assert event.payload == {
+        "feature": "prescription",
+        "operation": "update",
+        "version": "clinical-intake-v1",
+        "event_count": 2,
+        "document_count": 1,
+        "outcome": "information_complete_pending_governance",
+        "success": True,
+    }
 
 
 @pytest.mark.asyncio

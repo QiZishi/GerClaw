@@ -90,6 +90,7 @@ class TraceService:
         trace_id: str,
         tenant_id: str,
         actor_id: str,
+        commit: bool = True,
     ) -> ExecutionTrace:
         result = await self.start_trace_with_status(
             request,
@@ -97,6 +98,7 @@ class TraceService:
             trace_id=trace_id,
             tenant_id=tenant_id,
             actor_id=actor_id,
+            commit=commit,
         )
         return result.trace
 
@@ -108,6 +110,7 @@ class TraceService:
         trace_id: str,
         tenant_id: str,
         actor_id: str,
+        commit: bool = True,
     ) -> TraceStartResult:
         """Start a Trace and expose ownership for safe concurrent retries."""
 
@@ -130,7 +133,10 @@ class TraceService:
         )
         await self._repository.add_trace(trace)
         try:
-            await self._repository.commit()
+            if commit:
+                await self._repository.commit()
+            else:
+                await self._repository.flush()
         except DuplicateKeyError:
             existing = await self._repository.get_trace(tenant_id, trace_id)
             if existing is None:  # pragma: no cover - database invariant

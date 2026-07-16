@@ -122,6 +122,9 @@ EVENT_AUDIT_KEYS: dict[TraceEventType, frozenset[str]] = {
             "version",
         }
     ),
+    TraceEventType.CLINICAL_INTAKE: frozenset(
+        {"document_count", "event_count", "feature", "operation", "outcome", "success", "version"}
+    ),
     TraceEventType.SAFETY_CHECK: frozenset({"duration_ms", "outcome", "safety_flags", "success"}),
     TraceEventType.VOICE_CALL: frozenset(
         {"duration_ms", "error_code", "model", "operation", "provider", "success"}

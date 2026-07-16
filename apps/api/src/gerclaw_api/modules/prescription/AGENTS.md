@@ -8,6 +8,7 @@ This module owns only the versioned, encrypted collection of minimum information
 
 - Fields and requiredness are server-owned immutable definitions; clients submit values only for declared field IDs.
 - Every record is scoped by verified `tenant_id + actor_id + session_id`; values and uploaded-document references are encrypted and may not enter logs, Trace payloads, vector indexes, or model prompts.
+- Start/update operations create an atomic Runtime Trace containing only kind, definition version, answer/document counts, operation and result status. Never add answer text, filenames, document IDs or raw request bodies to that Trace.
 - A five-prescription intake may hold up to five active, same-session `UploadedDocument` IDs. MinerU-extracted bodies stay in the document module; a future governed workflow must resolve those IDs again under the same owner/session boundary and label them as **uploaded input/provenance**, never as local medical knowledge-base evidence.
 - Completed information has the explicit terminal state `information_complete_pending_governance`; it is not a review queue and does not imply doctor approval.
 - Medical rules, sources, physician approval, and patient authorization remain required before any clinical output can be enabled.

@@ -35,6 +35,7 @@ class TraceEventType(StrEnum):
     APPROVAL = "runtime.approval"
     SKILL_EXECUTE = "skill.execute"
     MEMORY_UPDATE = "memory.update"
+    CLINICAL_INTAKE = "clinical_intake.update"
     SAFETY_CHECK = "safety.check"
     VOICE_CALL = "voice.call"
     SYSTEM_ERROR = "system.error"
