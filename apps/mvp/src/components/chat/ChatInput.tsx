@@ -159,7 +159,7 @@ function FunctionButtonGroup({
             <Button
               variant="ghost"
               size={seniorMode ? "default" : "icon"}
-              className={cn("btn-icon shrink-0", seniorMode && "order-4 h-12 gap-2 px-3 text-base")}
+              className={cn("btn-icon shrink-0", seniorMode && "order-1 h-12 gap-2 px-3 text-base")}
               onClick={onPickImage}
               aria-label="上传图片"
               disabled={disabled}
@@ -177,7 +177,7 @@ function FunctionButtonGroup({
             <Button
               variant="ghost"
               size={seniorMode ? "default" : "icon"}
-              className={cn("btn-icon shrink-0", seniorMode && "order-5 h-12 gap-2 px-3 text-base")}
+              className={cn("btn-icon shrink-0", seniorMode && "order-2 h-12 gap-2 px-3 text-base")}
               onClick={onPickFile}
               aria-label="上传文件或图片"
               disabled={disabled}
@@ -193,7 +193,7 @@ function FunctionButtonGroup({
         <Button
           variant="ghost"
           size={seniorMode ? "default" : "icon"}
-          className={cn("btn-icon shrink-0", seniorMode && "order-1 h-12 min-w-24 px-4 text-lg")}
+          className={cn("btn-icon shrink-0", seniorMode && "order-3 h-12 min-w-24 px-4 text-lg")}
           aria-label="选择当前对话的临床技能"
           disabled={disabled}
         />
@@ -204,7 +204,7 @@ function FunctionButtonGroup({
             <Button
               variant="ghost"
               size={seniorMode ? "default" : "icon"}
-              className={cn("btn-icon shrink-0", seniorMode && "order-2 h-12 gap-2 px-3 text-base")}
+              className={cn("btn-icon shrink-0", seniorMode && "order-4 h-12 gap-2 px-3 text-base")}
               onClick={() => onSetChatAction("prescription")}
               aria-label="五大处方信息收集"
               disabled={disabled}
@@ -222,7 +222,7 @@ function FunctionButtonGroup({
             <Button
               variant="ghost"
               size={seniorMode ? "default" : "icon"}
-              className={cn("btn-icon shrink-0", seniorMode && "order-3 h-12 gap-2 px-3 text-base")}
+              className={cn("btn-icon shrink-0", seniorMode && "order-5 h-12 gap-2 px-3 text-base")}
               onClick={() => onSetChatAction("cga")}
               aria-label="老年综合评估"
               disabled={disabled}
@@ -241,7 +241,7 @@ function FunctionButtonGroup({
               <Button
                 variant="ghost"
                 size={seniorMode ? "default" : "icon"}
-                className={cn("btn-icon shrink-0", seniorMode && "h-12 gap-2 px-3 text-base")}
+                className={cn("btn-icon shrink-0", seniorMode && "order-6 h-12 gap-2 px-3 text-base")}
                 onClick={() => onSetChatAction("drug-review")}
                 aria-label="用药信息收集"
                 disabled={disabled}
@@ -261,7 +261,7 @@ function FunctionButtonGroup({
               <Button
                 variant="ghost"
                 size={seniorMode ? "default" : "icon"}
-                className={cn("btn-icon shrink-0", seniorMode && "h-12 gap-2 px-3 text-base")}
+                className={cn("btn-icon shrink-0", seniorMode && "order-7 h-12 gap-2 px-3 text-base")}
                 onClick={() => onSetChatAction("health-profile")}
                 aria-label="查看我的健康记录"
                 disabled={disabled}
