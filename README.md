@@ -13,7 +13,7 @@ GerClaw 是面向老年患者与老年科医生的 Web 端 AI 双向诊疗平台
 - 加密 Memory/健康画像引擎与无 PHI Qdrant 语义索引
 - AnySearch→Tavily 联网证据、SSRF 防护与不可信网页隔离
 - 声明式 Skill 注册、版本、会话加载、AgentScope viewer 和安全策略
-- 访客短期 JWT/BFF、scope、tenant/actor 隔离、限流、readiness 与 metrics
+- 访客短期 JWT/BFF、以及患者/医生本地账号的注册、登录、refresh 轮换、登出与改密；均由 scope、tenant/actor 隔离、限流、readiness 与 metrics 保护
 - PHQ-9、SAS、PSQI 的版本化 FastAPI 状态机、确定性计分、加密持久化、患者端断点恢复、报告 Markdown 导出与本人历史；量表题目使用版本绑定预录制 WAV，并保留受控实时 TTS 兜底
 - MinerU 签名上传、轮询和 Markdown 下载的 Next.js BFF；FastAPI 将会话资料加密登记并按 tenant/actor/session 绑定
 - 五大处方与用药审查的最小信息收集：真实 API、加密持久化、乐观 revision 与 PHI-free Trace；页面明确不会产生处方、诊断、停药、加药或剂量结论
@@ -27,7 +27,7 @@ GerClaw 是面向老年患者与老年科医生的 Web 端 AI 双向诊疗平台
 - CGA 仅覆盖 PHQ-9、SAS、PSQI；Mini-Cog/MMSE 人工确认、医生授权查看及跨时间比较未实现
 - 五大处方和用药审查只有受限信息收集；缺经医学审核的模板、规则集、证据校验、报告生成、医生批准与患者授权
 - 风险预警、慢病管理、情感陪伴的真实前后端 workflow 与安全边界
-- 患者/医生账号、角色/RBAC、患者授权
+- 患者授权、医生资质/RBAC、跨患者访问与 BFF HttpOnly cookie/CSRF
 - Bad Case 的授权脱敏晋升、模型/RAG/医疗评测、趋势指标与安全回放闭环
 - 全站响应式/适老化 E2E 和最终 Docker 空卷验收
 
@@ -190,7 +190,7 @@ docker compose -f docker-compose.yml -f docker-compose.dev.yml ps
 |---|---|---|
 | 未审核临床规则/模板可能被误当成建议 | 处方与用药页面仅允许信息收集，明确禁用处方、诊断及药物调整结论 | 0029 医学内容、规则、审批与授权 |
 | Runtime 临床副作用恢复/复核尚未接线 | Permission/HITL/预算/checkpoint 基础已存在，但临床 executor 仍 fail closed | 0021 与各临床 workflow 接入 |
-| 账号、RBAC、患者授权未完成 | 仅访客 scope/tenant 隔离，不声称生产 IAM | 0025 IAM 与授权生命周期 |
+| IAM 仍未完整 | 本地账号会话已落地；医生资质、授权、跨患者访问和 BFF cookie/CSRF 尚未完成 | 0025、0032 |
 | 全出口 PHI/密钥泄露面未统一验证 | 核心日志/Trace/vector 有局部测试；文档、导出和临床流程尚未完整覆盖 | 0022 Privacy 与 0026 Eval/Bad Case |
 | 风险预警/慢病管理/情感陪伴尚无真实闭环 | Chat 仅有红旗/自伤安全后处理，不等于业务功能 | 0023 临床 workflow 与安全陪伴 |
 | 容量与容器恢复证据不足 | 只声明已真实验证的范围 | 0026 并发、0028 空卷 Docker 验收 |

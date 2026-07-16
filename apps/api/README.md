@@ -1,6 +1,6 @@
 # GerClaw API
 
-GerClaw 二阶段生产后端。当前已提供真实 PostgreSQL、Redis、Qdrant，JWT scope/tenant 隔离，Redis 原子限流，Trace 与反馈/Bad Case 基础写入，以及按设计要求第四章拆分的 Agent Harness、Memory、Agentic RAG、Search、Skill、Input/Output、Tool Protocol 边界。反馈查询、Bad Case 治理和 Eval 回放闭环仍待后续里程碑完成。
+GerClaw 二阶段生产后端。当前已提供真实 PostgreSQL、Redis、Qdrant，JWT scope/tenant 隔离，Redis 原子限流，Trace 与反馈/Bad Case 基础写入，以及按设计要求第四章拆分的 Agent Harness、Memory、Agentic RAG、Search、Skill、Input/Output、Tool Protocol 边界。患者/医生本地账号已支持注册、登录、refresh 轮换、登出和改密；医生资质、患者授权和跨患者权限仍未启用。反馈查询、Bad Case 治理和 Eval 回放闭环仍待后续里程碑完成。
 
 本地医学 Agentic RAG 已使用 AgentScope 2.0.4 `RAGMiddleware(mode="agentic")` 真实接入；长期健康记忆已使用 `Mem0Middleware(mode="both")` + GerClaw adapter 接入，并以加密 PostgreSQL 为事实源、PHI-free Qdrant revision vector 为语义索引。联网医疗证据由 AgentScope 只读 `web_search` 工具调用生产 `SearchModule`，严格执行 AnySearch `/mcp` JSON-RPC 主通道、Tavily 备用通道和 S/A/B/C 来源分级。声明式 Skill 已通过 `LocalSkillLoader`、`Skill` 和 `Toolkit` viewer 接入同一生产 Harness，支持四个内置包、加密版本注册表、会话选择、Markdown/ZIP 安装和真实模型生成待审阅草稿。生产对话 Harness 已形成三模型依次兜底、安全 SSE、加密会话/画像、Redis session lease 和幂等 Trace 重放闭环。CGA、处方、上传文档与 Voice 的完整后端业务仍在后续独立变更集实现。本阶段不伪造医疗对话、检索、联网来源、记忆或 Skill 结果。
 
@@ -117,6 +117,7 @@ GERCLAW_RUN_EXTERNAL=1 uv run pytest tests/test_real_external_services.py -m ext
 - `POST /api/v1/chat`：要求 `chat:write`；运行 AgentScope ReAct + 本地 Agentic RAG，返回 `agent_start/thinking/tool_call/tool_result/text_delta/done` SSE。医疗请求无本地证据时 fail closed；`done` 仅在加密消息和 completed Trace 已提交后发送。
 - `POST /api/v1/search/query`：要求 `search:read`；执行脱敏后的 AnySearch→Tavily 联网证据查询并生成 PHI-free Trace。
 - `POST /api/v1/search/extract`：要求 `search:read`；只提取经 DNS/redirect SSRF 校验的公网 HTTPS 正文。
+- `POST /api/v1/auth/register`、`/login`、`/refresh`、`/logout`、`/password`：本地账号会话；用户名加密、密码使用 scrypt、refresh token 仅存 HMAC 指纹。当前 refresh token 只可交由受信任同源 BFF，浏览器 cookie/CSRF 接入仍待完成。
 - `GET /api/v1/search/status`：要求 `search:read`；仅返回主备通道是否配置，不执行计费搜索。
 - `GET /api/v1/memory/profile`：要求 `memory:read`；返回当前 actor 的加密健康画像投影和 evidenced facts，未建档访客返回空画像。
 - `POST /api/v1/memory/facts/{fact_id}/decision`：要求 `memory:write`；用 expected revision 确认或拒绝当前 actor 的事实，跨主体统一 404。
