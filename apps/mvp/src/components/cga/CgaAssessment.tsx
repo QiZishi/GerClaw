@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { AlertTriangle, ArrowLeft, CheckCircle2, ClipboardList, Download, Pause, RefreshCw, Square, Volume2 } from "lucide-react";
 import { z } from "zod";
 import { Button } from "@/components/ui/button";
@@ -89,6 +89,7 @@ function buildReportExportContent(report: CgaReport): string {
 
 export function CgaAssessment({ onExit }: CgaAssessmentProps) {
   const seniorMode = useAppStore((state) => state.seniorMode);
+  const autoTtsPlayback = useAppStore((state) => state.autoTtsPlayback);
   const [scales, setScales] = useState<CgaScale[]>([]);
   const [assessment, setAssessment] = useState<Assessment | null>(null);
   const [savedAssessments, setSavedAssessments] = useState<Partial<Record<CgaScaleId, Assessment>>>({});
@@ -104,6 +105,7 @@ export function CgaAssessment({ onExit }: CgaAssessmentProps) {
   const [manualInput, setManualInput] = useState("");
   const [selectedOrdinalScore, setSelectedOrdinalScore] = useState<number | null>(null);
   const [supplementalDetail, setSupplementalDetail] = useState("");
+  const autoReadQuestionKeyRef = useRef<string | null>(null);
   const {
     isPlaying: isQuestionPlaying,
     isPaused: isQuestionPaused,
@@ -130,7 +132,7 @@ export function CgaAssessment({ onExit }: CgaAssessmentProps) {
     stopQuestion();
   }, [assessment?.next_question?.id, stopQuestion]);
 
-  const startQuestionAudio = () => {
+  const startQuestionAudio = useCallback(() => {
     if (!assessment?.next_question) return;
     const source = recordedCgaQuestionAudio(
       assessment.scale_id,
@@ -143,13 +145,27 @@ export function CgaAssessment({ onExit }: CgaAssessmentProps) {
     void playback.catch(() => {
       toast.show("题目朗读暂时不可用，请改用文字阅读后重试");
     });
-  };
+  }, [assessment, playQuestion, playQuestionSource]);
 
   const resumeQuestionAudio = () => {
     void resumeQuestion().catch(() => {
       toast.show("无法继续朗读，请从头重新播放");
     });
   };
+
+  useEffect(() => {
+    const question = assessment?.next_question;
+    if (!seniorMode || !autoTtsPlayback || !assessment || !question) return;
+
+    // React development mode can run effects twice.  Keep one attempt per
+    // concrete assessment/question pair, while allowing a restarted
+    // assessment to read its first question again.
+    const questionKey = `${assessment.assessment_id}:${question.id}`;
+    if (autoReadQuestionKeyRef.current === questionKey) return;
+    autoReadQuestionKeyRef.current = questionKey;
+
+    startQuestionAudio();
+  }, [assessment, autoTtsPlayback, seniorMode, startQuestionAudio]);
 
   const loadHistory = useCallback(async () => {
     setLoadingHistory(true);
@@ -374,7 +390,7 @@ export function CgaAssessment({ onExit }: CgaAssessmentProps) {
       <div className="mb-5 flex items-start justify-between gap-3">
         <div>
           <h2 className={cn("font-semibold", seniorMode ? "text-2xl" : "text-xl")}>老年综合评估</h2>
-          <p className={cn("mt-2 text-muted-foreground", textClass)}>选择一项筛查量表，答案会安全保存，之后可以继续作答。</p>
+          <p className={cn("mt-2 text-muted-foreground", textClass)}>选择一项筛查量表；答案会自动保存，可稍后继续。</p>
         </div>
         <Button variant="outline" onClick={onExit} className={actionClass}>{exitLabel}</Button>
       </div>

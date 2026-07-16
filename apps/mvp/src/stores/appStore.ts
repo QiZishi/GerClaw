@@ -22,7 +22,7 @@ interface AppState {
   seniorMode: boolean;
   setSeniorMode: (senior: boolean) => void;
   toggleSeniorMode: () => void;
-  /** 患者老年模式下，完成的 AI 回复是否自动开始朗读。 */
+  /** 患者老年模式下，完成的 AI 回复和新出现的 CGA 题目是否自动开始朗读。 */
   autoTtsPlayback: boolean;
   setAutoTtsPlayback: (enabled: boolean) => void;
 

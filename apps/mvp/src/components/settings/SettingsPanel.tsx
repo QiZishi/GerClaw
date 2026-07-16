@@ -98,14 +98,14 @@ export function SettingsPanel() {
           {isPatient && seniorMode && (
             <div className="flex min-h-16 items-center justify-between gap-4 rounded-xl border border-border px-3 py-2.5">
               <div>
-                <div className="text-lg font-medium">自动朗读回复</div>
-                <div className="mt-1 text-base leading-relaxed text-muted-foreground">回答完成后自动开始朗读，您可以随时暂停、继续或停止。</div>
+                <div className="text-lg font-medium">自动朗读</div>
+                <div className="mt-1 text-base leading-relaxed text-muted-foreground">回答完成或出现新的评估题目时自动开始朗读，您可以随时暂停、继续或停止。</div>
               </div>
               <Switch
                 size="lg"
                 checked={autoTtsPlayback}
                 onCheckedChange={setAutoTtsPlayback}
-                aria-label="切换自动朗读回复"
+                aria-label="切换自动朗读"
               />
             </div>
           )}
