@@ -1,6 +1,7 @@
 import { NextRequest } from "next/server";
 import {
   assertAllowedProviderUrl,
+  opaqueProviderFileName,
   PayloadLimitError,
   parsePollResponse,
   parseSubmitResponse,
@@ -164,8 +165,9 @@ export async function POST(request: NextRequest): Promise<Response> {
     }
     assertAllowedProviderUrl(config.baseUrl, config.allowedHosts);
 
-    const markdown = await parseWithMinerU(entry, config, request.signal);
-    console.info("[GerClaw][Document] parse completed", { traceId, fileName });
+    const providerFileName = opaqueProviderFileName(extension, crypto.randomUUID());
+    const markdown = await parseWithMinerU(entry, providerFileName, config, request.signal);
+    console.info("[GerClaw][Document] parse completed", { traceId, outcome: "succeeded" });
     return Response.json({ success: true, markdown, fileName } satisfies ParseResponse);
   } catch (error) {
     if (error instanceof PayloadLimitError) {
@@ -173,8 +175,12 @@ export async function POST(request: NextRequest): Promise<Response> {
     }
     console.error("[GerClaw][Document] parse failed", {
       traceId,
-      fileName,
-      error: error instanceof Error ? error.message : "unknown error",
+      outcome:
+        error instanceof PayloadLimitError
+          ? "payload_limit"
+          : error instanceof Error && error.name === "AbortError"
+            ? "cancelled_or_timed_out"
+            : "provider_failure",
     });
     const message =
       error instanceof Error && error.name === "AbortError"
@@ -186,6 +192,7 @@ export async function POST(request: NextRequest): Promise<Response> {
 
 async function parseWithMinerU(
   file: File,
+  providerFileName: string,
   config: ReturnType<typeof getProviderConfig>,
   requestSignal?: AbortSignal,
 ): Promise<string> {
@@ -198,7 +205,7 @@ async function parseWithMinerU(
       "Content-Type": "application/json",
     },
     body: JSON.stringify({
-      file_name: file.name,
+      file_name: providerFileName,
       language: "ch",
       enable_table: true,
       is_ocr: false,

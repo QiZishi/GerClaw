@@ -3,6 +3,7 @@ import test from "node:test";
 
 import {
   assertAllowedProviderUrl,
+  opaqueProviderFileName,
   PayloadLimitError,
   parsePollResponse,
   parseSubmitResponse,
@@ -39,6 +40,13 @@ test("only allows configured HTTPS provider URLs", () => {
     () => assertAllowedProviderUrl("https://attacker.example/file", allowedHosts),
     /allowlist/
   );
+});
+
+test("replaces an identifying upload filename before provider egress", () => {
+  const providerName = opaqueProviderFileName("PDF", "2db6a80a-7000-4aaa-a000-000000000001");
+  assert.equal(providerName, "document-2db6a80a-7000-4aaa-a000-000000000001.pdf");
+  assert.doesNotMatch(providerName, /王小明|病历/);
+  assert.throws(() => opaqueProviderFileName("../pdf", "2db6a80a-7000-4aaa-a000-000000000001"));
 });
 
 test("keeps failed parses distinct from completed results", () => {

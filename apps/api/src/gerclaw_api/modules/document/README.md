@@ -4,7 +4,7 @@ The Document module turns an already parsed Markdown result into a revocable, en
 
 ## Flow
 
-1. The browser sends a file only to the Next.js MinerU BFF.
+1. The browser sends a file only to the Next.js MinerU BFF. Before the external MinerU submit call, that BFF replaces the original filename with an opaque UUID-based name and emits PHI-free outcome-only logs; the document bytes remain necessary parsing input.
 2. The browser registers returned Markdown with `POST /api/v1/documents` through the GerClaw BFF.
 3. FastAPI verifies the caller owns the target session, encrypts content and filename, and returns only a document UUID plus metadata.
 4. Chat accepts that UUID only if its tenant, actor and session all match. The Harness renders the bounded body as a marked, untrusted reference.

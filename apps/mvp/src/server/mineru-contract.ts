@@ -7,6 +7,21 @@ export class PayloadLimitError extends Error {
   }
 }
 
+/**
+ * Give MinerU an opaque filename: a user's original filename can itself be
+ * identifying information, while the provider only needs a supported suffix.
+ */
+export function opaqueProviderFileName(extension: string, opaqueId: string): string {
+  const normalizedExtension = extension.trim().toLowerCase();
+  if (!/^[a-z0-9]{1,10}$/.test(normalizedExtension)) {
+    throw new Error("provider filename extension is invalid");
+  }
+  if (!/^[a-z0-9-]{8,64}$/i.test(opaqueId)) {
+    throw new Error("provider filename identifier is invalid");
+  }
+  return `document-${opaqueId}.${normalizedExtension}`;
+}
+
 export async function readStreamWithLimit(
   stream: ReadableStream<Uint8Array> | null,
   maxBytes: number,
