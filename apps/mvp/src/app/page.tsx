@@ -105,17 +105,14 @@ export default function Home() {
             render={
               <Button
                 variant="ghost"
-                size={isSeniorPatient ? "default" : "icon"}
-                className={cn(
-                  "btn-icon absolute top-2 left-2 z-20 md:hidden",
-                  isSeniorPatient && "min-h-12 gap-2 px-3 text-base bg-background/95 shadow-sm"
-                )}
+                size="default"
+                className="btn-icon absolute top-2 left-2 z-20 min-h-12 gap-2 bg-background/95 px-3 text-base shadow-sm md:hidden"
                 aria-label="打开菜单"
               />
             }
           >
             <Menu className="size-4" />
-            {isSeniorPatient && <span>菜单</span>}
+            <span>菜单</span>
           </SheetTrigger>
           <SheetContent
             side="left"
