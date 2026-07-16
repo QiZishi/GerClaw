@@ -15,8 +15,10 @@ from agentscope.tool import ToolChunk
 from pydantic import SecretStr
 
 from gerclaw_api.config import Settings
+from gerclaw_api.modules.privacy_redaction.models import RedactionResult
 from gerclaw_api.modules.search import (
     ProductionSearchModule,
+    SearchEgressAudit,
     SearchUnavailableError,
     build_web_search_tool,
     capture_agent_search_results,
@@ -24,7 +26,7 @@ from gerclaw_api.modules.search import (
     citations_from_search_results,
     create_search_runtime,
 )
-from gerclaw_api.modules.search.models import ProviderSearchResult
+from gerclaw_api.modules.search.models import ProviderSearchResult, SearchProviderName
 from gerclaw_api.modules.search.module import classify_authority
 from gerclaw_api.modules.search.providers import (
     AnySearchProvider,
@@ -85,20 +87,76 @@ class FakeProvider:
         self.closed = True
 
 
+class RecordingEgressAudit(SearchEgressAudit):
+    def __init__(self) -> None:
+        self.prepared: list[tuple[SearchProviderName, RedactionResult]] = []
+        self.finished: list[tuple[SearchProviderName, str]] = []
+
+    async def before_attempt(
+        self, *, provider: SearchProviderName, decision: RedactionResult
+    ) -> None:
+        self.prepared.append((provider, decision))
+
+    async def after_attempt(self, *, provider: SearchProviderName, outcome: str) -> None:
+        self.finished.append((provider, outcome))
+
+
+class RejectingEgressAudit(SearchEgressAudit):
+    async def before_attempt(
+        self, *, provider: SearchProviderName, decision: RedactionResult
+    ) -> None:
+        del provider, decision
+        raise RuntimeError("egress audit unavailable")
+
+    async def after_attempt(self, *, provider: SearchProviderName, outcome: str) -> None:
+        del provider, outcome
+        raise AssertionError("a rejected audit must not reach the provider")
+
+
 @pytest.mark.asyncio
 async def test_production_search_redacts_before_the_provider_boundary() -> None:
     primary = FakeProvider(search_outcomes=[[_raw()]])
     module = ProductionSearchModule(primary=primary, fallback=None)
 
     await module.search(
-        "\u60a3\u8005\u59d3\u540d\uFF1A\u674E\u96F7 \u7535\u8BDD "
-        "13800138000 \u9AD8\u8840\u538B\u6307\u5357",
+        "\u60a3\u8005\u59d3\u540d\uff1a\u674e\u96f7 \u7535\u8bdd "
+        "13800138000 \u9ad8\u8840\u538b\u6307\u5357",
         max_results=1,
     )
 
     assert primary.search_calls == [
-        ("\u60a3\u8005 \u7535\u8BDD [PHONE] \u9AD8\u8840\u538B\u6307\u5357", 1, "health")
+        ("\u60a3\u8005 \u7535\u8bdd [PHONE] \u9ad8\u8840\u538b\u6307\u5357", 1, "health")
     ]
+
+
+@pytest.mark.asyncio
+async def test_search_egress_audit_precedes_provider_and_uses_redaction_decision() -> None:
+    primary = FakeProvider(search_outcomes=[SearchProviderTimeout("timeout"), [_raw()]])
+    audit = RecordingEgressAudit()
+    module = ProductionSearchModule(primary=primary, fallback=None, max_retries=1)
+
+    await module.search(
+        "患者姓名：李雷，电话 13800138000 老年健康指南",
+        egress_audit=audit,
+    )
+
+    assert [provider for provider, _decision in audit.prepared] == ["anysearch", "anysearch"]
+    assert [outcome for _provider, outcome in audit.finished] == ["timeout", "success"]
+    for _provider, decision in audit.prepared:
+        assert decision.text == "患者，电话 [PHONE] 老年健康指南"
+        assert "李雷" not in decision.model_dump_json()
+        assert "13800138000" not in decision.model_dump_json()
+
+
+@pytest.mark.asyncio
+async def test_search_egress_audit_failure_blocks_provider_call() -> None:
+    primary = FakeProvider(search_outcomes=[[_raw()]])
+    module = ProductionSearchModule(primary=primary, fallback=None)
+
+    with pytest.raises(RuntimeError, match="egress audit unavailable"):
+        await module.search("老年健康指南", egress_audit=RejectingEgressAudit())
+
+    assert primary.search_calls == []
 
 
 def _anysearch(

@@ -11,18 +11,22 @@ from pydantic import AnyHttpUrl, BaseModel, ConfigDict, Field, field_validator
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from gerclaw_api.auth import AuthContext, require_search_read
+from gerclaw_api.database.models import ProviderEgressEvent
 from gerclaw_api.dependencies import get_database_session, get_trace_service
 from gerclaw_api.domain.enums import TraceEventStatus, TraceEventType, TraceStatus
 from gerclaw_api.domain.trace_schemas import TraceEventCreate, TraceFinishRequest, TraceStartRequest
 from gerclaw_api.middleware import set_active_trace
+from gerclaw_api.modules.privacy_redaction.models import RedactionResult
 from gerclaw_api.modules.search import (
     ProductionSearchModule,
     SearchAttempt,
+    SearchEgressAudit,
     SearchResult,
     SearchStatus,
     SearchUnavailableError,
     capture_search_attempts,
 )
+from gerclaw_api.repositories.provider_egress import SqlAlchemyProviderEgressRepository
 from gerclaw_api.security import audit_hmac_digest
 from gerclaw_api.services.rate_limit import RateLimiter
 from gerclaw_api.services.trace_service import TraceConflictError, TraceService
@@ -82,6 +86,50 @@ def _search_module(request: Request) -> ProductionSearchModule:
 
 
 SearchModuleDependency = Annotated[ProductionSearchModule, Depends(_search_module)]
+
+
+class _SearchProviderEgressAudit(SearchEgressAudit):
+    """Persist a PHI-free decision before each configured search provider call."""
+
+    def __init__(self, session: AsyncSession, identity: AuthContext) -> None:
+        self._session = session
+        self._identity = identity
+        self._repository = SqlAlchemyProviderEgressRepository(session)
+        self._prepared: dict[Literal["anysearch", "tavily"], list[ProviderEgressEvent]] = {
+            "anysearch": [],
+            "tavily": [],
+        }
+
+    async def before_attempt(
+        self,
+        *,
+        provider: Literal["anysearch", "tavily"],
+        decision: RedactionResult,
+    ) -> None:
+        event = await self._repository.record_prepared(
+            tenant_id=self._identity.tenant_id,
+            actor_id=self._identity.actor_id,
+            processor=provider,
+            decisions={"text": decision},
+        )
+        await self._session.commit()
+        self._prepared[provider].append(event)
+
+    async def after_attempt(
+        self,
+        *,
+        provider: Literal["anysearch", "tavily"],
+        outcome: str,
+    ) -> None:
+        events = self._prepared[provider]
+        if not events:  # pragma: no cover - module contract protects this path
+            raise RuntimeError("search provider attempt was not prepared for audit")
+        event = events.pop(0)
+        await self._repository.set_outcome(
+            event,
+            outcome="succeeded" if outcome in {"success", "empty"} else "failed",
+        )
+        await self._session.commit()
 
 
 async def _enforce_rate_limit(request: Request, identity: AuthContext) -> None:
@@ -233,8 +281,9 @@ async def search_query(
     payload: SearchQueryRequest,
     request: Request,
     module: SearchModuleDependency,
-    service: TraceServiceDependency,
     identity: SearchReadIdentity,
+    session: SessionDependency,
+    service: TraceServiceDependency,
 ) -> SearchQueryResponse:
     await _enforce_rate_limit(request, identity)
     request_fingerprint = _fingerprint(request, payload)
@@ -252,6 +301,7 @@ async def search_query(
                 payload.query,
                 max_results=payload.max_results,
                 domain=payload.domain,
+                egress_audit=_SearchProviderEgressAudit(session, identity),
             )
             if not replay_completed:
                 await _finish_success(

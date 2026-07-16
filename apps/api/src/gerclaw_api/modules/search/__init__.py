@@ -8,6 +8,7 @@ from gerclaw_api.modules.search.agentscope_adapter import (
 from gerclaw_api.modules.search.models import SearchAttempt, SearchResult, SearchStatus
 from gerclaw_api.modules.search.module import (
     ProductionSearchModule,
+    SearchEgressAudit,
     SearchUnavailableError,
     capture_search_attempts,
 )
@@ -17,6 +18,7 @@ from gerclaw_api.modules.search.security import UnsafeSearchURLError
 __all__ = [
     "ProductionSearchModule",
     "SearchAttempt",
+    "SearchEgressAudit",
     "SearchResult",
     "SearchRuntime",
     "SearchStatus",

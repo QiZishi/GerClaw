@@ -10,7 +10,13 @@ from httpx import AsyncClient
 from sqlalchemy import func, select, text
 
 from gerclaw_api.auth import create_access_token
-from gerclaw_api.database.models import BadCase, ExecutionTrace, TraceEvent, UserFeedback
+from gerclaw_api.database.models import (
+    BadCase,
+    ExecutionTrace,
+    ProviderEgressEvent,
+    TraceEvent,
+    UserFeedback,
+)
 from gerclaw_api.modules.rag.locking import PostgresAdvisoryRAGIndexLock
 from gerclaw_api.modules.search.models import ProviderSearchResult
 from gerclaw_api.modules.search.module import ProductionSearchModule
@@ -245,6 +251,26 @@ async def test_search_api_redacts_phi_enforces_scope_and_persists_safe_trace(
         assert "13800138000" not in telemetry
         assert "WHO healthy ageing evidence" not in telemetry
 
+        async with app.state.database.session() as session:
+            events = list(
+                (
+                    await session.scalars(
+                        select(ProviderEgressEvent).where(
+                            ProviderEgressEvent.tenant_id == "tenant_public0001",
+                            ProviderEgressEvent.actor_id == "usr_patient_integration0001",
+                        )
+                    )
+                ).all()
+            )
+        assert len(events) == 1
+        assert events[0].processor == "anysearch"
+        assert events[0].purpose == "external_search_query"
+        assert events[0].policy_version == "1.1.0"
+        assert events[0].outcome == "succeeded"
+        event_json = json.dumps(events[0].findings, ensure_ascii=False)
+        assert "张三" not in event_json
+        assert "13800138000" not in event_json
+
         replay = await client.post(
             "/api/v1/search/query",
             headers={"X-Trace-ID": "trace_search_integration_0001"},
@@ -254,6 +280,20 @@ async def test_search_api_redacts_phi_enforces_scope_and_persists_safe_trace(
         assert replay.json()["results"] == payload["results"]
         replayed_trace = await client.get("/api/v1/traces/trace_search_integration_0001")
         assert len(replayed_trace.json()["events"]) == 1
+
+        async with app.state.database.session() as session:
+            replay_events = list(
+                (
+                    await session.scalars(
+                        select(ProviderEgressEvent).where(
+                            ProviderEgressEvent.tenant_id == "tenant_public0001",
+                            ProviderEgressEvent.actor_id == "usr_patient_integration0001",
+                        )
+                    )
+                ).all()
+            )
+        assert len(replay_events) == 2
+        assert {event.outcome for event in replay_events} == {"succeeded"}
 
         conflict = await client.post(
             "/api/v1/search/query",

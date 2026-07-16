@@ -148,7 +148,8 @@ async def integration_client(
         async with app.state.database.engine.begin() as connection:
             await connection.execute(
                 text(
-                    "TRUNCATE runtime_checkpoints, runtime_approvals, bad_cases, user_feedback, "
+                    "TRUNCATE provider_egress_events, runtime_checkpoints, runtime_approvals, "
+                    "bad_cases, user_feedback, "
                     "trace_events, messages, "
                     "skill_definition_revisions, session_skills, skill_definitions, "
                     "memory_fact_revisions, memory_facts, health_profiles, sessions, users, "

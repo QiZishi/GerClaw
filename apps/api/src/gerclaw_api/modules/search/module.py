@@ -14,6 +14,8 @@ from urllib.parse import parse_qsl, urlencode, urlsplit, urlunsplit
 from pydantic import ValidationError
 
 from gerclaw_api.metrics import SEARCH_EXECUTIONS, SEARCH_LATENCY
+from gerclaw_api.modules.privacy_redaction.models import RedactionResult
+from gerclaw_api.modules.privacy_redaction.policy import redact_external_search_query
 from gerclaw_api.modules.search.models import (
     ProviderSearchResult,
     SearchAttempt,
@@ -26,7 +28,7 @@ from gerclaw_api.modules.search.providers import (
     RetryableSearchProviderError,
     SearchProviderError,
 )
-from gerclaw_api.modules.search.security import PublicURLGuard, sanitize_search_query
+from gerclaw_api.modules.search.security import PublicURLGuard
 
 T = TypeVar("T")
 _TRACKING_PARAMETERS = frozenset(
@@ -76,6 +78,18 @@ _ADVERTISING = re.compile(r"(?:广告|推广|购买|折扣|代购|优惠券|spon
 _ATTEMPT_CAPTURE: ContextVar[list[SearchAttempt] | None] = ContextVar(
     "gerclaw_search_attempt_capture", default=None
 )
+
+
+class SearchEgressAudit:
+    """Request-local, fail-closed audit hook around each search provider call."""
+
+    async def before_attempt(
+        self, *, provider: SearchProviderName, decision: RedactionResult
+    ) -> None:
+        raise NotImplementedError
+
+    async def after_attempt(self, *, provider: SearchProviderName, outcome: str) -> None:
+        raise NotImplementedError
 
 
 @contextmanager
@@ -158,12 +172,15 @@ class ProductionSearchModule:
         query: str,
         max_results: int = 5,
         domain: SearchDomain = "health",
+        *,
+        egress_audit: SearchEgressAudit | None = None,
     ) -> list[SearchResult]:
         if not 1 <= max_results <= 10:
             raise ValueError("max_results must be between 1 and 10")
         if domain not in {"general", "health", "academic"}:
             raise ValueError("unsupported search domain")
-        safe_query = sanitize_search_query(query)
+        decision = redact_external_search_query(query)
+        safe_query = decision.text
         started = time.perf_counter()
         outcome = "failed"
         try:
@@ -175,6 +192,8 @@ class ProductionSearchModule:
                         safe_query, max_results=max_results, domain=domain
                     ),
                     result_count=lambda value: len(value),
+                    egress_audit=egress_audit,
+                    redaction_decision=decision,
                 )
                 provider: SearchProviderName = "anysearch"
             except SearchProviderError as primary_error:
@@ -191,6 +210,8 @@ class ProductionSearchModule:
                             safe_query, max_results=max_results, domain=domain
                         ),
                         result_count=lambda value: len(value),
+                        egress_audit=egress_audit,
+                        redaction_decision=decision,
                     )
                     provider = "tavily"
                 except SearchProviderError as fallback_error:
@@ -244,10 +265,19 @@ class ProductionSearchModule:
         operation: str,
         call: Callable[[], Awaitable[T]],
         result_count: Callable[[T], int],
+        egress_audit: SearchEgressAudit | None = None,
+        redaction_decision: RedactionResult | None = None,
     ) -> T:
         for retry_index in range(self._max_retries + 1):
             started = time.perf_counter()
             try:
+                if egress_audit is not None:
+                    if redaction_decision is None:  # pragma: no cover - internal contract
+                        raise AssertionError("search egress audit requires a redaction decision")
+                    await egress_audit.before_attempt(
+                        provider=provider,
+                        decision=redaction_decision,
+                    )
                 result = await call()
             except SearchProviderError as error:
                 self._capture_attempt(
@@ -257,6 +287,8 @@ class ProductionSearchModule:
                     retry_index=retry_index,
                     started=started,
                 )
+                if egress_audit is not None:
+                    await egress_audit.after_attempt(provider=provider, outcome=error.outcome)
                 if (
                     isinstance(error, RetryableSearchProviderError)
                     and retry_index < self._max_retries
@@ -272,6 +304,11 @@ class ProductionSearchModule:
                 started=started,
                 result_count=count,
             )
+            if egress_audit is not None:
+                await egress_audit.after_attempt(
+                    provider=provider,
+                    outcome="empty" if operation == "search" and count == 0 else "success",
+                )
             return result
         raise AssertionError("bounded search retry loop exhausted unexpectedly")
 
