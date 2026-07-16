@@ -86,6 +86,12 @@ class AccountLoginRequest(BaseModel):
     password: str = Field(min_length=1, max_length=128)
 
 
+class AccountRefreshRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    refresh_token: str = Field(min_length=32, max_length=256)
+
+
 class AccountSessionRead(BaseModel):
     """Tokens are returned to the same-origin BFF, never persisted by the API."""
 
@@ -205,6 +211,55 @@ async def login_account(
     )
     await session.commit()
     return result
+
+
+@router.post("/refresh", response_model=AccountSessionRead)
+async def refresh_account_session(
+    payload: AccountRefreshRequest,
+    request: Request,
+    session: AccountSessionDependency,
+) -> AccountSessionRead:
+    """Rotate a one-time opaque refresh token; replay is rejected after rotation."""
+
+    limiter: RateLimiter = request.app.state.rate_limiter
+    token_fingerprint = audit_hmac_digest(
+        request.app.state.settings.auth_jwt_secret.get_secret_value().encode(),
+        f"local-account-refresh:v1:{payload.refresh_token}".encode(),
+    )
+    await limiter.check(tenant_id=_ACCOUNT_TENANT, actor_id=f"refresh_{token_fingerprint[:24]}")
+    repository = SqlAlchemyAccountRepository(session)
+    try:
+        previous, user = await repository.lock_refresh_session(token_fingerprint=token_fingerprint)
+    except AccountNotFoundError as error:
+        raise HTTPException(status_code=401, detail={"code": "ACCOUNT_REFRESH_INVALID"}) from error
+    role = cast(Literal["patient", "doctor"], user.role)
+    result = await _issue_account_session(
+        request, repository, user_id=user.id, actor_id=user.external_id, role=role
+    )
+    await repository.revoke_refresh_session(previous)
+    await session.commit()
+    return result
+
+
+@router.post("/logout", status_code=status.HTTP_204_NO_CONTENT)
+async def logout_account_session(
+    payload: AccountRefreshRequest,
+    request: Request,
+    session: AccountSessionDependency,
+) -> None:
+    """Idempotently revoke one opaque refresh token without exposing its state."""
+
+    token_fingerprint = audit_hmac_digest(
+        request.app.state.settings.auth_jwt_secret.get_secret_value().encode(),
+        f"local-account-refresh:v1:{payload.refresh_token}".encode(),
+    )
+    repository = SqlAlchemyAccountRepository(session)
+    try:
+        previous, _user = await repository.lock_refresh_session(token_fingerprint=token_fingerprint)
+    except AccountNotFoundError:
+        return None
+    await repository.revoke_refresh_session(previous)
+    await session.commit()
 
 
 @router.post("/guest", response_model=GuestTokenRead)

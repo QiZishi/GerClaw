@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import uuid
-from datetime import datetime
+from datetime import UTC, datetime
 from typing import Literal, cast
 
 from sqlalchemy import select
@@ -91,3 +91,25 @@ class SqlAlchemyAccountRepository:
         self._session.add(record)
         await self._session.flush()
         return record
+
+    async def lock_refresh_session(
+        self, *, token_fingerprint: str
+    ) -> tuple[AccountRefreshSession, User]:
+        statement = (
+            select(AccountRefreshSession, User)
+            .join(User, User.id == AccountRefreshSession.user_id)
+            .where(
+                AccountRefreshSession.token_fingerprint == token_fingerprint,
+                AccountRefreshSession.revoked_at.is_(None),
+                AccountRefreshSession.expires_at > datetime.now(UTC),
+                User.is_active.is_(True),
+            )
+            .with_for_update()
+        )
+        row = (await self._session.execute(statement)).one_or_none()
+        if row is None:
+            raise AccountNotFoundError("refresh session is unavailable")
+        return cast(AccountRefreshSession, row[0]), cast(User, row[1])
+
+    async def revoke_refresh_session(self, record: AccountRefreshSession) -> None:
+        record.revoked_at = datetime.now(UTC)
