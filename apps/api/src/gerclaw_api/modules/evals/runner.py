@@ -7,10 +7,19 @@ from gerclaw_api.modules.agent_harness.safety import (
     MEDICAL_DISCLAIMER,
     detect_high_risk,
     safety_decision,
+    sanitize_medical_text,
 )
 from gerclaw_api.modules.contracts import AgentResponse
-from gerclaw_api.modules.evals.golden_cases import SAFETY_GOLDEN_CASES
-from gerclaw_api.modules.evals.models import EvalCase, EvalCaseResult
+from gerclaw_api.modules.evals.golden_cases import (
+    OUTPUT_SAFETY_GOLDEN_CASES,
+    SAFETY_GOLDEN_CASES,
+)
+from gerclaw_api.modules.evals.models import (
+    EvalCase,
+    EvalCaseResult,
+    OutputSafetyEvalCase,
+    OutputSafetyEvalCaseResult,
+)
 
 
 def run_case(case: EvalCase) -> EvalCaseResult:
@@ -53,4 +62,24 @@ def run_golden_cases() -> tuple[EvalCaseResult, ...]:
     if not all(result.passed for result in results):
         failed = ", ".join(result.case_id for result in results if not result.passed)
         raise AssertionError(f"safety golden cases failed: {failed}")
+    return results
+
+
+def run_output_safety_case(case: OutputSafetyEvalCase) -> OutputSafetyEvalCaseResult:
+    """Evaluate a reviewed synthetic public-output safety transformation."""
+
+    return OutputSafetyEvalCaseResult(
+        case_id=case.case_id,
+        passed=sanitize_medical_text(case.synthetic_output) == case.expected_public_output,
+        policy_version=case.policy_version,
+    )
+
+
+def run_output_safety_golden_cases() -> tuple[OutputSafetyEvalCaseResult, ...]:
+    """Run output-policy cases without persisting or echoing synthetic text."""
+
+    results = tuple(run_output_safety_case(case) for case in OUTPUT_SAFETY_GOLDEN_CASES)
+    if not all(result.passed for result in results):
+        failed = ", ".join(result.case_id for result in results if not result.passed)
+        raise AssertionError(f"output safety golden cases failed: {failed}")
     return results

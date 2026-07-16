@@ -2,8 +2,10 @@
 
 This module starts the safe, deterministic portion of GerClaw's Eval Harness.
 It executes reviewed synthetic safety cases against the same red-flag detector,
-safety-decision contract, and emergency public-output invariant used by the
-Agent Harness. It has no database, model, RAG, search, or provider dependency.
+safety-decision contract, emergency public-output invariant, and deterministic
+medical-output rewrite used by the Agent Harness. It has no database, model,
+RAG, search, or provider dependency. The CLI emits only IDs and outcomes, never
+the reviewed synthetic input or expected public text.
 
 Run:
 

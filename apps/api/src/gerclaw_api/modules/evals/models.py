@@ -24,6 +24,20 @@ class EvalCase(BaseModel):
     provenance: Literal["synthetic_reviewed"] = "synthetic_reviewed"
 
 
+class OutputSafetyEvalCase(BaseModel):
+    """Reviewed synthetic public-output case for deterministic safety rewrites."""
+
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    schema_version: Literal["eval-case-v1"] = "eval-case-v1"
+    case_id: str = Field(pattern=r"^output-safety\.[a-z0-9_.-]{3,80}$")
+    title: str = Field(min_length=1, max_length=120)
+    synthetic_output: str = Field(min_length=1, max_length=500)
+    expected_public_output: str = Field(min_length=1, max_length=500)
+    policy_version: Literal["medical_safety_v1"] = "medical_safety_v1"
+    provenance: Literal["synthetic_reviewed"] = "synthetic_reviewed"
+
+
 class EvalCaseResult(BaseModel):
     """Machine-readable result without echoing synthetic or user input text."""
 
@@ -35,4 +49,14 @@ class EvalCaseResult(BaseModel):
     actual_high_risk_codes: tuple[str, ...]
     expected_emergency_short_circuit: bool
     actual_emergency_short_circuit: bool
+    policy_version: str
+
+
+class OutputSafetyEvalCaseResult(BaseModel):
+    """Output-policy result without exposing either synthetic text field."""
+
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    case_id: str
+    passed: bool
     policy_version: str
