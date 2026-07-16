@@ -31,4 +31,4 @@
 - 前端通过 BFF 的 `POST /api/gerclaw/feedback` 提交 Zod 校验的 payload；响应也严格校验。按钮在请求中和成功后均不可重复操作，失败只显示可重试提示。
 - 前端定向测试：`npm run test:feedback`（2 passed）；`npm run lint`、`npm run build`、`npm run test:audio`（6 passed）、`npm run test:document`（5 passed）、`npm run test:search`（4 passed）均通过。
 - 后端真实依赖测试：在 Compose 网络的一次性容器中运行 `test_real_trace_feedback_bad_case_encryption_and_readiness_flow`，结果 `1 passed`；验证了负反馈幂等入库、Bad Case、租户隔离与加密快照。容器退出已自动删除。
-- 浏览器在 `http://127.0.0.1:3048` 验证了失败响应不显示反馈入口；另以 transport mock 模拟一个合规的已完成 SSE，验证 trace 门槛、点踩弹窗、提交状态、禁用重复提交和请求 payload。该 mock 仅验证前端交互，不替代上述真实后端证据。
+- 浏览器在 `http://127.0.0.1:3048` 验证了失败响应不显示反馈入口；另以 transport mock 模拟一个合规的已完成 SSE，验证 trace 门槛、点踩弹窗、提交状态、禁用重复提交和请求 payload。模拟 `503` 时弹窗保留、按钮仍可用且仅显示可重试提示。该 mock 仅验证前端交互，不替代上述真实后端证据。
