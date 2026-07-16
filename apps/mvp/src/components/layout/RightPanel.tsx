@@ -59,6 +59,14 @@ export function RightPanel() {
 
   const [mounted, setMounted] = useState(false);
   const [visible, setVisible] = useState(false);
+  const [isNarrowViewport, setIsNarrowViewport] = useState(true);
+
+  useEffect(() => {
+    const syncViewportMode = () => setIsNarrowViewport(window.innerWidth < 1280);
+    syncViewportMode();
+    window.addEventListener("resize", syncViewportMode);
+    return () => window.removeEventListener("resize", syncViewportMode);
+  }, []);
 
   useEffect(() => {
     if (rightPanelOpen && rightPanelType) {
@@ -137,7 +145,7 @@ export function RightPanel() {
   }
 
   const title = PANEL_TITLES[rightPanelType] ?? "面板";
-  const isMobile = typeof window !== "undefined" && window.innerWidth < 1280;
+  const isMobile = isNarrowViewport;
   const mobileTransition = reducedMotion ? "" : "transition-transform duration-250 ease-out";
   const desktopTransition = reducedMotion ? "" : "transition-all duration-250 ease-out";
   const opacityTransitionClass = reducedMotion ? "" : "transition-opacity duration-250 ease-out";
