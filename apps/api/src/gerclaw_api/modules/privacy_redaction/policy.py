@@ -5,13 +5,14 @@ from __future__ import annotations
 import re
 
 from gerclaw_api.modules.privacy_redaction.models import (
+    EgressPurpose,
     RedactionCategory,
     RedactionFinding,
     RedactionResult,
 )
 from gerclaw_api.security import redact_text
 
-PRIVACY_REDACTION_POLICY_VERSION = "1.0.0"
+PRIVACY_REDACTION_POLICY_VERSION = "1.1.0"
 
 _CONTROL = re.compile(r"[\x00-\x08\x0b\x0c\x0e-\x1f\x7f]")
 _PERSON_NAME_PATTERNS = (
@@ -47,7 +48,7 @@ _CATEGORY_PATTERNS: tuple[tuple[RedactionCategory, re.Pattern[str]], ...] = (
 
 
 class PrivacyRedactionError(ValueError):
-    """Raised when an external-search egress projection would be empty or oversized."""
+    """Raised when an external egress projection would be empty or oversized."""
 
 
 def _findings(value: str) -> tuple[RedactionFinding, ...]:
@@ -68,25 +69,48 @@ def _findings(value: str) -> tuple[RedactionFinding, ...]:
     )
 
 
-def redact_external_search_query(query: str) -> RedactionResult:
-    """Return a bounded query safe to send to an external evidence provider.
+def _redact_external_text(
+    text: str, *, purpose: EgressPurpose, person_replacement: str
+) -> RedactionResult:
+    """Return a bounded purpose-specific projection safe for an external provider.
 
     The decision summary deliberately includes category counts only: callers must
     not persist input text, matched spans or replacement positions in Trace,
     metrics or a provider-audit record.
     """
 
-    if len(query) > 4_000:
-        raise PrivacyRedactionError("search query exceeds the privacy policy size limit")
-    findings = _findings(query)
-    sanitized = redact_text(_CONTROL.sub(" ", query))
+    if len(text) > 4_000:
+        raise PrivacyRedactionError("egress text exceeds the privacy policy size limit")
+    findings = _findings(text)
+    sanitized = redact_text(_CONTROL.sub(" ", text))
     for pattern in _PERSON_NAME_PATTERNS:
-        sanitized = pattern.sub("患者", sanitized)
+        sanitized = pattern.sub(person_replacement, sanitized)
     normalized = " ".join(sanitized.split()).strip()
     if not normalized:
-        raise PrivacyRedactionError("search query cannot be blank after privacy filtering")
+        raise PrivacyRedactionError("egress text cannot be blank after privacy filtering")
     return RedactionResult(
         text=normalized,
+        purpose=purpose,
         policy_version=PRIVACY_REDACTION_POLICY_VERSION,
         findings=findings,
+    )
+
+
+def redact_external_search_query(query: str) -> RedactionResult:
+    """Return a clinical-intent query safe for an external evidence provider."""
+
+    return _redact_external_text(
+        query,
+        purpose=EgressPurpose.EXTERNAL_SEARCH_QUERY,
+        person_replacement="患者",
+    )
+
+
+def redact_external_tts_text(text: str) -> RedactionResult:
+    """Remove identifiers before an external TTS provider receives spoken text."""
+
+    return _redact_external_text(
+        text,
+        purpose=EgressPurpose.EXTERNAL_TTS,
+        person_replacement="您",
     )

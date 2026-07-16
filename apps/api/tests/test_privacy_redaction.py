@@ -5,11 +5,12 @@ from __future__ import annotations
 
 import pytest
 
-from gerclaw_api.modules.privacy_redaction.models import RedactionCategory
+from gerclaw_api.modules.privacy_redaction.models import EgressPurpose, RedactionCategory
 from gerclaw_api.modules.privacy_redaction.policy import (
     PRIVACY_REDACTION_POLICY_VERSION,
     PrivacyRedactionError,
     redact_external_search_query,
+    redact_external_tts_text,
 )
 
 
@@ -25,6 +26,7 @@ def test_external_search_policy_redacts_identifiers_without_a_reversible_audit()
         "患者，电话 [PHONE]，邮箱 [EMAIL]，身份证 [ID_CARD]，"
         "token=[REDACTED] 高血压指南"
     )
+    assert result.purpose is EgressPurpose.EXTERNAL_SEARCH_QUERY
     assert result.policy_version == PRIVACY_REDACTION_POLICY_VERSION
     findings = {item.category: item.count for item in result.findings}
     assert findings == {
@@ -53,3 +55,12 @@ def test_external_search_policy_counts_control_characters_and_rejects_blank_inpu
 def test_external_search_policy_rejects_oversized_input() -> None:
     with pytest.raises(PrivacyRedactionError, match="size limit"):
         redact_external_search_query("x" * 4_001)
+
+
+def test_external_tts_policy_preserves_spoken_intent_without_identifiers() -> None:
+    result = redact_external_tts_text("患者姓名：李雷，电话 13800138000，请尽快联系医生。")
+
+    assert result.purpose is EgressPurpose.EXTERNAL_TTS
+    assert result.text == "您，电话 [PHONE]，请尽快联系医生。"
+    assert "李雷" not in result.text
+    assert "13800138000" not in result.text

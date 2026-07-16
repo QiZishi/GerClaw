@@ -13,6 +13,10 @@ speech text, provider bodies, or credentials.
   downgrade to a pre-generated clinical statement.
 - Provider failures are stable, PHI-free errors. Do not log request or response
   bodies.
+- TTS body and style must pass through the versioned `privacy_redaction`
+  `external_tts` policy before egress. ASR audio cannot be made safe by text
+  redaction; do not claim it is covered without a dedicated consent/minimisation
+  design.
 - Every external call has a bounded timeout and is behind `voice:use` scope and
   the shared tenant/actor rate limiter.
 

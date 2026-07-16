@@ -13,6 +13,7 @@ from pydantic import BaseModel, ConfigDict, Field, ValidationError
 
 from gerclaw_api.config import Settings
 from gerclaw_api.metrics import VOICE_PROVIDER_LATENCY, VOICE_PROVIDER_REQUESTS
+from gerclaw_api.modules.privacy_redaction.policy import redact_external_tts_text
 from gerclaw_api.modules.voice.models import VOICE_NAMES, AudioFormat, VoiceName
 
 _DEFAULT_STYLE = "用温柔体贴的语调，语速适中，像在关心一位老人的健康状况"  # noqa: RUF001
@@ -162,11 +163,13 @@ class MiMoVoiceModule:
     async def synthesize(
         self, text: str, *, voice: VoiceName, style: str | None = None
     ) -> AsyncGenerator[bytes, None]:
+        safe_text = redact_external_tts_text(text).text
+        safe_style = redact_external_tts_text(style or _DEFAULT_STYLE).text
         payload = {
             "model": self._tts_model,
             "messages": [
-                {"role": "user", "content": style or _DEFAULT_STYLE},
-                {"role": "assistant", "content": text},
+                {"role": "user", "content": safe_style},
+                {"role": "assistant", "content": safe_text},
             ],
             "audio": {"format": "pcm16", "voice": voice},
             "stream": True,

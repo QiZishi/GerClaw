@@ -18,6 +18,13 @@ class RedactionCategory(StrEnum):
     CREDENTIAL = "credential"
 
 
+class EgressPurpose(StrEnum):
+    """A fixed external-processing purpose; it is not user-controlled."""
+
+    EXTERNAL_SEARCH_QUERY = "external_search_query"
+    EXTERNAL_TTS = "external_tts"
+
+
 class RedactionFinding(BaseModel):
     """PHI-free count suitable for an internal egress audit record."""
 
@@ -33,5 +40,6 @@ class RedactionResult(BaseModel):
     model_config = ConfigDict(extra="forbid", frozen=True)
 
     text: str = Field(min_length=1, max_length=4_000)
+    purpose: EgressPurpose
     policy_version: str = Field(pattern=r"^[1-9][0-9]{0,3}\.[0-9]{1,4}\.[0-9]{1,4}$")
     findings: tuple[RedactionFinding, ...] = Field(default_factory=tuple, max_length=6)
