@@ -43,6 +43,12 @@ class _UnavailableVoice(_Voice):
         yield b""  # pragma: no cover - preserves the async-generator contract
 
 
+class _UnavailableASRVoice(_Voice):
+    async def transcribe(self, audio_data: bytes, **_kwargs: str) -> str:
+        assert audio_data == b"audio"
+        raise VoiceProviderUnavailable("test")
+
+
 class _EgressSession:
     def __init__(self) -> None:
         self.events: list[object] = []
@@ -108,19 +114,24 @@ async def test_voice_routes_require_scope_and_return_bounded_asr_and_pcm16() -> 
             {"voice": "冰糖", "style": "您, token=[REDACTED] 温和朗读"},
         )
     ]
-    assert len(egress_session.events) == 1
-    event = egress_session.events[0]
-    assert event.purpose == "external_tts"
-    assert event.processor == "mimo_tts"
-    assert event.policy_version == "1.1.0"
-    assert event.outcome == "succeeded"
-    assert event.findings == [
+    assert len(egress_session.events) == 2
+    asr_event, tts_event = egress_session.events
+    assert asr_event.purpose == "external_asr_audio"
+    assert asr_event.processor == "mimo_asr"
+    assert asr_event.policy_version == "audio-egress-v1"
+    assert asr_event.outcome == "succeeded"
+    assert asr_event.findings == []
+    assert tts_event.purpose == "external_tts"
+    assert tts_event.processor == "mimo_tts"
+    assert tts_event.policy_version == "1.1.0"
+    assert tts_event.outcome == "succeeded"
+    assert tts_event.findings == [
         {"field": "text", "category": "person_name", "count": 1},
         {"field": "text", "category": "phone", "count": 1},
         {"field": "style", "category": "credential", "count": 1},
         {"field": "style", "category": "person_name", "count": 1},
     ]
-    assert egress_session.commit_count == 2
+    assert egress_session.commit_count == 4
 
 
 @pytest.mark.asyncio
@@ -128,7 +139,10 @@ async def test_voice_routes_reject_missing_scope_and_invalid_audio() -> None:
     settings = make_settings()
     app = create_app(settings)
     app.state.rate_limiter = _RateLimiter()
-    app.state.voice_module = _Voice()
+    voice = _Voice()
+    app.state.voice_module = voice
+    egress_session = _EgressSession()
+    _with_egress_session(app, egress_session)
     token = create_access_token(
         settings,
         actor_id="usr_patient_voice0001",
@@ -142,7 +156,25 @@ async def test_voice_routes_reject_missing_scope_and_invalid_audio() -> None:
     ) as client:
         forbidden = await client.post("/api/v1/voice/tts", json={"text": "测试"})
 
+    valid_token = create_access_token(
+        settings,
+        actor_id="usr_patient_voice0001",
+        tenant_id="tenant_public0001",
+        scopes={"voice:use"},
+    )
+    async with AsyncClient(
+        transport=ASGITransport(app=app),
+        base_url="http://testserver",
+        headers={"Authorization": f"Bearer {valid_token}"},
+    ) as client:
+        invalid_audio = await client.post(
+            "/api/v1/voice/asr", json={"audio": "not-base64", "format": "wav"}
+        )
+
     assert forbidden.status_code == 403
+    assert invalid_audio.status_code == 422
+    assert egress_session.events == []
+    assert voice.tts_requests == []
 
 
 @pytest.mark.asyncio
@@ -170,4 +202,40 @@ async def test_voice_tts_projects_a_first_packet_provider_failure_before_headers
     assert response.json()["detail"]["code"] == "VOICE_TTS_UNAVAILABLE"
     assert len(egress_session.events) == 1
     assert egress_session.events[0].outcome == "failed"
+    assert egress_session.commit_count == 2
+
+
+@pytest.mark.asyncio
+async def test_voice_asr_records_failed_audio_egress_without_audio_or_transcript() -> None:
+    settings = make_settings()
+    app = create_app(settings)
+    app.state.rate_limiter = _RateLimiter()
+    app.state.voice_module = _UnavailableASRVoice()
+    egress_session = _EgressSession()
+    _with_egress_session(app, egress_session)
+    token = create_access_token(
+        settings,
+        actor_id="usr_patient_voice0001",
+        tenant_id="tenant_public0001",
+        scopes={"voice:use"},
+    )
+    async with AsyncClient(
+        transport=ASGITransport(app=app),
+        base_url="http://testserver",
+        headers={"Authorization": f"Bearer {token}"},
+    ) as client:
+        response = await client.post(
+            "/api/v1/voice/asr",
+            json={"audio": base64.b64encode(b"audio").decode(), "format": "wav"},
+        )
+
+    assert response.status_code == 503
+    assert response.json()["detail"]["code"] == "VOICE_ASR_UNAVAILABLE"
+    assert len(egress_session.events) == 1
+    event = egress_session.events[0]
+    assert event.purpose == "external_asr_audio"
+    assert event.processor == "mimo_asr"
+    assert event.policy_version == "audio-egress-v1"
+    assert event.outcome == "failed"
+    assert event.findings == []
     assert egress_session.commit_count == 2

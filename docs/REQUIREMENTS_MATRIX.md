@@ -20,7 +20,7 @@
 | AI-02 | Memory/健康画像引擎 | `modules/memory` | 加密、跨会话、冲突、无 PHI vector | ✅ 0017 独立 PASS |
 | AI-03 | Skill 生命周期 | `modules/skill`、Skill UI | 注册/版本/隔离/viewer/安全/真实模型 | ✅ 0019 独立 PASS |
 | AI-04 | AnySearch→Tavily | `modules/search` | provider failover、网页隔离、引用 | ✅ 0018 独立 PASS |
-| AI-05 | Voice 后端 | `modules/input_output` 或 voice | ASR/TTS schema、PCM16 流、取消、故障 | 🚧 Next.js 服务端 BFF 已以非公开环境变量调用真实 MiMo ASR/TTS，并有 Zod/大小格式/音色约束、超时取消、安全阀和稳定错误；FastAPI 已有受限 ASR、24kHz 单声道 PCM16 TTS、文本/style 脱敏与 PHI-free TTS egress ledger。缺 BFF→FastAPI 流迁移、ASR 台账、统一 adapter 版本与完整故障评测 |
+| AI-05 | Voice 后端 | `modules/input_output` 或 voice | ASR/TTS schema、PCM16 流、取消、故障 | 🚧 Next.js 服务端 BFF 已以非公开环境变量调用真实 MiMo ASR/TTS，并有 Zod/大小格式/音色约束、超时取消、安全阀和稳定错误；FastAPI 已有受限 ASR、24kHz 单声道 PCM16 TTS、文本/style 脱敏与 PHI-free TTS egress ledger。ASR 现以无文本分类的 `audio-egress-v1` 记录调用前后状态，绝不声称音频已去标识化或已获同意。缺 BFF→FastAPI 流迁移、统一 adapter 版本与完整故障评测 |
 | AI-06 | Privacy | security、harness safety | PHI/凭证、注入、诊断、红旗、自伤、免责声明 | 🚧 核心规则分散，缺独立完整模块 |
 | AI-07 | MinerU Document | document module、上传 UI | PDF/Office/MD/TXT 真实解析、轮询、重试 | 🚧 Next.js BFF 已真实完成签名上传、轮询和 Markdown 下载；FastAPI 已登记加密会话文档，删除会话会级联擦除会话消息、文档、临床收集及会话绑定审批/检查点。私有向量检索、长文档检索、跨会话保留、医生授权与病毒扫描待完成 |
 | AI-08 | Provider capability/version | services/adapters | schema/version/能力协商与不兼容拒绝 | 🚧 AgentScope 版本固定，其他 adapter 合同未统一 |
@@ -59,7 +59,7 @@
 | SEC-04 | 服务端安全边界 | auth/middleware/repos | scope/tenant/role/ownership/CSRF/CORS/SSRF/rate limit | 🚧 核心 scope/tenant/SSRF 已有，角色/CSRF 待补 |
 | DATA-01 | 统一 schema/version/兼容 | domain/Zod/API | version、兼容窗口、迁移、unknown fields | 🚧 严格 schema 已有，缺统一版本兼容策略 |
 | DATA-02 | 保留/导出/删除/备份 | privacy/storage | 各数据类别生命周期与可验证删除 | 🚧 会话拥有者现可删除空闲会话，数据库级级联实际擦除会话消息、解析文档、临床收集、会话审批与检查点；健康画像、CGA、慢病、Skill、账户、备份、TTL、导出和可验证删除报告仍未实现 |
-| DATA-03 | PHI 外发最小化与透明度 | privacy/provider audit | 脱敏、目的、处理方、撤回后续处理 | 🚧 版本化 `privacy_redaction` 已真实拦截外部搜索 query 与 FastAPI TTS 正文/style；FastAPI TTS 与 `/search/query` 每次 Provider 尝试均有调用前持久化的 PHI-free egress ledger，记录目的、逻辑处理方、策略版本、类别计数和结果。缺 ASR/MinerU/模型、网页提取/AgentScope 内部搜索台账、撤回处理与用户透明度 |
+| DATA-03 | PHI 外发最小化与透明度 | privacy/provider audit | 脱敏、目的、处理方、撤回后续处理 | 🚧 版本化 `privacy_redaction` 已真实拦截外部搜索 query 与 FastAPI TTS 正文/style；FastAPI TTS、ASR 与 `/search/query` 每次 Provider 尝试均有调用前持久化的 PHI-free egress ledger。ASR 仅记录未改写音频的固定目的/处理方/策略版本/结果和空 findings，不宣称已去标识化。缺 MinerU/模型、网页提取/AgentScope 内部搜索台账、撤回处理与用户透明度 |
 | DATA-04 | 字段级分类与敏感度 | schema registry/privacy policy | 字段分类绑定处理方、存储、日志、Trace/vector/export 和保留规则 | 🚧 已有 `privacy_redaction` 外发类别与 Runtime DataClass，尚缺统一字段注册表、存储/日志/导出规则绑定及全链路强制执行 |
 | DATA-05 | 假名化与受控再识别 | identity vault/privacy/RBAC/audit | 可轮换 token、隔离映射、审批再识别、重识别风险评估 | 🚧 访客伪名主体已有；缺独立映射、审批与风险评估 |
 | DATA-06 | 脱敏版本与误漏评测 | privacy/eval/bad-case | 规则/模型版本、canary/golden、FP/FN、跨文本/OCR/ASR/schema 回归 | 🚧 已有 4 条版本绑定、人工审阅的合成文本 canary，覆盖当前 search/TTS `1.1.0` 规则且不回显样例；缺 OCR/ASR/自由文本/结构化字段、检测模型、FP/FN 指标和发布阈值 |

@@ -48,6 +48,29 @@ class SqlAlchemyProviderEgressRepository:
         await self._session.flush()
         return event
 
+    async def record_prepared_asr_audio(
+        self, *, tenant_id: str, actor_id: str
+    ) -> ProviderEgressEvent:
+        """Record bounded audio egress without claiming text redaction or consent.
+
+        Audio cannot safely pass through the text-redaction boundary. The empty
+        findings list therefore means only that no text classification occurred;
+        it must never be interpreted as an absence of PHI in the audio.
+        """
+
+        event = ProviderEgressEvent(
+            tenant_id=tenant_id,
+            actor_id=actor_id,
+            purpose="external_asr_audio",
+            processor="mimo_asr",
+            policy_version="audio-egress-v1",
+            findings=[],
+            outcome="prepared",
+        )
+        self._session.add(event)
+        await self._session.flush()
+        return event
+
     async def set_outcome(
         self, event: ProviderEgressEvent, *, outcome: Literal["succeeded", "failed"]
     ) -> None:

@@ -23,6 +23,7 @@ class EgressPurpose(StrEnum):
 
     EXTERNAL_SEARCH_QUERY = "external_search_query"
     EXTERNAL_TTS = "external_tts"
+    EXTERNAL_ASR_AUDIO = "external_asr_audio"
 
 
 class RedactionFinding(BaseModel):
