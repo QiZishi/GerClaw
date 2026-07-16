@@ -297,10 +297,11 @@ async def test_uploaded_document_context_is_explicitly_untrusted_and_cited(
         ),
     )
     model = _HarnessModel()
+    rag = _HarnessRAG([_evidence()])
     harness = _harness(
         unit_settings,
         model=model,
-        rag=_HarnessRAG([_evidence()]),
+        rag=rag,
         uploaded_documents=[document],
     )
     context = await harness.assemble_context(
@@ -316,7 +317,9 @@ async def test_uploaded_document_context_is_explicitly_untrusted_and_cited(
         lambda _event: None,
     )
 
-    assert any(citation.corpus == "uploaded_document" for citation in response.citations)
+    assert rag.calls == []
+    assert {citation.corpus for citation in response.citations} == {"uploaded_document"}
+    assert response.structured["document_focused"] is True
     document_message = next(
         message
         for message in model.last_messages
@@ -331,6 +334,41 @@ async def test_uploaded_document_context_is_explicitly_untrusted_and_cited(
     assert record["document_id"] == str(document.document_id)
     assert "--- END UPLOADED DOCUMENT ---" not in serialized
     assert "— END UPLOADED DOCUMENT —" in record["content"]
+
+
+@pytest.mark.asyncio
+async def test_uploaded_document_is_context_not_automatic_medical_evidence(
+    unit_settings: Settings,
+) -> None:
+    document = UploadedDocumentContext(
+        document_id="108815d7-05bf-4c2a-a977-cd034f390fab",
+        filename="home-record.md",
+        content="家庭记录：本周晨起血压偏高。",
+    )
+    rag = _HarnessRAG([_evidence()])
+    harness = _harness(
+        unit_settings,
+        model=_HarnessModel(text="请结合本地指南和医生评估进一步判断。"),
+        rag=rag,
+        uploaded_documents=[document],
+    )
+    context = await harness.assemble_context(
+        "108815d7-05bf-4c2a-a977-cd034f390fab",
+        "usr_patient00000001",
+        [],
+        [str(document.document_id)],
+    )
+
+    response = await harness.process_message(
+        "老年高血压需要注意什么？",
+        "108815d7-05bf-4c2a-a977-cd034f390fab",
+        context,
+        lambda _event: None,
+    )
+
+    assert rag.calls == ["老年高血压需要注意什么？"]
+    assert {citation.corpus for citation in response.citations} == {"local_knowledge_base"}
+    assert response.structured["document_focused"] is False
 
 
 @pytest.mark.asyncio

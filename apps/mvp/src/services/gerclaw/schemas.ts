@@ -272,6 +272,7 @@ export const clinicalIntakeSchema = z
     answers: z
       .record(z.string().regex(/^[a-z][a-z0-9_]{1,63}$/), z.string())
       .refine((answers) => Object.keys(answers).length <= 3, "最多保存 3 个信息字段"),
+    document_ids: z.array(z.string().uuid()).max(5),
     missing_required_fields: z.array(z.string().regex(/^[a-z][a-z0-9_]{1,63}$/)).max(3),
     governance_notice: z.string().min(1).max(500),
     updated_at: z.string().datetime(),

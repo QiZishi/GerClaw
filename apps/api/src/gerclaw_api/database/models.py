@@ -242,6 +242,9 @@ class ClinicalIntake(TimestampMixin, Base):
     status: Mapped[str] = mapped_column(String(64), nullable=False, default="collecting")
     revision: Mapped[int] = mapped_column(Integer, nullable=False, default=1)
     answers: Mapped[dict[str, Any]] = mapped_column(EncryptedJSON(), default=dict, nullable=False)
+    # References only: parsed document bodies remain in UploadedDocument and are
+    # resolved again under the same owner/session boundary before any future workflow.
+    document_ids: Mapped[list[str] | None] = mapped_column(EncryptedJSON(), default=list)
 
 
 class MemoryFact(TimestampMixin, Base):

@@ -51,6 +51,18 @@ class _Repository:
         return await self.get(intake_id, **kwargs)
 
 
+class _DocumentService:
+    def __init__(self, active_document_ids: set[uuid.UUID]) -> None:
+        self.active_document_ids = active_document_ids
+        self.calls: list[uuid.UUID] = []
+
+    async def get(self, document_id: uuid.UUID, **_kwargs: object) -> object:
+        self.calls.append(document_id)
+        if document_id not in self.active_document_ids:
+            raise RuntimeError("not found")
+        return object()
+
+
 @pytest.mark.asyncio
 async def test_prescription_intake_is_server_defined_and_never_returns_clinical_advice() -> None:
     service = ClinicalIntakeService(_Repository())  # type: ignore[arg-type]
@@ -159,3 +171,34 @@ async def test_intake_hides_missing_records_across_principals() -> None:
             tenant_id="tenant_other0001",
             actor_id="usr_patient_other0001",
         )
+
+
+@pytest.mark.asyncio
+async def test_prescription_intake_keeps_owner_scoped_uploaded_documents_as_input_references(
+) -> None:
+    document_id = uuid.uuid4()
+    documents = _DocumentService({document_id})
+    service = ClinicalIntakeService(
+        _Repository(),  # type: ignore[arg-type]
+        documents,  # type: ignore[arg-type]
+    )
+    started = await service.start(
+        tenant_id="tenant_public0001",
+        actor_id="usr_patient_intake0001",
+        session_id=uuid.uuid4(),
+        kind="prescription",
+    )
+
+    updated = await service.update(
+        started.intake_id,
+        tenant_id="tenant_public0001",
+        actor_id="usr_patient_intake0001",
+        expected_revision=started.revision,
+        answers={},
+        document_ids=[document_id],
+    )
+
+    assert updated.document_ids == [document_id]
+    assert documents.calls == [document_id]
+    assert updated.answers == {}
+    assert updated.status == "collecting"

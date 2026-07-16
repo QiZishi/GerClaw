@@ -7,6 +7,7 @@ import uuid
 from typing import Literal, cast
 
 from gerclaw_api.database.models import ClinicalIntake
+from gerclaw_api.modules.document.service import DocumentContextError, DocumentService
 from gerclaw_api.modules.prescription.intake import (
     ClinicalIntakeKind,
     intake_definition,
@@ -28,8 +29,13 @@ class ClinicalIntakeConflictError(RuntimeError):
 
 
 class ClinicalIntakeService:
-    def __init__(self, repository: SqlAlchemyClinicalIntakeRepository) -> None:
+    def __init__(
+        self,
+        repository: SqlAlchemyClinicalIntakeRepository,
+        document_service: DocumentService | None = None,
+    ) -> None:
         self._repository = repository
+        self._document_service = document_service
 
     async def start(
         self,
@@ -71,17 +77,32 @@ class ClinicalIntakeService:
         actor_id: str,
         expected_revision: int,
         answers: dict[str, str],
+        document_ids: list[uuid.UUID] | None = None,
     ) -> ClinicalIntakeRead:
         record = await self._repository.lock(intake_id, tenant_id=tenant_id, actor_id=actor_id)
         definition = intake_definition(cast(ClinicalIntakeKind, record.kind))
         previous = self._answers(record)
+        previous_document_ids = self._document_ids(record)
         normalized = self._validated_answers(definition.kind, answers)
         candidate = {**previous, **normalized}
-        if candidate == previous:
+        candidate_document_ids = (
+            previous_document_ids
+            if document_ids is None
+            else self._validated_document_ids(document_ids)
+        )
+        if document_ids is not None:
+            await self._validate_document_ownership(
+                candidate_document_ids,
+                tenant_id=tenant_id,
+                actor_id=actor_id,
+                session_id=record.session_id,
+            )
+        if candidate == previous and candidate_document_ids == previous_document_ids:
             return self._read(record)
         if record.revision != expected_revision:
             raise ClinicalIntakeConflictError("intake has changed; refresh before updating")
         record.answers = candidate
+        record.document_ids = candidate_document_ids
         record.status = (
             "information_complete_pending_governance"
             if all(
@@ -105,6 +126,61 @@ class ClinicalIntakeService:
         return dict(raw)
 
     @staticmethod
+    def _document_ids(record: ClinicalIntake) -> list[str]:
+        raw = record.document_ids
+        if raw is None:
+            return []
+        if (
+            not isinstance(raw, list)
+            or len(raw) > 5
+            or any(not isinstance(item, str) for item in raw)
+        ):
+            raise ClinicalIntakeConflictError("persisted intake document references are invalid")
+        try:
+            normalized = [str(uuid.UUID(item)) for item in raw]
+        except (TypeError, ValueError, AttributeError) as error:
+            raise ClinicalIntakeConflictError(
+                "persisted intake document references are invalid"
+            ) from error
+        if len(set(normalized)) != len(normalized):
+            raise ClinicalIntakeConflictError("persisted intake document references are invalid")
+        return normalized
+
+    @staticmethod
+    def _validated_document_ids(document_ids: list[uuid.UUID]) -> list[str]:
+        normalized = [str(item) for item in document_ids]
+        if len(normalized) > 5:
+            raise ClinicalIntakeConflictError("too many uploaded document references")
+        if len(set(normalized)) != len(normalized):
+            raise ClinicalIntakeConflictError("duplicate uploaded document reference")
+        return normalized
+
+    async def _validate_document_ownership(
+        self,
+        document_ids: list[str],
+        *,
+        tenant_id: str,
+        actor_id: str,
+        session_id: uuid.UUID,
+    ) -> None:
+        if not document_ids:
+            return
+        if self._document_service is None:
+            raise ClinicalIntakeConflictError("uploaded document validation is unavailable")
+        try:
+            for document_id in document_ids:
+                await self._document_service.get(
+                    uuid.UUID(document_id),
+                    tenant_id=tenant_id,
+                    actor_id=actor_id,
+                    session_id=session_id,
+                )
+        except (DocumentContextError, ValueError, RuntimeError) as error:
+            raise ClinicalIntakeConflictError(
+                "uploaded document is not active in this session"
+            ) from error
+
+    @staticmethod
     def _validated_answers(kind: ClinicalIntakeKind, answers: dict[str, str]) -> dict[str, str]:
         definition = intake_definition(kind)
         fields = {field.id: field for field in definition.fields}
@@ -123,6 +199,7 @@ class ClinicalIntakeService:
     def _read(cls, record: ClinicalIntake) -> ClinicalIntakeRead:
         definition = intake_definition(cast(ClinicalIntakeKind, record.kind))
         answers = cls._answers(record)
+        document_ids = cls._document_ids(record)
         missing = [
             field.id
             for field in definition.fields
@@ -144,6 +221,7 @@ class ClinicalIntakeService:
             description=definition.description,
             fields=[ClinicalIntakeFieldRead(**field.__dict__) for field in definition.fields],
             answers=answers,
+            document_ids=[uuid.UUID(item) for item in document_ids],
             missing_required_fields=missing,
             governance_notice=GOVERNANCE_NOTICE,
             updated_at=record.updated_at,

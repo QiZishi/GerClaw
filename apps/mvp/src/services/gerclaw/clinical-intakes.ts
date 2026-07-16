@@ -25,12 +25,14 @@ export async function updateClinicalIntake(input: {
   intakeId: string;
   expectedRevision: number;
   answers: Record<string, string>;
+  documentIds?: string[];
 }): Promise<ClinicalIntake> {
   return gerclawRequest(`clinical-intakes/${encodeURIComponent(input.intakeId)}`, clinicalIntakeSchema, {
     method: "PATCH",
     body: JSON.stringify({
       expected_revision: input.expectedRevision,
       answers: input.answers,
+      ...(input.documentIds === undefined ? {} : { document_ids: input.documentIds }),
     }),
   });
 }

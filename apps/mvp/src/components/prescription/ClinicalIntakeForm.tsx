@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
-import { AlertTriangle, CheckCircle2, Save, X } from "lucide-react";
+import { AlertTriangle, CheckCircle2, FileText, LoaderCircle, Paperclip, Save, X } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 import { toast } from "@/components/ui/toast";
@@ -13,6 +13,29 @@ import {
   type ClinicalIntakeKind,
 } from "@/services/gerclaw/clinical-intakes";
 import type { ClinicalIntake } from "@/services/gerclaw/schemas";
+import { parseFile } from "@/services/document/mineru";
+import { registerParsedDocument, revokeParsedDocument } from "@/services/gerclaw/documents";
+
+const DOCUMENT_ACCEPT = ".pdf,.docx,.md,.txt";
+
+function documentMediaType(file: File): string | null {
+  if (file.type === "application/pdf" || file.name.toLowerCase().endsWith(".pdf")) {
+    return "application/pdf";
+  }
+  if (
+    file.type === "application/vnd.openxmlformats-officedocument.wordprocessingml.document" ||
+    file.name.toLowerCase().endsWith(".docx")
+  ) {
+    return "application/vnd.openxmlformats-officedocument.wordprocessingml.document";
+  }
+  if (file.type === "text/markdown" || file.name.toLowerCase().endsWith(".md")) {
+    return "text/markdown";
+  }
+  if (file.type === "text/plain" || file.name.toLowerCase().endsWith(".txt")) {
+    return "text/plain";
+  }
+  return null;
+}
 
 const intakeStorageKey = (sessionId: string, kind: ClinicalIntakeKind) =>
   `gerclaw:clinical-intake:${sessionId}:${kind}`;
@@ -59,9 +82,12 @@ export function ClinicalIntakeForm({
   const [answers, setAnswers] = useState<Record<string, string>>({});
   const [loadState, setLoadState] = useState<"loading" | "ready" | "error">("loading");
   const [saving, setSaving] = useState(false);
+  const [documentState, setDocumentState] = useState<"idle" | "parsing" | "saving">("idle");
+  const [documentNames, setDocumentNames] = useState<Record<string, string>>({});
   const [reloadNonce, setReloadNonce] = useState(0);
   const [showValidation, setShowValidation] = useState(false);
   const fieldRefs = useRef<Record<string, HTMLTextAreaElement | null>>({});
+  const documentInputRef = useRef<HTMLInputElement>(null);
   const pendingStartRef = useRef<{
     key: string;
     promise: Promise<ClinicalIntake>;
@@ -115,6 +141,12 @@ export function ClinicalIntakeForm({
         storeIntakeId(localSessionId, kind, next.intake_id);
         setIntake(next);
         setAnswers(next.answers);
+        setDocumentNames((previous) => {
+          const retained = Object.fromEntries(
+            Object.entries(previous).filter(([documentId]) => next.document_ids.includes(documentId))
+          );
+          return retained;
+        });
         setLoadState("ready");
       } catch (error) {
         if (!live) return;
@@ -159,6 +191,68 @@ export function ClinicalIntakeForm({
       toast.show(error instanceof Error ? error.message : "信息暂未保存，请检查网络后重试");
     } finally {
       setSaving(false);
+    }
+  };
+
+  const updateDocumentReferences = async (documentIds: string[]) => {
+    if (!intake || saving || documentState !== "idle") return;
+    setDocumentState("saving");
+    try {
+      const next = await updateClinicalIntake({
+        intakeId: intake.intake_id,
+        expectedRevision: intake.revision,
+        answers: {},
+        documentIds,
+      });
+      setIntake(next);
+    } catch (error) {
+      toast.show(error instanceof Error ? error.message : "资料关联暂未保存，请重试");
+    } finally {
+      setDocumentState("idle");
+    }
+  };
+
+  const attachDocument = async (file: File | undefined) => {
+    if (!file || !intake || saving || documentState !== "idle") return;
+    const mediaType = documentMediaType(file);
+    if (!mediaType) {
+      toast.show("仅支持 PDF、Word、Markdown 或文本资料");
+      return;
+    }
+    setDocumentState("parsing");
+    let registeredDocumentId: string | null = null;
+    try {
+      const parsed = await parseFile(file);
+      const registered = await registerParsedDocument({
+        localSessionId,
+        filename: file.name,
+        mediaType,
+        source: parsed.source,
+        markdown: parsed.markdown,
+      });
+      registeredDocumentId = registered.document_id;
+      const documentIds = [...intake.document_ids, registered.document_id];
+      const next = await updateClinicalIntake({
+        intakeId: intake.intake_id,
+        expectedRevision: intake.revision,
+        answers: {},
+        documentIds,
+      });
+      setIntake(next);
+      setDocumentNames((previous) => ({ ...previous, [registered.document_id]: file.name }));
+      toast.show("资料已通过 MinerU 提取文本，并作为本次信息收集的输入保存");
+    } catch (error) {
+      if (registeredDocumentId) {
+        try {
+          await revokeParsedDocument(localSessionId, registeredDocumentId);
+        } catch {
+          // Do not mask the original association failure; server-side ownership
+          // checks still prevent this document from reaching another session.
+        }
+      }
+      toast.show(error instanceof Error ? error.message : "资料解析或保存失败，请重试");
+    } finally {
+      setDocumentState("idle");
     }
   };
 
@@ -257,6 +351,75 @@ export function ClinicalIntakeForm({
             )}
           </label>
         ))}
+
+        {kind === "prescription" && (
+          <section className="space-y-3 rounded-xl border border-primary/25 bg-primary/5 p-4" aria-labelledby="prescription-documents-title">
+            <div className="flex items-start gap-3">
+              <FileText className="mt-0.5 size-5 shrink-0 text-primary" aria-hidden="true" />
+              <div className="min-w-0 space-y-1">
+                <h2 id="prescription-documents-title" className={cn("font-medium text-foreground", seniorMode ? "text-lg" : "text-base")}>
+                  补充资料（可选）
+                </h2>
+                <p className={cn("leading-relaxed text-muted-foreground", seniorMode ? "text-lg" : "text-sm")}>
+                  PDF、Word、Markdown 或文本会先由 MinerU 提取文本，作为本次五大处方信息收集的输入。未来经审核的报告会将其标为“上传资料依据”，不会把它当作本地医学知识库证据。
+                </p>
+              </div>
+            </div>
+            <input
+              ref={documentInputRef}
+              className="hidden"
+              type="file"
+              accept={DOCUMENT_ACCEPT}
+              tabIndex={-1}
+              aria-hidden="true"
+              onChange={(event) => {
+                void attachDocument(event.target.files?.[0]);
+                event.target.value = "";
+              }}
+              disabled={saving || documentState !== "idle" || intake.document_ids.length >= 5}
+            />
+            <div className="flex flex-wrap items-center gap-3">
+              <Button
+                type="button"
+                variant="outline"
+                className={actionClass}
+                onClick={() => documentInputRef.current?.click()}
+                disabled={saving || documentState !== "idle" || intake.document_ids.length >= 5}
+              >
+                {documentState === "parsing" || documentState === "saving" ? (
+                  <LoaderCircle className="size-4 animate-spin" aria-hidden="true" />
+                ) : (
+                  <Paperclip className="size-4" aria-hidden="true" />
+                )}
+                {documentState === "parsing" ? "正在用 MinerU 解析" : documentState === "saving" ? "正在保存资料" : "上传补充资料"}
+              </Button>
+              <span className={cn("text-muted-foreground", seniorMode ? "text-lg" : "text-sm")} aria-live="polite">
+                已附 {intake.document_ids.length} / 5 份资料
+              </span>
+            </div>
+            {intake.document_ids.length > 0 && (
+              <ul className="space-y-2" aria-label="本次信息收集使用的上传资料">
+                {intake.document_ids.map((documentId, index) => (
+                  <li key={documentId} className="flex flex-wrap items-center justify-between gap-3 rounded-lg border border-border bg-background px-3 py-2">
+                    <span className={cn("min-w-0 break-all text-foreground", seniorMode ? "text-lg" : "text-sm")}>
+                      {documentNames[documentId] ?? `已关联的上传资料 ${index + 1}`}
+                    </span>
+                    <Button
+                      type="button"
+                      variant="ghost"
+                      size={seniorMode ? "default" : "sm"}
+                      className={cn("shrink-0 text-muted-foreground", seniorMode && "min-h-12 px-3 text-base")}
+                      onClick={() => void updateDocumentReferences(intake.document_ids.filter((item) => item !== documentId))}
+                      disabled={saving || documentState !== "idle"}
+                    >
+                      不用于本次收集
+                    </Button>
+                  </li>
+                ))}
+              </ul>
+            )}
+          </section>
+        )}
       </div>
 
       {complete && (

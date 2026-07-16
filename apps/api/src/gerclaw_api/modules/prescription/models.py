@@ -30,7 +30,8 @@ class ClinicalIntakeUpdateRequest(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     expected_revision: int = Field(ge=1)
-    answers: dict[str, str] = Field(min_length=1, max_length=3)
+    answers: dict[str, str] = Field(default_factory=dict, max_length=3)
+    document_ids: list[uuid.UUID] | None = Field(default=None, max_length=5)
 
 
 class ClinicalIntakeRead(BaseModel):
@@ -48,6 +49,7 @@ class ClinicalIntakeRead(BaseModel):
     description: str = Field(min_length=1, max_length=300)
     fields: list[ClinicalIntakeFieldRead] = Field(min_length=1, max_length=5)
     answers: dict[str, str] = Field(default_factory=dict, max_length=3)
+    document_ids: list[uuid.UUID] = Field(default_factory=list, max_length=5)
     missing_required_fields: list[str] = Field(default_factory=list, max_length=3)
     governance_notice: str = Field(min_length=1, max_length=500)
     updated_at: datetime
