@@ -20,6 +20,7 @@ from gerclaw_api.domain.enums import TraceEventStatus, TraceEventType, TraceStat
 from gerclaw_api.domain.trace_schemas import TraceEventCreate, TraceFinishRequest, TraceStartRequest
 from gerclaw_api.middleware import set_active_trace
 from gerclaw_api.modules.document.service import DocumentService
+from gerclaw_api.modules.input_output.clinical_intake import ClinicalIntakeKind
 from gerclaw_api.modules.prescription.models import (
     ClinicalIntakeRead,
     ClinicalIntakeStartRequest,
@@ -81,6 +82,12 @@ def _trace_service(request: Request, session: SessionDependency) -> TraceService
 TraceServiceDependency = Annotated[TraceService, Depends(_trace_service)]
 
 
+def _module_name(kind: ClinicalIntakeKind) -> str:
+    """Return the audited domain owner for one server-defined intake type."""
+
+    return "prescription" if kind == "prescription" else "medication_review"
+
+
 def _request_fingerprint(
     request: Request,
     payload: ClinicalIntakeStartRequest | ClinicalIntakeUpdateRequest,
@@ -106,7 +113,7 @@ async def _start_write_trace(
     traces: TraceService,
     identity: AuthContext,
     session_id: uuid.UUID,
-    kind: str,
+    kind: ClinicalIntakeKind,
     operation: str,
     payload: ClinicalIntakeStartRequest | ClinicalIntakeUpdateRequest,
 ) -> tuple[str, float]:
@@ -119,7 +126,7 @@ async def _start_write_trace(
             execution_type="clinical.intake",
             attributes={
                 "feature": kind,
-                "module": "prescription",
+                "module": _module_name(kind),
                 "operation": operation,
                 "request_fingerprint": _request_fingerprint(request, payload),
                 "version": "clinical-intake-v1",
@@ -174,7 +181,7 @@ async def _finish_write_trace(
             status=TraceStatus.COMPLETED,
             attributes={
                 "feature": result.kind,
-                "module": "prescription",
+                "module": _module_name(result.kind),
                 "operation": operation,
                 "result_code": result.status,
                 "version": result.definition_version,
