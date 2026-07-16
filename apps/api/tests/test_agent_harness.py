@@ -208,6 +208,7 @@ def _harness(
     history: list[ConversationHistoryMessage] | None = None,
     search: _HarnessSearch | None = None,
     search_enabled: bool = True,
+    workflow: str = "standard",
     uploaded_documents: list[UploadedDocumentContext] | None = None,
 ) -> ProductionAgentHarness:
     return ProductionAgentHarness(
@@ -219,6 +220,7 @@ def _harness(
         history=history or [],
         search_module=cast(Any, search),
         search_enabled=search_enabled,
+        workflow=cast(Any, workflow),
         uploaded_documents=uploaded_documents,
         runtime_principal=RuntimePrincipal(
             tenant_id="tenant_public0001",
@@ -285,6 +287,40 @@ async def test_medical_harness_streams_sanitized_cited_response(
 
 
 @pytest.mark.asyncio
+async def test_companion_harness_has_no_tools_or_long_term_memory_context(
+    unit_settings: Settings,
+) -> None:
+    model = _HarnessModel(text="听起来您今天有些孤单。愿意说说最让您难受的部分吗？")
+    rag = _HarnessRAG([_evidence()])
+    harness = _harness(unit_settings, model=model, rag=rag, workflow="companion")
+    context = await harness.assemble_context(
+        "108815d7-05bf-4c2a-a977-cd034f390fab",
+        "usr_patient00000001",
+        [],
+        [],
+    )
+    events: list[StreamEvent] = []
+    response = await harness.process_message(
+        "我今天觉得很孤单。",
+        "108815d7-05bf-4c2a-a977-cd034f390fab",
+        context,
+        events.append,
+    )
+
+    assert context.tool_names == []
+    assert context.profile_context == ""
+    assert context.memory_refs == []
+    assert context.system_instructions == ["companion_safety_v1", "no_raw_chain_of_thought_v1"]
+    assert rag.calls == []
+    assert response.citations == []
+    assert events[0].data["agent"] == "gerclaw_emotional_companion"
+    system_prompt = next(message for message in model.last_messages if message.role == "system")
+    system_text = "".join(block.text for block in system_prompt.get_content_blocks("text"))
+    assert "不是人类、亲属、医生" in system_text
+    assert "不承诺永远陪伴" in system_text
+
+
+@pytest.mark.asyncio
 async def test_uploaded_document_context_is_explicitly_untrusted_and_cited(
     unit_settings: Settings,
 ) -> None:
@@ -321,9 +357,7 @@ async def test_uploaded_document_context_is_explicitly_untrusted_and_cited(
     assert {citation.corpus for citation in response.citations} == {"uploaded_document"}
     assert response.structured["document_focused"] is True
     document_message = next(
-        message
-        for message in model.last_messages
-        if message.name == "uploaded_document_context"
+        message for message in model.last_messages if message.name == "uploaded_document_context"
     )
     document_text = "".join(block.text for block in document_message.get_content_blocks("text"))
     assert document_message.role == "user"

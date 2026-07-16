@@ -162,7 +162,7 @@ class _ConversationFacade:
         return self.session
 
     async def load_history(self, *_args: object, **kwargs: object) -> list[object]:
-        self.history_exclude_trace_id = cast(str, kwargs["exclude_trace_id"])
+        self.history_exclude_trace_id = cast(str | None, kwargs.get("exclude_trace_id"))
         return []
 
     async def store_user_message(self, **kwargs: object) -> None:
@@ -450,6 +450,52 @@ async def test_owned_turn_streams_only_after_durable_success(unit_settings: Sett
     replay_done = cast(Any, replay_events[-1])
     assert replay_done.event_type == "done"
     assert replay_done.data["replayed"] is True
+
+
+@pytest.mark.asyncio
+async def test_companion_turn_keeps_long_term_memory_and_memory_trace_disabled(
+    unit_settings: Settings,
+) -> None:
+    session_id = uuid.uuid4()
+    traces = _TraceFacade(created=True, session_id=session_id)
+    conversation = _ConversationFacade(session_id)
+    memory = _MemoryFacade()
+    service = ChatService(
+        settings=unit_settings,
+        conversation=cast(Any, conversation),
+        traces=cast(Any, traces),
+        lease=cast(Any, _OwnedLease()),
+        model=cast(Any, _TextModel()),
+        rag_module=cast(Any, _NoopRAG()),
+        memory_factory=_memory_factory(memory),
+    )
+
+    async def callback(_event: object) -> None:
+        return None
+
+    response = await service.process(
+        ChatRequest(session_id=session_id, message="我今天有点孤单。", workflow="companion"),
+        identity=AuthContext(
+            actor_id="usr_patient_unit0001",
+            tenant_id="tenant_public0001",
+            scopes=frozenset({"chat:write"}),
+        ),
+        request_id="request_companion_memory0001",
+        trace_id="trace_companion_memory0001",
+        callback=cast(Any, callback),
+    )
+
+    assert response.medical_content is False
+    assert memory.short_term_sessions == []
+    assert memory.sources == []
+    assert memory.committed_count == 0
+    assert conversation.history_exclude_trace_id is None
+    assert [event.event_type.value for event in traces.events] == [
+        "agent.start",
+        "model.call",
+        "safety.check",
+        "agent.finish",
+    ]
 
 
 @pytest.mark.asyncio

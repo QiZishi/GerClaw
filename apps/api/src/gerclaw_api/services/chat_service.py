@@ -26,6 +26,7 @@ from gerclaw_api.modules.agent_harness import (
     StreamEvent,
     UnsupportedAgentContextError,
 )
+from gerclaw_api.modules.companion.policy import is_companion_workflow
 from gerclaw_api.modules.contracts import AgentResponse, ExecutionContext
 from gerclaw_api.modules.document import DocumentService
 from gerclaw_api.modules.memory.memory_module import ProductionMemoryModule
@@ -341,10 +342,41 @@ class ChatService:
             session_id=payload.session_id,
             trace_id=trace_id,
         )
-        short_term = await memory.get_short_term(
-            str(payload.session_id),
-            max_turns=max(1, self._settings.agent_history_messages // 2),
-        )
+        companion = is_companion_workflow(payload.workflow)
+        if companion:
+            history = await self._conversation.load_history(
+                payload.session_id,
+                tenant_id=identity.tenant_id,
+                actor_id=identity.actor_id,
+                limit=self._settings.agent_history_messages,
+            )
+            session_summary = ""
+            profile_context = ""
+            profile_version = 0
+            memory_refs: list[str] = []
+        else:
+            short_term = await memory.get_short_term(
+                str(payload.session_id),
+                max_turns=max(1, self._settings.agent_history_messages // 2),
+            )
+            compressed = await memory.compress_context(
+                short_term,
+                max_tokens=max(
+                    1,
+                    int(self._model.context_size * self._settings.memory_context_budget_ratio),
+                ),
+            )
+            history = [
+                ConversationHistoryMessage(role=message.role, text=message.text())
+                for message in compressed
+                if message.role in {"user", "assistant"} and message.text()
+            ]
+            session_summary = "\n\n".join(
+                message.text()
+                for message in compressed
+                if message.role == "system" and message.text()
+            )
+            profile_context, profile_version, memory_refs = await memory.core_profile_context()
         await self._conversation.store_user_message(
             tenant_id=identity.tenant_id,
             session_id=payload.session_id,
@@ -352,22 +384,6 @@ class ChatService:
             text=payload.message,
             channel=payload.channel,
         )
-        compressed = await memory.compress_context(
-            short_term,
-            max_tokens=max(
-                1,
-                int(self._model.context_size * self._settings.memory_context_budget_ratio),
-            ),
-        )
-        history = [
-            ConversationHistoryMessage(role=message.role, text=message.text())
-            for message in compressed
-            if message.role in {"user", "assistant"} and message.text()
-        ]
-        session_summary = "\n\n".join(
-            message.text() for message in compressed if message.role == "system" and message.text()
-        )
-        profile_context, profile_version, memory_refs = await memory.core_profile_context()
         if payload.uploaded_files and self._document_service is None:
             raise UnsupportedAgentContextError("uploaded document storage is unavailable")
         uploaded_documents = (
@@ -416,7 +432,8 @@ class ChatService:
             memory_refs=memory_refs,
             session_summary=session_summary,
             search_module=self._search_module,
-            search_enabled=payload.workflow != "cga",
+            search_enabled=payload.workflow == "standard",
+            workflow=payload.workflow,
             agent_skills=agent_skills,
             loaded_skill_ids=payload.loaded_skills,
             uploaded_documents=uploaded_documents,
@@ -632,7 +649,7 @@ class ChatService:
                 identity.tenant_id,
                 trace_id,
                 response,
-                memory_update=memory.last_update,
+                memory_update=None if companion else memory.last_update,
                 commit=False,
             )
             await self._traces.finish_trace(
@@ -657,7 +674,8 @@ class ChatService:
             finally:
                 await memory.compensate_uncommitted_vectors()
             raise
-        memory.mark_vectors_committed()
+        if not companion:
+            memory.mark_vectors_committed()
         done = ChatDoneData(
             full_text=response.text,
             references=response.citations,
@@ -680,7 +698,7 @@ class ChatService:
         trace_id: str,
         response: AgentResponse,
         *,
-        memory_update: MemoryUpdateResult,
+        memory_update: MemoryUpdateResult | None,
         commit: bool = True,
     ) -> None:
         structured = response.structured
@@ -764,27 +782,28 @@ class ChatService:
                 },
                 commit=commit,
             )
-        memory_ids: list[JsonValue] = [str(item) for item in memory_update.changed_fact_ids]
-        memory_categories: list[JsonValue] = list(memory_update.categories)
-        memory_changed = bool(memory_ids)
-        await self._append_event(
-            tenant_id,
-            trace_id,
-            TraceEventType.MEMORY_UPDATE,
-            TraceEventStatus.SUCCEEDED if memory_changed else TraceEventStatus.SKIPPED,
-            {
-                "categories": memory_categories,
-                "confirmed_count": memory_update.confirmed_count,
-                "event_count": len(memory_ids),
-                "inactive_count": memory_update.inactive_count,
-                "memory_ids": memory_ids,
-                "outcome": "updated" if memory_changed else "unchanged",
-                "pending_count": memory_update.pending_count,
-                "success": True,
-                "version": memory_update.profile_version,
-            },
-            commit=commit,
-        )
+        if memory_update is not None:
+            memory_ids: list[JsonValue] = [str(item) for item in memory_update.changed_fact_ids]
+            memory_categories: list[JsonValue] = list(memory_update.categories)
+            memory_changed = bool(memory_ids)
+            await self._append_event(
+                tenant_id,
+                trace_id,
+                TraceEventType.MEMORY_UPDATE,
+                TraceEventStatus.SUCCEEDED if memory_changed else TraceEventStatus.SKIPPED,
+                {
+                    "categories": memory_categories,
+                    "confirmed_count": memory_update.confirmed_count,
+                    "event_count": len(memory_ids),
+                    "inactive_count": memory_update.inactive_count,
+                    "memory_ids": memory_ids,
+                    "outcome": "updated" if memory_changed else "unchanged",
+                    "pending_count": memory_update.pending_count,
+                    "success": True,
+                    "version": memory_update.profile_version,
+                },
+                commit=commit,
+            )
         safety_flags: list[JsonValue] = list(response.safety.notices)
         await self._append_event(
             tenant_id,

@@ -9,11 +9,22 @@ from typing import cast
 
 import pytest
 from fastapi import HTTPException
+from pydantic import ValidationError
 
 from gerclaw_api.api.routes.chat import _TERMINAL, QueueItem, _force_enqueue, chat
 from gerclaw_api.auth import AuthContext
 from gerclaw_api.domain.chat_schemas import ChatCancelledData, ChatRequest
 from gerclaw_api.modules.agent_harness import StreamEvent
+
+
+def test_companion_contract_rejects_skills_and_uploaded_documents() -> None:
+    with pytest.raises(ValidationError, match="does not accept Skills or uploaded files"):
+        ChatRequest(
+            session_id=uuid.uuid4(),
+            message="我有些孤单。",
+            loaded_skills=["health-education"],
+            workflow="companion",
+        )
 
 
 @pytest.mark.asyncio

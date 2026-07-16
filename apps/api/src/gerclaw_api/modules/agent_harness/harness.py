@@ -50,6 +50,11 @@ from gerclaw_api.modules.agent_harness.safety import (
     safety_decision,
     sanitize_medical_text,
 )
+from gerclaw_api.modules.companion.policy import (
+    COMPANION_SYSTEM_PROMPT,
+    CompanionWorkflow,
+    is_companion_workflow,
+)
 from gerclaw_api.modules.contracts import AgentResponse, Citation, ExecutionContext
 from gerclaw_api.modules.document import UploadedDocumentContext
 from gerclaw_api.modules.memory.agentscope_adapter import GerClawMem0Client
@@ -246,6 +251,7 @@ class ProductionAgentHarness:
         session_summary: str = "",
         search_module: SearchModule | None = None,
         search_enabled: bool = True,
+        workflow: CompanionWorkflow = "standard",
         agent_skills: list[AgentScopeSkill] | None = None,
         loaded_skill_ids: list[str] | None = None,
         uploaded_documents: list[UploadedDocumentContext] | None = None,
@@ -265,6 +271,7 @@ class ProductionAgentHarness:
         self._session_summary = session_summary
         self._search_module = search_module
         self._search_enabled = search_enabled
+        self._workflow = workflow
         self._agent_skills = agent_skills or []
         self._loaded_skill_ids = loaded_skill_ids or []
         self._uploaded_documents = uploaded_documents or []
@@ -293,18 +300,23 @@ class ProductionAgentHarness:
             raise UnsupportedAgentContextError(
                 "validated uploaded-document context does not match the request"
             )
-        tool_names = ["search_knowledge", "search_memory"]
-        if self._search_module is not None and self._search_enabled:
+        companion = is_companion_workflow(self._workflow)
+        tool_names = [] if companion else ["search_knowledge", "search_memory"]
+        if not companion and self._search_module is not None and self._search_enabled:
             tool_names.append("web_search")
-        if self._agent_skills:
+        if not companion and self._agent_skills:
             tool_names.append("Skill")
         return AgentContext(
             execution=self._execution,
-            system_instructions=[
-                "medical_safety_v1",
-                "local_evidence_required_v1",
-                "no_raw_chain_of_thought_v1",
-            ],
+            system_instructions=(
+                ["companion_safety_v1", "no_raw_chain_of_thought_v1"]
+                if companion
+                else [
+                    "medical_safety_v1",
+                    "local_evidence_required_v1",
+                    "no_raw_chain_of_thought_v1",
+                ]
+            ),
             tool_names=tool_names,
             profile_ref=(
                 f"health_profile:v{self._profile_version}" if self._profile_version else None
@@ -332,11 +344,19 @@ class ProductionAgentHarness:
         await self._emit(
             stream_callback,
             "agent_start",
-            {"agent": "gerclaw_geriatric_specialist", "status": "running"},
+            {
+                "agent": (
+                    "gerclaw_emotional_companion"
+                    if is_companion_workflow(self._workflow)
+                    else "gerclaw_geriatric_specialist"
+                ),
+                "status": "running",
+            },
         )
-        document_focused = self._is_document_focused_request(user_message)
-        medical_content = is_medical_message(user_message)
-        requires_local_evidence = medical_content and not document_focused
+        companion = is_companion_workflow(self._workflow)
+        document_focused = not companion and self._is_document_focused_request(user_message)
+        medical_content = is_medical_message(user_message) and not companion
+        requires_local_evidence = medical_content and not document_focused and not companion
         high_risk_codes = detect_high_risk(user_message)
         safe_high_risk_codes: list[JsonValue] = list(high_risk_codes)
         emitted_parts: list[str] = []
@@ -480,11 +500,20 @@ class ProductionAgentHarness:
                 "系统会自动完成循证记忆写入; 不要根据助手推断创造记忆。"
             ),
         )
-        raw_tools = [] if document_focused else [
-            *await rag_middleware.list_tools(),
-            *await memory_middleware.list_tools(),
-        ]
-        if not document_focused and self._search_module is not None and self._search_enabled:
+        raw_tools = (
+            []
+            if document_focused or companion
+            else [
+                *await rag_middleware.list_tools(),
+                *await memory_middleware.list_tools(),
+            ]
+        )
+        if (
+            not document_focused
+            and not companion
+            and self._search_module is not None
+            and self._search_enabled
+        ):
             raw_tools.append(build_web_search_tool(self._search_module))
         registry = GovernedToolRegistry()
         for tool in raw_tools:
@@ -967,13 +996,14 @@ class ProductionAgentHarness:
         high_risk: bool,
         document_focused: bool,
     ) -> Agent:
-        prompt = _SYSTEM_PROMPT
+        companion = is_companion_workflow(self._workflow)
+        prompt = COMPANION_SYSTEM_PROMPT if companion else _SYSTEM_PROMPT
         if high_risk:
             prompt += (
                 "\n本轮已检测到红旗风险：只输出立即急救/就医提示和必要的安全步骤，"
                 "不要提供居家观察或延迟就医建议。"
             )
-        if not self._search_enabled:
+        if self._workflow == "cga":
             prompt += "\n当前处于 CGA 量表评估流程，禁止调用或模拟任何联网搜索。"
         if document_focused:
             prompt += (
@@ -987,7 +1017,9 @@ class ProductionAgentHarness:
             system_prompt=prompt,
             model=self._model,
             toolkit=toolkit,
-            middlewares=[] if document_focused else [memory_middleware, rag_middleware],
+            middlewares=[]
+            if document_focused or companion
+            else [memory_middleware, rag_middleware],
             state=AgentState(session_id=session_id, context=state_context),
             context_config=ContextConfig(trigger_ratio=0.85, reserve_ratio=0.2),
             react_config=ReActConfig(
@@ -1043,10 +1075,7 @@ class ProductionAgentHarness:
         if not self._uploaded_documents:
             return False
         normalized = user_message.strip()
-        return bool(
-            _DOCUMENT_REFERENCE.search(normalized)
-            and _DOCUMENT_TASK.search(normalized)
-        )
+        return bool(_DOCUMENT_REFERENCE.search(normalized) and _DOCUMENT_TASK.search(normalized))
 
     @staticmethod
     async def _emit(

@@ -6,7 +6,7 @@ import uuid
 from datetime import datetime
 from typing import Literal
 
-from pydantic import BaseModel, ConfigDict, Field, field_validator
+from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
 from gerclaw_api.modules.contracts import Citation, SafetyDecision
 from gerclaw_api.modules.skill.models import SkillId
@@ -24,7 +24,7 @@ class ChatRequest(BaseModel):
     loaded_skills: list[SkillId] = Field(default_factory=list, max_length=20)
     uploaded_files: list[uuid.UUID] = Field(default_factory=list, max_length=10)
     channel: Literal["web"] = "web"
-    workflow: Literal["standard", "cga"] = "standard"
+    workflow: Literal["standard", "cga", "companion"] = "standard"
 
     @field_validator("message")
     @classmethod
@@ -33,6 +33,14 @@ class ChatRequest(BaseModel):
         if not normalized:
             raise ValueError("message cannot contain only whitespace")
         return normalized
+
+    @model_validator(mode="after")
+    def restrict_companion_context(self) -> ChatRequest:
+        """Keep companion mode isolated from tools and uploaded PHI context."""
+
+        if self.workflow == "companion" and (self.loaded_skills or self.uploaded_files):
+            raise ValueError("companion workflow does not accept Skills or uploaded files")
+        return self
 
 
 class SessionCreateRequest(BaseModel):
