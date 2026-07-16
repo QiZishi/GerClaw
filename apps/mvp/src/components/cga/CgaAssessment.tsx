@@ -360,7 +360,7 @@ export function CgaAssessment({ onExit }: CgaAssessmentProps) {
   const isPsqiSupplementalQuestion = assessment?.next_question?.id === "psqi_5j";
 
   return (
-    <section className="mx-auto w-full max-w-2xl px-4 py-6" aria-live="polite">
+    <section className="mx-auto w-full max-w-2xl px-4 pb-6 pt-16 sm:py-6" aria-live="polite">
       <div className="mb-5 flex items-start justify-between gap-3">
         <div>
           <h2 className={cn("font-semibold", seniorMode ? "text-2xl" : "text-xl")}>老年综合评估</h2>
