@@ -48,6 +48,8 @@ cd ../mvp && npm ci
 
 `docker` 需要 Docker daemon，并读取 `.env` 或 `.env.example` 对应变量。生产镜像验收不得使用 development placeholder。
 
+若宿主机未发布数据服务端口，或需要验证容器网络中的完整真实依赖路径，可运行 `docker compose --profile test up --build --abort-on-container-exit --exit-code-from test-api test-api`。该 profile 只创建/使用 `*_test` PostgreSQL 库和 Redis DB 15，测试镜像与 production API image 分离，且默认排除 `external` Provider 调用。
+
 CI 使用 `uv sync --locked` 构造项目 `.venv`；`security` 同时用 `uv export --locked --all-extras --no-emit-project` 生成带 hash 的临时 requirements，再交给 pip-audit 严格审计完整传递依赖。仓库自身的 `gerclaw-api` 源码由 Bandit 检查。禁止无参数运行 pip-audit，因为那只会审计 `uvx` 自身的隔离工具环境。
 
 ## 失败语义

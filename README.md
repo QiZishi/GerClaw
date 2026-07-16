@@ -180,6 +180,15 @@ docker compose -f docker-compose.yml -f docker-compose.dev.yml ps
 
 当前 Docker Compose 可构建并运行 API、PostgreSQL、Redis 与 Qdrant；只有[需求矩阵](docs/REQUIREMENTS_MATRIX.md)的 `OPS-05` 完成最终空卷启动、应用 health、重启持久化和核心 E2E 后，才可声明生产容器交付完成。
 
+容器内真实依赖测试使用独立 `test` profile，不发布数据服务端口，也不会使用业务数据库。它仍会读取根 `.env` 的 server-only 模型配置，但默认排除会实际调用 Provider 的 `external` 用例：
+
+```bash
+docker compose --profile test up --build --abort-on-container-exit \
+  --exit-code-from test-api test-api
+```
+
+测试结束后执行 `docker compose --profile test rm -sf test-api test-db-init` 清理已退出的 test job；该命令不会停止 API/数据服务，也不会删除数据卷。
+
 ## 测试与性能状态
 
 历史全量门禁数字、独立审阅与完整命令见 [Development Harness](docs/DEVELOPMENT_HARNESS.md) 和各 active exec-plan，不能因后续变更自动继承。本次近期可复现实证包括：`apps/mvp` 的 `npm run lint`、`npm run test:audio`（8 passed）、`npm run test:cga-audio`、`npm run build`；`apps/api` 的 Eval 定向 Ruff/Mypy、27 项 pytest 和 `uv run gerclaw-eval-safety`（6/6）。Docker Compose 的确定性安全短路报告见 [`docs/evidence/`](docs/evidence/)。全量门禁、全站 E2E、临床 workflow 压测与最终 Docker 验收仍需在交付前重新执行。

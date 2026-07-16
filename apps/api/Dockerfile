@@ -28,6 +28,25 @@ RUN addgroup --system gerclaw \
     && chown -R gerclaw:gerclaw /app
 
 USER gerclaw
+
+# The test image is deliberately separate from the production runtime image.
+# It is only selected by the Compose `test` profile and includes test-only
+# dependencies and sources; the default image remains free of both.
+FROM runtime AS test
+
+USER root
+COPY tests ./tests
+COPY evals ./evals
+RUN --mount=type=cache,target=/root/.cache/uv \
+    uv sync --frozen --all-extras --dev
+
+USER gerclaw
+
+# Keep the production stage last so an unqualified `docker build` never
+# selects the test image. Compose also names this target explicitly.
+FROM runtime AS production
+
+USER gerclaw
 EXPOSE 8000
 
 HEALTHCHECK --interval=30s --timeout=5s --start-period=20s --retries=3 \

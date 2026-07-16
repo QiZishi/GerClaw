@@ -20,6 +20,7 @@ x-api-base: &api-base
   image: ${GERCLAW_API_IMAGE:-gerclaw-api}
   build:
     context: ./apps/api
+    target: production
     args:
       PYTHON_IMAGE: ${PYTHON_IMAGE:-python:3.12-slim}
   env_file:
@@ -51,6 +52,62 @@ services:
       qdrant:
         condition: service_started
     command: ["gerclaw-rag-index"]
+    restart: "no"
+
+  test-db-init:
+    image: postgres:16-alpine
+    profiles: ["test"]
+    environment:
+      PGHOST: postgres
+      PGUSER: ${POSTGRES_USER:-gerclaw}
+      PGPASSWORD: ${POSTGRES_PASSWORD:-local-postgres-only}
+      TEST_DATABASE: ${POSTGRES_TEST_DB:-gerclaw_test}
+    depends_on:
+      postgres:
+        condition: service_healthy
+    command:
+      - /bin/sh
+      - -ec
+      - |
+        if [ "$$(psql -d postgres -tAc "SELECT 1 FROM pg_database WHERE datname='$${TEST_DATABASE}'")" != "1" ]; then
+          createdb "$${TEST_DATABASE}"
+        fi
+    networks:
+      - data
+    restart: "no"
+
+  test-api:
+    <<: *api-base
+    image: ${GERCLAW_API_TEST_IMAGE:-gerclaw-api-test}
+    profiles: ["test"]
+    build:
+      context: ./apps/api
+      target: test
+      args:
+        PYTHON_IMAGE: ${PYTHON_IMAGE:-python:3.12-slim}
+    environment:
+      <<: *api-environment
+      GERCLAW_TEST_DATABASE_URL: postgresql+asyncpg://${POSTGRES_USER:-gerclaw}:${POSTGRES_PASSWORD:-local-postgres-only}@postgres:5432/${POSTGRES_TEST_DB:-gerclaw_test}
+      GERCLAW_TEST_REDIS_URL: redis://:${REDIS_PASSWORD:-local-redis-only}@redis:6379/15
+      GERCLAW_TEST_QDRANT_URL: http://qdrant:6333
+      GERCLAW_TEST_QDRANT_API_KEY: ${GERCLAW_QDRANT_API_KEY:-local-qdrant-only}
+      GERCLAW_TEST_KNOWLEDGE_BASE_PATH: /knowledge-base
+      GERCLAW_TEST_MEMORY_COLLECTION_NAME: gerclaw_user_memory_test_v1
+      GERCLAW_RUN_INTEGRATION: "1"
+    depends_on:
+      test-db-init:
+        condition: service_completed_successfully
+      redis:
+        condition: service_healthy
+      qdrant:
+        condition: service_started
+    command:
+      - /bin/sh
+      - -ec
+      - |
+        GERCLAW_DATABASE_URL="$${GERCLAW_TEST_DATABASE_URL}" alembic upgrade head
+        GERCLAW_DATABASE_URL="$${GERCLAW_TEST_DATABASE_URL}" alembic check
+        pytest -q -m 'not external'
     restart: "no"
 
   api:

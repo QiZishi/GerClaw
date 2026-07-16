@@ -21,6 +21,7 @@ docker compose -f docker-compose.yml -f docker-compose.dev.yml up -d --build
 
 - 基础 `docker-compose.yml` 仅将 API 绑定到 `127.0.0.1`，PostgreSQL/Redis/Qdrant 位于 internal data network，不发布 host ports。
 - `docker-compose.dev.yml` 只为本机调试把数据端口绑定到 `127.0.0.1`，同时创建隔离的 `gerclaw_test` 数据库。
+- `test` profile 的 `test-api` 使用单独的 `gerclaw-api-test` 镜像、`gerclaw_test` 数据库和 Redis DB 15，默认只运行 `not external`。它不会覆盖运行中的生产 API 镜像或业务数据库：`docker compose --profile test up --build --abort-on-container-exit --exit-code-from test-api test-api`。
 - Redis 强制密码，Qdrant server/client 使用同一个 API Key；匿名 Redis/Qdrant 请求会被拒绝。
 - Alembic 由一次性 `migrate` service 执行并持有 PostgreSQL advisory lock；API 副本只直接启动 Uvicorn，不会并发执行 DDL。
 - 本地知识库从仓库同级 `../本地知识库/md` 只读挂载到 `/knowledge-base`，不得复制进镜像或 Git。
