@@ -2,6 +2,9 @@
 
 from __future__ import annotations
 
+import json
+from pathlib import Path
+
 import pytest
 from pydantic import ValidationError
 
@@ -10,6 +13,11 @@ from gerclaw_api.modules.evals.models import (
     OutputSafetyEvalCase,
     RAGEvaluationRunConfig,
     RAGRetrievalEvalCase,
+)
+from gerclaw_api.modules.evals.rag_cli import (
+    RAGEvaluationCliError,
+    load_rag_case_set,
+    parse_args,
 )
 from gerclaw_api.modules.evals.runner import (
     run_case,
@@ -191,3 +199,54 @@ async def test_opt_in_rag_evaluation_rejects_unapproved_budget_or_index_version(
                 index_version="corpus-v2",
             ),
         )
+
+
+def test_rag_cli_loads_only_versioned_reviewed_case_sets(tmp_path: Path) -> None:
+    document_id = "c" * 64
+    case_file = tmp_path / "reviewed.json"
+    case_file.write_text(
+        json.dumps(
+            {
+                "schema_version": "rag-retrieval-case-set-v1",
+                "cases": [
+                    {
+                        "case_id": "rag-retrieval.cli_case",
+                        "title": "reviewed case",
+                        "synthetic_query": "reviewed synthetic query",
+                        "expected_document_ids": [document_id],
+                        "minimum_expected_hits": 1,
+                        "index_version": "corpus-v1",
+                    }
+                ],
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    loaded = load_rag_case_set(case_file)
+    assert loaded.cases[0].case_id == "rag-retrieval.cli_case"
+    assert (
+        parse_args(
+            [
+                "--allow-external-rag",
+                "--cases",
+                str(case_file),
+                "--index-version",
+                "corpus-v1",
+            ]
+        ).top_k
+        == 5
+    )
+
+
+def test_rag_cli_rejects_unreviewed_or_unapproved_input_without_echoing_content(
+    tmp_path: Path,
+) -> None:
+    case_file = tmp_path / "invalid.json"
+    case_file.write_text('{"cases": [{"synthetic_query": "private test query"}]}', encoding="utf-8")
+
+    with pytest.raises(RAGEvaluationCliError) as invalid:
+        load_rag_case_set(case_file)
+    assert "private test query" not in str(invalid.value)
+    with pytest.raises(SystemExit):
+        parse_args(["--cases", str(case_file), "--index-version", "corpus-v1"])

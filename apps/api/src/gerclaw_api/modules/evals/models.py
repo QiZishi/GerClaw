@@ -99,6 +99,15 @@ class RAGRetrievalEvalCase(BaseModel):
         return value
 
 
+class RAGRetrievalEvalCaseSet(BaseModel):
+    """Versioned, reviewed case-file envelope for one opt-in retrieval run."""
+
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    schema_version: Literal["rag-retrieval-case-set-v1"] = "rag-retrieval-case-set-v1"
+    cases: tuple[RAGRetrievalEvalCase, ...] = Field(min_length=1, max_length=50)
+
+
 class RAGEvaluationRunConfig(BaseModel):
     """Explicitly opt-in, bounded external RAG evaluation configuration."""
 
