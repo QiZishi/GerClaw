@@ -18,6 +18,7 @@ import type { FileTag as FileTagData } from "@/types";
 interface DocumentToolCardProps {
   data: FileTagData;
   onRetry?: (id: string) => void;
+  onRemove?: (id: string) => void;
 }
 
 /**
@@ -25,7 +26,7 @@ interface DocumentToolCardProps {
  * 类似 ToolCallBlock，但专门用于文档解析
  * 显示：文档名 + 大小 + 解析状态 + 解析结果（parsedMarkdown）
  */
-export function DocumentToolCard({ data, onRetry }: DocumentToolCardProps) {
+export function DocumentToolCard({ data, onRetry, onRemove }: DocumentToolCardProps) {
   const [expanded, setExpanded] = useState(false);
   const role = useAppStore((state) => state.role);
   const seniorMode = useAppStore((state) => state.seniorMode);
@@ -66,30 +67,55 @@ export function DocumentToolCard({ data, onRetry }: DocumentToolCardProps) {
 
   return (
     <div className="rounded-lg border border-border bg-card overflow-hidden">
-      <button
-        type="button"
-        onClick={() => setExpanded((v) => !v)}
-        className={cn(
-          "flex w-full items-center justify-between gap-2 px-3 py-2 text-left hover:bg-muted/50 transition-colors",
-          isSeniorPatient && "min-h-12 px-4 py-3 text-lg"
-        )}
-        aria-expanded={expanded}
-      >
-        <span className="flex items-center gap-2 min-w-0">
-          <FileText className="size-4 shrink-0 text-muted-foreground" />
-          <span className={cn("text-sm font-medium truncate", isSeniorPatient && "text-lg")}>{data.fileName}</span>
-          <span className={cn("text-xs text-muted-foreground shrink-0", isSeniorPatient && "text-base")}>
-            {formatFileSize(data.fileSize)}
-          </span>
-          {statusBadge()}
-        </span>
-        <ChevronDown
+      <div className="flex items-center gap-1">
+        <button
+          type="button"
+          onClick={() => setExpanded((v) => !v)}
           className={cn(
-            "size-4 shrink-0 text-muted-foreground transition-transform",
-            expanded && "rotate-180"
+            "flex min-w-0 flex-1 items-center justify-between gap-2 px-3 py-2 text-left hover:bg-muted/50 transition-colors",
+            isSeniorPatient && "min-h-12 px-4 py-3 text-lg"
           )}
-        />
-      </button>
+          aria-expanded={expanded}
+          aria-label={`${expanded ? "收起" : "展开"} ${data.fileName} 的解析资料`}
+        >
+          <span className="flex min-w-0 flex-1 flex-col gap-1">
+            <span className="flex min-w-0 items-center gap-2">
+              <FileText className="size-4 shrink-0 text-muted-foreground" />
+              <span
+                className={cn(
+                  "min-w-0 truncate text-sm font-medium",
+                  isSeniorPatient && "line-clamp-2 whitespace-normal break-all leading-6 text-lg"
+                )}
+              >
+                {data.fileName}
+              </span>
+            </span>
+            <span className={cn("flex items-center gap-2 pl-6 text-xs text-muted-foreground", isSeniorPatient && "text-base")}>
+              <span className="shrink-0">{formatFileSize(data.fileSize)}</span>
+              {statusBadge()}
+            </span>
+          </span>
+          <ChevronDown
+            className={cn(
+              "size-4 shrink-0 text-muted-foreground transition-transform",
+              expanded && "rotate-180"
+            )}
+          />
+        </button>
+        {onRemove && (
+          <Button
+            type="button"
+            variant="ghost"
+            size={isSeniorPatient ? "default" : "icon-sm"}
+            className={cn("shrink-0 text-muted-foreground hover:text-destructive", isSeniorPatient && "min-h-12 gap-1 px-3 text-base")}
+            onClick={() => void onRemove(data.id)}
+            aria-label={`移除 ${data.fileName}`}
+          >
+            <X className="size-4" />
+            {isSeniorPatient && <span>移除</span>}
+          </Button>
+        )}
+      </div>
       {expanded && (
         <div className={cn("border-t border-border/60 px-3 py-2 space-y-2 text-xs", isSeniorPatient && "px-4 py-3 text-base")}>
           {data.parsedMarkdown ? (

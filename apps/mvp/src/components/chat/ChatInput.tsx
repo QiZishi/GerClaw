@@ -489,11 +489,8 @@ export function ChatInput({
         previous.map((item) => (item.id === fileData.id ? completed : item))
       );
       setUploadedDocCount((count) => count + 1);
-      toast.show(
-        serverDocumentId
-          ? `${file.name} 已解析并安全加入本次对话`
-          : `${file.name} 已解析。请提出问题后发送，系统才会安全加入新对话`
-      );
+      // 卡片状态与输入框上方的固定说明已经完整说明下一步；不再用长 toast
+      // 遮挡移动端内容或重复打断用户。
     } catch (error) {
       if (controller.signal.aborted || documentParseAbortRef.current.get(fileData.id) !== controller) {
         return;
@@ -901,13 +898,19 @@ export function ChatInput({
           <div className="flex flex-wrap gap-2 mb-2">
             {pendingDocuments.map((file) => (
               <div key={file.id} className="min-w-0 space-y-2">
-                <FileTag
-                  data={file}
-                  onRetry={file.status === "failed" ? retryPendingDocument : undefined}
-                  onCancel={file.status === "parsing" ? cancelPendingDocument : undefined}
-                  onRemove={file.status === "failed" || file.status === "done" ? (id) => void removePendingDocument(id) : undefined}
-                />
-                {file.status === "done" && <DocumentToolCard data={file} />}
+                {file.status === "done" ? (
+                  <DocumentToolCard
+                    data={file}
+                    onRemove={(id) => removePendingDocument(id)}
+                  />
+                ) : (
+                  <FileTag
+                    data={file}
+                    onRetry={file.status === "failed" ? retryPendingDocument : undefined}
+                    onCancel={file.status === "parsing" ? cancelPendingDocument : undefined}
+                    onRemove={file.status === "failed" ? (id) => void removePendingDocument(id) : undefined}
+                  />
+                )}
               </div>
             ))}
             {pendingImages.map((img) => (

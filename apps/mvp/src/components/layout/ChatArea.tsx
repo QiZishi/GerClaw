@@ -165,7 +165,8 @@ export function ChatArea() {
 
   /** 首次AI回复完成后自动设置会话标题 */
   const trySetSessionTitle = (sid: string, firstUserText: string) => {
-    const session = storeSessions.find((s) => s.id === sid);
+    // 首次发送会在本次回调创建会话；不能使用发送前 render 捕获的 sessions 快照。
+    const session = useChatStore.getState().sessions.find((s) => s.id === sid);
     if (session && session.title === "新对话") {
       const title = firstUserText.slice(0, 20);
       updateSession(sid, { title });
