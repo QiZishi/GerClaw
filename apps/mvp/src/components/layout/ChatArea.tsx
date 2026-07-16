@@ -792,14 +792,14 @@ const handleExampleClick = (text: string) => {
 
       {/* 老年模式：退出功能二次确认弹窗 */}
       <Dialog open={showExitConfirm} onOpenChange={setShowExitConfirm}>
-        <DialogContent className="max-w-sm" showCloseButton={false}>
+        <DialogContent className={cn("max-w-sm", seniorMode && "p-5")} showCloseButton={false}>
           <DialogHeader>
-            <DialogTitle className="flex items-center gap-2">
+            <DialogTitle className={cn("flex items-center gap-2", seniorMode && "text-2xl")}>
               <AlertTriangle className="size-5 text-amber-500" />
               {exitConfirmType === "cga-server" ? "确认暂时休息？" : exitConfirmType === "clinical-intake" ? "确认返回咨询？" : "确认退出？"}
             </DialogTitle>
           </DialogHeader>
-          <p className={cn("text-muted-foreground", seniorMode ? "text-base" : "text-sm")}>
+          <p className={cn("text-muted-foreground", seniorMode ? "text-lg leading-8" : "text-sm")}>
             {exitConfirmType === 'cga-has-result'
               ? "您已完成量表评估，退出后评估结果将丢失，确认退出吗？"
               : exitConfirmType === 'cga-in-progress'
@@ -810,7 +810,7 @@ const handleExampleClick = (text: string) => {
                     ? "已经保存的信息会保留在当前会话；尚未点击“保存信息”的新增内容不会保留。"
                 : "退出后当前进度将不会保存，确定要退出吗？"}
           </p>
-          <DialogFooter className="gap-2">
+          <DialogFooter className={cn("gap-2", seniorMode && "flex-row justify-end gap-3 p-5")}>
             <DialogClose render={<Button variant="outline" className={cn(seniorMode && "min-h-12 px-4 text-lg")}>取消</Button>} />
             <Button variant="destructive" className={cn(seniorMode && "min-h-12 px-4 text-lg")} onClick={doExitAction}>
               {exitConfirmType === "cga-server" ? "保存并休息" : exitConfirmType === "clinical-intake" ? "返回咨询" : "确认退出"}
@@ -821,17 +821,17 @@ const handleExampleClick = (text: string) => {
 
       {/* 消息删除确认弹窗 */}
       <Dialog open={deleteMessageId !== null} onOpenChange={(open) => { if (!open) handleDeleteCancel(); }}>
-        <DialogContent className="max-w-sm" showCloseButton={false}>
+        <DialogContent className={cn("max-w-sm", seniorMode && "p-5")} showCloseButton={false}>
           <DialogHeader>
-            <DialogTitle className="flex items-center gap-2">
+            <DialogTitle className={cn("flex items-center gap-2", seniorMode && "text-2xl")}>
               <AlertTriangle className="size-5 text-amber-500" />
-              确认删除？
+              确认删除消息
             </DialogTitle>
           </DialogHeader>
-          <p className={cn("text-muted-foreground", seniorMode ? "text-base" : "text-sm")}>
-            删除后该条消息将无法恢复，确定要删除吗？
+          <p className={cn("text-muted-foreground", seniorMode ? "text-lg leading-8" : "text-sm")}>
+            删除后该条消息将无法恢复。
           </p>
-          <DialogFooter className="gap-2">
+          <DialogFooter className={cn("gap-2", seniorMode && "flex-row justify-end gap-3 p-5")}>
             <DialogClose render={<Button variant="outline" className={cn(seniorMode && "min-h-12 px-4 text-lg")}>取消</Button>} />
             <Button variant="destructive" className={cn(seniorMode && "min-h-12 px-4 text-lg")} onClick={handleDeleteConfirm}>
               确认删除
