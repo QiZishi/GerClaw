@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import re
 import uuid
 from datetime import UTC, datetime
 from typing import Literal, cast
@@ -10,7 +11,14 @@ from sqlalchemy import select, update
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from gerclaw_api.database.models import AccountCredential, AccountRefreshSession, User
+from gerclaw_api.database.models import (
+    AccountCredential,
+    AccountRefreshSession,
+    IdentitySecurityEvent,
+    User,
+)
+
+_AUDIT_FINGERPRINT = re.compile(r"^[a-z2-7]{52}$")
 
 
 class AccountConflictError(RuntimeError):
@@ -141,4 +149,29 @@ class SqlAlchemyAccountRepository:
                 AccountRefreshSession.revoked_at.is_(None),
             )
             .values(revoked_at=datetime.now(UTC))
+        )
+
+    async def record_security_event(
+        self,
+        *,
+        tenant_id: str,
+        subject_fingerprint: str,
+        event_type: Literal["register", "login", "refresh", "logout", "password_change"],
+        outcome: Literal["succeeded", "rejected", "ignored"],
+        actor_id: str | None = None,
+        role: Literal["patient", "doctor"] | None = None,
+    ) -> None:
+        """Stage a bounded audit fact; callers commit it with the auth operation."""
+
+        if _AUDIT_FINGERPRINT.fullmatch(subject_fingerprint) is None:
+            raise ValueError("identity audit subject must be a keyed opaque fingerprint")
+        self._session.add(
+            IdentitySecurityEvent(
+                tenant_id=tenant_id,
+                actor_id=actor_id,
+                subject_fingerprint=subject_fingerprint,
+                event_type=event_type,
+                outcome=outcome,
+                role=role,
+            )
         )

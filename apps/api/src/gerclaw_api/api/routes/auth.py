@@ -126,6 +126,15 @@ def _username_fingerprint(request: Request, username: str) -> str:
     )
 
 
+def _opaque_subject_fingerprint(request: Request, *, namespace: str, value: str) -> str:
+    """Correlate a security event without retaining a credential or identifier."""
+
+    return audit_hmac_digest(
+        request.app.state.settings.auth_jwt_secret.get_secret_value().encode(),
+        f"local-account-audit:v1:{namespace}:{value}".encode(),
+    )
+
+
 async def _issue_account_session(
     request: Request,
     repository: SqlAlchemyAccountRepository,
@@ -184,9 +193,24 @@ async def register_account(
             password_hash=hash_password(payload.password),
         )
     except AccountConflictError as error:
+        await repository.record_security_event(
+            tenant_id=_ACCOUNT_TENANT,
+            subject_fingerprint=fingerprint,
+            event_type="register",
+            outcome="rejected",
+        )
+        await session.commit()
         raise HTTPException(status_code=409, detail={"code": "ACCOUNT_UNAVAILABLE"}) from error
     result = await _issue_account_session(
         request, repository, user_id=user.id, actor_id=actor_id, role=payload.role
+    )
+    await repository.record_security_event(
+        tenant_id=_ACCOUNT_TENANT,
+        subject_fingerprint=fingerprint,
+        event_type="register",
+        outcome="succeeded",
+        actor_id=actor_id,
+        role=payload.role,
     )
     await session.commit()
     return result
@@ -209,12 +233,36 @@ async def login_account(
             tenant_id=_ACCOUNT_TENANT, username_fingerprint=fingerprint
         )
     except AccountNotFoundError as error:
+        await repository.record_security_event(
+            tenant_id=_ACCOUNT_TENANT,
+            subject_fingerprint=fingerprint,
+            event_type="login",
+            outcome="rejected",
+        )
+        await session.commit()
         raise HTTPException(status_code=401, detail={"code": "ACCOUNT_LOGIN_INVALID"}) from error
     if not verify_password(payload.password, credential.password_hash):
+        await repository.record_security_event(
+            tenant_id=_ACCOUNT_TENANT,
+            subject_fingerprint=fingerprint,
+            event_type="login",
+            outcome="rejected",
+            actor_id=user.external_id,
+            role=cast(Literal["patient", "doctor"], user.role),
+        )
+        await session.commit()
         raise HTTPException(status_code=401, detail={"code": "ACCOUNT_LOGIN_INVALID"})
     role = cast(Literal["patient", "doctor"], user.role)
     result = await _issue_account_session(
         request, repository, user_id=user.id, actor_id=user.external_id, role=role
+    )
+    await repository.record_security_event(
+        tenant_id=_ACCOUNT_TENANT,
+        subject_fingerprint=fingerprint,
+        event_type="login",
+        outcome="succeeded",
+        actor_id=user.external_id,
+        role=role,
     )
     await session.commit()
     return result
@@ -238,12 +286,27 @@ async def refresh_account_session(
     try:
         previous, user = await repository.lock_refresh_session(token_fingerprint=token_fingerprint)
     except AccountNotFoundError as error:
+        await repository.record_security_event(
+            tenant_id=_ACCOUNT_TENANT,
+            subject_fingerprint=token_fingerprint,
+            event_type="refresh",
+            outcome="rejected",
+        )
+        await session.commit()
         raise HTTPException(status_code=401, detail={"code": "ACCOUNT_REFRESH_INVALID"}) from error
     role = cast(Literal["patient", "doctor"], user.role)
     result = await _issue_account_session(
         request, repository, user_id=user.id, actor_id=user.external_id, role=role
     )
     await repository.revoke_refresh_session(previous)
+    await repository.record_security_event(
+        tenant_id=_ACCOUNT_TENANT,
+        subject_fingerprint=token_fingerprint,
+        event_type="refresh",
+        outcome="succeeded",
+        actor_id=user.external_id,
+        role=role,
+    )
     await session.commit()
     return result
 
@@ -260,12 +323,29 @@ async def logout_account_session(
         request.app.state.settings.auth_jwt_secret.get_secret_value().encode(),
         f"local-account-refresh:v1:{payload.refresh_token}".encode(),
     )
+    limiter: RateLimiter = request.app.state.rate_limiter
+    await limiter.check(tenant_id=_ACCOUNT_TENANT, actor_id=f"logout_{token_fingerprint[:24]}")
     repository = SqlAlchemyAccountRepository(session)
     try:
-        previous, _user = await repository.lock_refresh_session(token_fingerprint=token_fingerprint)
+        previous, user = await repository.lock_refresh_session(token_fingerprint=token_fingerprint)
     except AccountNotFoundError:
+        await repository.record_security_event(
+            tenant_id=_ACCOUNT_TENANT,
+            subject_fingerprint=token_fingerprint,
+            event_type="logout",
+            outcome="ignored",
+        )
+        await session.commit()
         return None
     await repository.revoke_refresh_session(previous)
+    await repository.record_security_event(
+        tenant_id=_ACCOUNT_TENANT,
+        subject_fingerprint=token_fingerprint,
+        event_type="logout",
+        outcome="succeeded",
+        actor_id=user.external_id,
+        role=cast(Literal["patient", "doctor"], user.role),
+    )
     await session.commit()
 
 
@@ -288,12 +368,43 @@ async def change_account_password(
             tenant_id=identity.tenant_id, actor_id=identity.actor_id
         )
     except AccountNotFoundError as error:
+        await repository.record_security_event(
+            tenant_id=identity.tenant_id,
+            subject_fingerprint=_opaque_subject_fingerprint(
+                request, namespace="actor", value=identity.actor_id
+            ),
+            event_type="password_change",
+            outcome="rejected",
+            actor_id=identity.actor_id,
+        )
+        await session.commit()
         raise HTTPException(status_code=403, detail={"code": "ACCOUNT_REQUIRED"}) from error
     if not verify_password(payload.current_password, credential.password_hash):
+        await repository.record_security_event(
+            tenant_id=identity.tenant_id,
+            subject_fingerprint=_opaque_subject_fingerprint(
+                request, namespace="actor", value=identity.actor_id
+            ),
+            event_type="password_change",
+            outcome="rejected",
+            actor_id=identity.actor_id,
+            role=cast(Literal["patient", "doctor"], user.role),
+        )
+        await session.commit()
         raise HTTPException(status_code=401, detail={"code": "ACCOUNT_PASSWORD_INVALID"})
     credential.password_hash = hash_password(payload.new_password)
     credential.password_version += 1
     await repository.revoke_all_refresh_sessions(user_id=user.id)
+    await repository.record_security_event(
+        tenant_id=identity.tenant_id,
+        subject_fingerprint=_opaque_subject_fingerprint(
+            request, namespace="actor", value=identity.actor_id
+        ),
+        event_type="password_change",
+        outcome="succeeded",
+        actor_id=identity.actor_id,
+        role=cast(Literal["patient", "doctor"], user.role),
+    )
     await session.commit()
 
 

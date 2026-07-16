@@ -102,6 +102,49 @@ class AccountRefreshSession(TimestampMixin, Base):
     replaced_by_id: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True), nullable=True)
 
 
+class IdentitySecurityEvent(Base):
+    """Immutable, PHI-free security audit fact for a local-account operation."""
+
+    __tablename__ = "identity_security_events"
+    __table_args__ = (
+        CheckConstraint(
+            "event_type IN ('register','login','refresh','logout','password_change')",
+            name="valid_identity_security_event_type",
+        ),
+        CheckConstraint(
+            "outcome IN ('succeeded','rejected','ignored')",
+            name="valid_identity_security_event_outcome",
+        ),
+        CheckConstraint(
+            "role IS NULL OR role IN ('patient','doctor')",
+            name="valid_identity_security_event_role",
+        ),
+        Index(
+            "ix_identity_security_events_tenant_subject_created",
+            "tenant_id",
+            "subject_fingerprint",
+            "created_at",
+        ),
+        Index(
+            "ix_identity_security_events_tenant_actor_created",
+            "tenant_id",
+            "actor_id",
+            "created_at",
+        ),
+    )
+
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    tenant_id: Mapped[str] = mapped_column(String(64), nullable=False, index=True)
+    actor_id: Mapped[str | None] = mapped_column(String(128), nullable=True)
+    subject_fingerprint: Mapped[str] = mapped_column(String(64), nullable=False)
+    event_type: Mapped[str] = mapped_column(String(32), nullable=False)
+    outcome: Mapped[str] = mapped_column(String(16), nullable=False)
+    role: Mapped[str | None] = mapped_column(String(16), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), nullable=False
+    )
+
+
 class ConversationSession(TimestampMixin, Base):
     """Durable user conversation independent from AgentScope hot state."""
 

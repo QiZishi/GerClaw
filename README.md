@@ -13,7 +13,7 @@ GerClaw 是面向老年患者与老年科医生的 Web 端 AI 双向诊疗平台
 - 加密 Memory/健康画像引擎与无 PHI Qdrant 语义索引
 - AnySearch→Tavily 联网证据、SSRF 防护与不可信网页隔离
 - 声明式 Skill 注册、版本、会话加载、AgentScope viewer 和安全策略
-- 访客短期 JWT/BFF、以及患者/医生本地账号的注册、登录、refresh 轮换、登出与改密；均由 scope、tenant/actor 隔离、限流、readiness 与 metrics 保护
+- 访客短期 JWT/BFF、以及患者/医生本地账号的注册、登录、refresh 轮换、登出与改密；均由 scope、tenant/actor 隔离、限流、PHI-free 安全审计、readiness 与 metrics 保护
 - PHQ-9、SAS、PSQI 的版本化 FastAPI 状态机、确定性计分、加密持久化、患者端断点恢复、报告 Markdown 导出与本人历史；量表题目使用版本绑定预录制 WAV，并保留受控实时 TTS 兜底
 - MinerU 签名上传、轮询和 Markdown 下载的 Next.js BFF；FastAPI 将会话资料加密登记并按 tenant/actor/session 绑定
 - 五大处方与用药审查的最小信息收集：真实 API、加密持久化、乐观 revision 与 PHI-free Trace；页面明确不会产生处方、诊断、停药、加药或剂量结论

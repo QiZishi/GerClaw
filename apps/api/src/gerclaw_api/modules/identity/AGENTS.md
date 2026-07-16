@@ -18,6 +18,10 @@ or migrate visitor data.
   clinical scope, cross-patient read, approval decision or emergency override.
 - Registration, login, refresh, logout and password change must be rate
   limited and return stable, enumeration-safe public errors.
+- Each of those operations writes an immutable PHI-free security audit fact.
+  It may contain only an opaque actor ID, role, outcome and a keyed subject
+  fingerprint; usernames, passwords, refresh tokens, IP addresses and clinical
+  content are forbidden.
 
 ## Verification
 
@@ -25,3 +29,5 @@ or migrate visitor data.
   verification, refresh rotation/replay, logout and password-change revocation.
 - Test no plaintext password, username or refresh token occurs in stored
   columns, logs, Trace or metrics.
+- Test rejected credential/replay attempts as well as successful account
+  operations produce only the bounded security-audit fields.
