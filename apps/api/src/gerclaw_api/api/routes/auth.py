@@ -24,6 +24,8 @@ _GUEST_SCOPES = {
     "document:write",
     "cga:read",
     "cga:write",
+    "clinical_intake:read",
+    "clinical_intake:write",
     "feedback:write",
     "memory:read",
     "memory:write",

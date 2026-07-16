@@ -202,6 +202,48 @@ class UploadedDocument(TimestampMixin, Base):
     content_characters: Mapped[int] = mapped_column(Integer, nullable=False)
 
 
+class ClinicalIntake(TimestampMixin, Base):
+    """Encrypted, caller-owned non-clinical intake for future governed workflows."""
+
+    __tablename__ = "clinical_intakes"
+    __table_args__ = (
+        CheckConstraint(
+            "kind IN ('prescription','medication_review')", name="valid_clinical_intake_kind"
+        ),
+        CheckConstraint(
+            "status IN ('collecting','information_complete_pending_governance')",
+            name="valid_clinical_intake_status",
+        ),
+        CheckConstraint("revision > 0", name="positive_clinical_intake_revision"),
+        UniqueConstraint(
+            "tenant_id",
+            "actor_id",
+            "session_id",
+            "kind",
+            name="uq_clinical_intakes_principal_session_kind",
+        ),
+        Index(
+            "ix_clinical_intakes_owner_session_updated",
+            "tenant_id",
+            "actor_id",
+            "session_id",
+            "updated_at",
+        ),
+    )
+
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    tenant_id: Mapped[str] = mapped_column(String(64), nullable=False, index=True)
+    actor_id: Mapped[str] = mapped_column(String(128), nullable=False, index=True)
+    session_id: Mapped[uuid.UUID] = mapped_column(
+        ForeignKey("sessions.id", ondelete="CASCADE"), nullable=False
+    )
+    kind: Mapped[str] = mapped_column(String(32), nullable=False)
+    definition_version: Mapped[str] = mapped_column(String(32), nullable=False)
+    status: Mapped[str] = mapped_column(String(64), nullable=False, default="collecting")
+    revision: Mapped[int] = mapped_column(Integer, nullable=False, default=1)
+    answers: Mapped[dict[str, Any]] = mapped_column(EncryptedJSON(), default=dict, nullable=False)
+
+
 class MemoryFact(TimestampMixin, Base):
     """One encrypted, evidenced user-memory fact with a vector revision."""
 

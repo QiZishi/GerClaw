@@ -15,6 +15,7 @@ from gerclaw_api.api.routes.approvals import router as approvals_router
 from gerclaw_api.api.routes.auth import router as auth_router
 from gerclaw_api.api.routes.cga import router as cga_router
 from gerclaw_api.api.routes.chat import router as chat_router
+from gerclaw_api.api.routes.clinical_intakes import router as clinical_intakes_router
 from gerclaw_api.api.routes.documents import router as documents_router
 from gerclaw_api.api.routes.health import router as health_router
 from gerclaw_api.api.routes.memory import router as memory_router
@@ -168,6 +169,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     app.include_router(rag_router, prefix=resolved.api_prefix)
     app.include_router(search_router, prefix=resolved.api_prefix)
     app.include_router(chat_router, prefix=resolved.api_prefix)
+    app.include_router(clinical_intakes_router, prefix=resolved.api_prefix)
     app.include_router(documents_router, prefix=resolved.api_prefix)
     app.include_router(cga_router, prefix=resolved.api_prefix)
     app.include_router(memory_router, prefix=resolved.api_prefix)

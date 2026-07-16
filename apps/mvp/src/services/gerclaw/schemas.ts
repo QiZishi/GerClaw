@@ -248,6 +248,38 @@ export const uploadedDocumentDeletedSchema = z
 
 export type UploadedDocument = z.infer<typeof uploadedDocumentSchema>;
 
+const clinicalIntakeFieldSchema = z
+  .object({
+    id: z.string().regex(/^[a-z][a-z0-9_]{1,63}$/),
+    label: z.string().min(1).max(200),
+    required: z.boolean(),
+    max_length: z.number().int().min(1).max(2_000),
+    placeholder: z.string().min(1).max(300),
+  })
+  .strict();
+
+export const clinicalIntakeSchema = z
+  .object({
+    intake_id: z.string().uuid(),
+    session_id: z.string().uuid(),
+    kind: z.enum(["prescription", "medication_review"]),
+    definition_version: z.string().min(1).max(32),
+    status: z.enum(["collecting", "information_complete_pending_governance"]),
+    revision: z.number().int().positive(),
+    title: z.string().min(1).max(100),
+    description: z.string().min(1).max(300),
+    fields: z.array(clinicalIntakeFieldSchema).min(1).max(5),
+    answers: z
+      .record(z.string().regex(/^[a-z][a-z0-9_]{1,63}$/), z.string())
+      .refine((answers) => Object.keys(answers).length <= 3, "最多保存 3 个信息字段"),
+    missing_required_fields: z.array(z.string().regex(/^[a-z][a-z0-9_]{1,63}$/)).max(3),
+    governance_notice: z.string().min(1).max(500),
+    updated_at: z.string().datetime(),
+  })
+  .strict();
+
+export type ClinicalIntake = z.infer<typeof clinicalIntakeSchema>;
+
 export { feedbackSubmitSchema } from "./feedback-contract";
 
 export const feedbackReadSchema = z

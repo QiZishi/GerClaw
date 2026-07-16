@@ -215,6 +215,22 @@ async def require_cga_write(
     return authorize_scope(identity, "cga:write")
 
 
+async def require_clinical_intake_read(
+    identity: Annotated[AuthContext, Depends(authenticate)],
+) -> AuthContext:
+    """Require access to the caller's own non-clinical intake state."""
+
+    return authorize_scope(identity, "clinical_intake:read")
+
+
+async def require_clinical_intake_write(
+    identity: Annotated[AuthContext, Depends(authenticate)],
+) -> AuthContext:
+    """Require mutation access to the caller's own non-clinical intake state."""
+
+    return authorize_scope(identity, "clinical_intake:write")
+
+
 async def require_search_read(
     identity: Annotated[AuthContext, Depends(authenticate)],
 ) -> AuthContext:

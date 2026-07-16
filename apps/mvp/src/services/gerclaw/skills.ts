@@ -12,6 +12,10 @@ import {
 
 const deletedSchema = z.object({ deleted: z.literal(true) }).strict();
 const SESSION_MAP_KEY = "gerclaw:backend-session-map";
+// Several UI areas (skills, documents and governed forms) can initialize the
+// same local session in one render. Share the in-flight request so a single
+// click cannot fan out into duplicate session creation requests.
+const pendingBackendSessions = new Map<string, Promise<string>>();
 const sessionMapSchema = z
   .record(z.string().min(1).max(128), z.string().uuid())
   .refine(
@@ -117,12 +121,19 @@ export function backendSessionId(localSessionId: string): string {
 }
 
 export async function ensureBackendSession(localSessionId: string): Promise<string> {
+  const pending = pendingBackendSessions.get(localSessionId);
+  if (pending) return pending;
   const sessionId = backendSessionId(localSessionId);
-  await gerclawRequest("sessions", sessionSchema, {
+  const request = gerclawRequest("sessions", sessionSchema, {
     method: "POST",
     body: JSON.stringify({ session_id: sessionId }),
-  });
-  return sessionId;
+  }).then(() => sessionId);
+  pendingBackendSessions.set(localSessionId, request);
+  try {
+    return await request;
+  } finally {
+    pendingBackendSessions.delete(localSessionId);
+  }
 }
 
 export async function replaceSessionSkills(

@@ -21,6 +21,7 @@ import { ExportDialog } from "@/components/chat/ExportDialog";
 import { WelcomePage } from "@/components/chat/WelcomePage";
 import { SkillManager } from "@/components/skills/SkillManager";
 import { CgaAssessment } from "@/components/cga/CgaAssessment";
+import { ClinicalIntakeForm } from "@/components/prescription/ClinicalIntakeForm";
 import { useAppStore } from "@/stores/appStore";
 import { useChatStore } from "@/stores/chatStore";
 import { cn } from "@/lib/utils";
@@ -86,7 +87,7 @@ export function ChatArea() {
 
   // 老年模式退出功能二次确认弹窗
   const [showExitConfirm, setShowExitConfirm] = useState(false);
-  const [exitConfirmType, setExitConfirmType] = useState<'default' | 'cga-in-progress' | 'cga-has-result' | 'cga-server'>('default');
+  const [exitConfirmType, setExitConfirmType] = useState<'default' | 'cga-in-progress' | 'cga-has-result' | 'cga-server' | 'clinical-intake'>('default');
   // 消息导出/分享弹窗：值为触发的消息 id（用于默认选中），null 表示关闭
   const [exportMessageId, setExportMessageId] = useState<string | null>(null);
   // 消息删除确认弹窗：值为待删除的消息 id，null 表示关闭
@@ -156,16 +157,9 @@ export function ChatArea() {
       });
   }, [currentSessionId, setLoadedSkills]);
 
-  // 除 PHQ-9 以外的临床 workflow 均未接入，不能回退到本地模拟流程。
+  // 仅健康画像由右侧面板承载；其余入口均由各自的真实后端流程承载。
   useEffect(() => {
-    if (chatAction === "none" || chatAction === "cga") return;
-    const labels: Record<Exclude<ChatActionType, "none">, string> = {
-      prescription: "五大处方",
-      cga: "老年综合评估",
-      "drug-review": "用药审查",
-      "health-profile": "健康画像",
-    };
-    toast.show(`${labels[chatAction]}的生产工作流正在接入。您仍可在对话中描述情况，GerClaw 会基于真实后端证据提供一般健康咨询。`);
+    if (chatAction === "none" || chatAction === "cga" || chatAction === "prescription" || chatAction === "drug-review") return;
     setChatAction("none");
   }, [chatAction, setChatAction]);
 
@@ -264,8 +258,7 @@ export function ChatArea() {
     documents: ChatDocumentAttachment[] = []
   ) => {
     if (chatAction !== "none") {
-      toast.show("该临床工作流尚未接入真实后端，无法生成本地示例结果。请直接描述您的情况继续咨询。");
-      setChatAction("none");
+      toast.show("请先保存信息或返回健康咨询后再发送消息。");
       return false;
     }
     if (!currentSessionId) {
@@ -626,19 +619,25 @@ const handleExampleClick = (text: string) => {
       setChatAction("cga");
       return;
     }
-    const labels: Record<Exclude<ChatActionType, "none">, string> = {
-      prescription: "五大处方",
-      cga: "老年综合评估",
-      "drug-review": "用药审查",
-      "health-profile": "健康画像",
-    };
-    toast.show(`${labels[action]}的生产工作流正在接入。您仍可在对话中描述情况，GerClaw 会基于真实后端证据提供一般健康咨询。`);
+    if (action === "prescription" || action === "drug-review") {
+      let sessionId = currentSessionId;
+      if (!sessionId) {
+        sessionId = createSession(role);
+        setCurrentSession(sessionId);
+      }
+      setChatAction(action);
+    }
   };
 
   /** 退出当前功能模式，清理相关状态（所有模式下二次确认）*/
   const handleExitAction = () => {
     if (chatAction === "cga") {
       setExitConfirmType('cga-server');
+      setShowExitConfirm(true);
+      return;
+    }
+    if (chatAction === "prescription" || chatAction === "drug-review") {
+      setExitConfirmType('clinical-intake');
       setShowExitConfirm(true);
       return;
     }
@@ -724,13 +723,13 @@ const handleExampleClick = (text: string) => {
               <span className="font-medium">
                 {actionTitles[chatAction]}
               </span>
-              <button
-                type="button"
+              <Button
+                variant="ghost"
                 onClick={handleExitAction}
-                className="text-xs text-muted-foreground hover:text-foreground"
+                className={cn("min-h-10 px-3 text-sm text-muted-foreground hover:text-foreground", seniorMode && "min-h-12 text-base")}
               >
                 退出
-              </button>
+              </Button>
             </>
           ) : (
             <>
@@ -756,13 +755,22 @@ const handleExampleClick = (text: string) => {
         <div className="flex-1 min-h-0 overflow-y-auto">
           <CgaAssessment onExit={handleExitAction} />
         </div>
+      ) : chatAction === "prescription" || chatAction === "drug-review" ? (
+        currentSessionId ? (
+          <ClinicalIntakeForm
+            localSessionId={currentSessionId}
+            kind={chatAction === "prescription" ? "prescription" : "medication_review"}
+            seniorMode={seniorMode}
+            onExit={handleExitAction}
+          />
+        ) : null
       ) : (
         <div className="flex-1 min-h-0 overflow-hidden flex flex-col">
           {messages.length > 0 && <MessageList messages={messages} onRegenerate={handleRegenerate} onShare={(messageId) => setExportMessageId(messageId)} onDelete={handleDeleteRequest} />}
         </div>
       )}
 
-      {chatAction !== "cga" && (
+      {chatAction === "none" && (
         <ChatInput
           onSend={handleSend}
           isGenerating={isGenerating}
@@ -788,7 +796,7 @@ const handleExampleClick = (text: string) => {
           <DialogHeader>
             <DialogTitle className="flex items-center gap-2">
               <AlertTriangle className="size-5 text-amber-500" />
-              {exitConfirmType === "cga-server" ? "确认暂时休息？" : "确认退出？"}
+              {exitConfirmType === "cga-server" ? "确认暂时休息？" : exitConfirmType === "clinical-intake" ? "确认返回咨询？" : "确认退出？"}
             </DialogTitle>
           </DialogHeader>
           <p className={cn("text-muted-foreground", seniorMode ? "text-base" : "text-sm")}>
@@ -798,12 +806,14 @@ const handleExampleClick = (text: string) => {
                 ? "退出后当前答题进度将不会保存，确认退出吗？"
                 : exitConfirmType === 'cga-server'
                   ? "当前进度已安全保存。退出后，您下次可以从这道题继续。"
+                  : exitConfirmType === 'clinical-intake'
+                    ? "已经保存的信息会保留在当前会话；尚未点击“保存信息”的新增内容不会保留。"
                 : "退出后当前进度将不会保存，确定要退出吗？"}
           </p>
           <DialogFooter className="gap-2">
             <DialogClose render={<Button variant="outline" className={cn(seniorMode && "min-h-12 px-4 text-lg")}>取消</Button>} />
             <Button variant="destructive" className={cn(seniorMode && "min-h-12 px-4 text-lg")} onClick={doExitAction}>
-              {exitConfirmType === "cga-server" ? "保存并休息" : "确认退出"}
+              {exitConfirmType === "cga-server" ? "保存并休息" : exitConfirmType === "clinical-intake" ? "返回咨询" : "确认退出"}
             </Button>
           </DialogFooter>
         </DialogContent>
