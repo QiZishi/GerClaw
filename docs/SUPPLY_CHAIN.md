@@ -20,6 +20,8 @@ python3 scripts/generate_runtime_sbom.py \
 
 ## 发布门禁
 
-- 提交前运行 `scripts/quality-gate.sh security`，它执行 Bandit、锁定 Python 依赖的 `pip-audit` 和生产 Python runtime SBOM 生成。
+- 提交前运行 `scripts/quality-gate.sh security`，它执行 Bandit、锁定 Python 依赖的 `pip-audit`、前端 production 依赖的 high/critical `npm audit` 和生产 Python runtime SBOM 生成。
 - 每次发布审查 SBOM 中新增/变更组件、已知漏洞与 `unknown` 许可证；AGPL、GPL、商业/专有条款或许可证缺失必须由法务书面批准后才可进入发布镜像。
 - 依赖升级必须同时更新锁文件、SBOM 证据、漏洞扫描结果和本文件中任何适用例外；不得以扫描通过替代许可证审核。
+
+截至 2026-07-17，`npm audit --omit=dev --audit-level=high` 通过；npm 同时报告 Next 内嵌 PostCSS 的 2 项 moderate advisory（GHSA-qx2v-qp2m-jg93）。建议的自动修复会将 Next 16 降至 9.x，属于破坏性降级，禁止自动执行；应在 Next 上游发布兼容修复后受控升级，并重新运行全量前端回归。

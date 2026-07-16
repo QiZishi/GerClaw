@@ -50,6 +50,11 @@ security_gate() {
       --no-annotate --output-file "${audit_requirements}" >/dev/null
     uvx pip-audit --strict --requirement "${audit_requirements}"
   )
+  step "Locked frontend dependency audit"
+  (
+    cd "${MVP_DIR}"
+    npm audit --omit=dev --audit-level=high
+  )
   step "Production Python runtime SBOM"
   cd "${ROOT_DIR}"
   docker compose build api

@@ -16,7 +16,7 @@ scripts/quality-gate.sh <mode>
 | `backend` | Ruff format/check、strict mypy、单一 Alembic head、pytest+coverage | 否；integration/external 自动跳过 |
 | `frontend` | ESLint、Next production build | 否 |
 | `quick` | docs + backend + frontend + 门禁负向自检；默认 PR/本地门禁 | 否 |
-| `security` | Bandit、对 `uv.lock` 导出的完整依赖集执行 pip-audit、从 production API image 生成 Python runtime CycloneDX SBOM | 需要包索引网络与 Docker |
+| `security` | Bandit、对 `uv.lock` 导出的完整依赖集执行 pip-audit、对 production npm 依赖执行 high/critical `npm audit`、从 production API image 生成 Python runtime CycloneDX SBOM | 需要包索引网络与 Docker |
 | `migration` | 对专用测试库执行 Alembic upgrade/check | 是 |
 | `integration` | 真实 PostgreSQL/Redis/Qdrant，全套 `not external` | 是 |
 | `external` | 根 `.env` 配置的真实 Provider 测试 | 是，可能计费 |
