@@ -3,22 +3,89 @@
 
 默认只启动 MVP 前端，避免在前端设计阶段无意拉起数据库或 API。
 需要同时调试本地 FastAPI 时，显式传入 ``--api``；该模式会先启动开发
-依赖、执行迁移，再并行运行 API 与前端。这个脚本不会读取、打印或修改
-``.env`` 中的任何密钥。
+依赖、执行迁移，再并行运行 API 与前端。为让宿主机 API 使用 compose
+发布的服务，脚本只读取连接地址并在子进程内转换 Docker 服务名；不会打印
+或修改 ``.env`` 中的任何值。
 """
 
 from __future__ import annotations
 
 import argparse
+import os
 import shutil
 import subprocess
 import sys
 from pathlib import Path
+from urllib.parse import urlsplit, urlunsplit
 
 
 ROOT = Path(__file__).resolve().parent
 FRONTEND_DIR = ROOT / "apps" / "mvp"
 API_DIR = ROOT / "apps" / "api"
+LOCAL_SERVICE_HOSTS = {
+    "postgres": "127.0.0.1",
+    "redis": "127.0.0.1",
+    "qdrant": "127.0.0.1",
+}
+
+
+def read_root_environment() -> dict[str, str]:
+    """Read root configuration for child-process adaptation without logging it."""
+
+    env_file = ROOT / ".env"
+    if not env_file.is_file():
+        return {}
+
+    values: dict[str, str] = {}
+    for raw_line in env_file.read_text(encoding="utf-8").splitlines():
+        line = raw_line.strip()
+        if not line or line.startswith("#") or "=" not in line:
+            continue
+        key, value = line.split("=", 1)
+        values[key.strip()] = value.strip().strip('"').strip("'")
+    return values
+
+
+def replace_service_host(url: str) -> str:
+    """Turn a compose-network URL into its published localhost equivalent."""
+
+    parsed = urlsplit(url)
+    replacement = LOCAL_SERVICE_HOSTS.get(parsed.hostname or "")
+    if replacement is None:
+        return url
+
+    user_info, separator, host_port = parsed.netloc.rpartition("@")
+    host_port = host_port if separator else parsed.netloc
+    original_host = parsed.hostname or ""
+    if host_port == original_host:
+        replacement_host_port = replacement
+    elif host_port.startswith(f"{original_host}:"):
+        replacement_host_port = f"{replacement}{host_port[len(original_host):]}"
+    else:
+        return url
+    netloc = f"{user_info}@{replacement_host_port}" if separator else replacement_host_port
+    return urlunsplit((parsed.scheme, netloc, parsed.path, parsed.query, parsed.fragment))
+
+
+def local_api_environment() -> dict[str, str]:
+    """Build host-side FastAPI settings without changing the user's environment file."""
+
+    environment = os.environ.copy()
+    root_environment = read_root_environment()
+    for key in (
+        "GERCLAW_DATABASE_URL",
+        "GERCLAW_REDIS_URL",
+        "GERCLAW_QDRANT_URL",
+    ):
+        value = root_environment.get(key) or environment.get(key)
+        if value:
+            environment[key] = replace_service_host(value)
+
+    knowledge_base = root_environment.get("GERCLAW_KNOWLEDGE_BASE_PATH")
+    local_knowledge_base = ROOT.parent / "本地知识库" / "md"
+    if knowledge_base == "/knowledge-base" and local_knowledge_base.is_dir():
+        environment["GERCLAW_KNOWLEDGE_BASE_PATH"] = str(local_knowledge_base)
+    return environment
 
 
 def require_command(command: str, install_hint: str) -> None:
@@ -27,8 +94,10 @@ def require_command(command: str, install_hint: str) -> None:
         raise RuntimeError(f"未找到 {command}。{install_hint}")
 
 
-def run_checked(command: list[str], *, cwd: Path) -> None:
-    subprocess.run(command, cwd=cwd, check=True)
+def run_checked(
+    command: list[str], *, cwd: Path, env: dict[str, str] | None = None
+) -> None:
+    subprocess.run(command, cwd=cwd, env=env, check=True)
 
 
 def start_frontend(port: int) -> subprocess.Popen[bytes]:
@@ -65,8 +134,9 @@ def start_api_dependencies() -> None:
 def start_local_api() -> subprocess.Popen[bytes]:
     require_command("uv", "请先安装 uv：https://docs.astral.sh/uv/")
     run_checked(["uv", "sync", "--all-extras", "--dev"], cwd=API_DIR)
-    run_checked(["uv", "run", "alembic", "upgrade", "head"], cwd=API_DIR)
-    return subprocess.Popen(["uv", "run", "gerclaw-api"], cwd=API_DIR)
+    environment = local_api_environment()
+    run_checked(["uv", "run", "alembic", "upgrade", "head"], cwd=API_DIR, env=environment)
+    return subprocess.Popen(["uv", "run", "gerclaw-api"], cwd=API_DIR, env=environment)
 
 
 def terminate(process: subprocess.Popen[bytes]) -> None:

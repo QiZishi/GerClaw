@@ -81,7 +81,7 @@ Next.js BFF ── short-lived JWT ──> FastAPI/API boundary
 python3 app.py
 ```
 
-它默认只启动当前 MVP 前端（`http://127.0.0.1:3000`），不会无意启动数据服务；前端设计与体验验收阶段推荐使用这个命令。需要本地联调 API 时使用 `python3 app.py --api`，脚本会启动开发数据依赖、执行迁移，并同时启动 FastAPI 与前端。`python3 app.py --help` 可查看端口等选项。
+它默认只启动当前 MVP 前端（`http://127.0.0.1:3000`），不会无意启动数据服务；前端设计与体验验收阶段推荐使用这个命令。需要本地联调 API 时使用 `python3 app.py --api`，脚本会启动开发数据依赖、执行迁移，并同时启动 FastAPI 与前端；当根 `.env` 使用 Docker 服务名时，脚本只在宿主机 API 子进程中改用已发布的 localhost 地址，不修改或打印配置值。`python3 app.py --help` 可查看端口等选项。
 
 ### 1. 配置
 

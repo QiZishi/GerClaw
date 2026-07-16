@@ -25,6 +25,9 @@ if (unsafePublicKeys.length > 0) {
 }
 
 const nextConfig: NextConfig = {
+  // `app.py` 明确向用户展示 127.0.0.1 地址；允许它与 localhost 一样接入
+  // 开发期 HMR，避免正常本地体验持续产生跨源 WebSocket 报错。
+  allowedDevOrigins: ["127.0.0.1", "localhost"],
   // 使用服务端运行时以支持 API Routes（LLM/ASR/TTS/搜索代理）
   // 解决浏览器端直接调用外部 API 的 CORS 问题
   // 部署时需选择支持 Node.js 运行时的平台（如 Vercel / IGA Pages with Functions）
