@@ -100,7 +100,6 @@ apps/mvp/
 │   │   ├── document/           # MinerU文档解析封装
 │   │   └── api-client.ts       # 统一API客户端基类（超时/重试/降级/熔断）
 │   ├── lib/                    # 工具函数/常量/配置加载
-│   │   ├── config.ts           # 环境变量加载与Zod校验
 │   │   ├── storage.ts          # localStorage封装
 │   │   ├── utils.ts            # 通用工具（cn等）
 │   │   ├── audio.ts            # 音频处理（PCM解码、WAV编码、Web Audio播放）
@@ -176,7 +175,7 @@ apps/mvp/
 - 统一超时：每个API调用通过AbortController设置超时（见RELIABILITY.md超时策略）
 - 重试逻辑：services层实现指数退避重试（可重试错误才重试）
 - 主备切换：llm.ts实现主→备1→备2自动切换；search.ts实现AnySearch→Tavily兜底
-- API Key从环境变量读取，经src/lib/config.ts校验后使用，不在组件中直接process.env
+- Provider API Key、URL 和模型名只由 server-only BFF 模块从仓库根 `.env` 读取；浏览器组件不得读取任何 Provider 环境变量
 - 流式响应：使用Vercel AI SDK处理SSE流（LLM），手动处理ReadableStream（ASR/TTS）
 - 关键操作添加AbortController支持；用户停止生成先走显式后端取消协议，AbortController 仅作为取消端点失败或页面卸载时的 transport 兜底。
 
