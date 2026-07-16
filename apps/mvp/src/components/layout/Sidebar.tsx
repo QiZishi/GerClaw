@@ -650,13 +650,13 @@ function SessionItem({
       {/* 操作按钮 */}
       <div className={cn(
         "flex items-center gap-0.5 opacity-0 group-hover:opacity-100 focus-within:opacity-100 transition-opacity duration-150 ease-out",
-        seniorMode && "justify-end gap-2 opacity-100"
+        seniorMode && "grid w-full grid-cols-3 gap-1.5 opacity-100"
       )}>
         <button
           type="button"
           className={cn(
             "p-1.5 rounded-lg hover:bg-background text-muted-foreground hover:text-foreground transition-colors",
-            seniorMode && "inline-flex min-h-12 items-center gap-1.5 px-3 text-base"
+            seniorMode && "inline-flex min-h-12 min-w-0 flex-col justify-center gap-0.5 px-1 text-lg leading-tight whitespace-normal"
           )}
           onClick={(e) => {
             e.stopPropagation();
@@ -671,7 +671,7 @@ function SessionItem({
           type="button"
           className={cn(
             "p-1.5 rounded-lg hover:bg-background text-muted-foreground hover:text-foreground transition-colors",
-            seniorMode && "inline-flex min-h-12 items-center gap-1.5 px-3 text-base"
+            seniorMode && "inline-flex min-h-12 min-w-0 flex-col justify-center gap-0.5 px-1 text-lg leading-tight whitespace-normal"
           )}
           onClick={(e) => {
             e.stopPropagation();
@@ -686,7 +686,7 @@ function SessionItem({
           type="button"
           className={cn(
             "p-1.5 rounded-lg hover:bg-background text-muted-foreground hover:text-destructive transition-colors",
-            seniorMode && "inline-flex min-h-12 items-center gap-1.5 px-3 text-base"
+            seniorMode && "inline-flex min-h-12 min-w-0 flex-col justify-center gap-0.5 px-1 text-lg leading-tight whitespace-normal"
           )}
           onClick={(e) => {
             e.stopPropagation();

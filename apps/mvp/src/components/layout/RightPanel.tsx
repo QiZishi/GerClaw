@@ -137,7 +137,7 @@ export function RightPanel() {
   }
 
   const title = PANEL_TITLES[rightPanelType] ?? "面板";
-  const isMobile = typeof window !== "undefined" && window.innerWidth < 768;
+  const isMobile = typeof window !== "undefined" && window.innerWidth < 1280;
   const mobileTransition = reducedMotion ? "" : "transition-transform duration-250 ease-out";
   const desktopTransition = reducedMotion ? "" : "transition-all duration-250 ease-out";
   const opacityTransitionClass = reducedMotion ? "" : "transition-opacity duration-250 ease-out";
@@ -147,7 +147,7 @@ export function RightPanel() {
       {/* 移动端遮罩 */}
       <div
         className={cn(
-          "fixed inset-0 z-30 bg-black/40 md:hidden",
+          "fixed inset-0 z-30 bg-black/40 xl:hidden",
           opacityTransitionClass,
           visible ? "opacity-100" : "opacity-0 pointer-events-none"
         )}
@@ -157,7 +157,7 @@ export function RightPanel() {
       <aside
         className={cn(
           "fixed right-0 top-0 z-40 h-full bg-background border-l border-border flex flex-col overflow-hidden",
-          "md:relative md:z-auto",
+          "xl:relative xl:z-auto",
           isMobile ? "w-full" : "shrink-0",
           isMobile
             ? cn(mobileTransition, visible ? "translate-x-0" : "translate-x-full")
@@ -176,7 +176,7 @@ export function RightPanel() {
         <div
           onMouseDown={handleMouseDown}
           onKeyDown={handleResizeKeyDown}
-          className="absolute left-0 top-0 bottom-0 hidden w-3 cursor-col-resize items-center justify-center transition-colors hover:bg-primary/20 active:bg-primary/30 md:flex"
+          className="absolute left-0 top-0 bottom-0 hidden w-3 cursor-col-resize items-center justify-center transition-colors hover:bg-primary/20 active:bg-primary/30 xl:flex"
           role="separator"
           tabIndex={0}
           aria-orientation="vertical"

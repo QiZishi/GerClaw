@@ -1,5 +1,6 @@
 "use client";
 
+import { useEffect } from "react";
 import { Menu, PanelLeftClose, Plus } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Sheet, SheetContent, SheetTrigger } from "@/components/ui/sheet";
@@ -35,6 +36,20 @@ export default function Home() {
   const setCurrentSession = useAppStore((s) => s.setCurrentSession);
   const isSeniorPatient = role === "patient" && seniorMode;
 
+  // Sheet 内容通过 Portal 渲染；跨过宽桌面断点时必须主动关闭，
+  // 否则旧的遮罩会停留在页面上并遮挡桌面布局。
+  useEffect(() => {
+    const closeDrawerOnWideViewport = () => {
+      if (window.innerWidth >= 1280) {
+        setMobileSidebarOpen(false);
+      }
+    };
+
+    closeDrawerOnWideViewport();
+    window.addEventListener("resize", closeDrawerOnWideViewport);
+    return () => window.removeEventListener("resize", closeDrawerOnWideViewport);
+  }, [setMobileSidebarOpen]);
+
   const handleQuickNew = () => {
     const id = createSession(role);
     setCurrentSession(id);
@@ -42,16 +57,16 @@ export default function Home() {
 
   return (
     <div className="flex h-screen w-full overflow-hidden bg-background relative">
-      {/* 桌面端侧边栏（仅展开时渲染）*/}
+      {/* 宽桌面侧边栏（窄桌面与平板改用抽屉，优先保留聊天区宽度）*/}
       {!sidebarCollapsed && (
-        <div className="hidden md:flex h-full">
+        <div className="hidden xl:flex h-full">
           <Sidebar />
         </div>
       )}
 
       {/* 折叠时浮动顶栏：展开按钮 + 新建对话按钮（左上角并排）*/}
       {sidebarCollapsed && (
-        <div className="hidden md:flex absolute top-2 left-2 z-30 items-center gap-1">
+        <div className="hidden xl:flex absolute top-2 left-2 z-30 items-center gap-1">
           <Tooltip>
             <TooltipTrigger
               render={
@@ -95,8 +110,8 @@ export default function Home() {
         </div>
       )}
 
-      {/* 移动端侧边栏（Sheet 抽屉）*/}
-      <div className="md:hidden">
+      {/* 窄屏侧边栏（Sheet 抽屉）*/}
+      <div className="xl:hidden">
         <Sheet
           open={mobileSidebarOpen}
           onOpenChange={setMobileSidebarOpen}
@@ -106,7 +121,7 @@ export default function Home() {
               <Button
                 variant="ghost"
                 size="default"
-                className="btn-icon absolute top-2 left-2 z-20 min-h-12 gap-2 bg-background/95 px-3 text-base shadow-sm md:hidden"
+                className="btn-icon absolute top-2 left-2 z-20 min-h-12 gap-2 bg-background/95 px-3 text-base shadow-sm xl:hidden"
                 aria-label="打开菜单"
               />
             }
