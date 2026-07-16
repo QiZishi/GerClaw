@@ -63,6 +63,15 @@ class SessionRead(BaseModel):
     updated_at: datetime
 
 
+class SessionDeleted(BaseModel):
+    """Irreversible owner-scoped deletion acknowledgement without session contents."""
+
+    model_config = STRICT
+
+    session_id: uuid.UUID
+    deleted: Literal[True] = True
+
+
 class ChatMessageRead(BaseModel):
     """Decrypted message visible only to its authenticated owner."""
 

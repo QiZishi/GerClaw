@@ -22,7 +22,7 @@
 | AI-04 | AnySearch→Tavily | `modules/search` | provider failover、网页隔离、引用 | ✅ 0018 独立 PASS |
 | AI-05 | Voice 后端 | `modules/input_output` 或 voice | ASR/TTS schema、PCM16 流、取消、故障 | 🚧 Next.js 服务端 BFF 已以非公开环境变量调用真实 MiMo ASR/TTS，并有 Zod/大小格式/音色约束、超时取消、安全阀和稳定错误；TTS WAV 实测成功。缺 FastAPI Runtime Harness adapter、PCM16 流、统一 schema/version、审计和完整故障评测 |
 | AI-06 | Privacy | security、harness safety | PHI/凭证、注入、诊断、红旗、自伤、免责声明 | 🚧 核心规则分散，缺独立完整模块 |
-| AI-07 | MinerU Document | document module、上传 UI | PDF/Office/MD/TXT 真实解析、轮询、重试 | 🚧 Next.js BFF 已真实完成签名上传、轮询和 Markdown 下载；FastAPI 已登记加密会话文档。私有向量检索、长文档检索、跨会话保留、医生授权与病毒扫描待完成 |
+| AI-07 | MinerU Document | document module、上传 UI | PDF/Office/MD/TXT 真实解析、轮询、重试 | 🚧 Next.js BFF 已真实完成签名上传、轮询和 Markdown 下载；FastAPI 已登记加密会话文档，删除会话会级联擦除会话消息、文档、临床收集及会话绑定审批/检查点。私有向量检索、长文档检索、跨会话保留、医生授权与病毒扫描待完成 |
 | AI-08 | Provider capability/version | services/adapters | schema/version/能力协商与不兼容拒绝 | 🚧 AgentScope 版本固定，其他 adapter 合同未统一 |
 | CLN-01 | CGA 后端闭环 | cga module/API/UI | 量表、答案、确定性计分、报告、历史 | 🚧 PHQ-9、SAS、PSQI 已具版本化 FastAPI 状态机、确定性计分、患者端真实 API、报告导出与本人历史；Mini-Cog/MMSE 的人工确认、医生授权与历史比较待完成 |
 | CLN-02 | 五大处方后端闭环 | prescription module/API/UI | 模板 JSON、四重校验、证据、版本、审批、导出 | 🚧 真实、加密、版本化的最小信息收集与 MinerU 资料绑定已接入；没有医学审核的 JSON 模板、四重校验、证据、报告、导出或医生批准，页面不得生成处方建议 |
@@ -58,7 +58,7 @@
 | SEC-03 | 第三方/依赖/镜像威胁模型 | security/CI | 最小权限、固定版本、响应/替换策略 | 🚧 部分 pin/audit，缺完整威胁模型 |
 | SEC-04 | 服务端安全边界 | auth/middleware/repos | scope/tenant/role/ownership/CSRF/CORS/SSRF/rate limit | 🚧 核心 scope/tenant/SSRF 已有，角色/CSRF 待补 |
 | DATA-01 | 统一 schema/version/兼容 | domain/Zod/API | version、兼容窗口、迁移、unknown fields | 🚧 严格 schema 已有，缺统一版本兼容策略 |
-| DATA-02 | 保留/导出/删除/备份 | privacy/storage | 各数据类别生命周期与可验证删除 | ❌ 缺数据生命周期实现 |
+| DATA-02 | 保留/导出/删除/备份 | privacy/storage | 各数据类别生命周期与可验证删除 | 🚧 会话拥有者现可删除空闲会话，数据库级级联实际擦除会话消息、解析文档、临床收集、会话审批与检查点；健康画像、CGA、慢病、Skill、账户、备份、TTL、导出和可验证删除报告仍未实现 |
 | DATA-03 | PHI 外发最小化与透明度 | privacy/provider audit | 脱敏、目的、处理方、撤回后续处理 | 🚧 版本化 `privacy_redaction` 已真实拦截外部搜索 query 与 FastAPI TTS 正文/style，输出仅含可安全外发文本与 PHI-free 分类计数；缺跨 Provider 外发台账、ASR/MinerU/模型处理、撤回处理与用户透明度 |
 | DATA-04 | 字段级分类与敏感度 | schema registry/privacy policy | 字段分类绑定处理方、存储、日志、Trace/vector/export 和保留规则 | 🚧 已有 `privacy_redaction` 外发类别与 Runtime DataClass，尚缺统一字段注册表、存储/日志/导出规则绑定及全链路强制执行 |
 | DATA-05 | 假名化与受控再识别 | identity vault/privacy/RBAC/audit | 可轮换 token、隔离映射、审批再识别、重识别风险评估 | 🚧 访客伪名主体已有；缺独立映射、审批与风险评估 |

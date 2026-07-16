@@ -10,7 +10,7 @@ from sqlalchemy import select, text
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from gerclaw_api.database.models import ConversationSession, Message, User
+from gerclaw_api.database.models import ConversationSession, ExecutionTrace, Message, User
 
 
 class ConversationConflictError(RuntimeError):
@@ -29,6 +29,11 @@ class ConversationRepository(Protocol):
         self, session_id: uuid.UUID, *, tenant_id: str, actor_id: str
     ) -> ConversationSession | None:
         """Return a session only when both tenant and actor own it."""
+
+    async def delete_session(
+        self, session_id: uuid.UUID, *, tenant_id: str, actor_id: str
+    ) -> bool:
+        """Delete one idle owned session and its database-cascaded session data."""
 
     async def list_messages(
         self, session_id: uuid.UUID, *, tenant_id: str, limit: int
@@ -165,6 +170,28 @@ class SqlAlchemyConversationRepository:
         messages = list((await self._session.scalars(statement)).all())
         messages.reverse()
         return messages
+
+    async def delete_session(
+        self, session_id: uuid.UUID, *, tenant_id: str, actor_id: str
+    ) -> bool:
+        """Physically erase an idle session; running turns must finish or cancel first."""
+
+        conversation = await self._locked_owned_session(
+            session_id, tenant_id=tenant_id, actor_id=actor_id
+        )
+        active_trace_id = conversation.active_fencing_trace_id
+        if active_trace_id is not None:
+            trace_status = await self._session.scalar(
+                select(ExecutionTrace.status).where(
+                    ExecutionTrace.tenant_id == tenant_id,
+                    ExecutionTrace.trace_id == active_trace_id,
+                )
+            )
+            if trace_status == "running":
+                raise ConversationConflictError("conversation has a running execution")
+        await self._session.delete(conversation)
+        await self._session.flush()
+        return True
 
     async def next_fencing_token(self) -> int:
         value = await self._session.scalar(text("SELECT nextval('chat_session_fencing_seq')"))

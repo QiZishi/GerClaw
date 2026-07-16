@@ -27,6 +27,7 @@ from gerclaw_api.domain.chat_schemas import (
     ChatErrorData,
     ChatRequest,
     SessionCreateRequest,
+    SessionDeleted,
     SessionMessagesRead,
     SessionRead,
 )
@@ -154,6 +155,33 @@ async def create_session(
             detail={"code": "CHAT_SESSION_CONFLICT", "message": str(error)},
         ) from error
     return SessionRead.model_validate(conversation)
+
+
+@router.delete("/sessions/{session_id}", response_model=SessionDeleted)
+async def delete_session(
+    session_id: uuid.UUID,
+    request: Request,
+    session: SessionDependency,
+    identity: ChatWriteIdentity,
+) -> SessionDeleted:
+    """Irreversibly delete one idle, caller-owned conversation and session data."""
+
+    await _enforce_rate_limit(request, identity)
+    try:
+        await _conversation_service(session).delete_session(
+            session_id, tenant_id=identity.tenant_id, actor_id=identity.actor_id
+        )
+    except ConversationNotFoundError as error:
+        raise HTTPException(
+            status_code=404,
+            detail={"code": "CHAT_SESSION_NOT_FOUND", "message": "session not found"},
+        ) from error
+    except ConversationConflictError as error:
+        raise HTTPException(
+            status_code=409,
+            detail={"code": "CHAT_SESSION_ACTIVE", "message": "session has a running execution"},
+        ) from error
+    return SessionDeleted(session_id=session_id)
 
 
 @router.get("/sessions/{session_id}/messages", response_model=SessionMessagesRead)

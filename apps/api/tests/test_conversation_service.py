@@ -27,6 +27,7 @@ class _ConversationRepository:
         self.commits = 0
         self.rollbacks = 0
         self.fencing_token = 0
+        self.running_sessions: set[uuid.UUID] = set()
 
     async def ensure_session(
         self, session_id: uuid.UUID, *, tenant_id: str, actor_id: str
@@ -59,6 +60,18 @@ class _ConversationRepository:
         if stored is None or stored[1:] != (tenant_id, actor_id):
             return None
         return stored[0]
+
+    async def delete_session(
+        self, session_id: uuid.UUID, *, tenant_id: str, actor_id: str
+    ) -> bool:
+        if session_id in self.running_sessions:
+            raise ConversationConflictError("conversation has a running execution")
+        stored = self.sessions.get(session_id)
+        if stored is None or stored[1:] != (tenant_id, actor_id):
+            return False
+        del self.sessions[session_id]
+        self.messages = [message for message in self.messages if message.session_id != session_id]
+        return True
 
     async def list_messages(
         self, session_id: uuid.UUID, *, tenant_id: str, limit: int
@@ -307,6 +320,38 @@ async def test_conversation_lifecycle_history_and_replay() -> None:
         )
     await service.rollback()
     assert repository.rollbacks == 1
+
+
+@pytest.mark.asyncio
+async def test_delete_session_erases_only_an_idle_owned_session() -> None:
+    repository = _ConversationRepository()
+    service = ConversationService(repository)
+    session_id = uuid.uuid4()
+    await service.create_session(session_id, tenant_id=TENANT, actor_id=ACTOR)
+
+    await service.delete_session(session_id, tenant_id=TENANT, actor_id=ACTOR)
+
+    assert session_id not in repository.sessions
+    assert repository.commits == 2
+    with pytest.raises(ConversationNotFoundError):
+        await service.require_session(session_id, tenant_id=TENANT, actor_id=ACTOR)
+    with pytest.raises(ConversationNotFoundError):
+        await service.delete_session(session_id, tenant_id=TENANT, actor_id=ACTOR)
+
+
+@pytest.mark.asyncio
+async def test_delete_session_rejects_running_or_other_principal_sessions() -> None:
+    repository = _ConversationRepository()
+    service = ConversationService(repository)
+    session_id = uuid.uuid4()
+    await service.create_session(session_id, tenant_id=TENANT, actor_id=ACTOR)
+    repository.running_sessions.add(session_id)
+
+    with pytest.raises(ConversationConflictError, match="running execution"):
+        await service.delete_session(session_id, tenant_id=TENANT, actor_id=ACTOR)
+    assert session_id in repository.sessions
+    with pytest.raises(ConversationNotFoundError):
+        await service.delete_session(session_id, tenant_id=TENANT, actor_id="usr_other00000001")
 
 
 def test_persisted_message_schema_failures_are_closed() -> None:
