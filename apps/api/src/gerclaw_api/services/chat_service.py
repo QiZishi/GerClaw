@@ -97,6 +97,27 @@ def _finish_id() -> str:
     return f"finish_{uuid.uuid4().hex}"
 
 
+def _runtime_principal(identity: AuthContext, *, user_id: uuid.UUID | None) -> RuntimePrincipal:
+    """Project a verified API identity without inventing clinician authority.
+
+    A patient proof is limited to the caller's own conversation subject. A
+    doctor account remains a doctor identity, but receives no patient proof
+    until the separately governed patient-authorisation flow exists.
+    """
+
+    role = ActorRole(identity.role)
+    owns_patient_subject = role in {ActorRole.GUEST, ActorRole.PATIENT} and user_id is not None
+    return RuntimePrincipal(
+        tenant_id=identity.tenant_id,
+        actor_id=identity.actor_id,
+        role=role,
+        scopes=identity.scopes,
+        user_id=user_id,
+        patient_id=user_id if owns_patient_subject else None,
+        patient_access_verified=owns_patient_subject,
+    )
+
+
 class ChatService:
     """Execute one idempotent Agent turn and emit success only after commit."""
 
@@ -437,15 +458,7 @@ class ChatService:
             agent_skills=agent_skills,
             loaded_skill_ids=payload.loaded_skills,
             uploaded_documents=uploaded_documents,
-            runtime_principal=RuntimePrincipal(
-                tenant_id=identity.tenant_id,
-                actor_id=identity.actor_id,
-                role=ActorRole.GUEST,
-                scopes=identity.scopes,
-                user_id=conversation.user_id,
-                patient_id=conversation.user_id,
-                patient_access_verified=True,
-            ),
+            runtime_principal=_runtime_principal(identity, user_id=conversation.user_id),
             approval_callback=persist_approval,
         )
         context = await harness.assemble_context(

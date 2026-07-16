@@ -25,7 +25,12 @@ from gerclaw_api.domain.enums import TraceStatus
 from gerclaw_api.domain.trace_schemas import TraceEventCreate, TraceFinishRequest
 from gerclaw_api.modules.memory.models import MemoryUpdateResult
 from gerclaw_api.modules.memory.protocols import MemoryMessage, UserProfile
-from gerclaw_api.services.chat_service import ChatCancellationFinalizationError, ChatService
+from gerclaw_api.modules.runtime.models import ActorRole
+from gerclaw_api.services.chat_service import (
+    ChatCancellationFinalizationError,
+    ChatService,
+    _runtime_principal,
+)
 from gerclaw_api.services.session_lease import SessionBusyError, SessionLeaseLostError
 from gerclaw_api.services.trace_service import TraceStartResult
 
@@ -292,6 +297,37 @@ class _RiskAlertRecorder:
 
     async def sync_chat_red_flag(self, **kwargs: str) -> None:
         self.calls.append(kwargs)
+
+
+@pytest.mark.parametrize(
+    ("role", "expected_role", "has_patient_proof"),
+    [
+        ("guest", ActorRole.GUEST, True),
+        ("patient", ActorRole.PATIENT, True),
+        ("doctor", ActorRole.DOCTOR, False),
+        ("admin", ActorRole.ADMIN, False),
+    ],
+)
+def test_runtime_principal_keeps_account_role_and_never_invents_doctor_patient_access(
+    role: str, expected_role: ActorRole, has_patient_proof: bool
+) -> None:
+    user_id = uuid.uuid4()
+    principal = _runtime_principal(
+        AuthContext(
+            actor_id="usr_patient_unit0001",
+            tenant_id="tenant_public0001",
+            role=cast(Any, role),
+            scopes=frozenset({"chat:write"}),
+        ),
+        user_id=user_id,
+    )
+
+    assert principal.role is expected_role
+    assert principal.patient_access_verified is has_patient_proof
+    if has_patient_proof:
+        assert principal.patient_id == user_id
+    else:
+        assert principal.patient_id is None
 
 
 @pytest.mark.parametrize("created", [False, True])
