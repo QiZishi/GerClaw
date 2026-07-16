@@ -80,7 +80,14 @@ def test_deterministic_diagnosis_language_is_removed(unsafe: str, forbidden: str
 
 
 def test_diagnosis_rewrite_does_not_corrupt_explicit_diagnosis_phrase() -> None:
-    assert sanitize_medical_text("明确诊断为冠心病。") == "需由医生进一步评估是否为冠心病。"
+    assert sanitize_medical_text("明确诊断为冠心病。") == (
+        "提示冠心病的可能性，建议由医生进一步评估。"
+    )
+
+
+def test_diagnosis_rewrite_preserves_a_clear_system_limitation() -> None:
+    unsafe = "不能对任何疾病作出最终的明确诊断为结论。"
+    assert sanitize_medical_text(unsafe) == "不能对任何疾病作出最终临床判断。"
 
 
 def test_citation_projection_deduplicates_and_bounds_results() -> None:

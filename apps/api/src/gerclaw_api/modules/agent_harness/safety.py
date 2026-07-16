@@ -17,13 +17,29 @@ _CLEARLY_NON_MEDICAL = re.compile(
     r"^(?:你好|您好|嗨|谢谢|多谢|再见|你是谁|你能做什么|怎么使用|帮助|help)[！!。.\s]*$",
     re.IGNORECASE,
 )
-_DETERMINISTIC_DIAGNOSIS_REWRITES: tuple[tuple[re.Pattern[str], str], ...] = (
+_MALFORMED_LIMITATION_DIAGNOSIS = re.compile(
+    r"(?P<prefix>(?:不能|无法|不应|不得)[^。！？!?；;\n]{0,80}?)"
+    r"(?:明确(?:临床)?诊断|诊断结论|诊断)(?:为|是)结论"
+)
+_DETERMINISTIC_DIAGNOSIS_ASSERTIONS: tuple[re.Pattern[str], ...] = (
     # Match the longer phrase first. Otherwise ``确诊`` can be found across the
     # middle of ``明确诊断`` (明[确诊]断) and corrupt the public sentence.
-    (re.compile(r"(?:已经|已)?明确(?:临床)?诊断(?:为|是)"), "需由医生进一步评估是否为"),
-    (re.compile(r"诊断结论(?:为|是)"), "需由医生进一步评估是否为"),
-    (re.compile(r"(?<!明)(?:已经|已|明确|可以)?确诊(?:为|是)?"), "需由医生进一步评估是否为"),
-    (re.compile(r"(?:已经|已|明确|可以)?诊断(?:为|是)"), "需由医生进一步评估是否为"),
+    re.compile(
+        r"(?:已经|已)?明确(?:临床)?诊断(?:为|是)\s*"
+        r"(?P<condition>[^。！？!?；;，,\n]+)"
+    ),
+    re.compile(r"诊断结论(?:为|是)\s*(?P<condition>[^。！？!?；;，,\n]+)"),
+    re.compile(
+        r"(?<!明)(?:已经|已|明确|可以)?确诊(?:为|是)\s*"
+        r"(?P<condition>[^。！？!?；;，,\n]+)"
+    ),
+    re.compile(
+        r"(?:已经|已|明确|可以)?诊断(?:为|是)\s*"
+        r"(?P<condition>[^。！？!?；;，,\n]+)"
+    ),
+)
+_DETERMINISTIC_DIAGNOSIS_REWRITES: tuple[tuple[re.Pattern[str], str], ...] = (
+    (re.compile(r"(?<!明)(?:已经|已|明确|可以)?确诊(?![为是])"), "尚需由医生进一步评估"),
     (re.compile(r"(?:您|患者|病人)(?:已经|已)?患有"), "您可能存在"),
     (re.compile(r"(?:您|患者|病人)(?:已经|已)?(?:得了|就是得了)"), "您可能存在"),
     (re.compile(r"(?:一定|肯定|必然)(?:是|患有|属于)"), "可能是"),
@@ -84,7 +100,17 @@ def detect_high_risk(text: str) -> list[str]:
 def sanitize_medical_text(text: str) -> str:
     """Remove deterministic diagnosis assertions before any public emission."""
 
-    sanitized = text
+    def rewrite_malformed_limitation(match: re.Match[str]) -> str:
+        prefix = re.sub(r"最终的?$", "", match.group("prefix").strip())
+        return f"{prefix}最终临床判断"
+
+    def rewrite_assertion(match: re.Match[str]) -> str:
+        condition = match.group("condition").strip()
+        return f"提示{condition}的可能性，建议由医生进一步评估"
+
+    sanitized = _MALFORMED_LIMITATION_DIAGNOSIS.sub(rewrite_malformed_limitation, text)
+    for pattern in _DETERMINISTIC_DIAGNOSIS_ASSERTIONS:
+        sanitized = pattern.sub(rewrite_assertion, sanitized)
     for pattern, replacement in _DETERMINISTIC_DIAGNOSIS_REWRITES:
         sanitized = pattern.sub(replacement, sanitized)
     return sanitized
