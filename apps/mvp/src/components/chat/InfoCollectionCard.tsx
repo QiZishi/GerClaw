@@ -171,7 +171,7 @@ export function QuestionCard({ data, onSubmit, disabled = false }: QuestionCardP
           <div className="flex items-center gap-2">
             <span className="text-lg">📋</span>
             <span className={cn("font-semibold text-foreground", labelSize)}>信息补充</span>
-            <span className={cn("text-muted-foreground", seniorMode ? "text-base" : "text-sm")}>
+            <span className={cn("text-muted-foreground", seniorMode ? "text-lg" : "text-sm")}>
               第{data.round}轮/最多{data.maxRounds}轮
             </span>
           </div>
@@ -186,7 +186,7 @@ export function QuestionCard({ data, onSubmit, disabled = false }: QuestionCardP
                   <CheckCircle2 className="size-4 text-green-500 shrink-0" />
                   {q.label}
                 </div>
-                <p className={cn("text-foreground/80 pl-6", seniorMode ? "text-base" : "text-sm")}>
+                <p className={cn("text-foreground/80 pl-6", seniorMode ? "text-lg" : "text-sm")}>
                   {answer}
                 </p>
               </div>
@@ -203,7 +203,7 @@ export function QuestionCard({ data, onSubmit, disabled = false }: QuestionCardP
         <div className="flex items-center gap-2">
           <span className="text-lg">📋</span>
           <span className={cn("font-semibold text-foreground", labelSize)}>信息补充</span>
-          <span className={cn("text-muted-foreground bg-muted/60 px-2 py-0.5 rounded-full", seniorMode ? "text-sm" : "text-xs")}>
+            <span className={cn("text-muted-foreground bg-muted/60 px-2 py-0.5 rounded-full", seniorMode ? "text-lg" : "text-xs")}>
             第{data.round}轮/最多{data.maxRounds}轮
           </span>
         </div>
@@ -222,7 +222,7 @@ export function QuestionCard({ data, onSubmit, disabled = false }: QuestionCardP
                   labelSize
                 )}
               >
-                <span className="inline-flex items-center justify-center size-5 rounded-full bg-primary/10 text-primary text-xs font-semibold shrink-0">
+                <span className={cn("inline-flex items-center justify-center rounded-full bg-primary/10 text-primary font-semibold shrink-0", seniorMode ? "size-6 text-sm" : "size-5 text-xs")}>
                   {idx + 1}
                 </span>
                 {question.label}
@@ -262,7 +262,7 @@ export function QuestionCard({ data, onSubmit, disabled = false }: QuestionCardP
                     isActive
                       ? "bg-red-700 text-white shadow-sm ring-2 ring-red-700/20 dark:bg-red-500 dark:ring-red-400/30"
                       : "text-muted-foreground hover:text-foreground hover:bg-muted",
-                    seniorMode ? "min-h-12 gap-1.5 px-3 text-base" : "size-8",
+                    seniorMode ? "min-h-12 gap-1.5 px-3 text-lg" : "size-8",
                     "disabled:opacity-50 disabled:cursor-not-allowed"
                   )}
                   aria-label={
@@ -292,7 +292,7 @@ export function QuestionCard({ data, onSubmit, disabled = false }: QuestionCardP
                 <p
                   className={cn(
                     "flex items-center gap-1.5 text-red-700 dark:text-red-300",
-                    seniorMode ? "text-base" : "text-sm"
+                    seniorMode ? "text-lg" : "text-sm"
                   )}
                   role="status"
                   aria-live="polite"
@@ -313,7 +313,7 @@ export function QuestionCard({ data, onSubmit, disabled = false }: QuestionCardP
           className={cn(
             "gap-2 rounded-xl",
             btnMinHeight,
-            seniorMode ? "text-base px-6" : "text-sm px-4"
+            seniorMode ? "text-lg px-6" : "text-sm px-4"
           )}
         >
           <Send className="size-4" />
@@ -344,12 +344,12 @@ export function StageIndicator({ title, description, active = true }: StageIndic
         {active ? <Clock3 className="size-4" /> : <CheckCircle2 className="size-4" />}
       </div>
       <div className="min-w-0">
-        <p className={cn("font-medium text-foreground", seniorMode ? "text-base" : "text-sm")} aria-live="polite">
+        <p className={cn("font-medium text-foreground", seniorMode ? "text-lg" : "text-sm")} aria-live="polite">
           {title}
           {active && <span className="ml-2 text-muted-foreground">进行中</span>}
         </p>
         {description && (
-          <p className={cn("text-muted-foreground", seniorMode ? "text-sm" : "text-xs")}>
+          <p className={cn("text-muted-foreground", seniorMode ? "text-lg" : "text-xs")}>
             {description}
           </p>
         )}

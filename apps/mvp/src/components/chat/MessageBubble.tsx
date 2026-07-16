@@ -554,7 +554,7 @@ export function MessageBubble({
                           <div className="flex items-center gap-2 mb-3">
                             <span className="text-lg">📋</span>
                             <span className={cn("font-semibold text-foreground", seniorMode ? "text-lg" : "text-base")}>信息补充</span>
-                            <span className={cn("text-muted-foreground bg-muted/60 px-2 py-0.5 rounded-full", seniorMode ? "text-sm" : "text-xs")}>
+                            <span className={cn("text-muted-foreground bg-muted/60 px-2 py-0.5 rounded-full", seniorMode ? "text-lg" : "text-xs")}>
                               第{block.data.round}轮
                             </span>
                           </div>
@@ -563,11 +563,11 @@ export function MessageBubble({
                               const answer = block.data.answers[q.id] || "";
                               return (
                                 <div key={q.id} className="space-y-0.5">
-                                  <div className={cn("font-medium text-foreground flex items-center gap-2", seniorMode ? "text-base" : "text-sm")}>
+                                  <div className={cn("font-medium text-foreground flex items-center gap-2", seniorMode ? "text-lg" : "text-sm")}>
                                     <Check className="size-4 text-green-500 shrink-0" />
                                     {q.label}
                                   </div>
-                                  <p className={cn("text-foreground/80 pl-6", seniorMode ? "text-sm" : "text-xs")}>
+                                  <p className={cn("text-foreground/80 pl-6", seniorMode ? "text-lg" : "text-xs")}>
                                     {answer}
                                   </p>
                                 </div>
