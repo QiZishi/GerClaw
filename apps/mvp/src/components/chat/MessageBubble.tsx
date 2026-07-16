@@ -95,6 +95,32 @@ function EmergencyWarningCard({
   );
 }
 
+/**
+ * A streamed answer can contain useful partial text before the server rejects
+ * its final safety check. Put that state at the top of the output, where it
+ * cannot be missed after a long response.
+ */
+function IncompleteAnswerWarning({ seniorMode }: { seniorMode: boolean }) {
+  return (
+    <section
+      role="alert"
+      aria-label="回答未完成提醒"
+      className={cn(
+        "w-full rounded-xl border-2 border-amber-400 bg-amber-50 px-4 py-3 text-amber-950 shadow-sm dark:border-amber-500 dark:bg-amber-950/30 dark:text-amber-100",
+        seniorMode && "p-4"
+      )}
+    >
+      <div className={cn("flex items-center gap-2 font-bold", seniorMode ? "text-lg" : "text-base")}>
+        <AlertTriangle aria-hidden className={cn("shrink-0", seniorMode ? "size-6" : "size-5")} />
+        <span>本次回答未完成</span>
+      </div>
+      <p className={cn("mt-2 leading-relaxed", seniorMode ? "text-lg" : "text-sm")}>
+        以下内容未经最终安全校验，请勿据此调整治疗或用药。您可以重新生成，或咨询医生。
+      </p>
+    </section>
+  );
+}
+
 interface MessageBubbleProps {
   message: Message;
   onRegenerate?: (id: string) => void;
@@ -433,6 +459,7 @@ export function MessageBubble({
             seniorMode={seniorMode}
           />
         )}
+        {!isUser && errorAssistant && <IncompleteAnswerWarning seniorMode={seniorMode} />}
         <div
           className={cn(
             "rounded-2xl px-4 py-2.5 shadow-sm",
