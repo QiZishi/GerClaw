@@ -50,6 +50,15 @@ security_gate() {
       --no-annotate --output-file "${audit_requirements}" >/dev/null
     uvx pip-audit --strict --requirement "${audit_requirements}"
   )
+  step "Production Python runtime SBOM"
+  cd "${ROOT_DIR}"
+  docker compose build api
+  sbom_output="$(mktemp)"
+  trap 'rm -f "${sbom_output}"' EXIT
+  python3 "${ROOT_DIR}/scripts/generate_runtime_sbom.py" \
+    --image "${GERCLAW_API_IMAGE:-gerclaw-api}" \
+    --lock "${API_DIR}/uv.lock" \
+    --output "${sbom_output}"
 }
 
 require_integration_env() {

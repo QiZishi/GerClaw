@@ -221,36 +221,25 @@ class MiMoVoiceModule:
 def create_voice_module(settings: Settings) -> MiMoVoiceModule | None:
     """Create the adapter only when all required provider settings are present."""
 
-    required = (
-        settings.mimo_asr_url,
-        settings.mimo_tts_url,
-        settings.mimo_api_key,
-        settings.asr_model,
-        settings.tts_model,
-        settings.tts_voice,
-    )
-    if any(value is None for value in required):
+    if (
+        settings.mimo_asr_url is None
+        or settings.mimo_tts_url is None
+        or settings.mimo_api_key is None
+        or settings.asr_model is None
+        or settings.tts_model is None
+        or settings.tts_voice is None
+    ):
         return None
     tts_voice = settings.tts_voice
     if tts_voice not in VOICE_NAMES:
         raise ValueError("configured TTS voice is not allowlisted")
-    api_key = settings.mimo_api_key
-    asr_model = settings.asr_model
-    tts_model = settings.tts_model
-    asr_url = settings.mimo_asr_url
-    tts_url = settings.mimo_tts_url
-    assert api_key is not None
-    assert asr_model is not None
-    assert tts_model is not None
-    assert asr_url is not None
-    assert tts_url is not None
     return MiMoVoiceModule(
-        asr_url=str(asr_url),
-        tts_url=str(tts_url),
-        api_key=api_key.get_secret_value(),
+        asr_url=str(settings.mimo_asr_url),
+        tts_url=str(settings.mimo_tts_url),
+        api_key=settings.mimo_api_key.get_secret_value(),
         auth_header=settings.mimo_auth_header,
-        asr_model=asr_model,
-        tts_model=tts_model,
+        asr_model=settings.asr_model,
+        tts_model=settings.tts_model,
         default_voice=cast(VoiceName, tts_voice),
         timeout_seconds=settings.external_request_timeout_seconds,
     )

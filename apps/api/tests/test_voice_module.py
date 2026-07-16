@@ -42,11 +42,7 @@ async def test_voice_module_parses_asr_and_pcm16_sse_without_retaining_payloads(
             200,
             text=_sse(
                 [
-                    {
-                        "choices": [
-                            {"delta": {"audio": {"data": base64.b64encode(pcm).decode()}}}
-                        ]
-                    },
+                    {"choices": [{"delta": {"audio": {"data": base64.b64encode(pcm).decode()}}}]},
                     {"choices": []},
                 ]
             ),
@@ -112,13 +108,7 @@ async def test_voice_tts_redacts_text_and_style_before_provider_egress() -> None
         return httpx.Response(
             200,
             text=_sse(
-                [
-                    {
-                        "choices": [
-                            {"delta": {"audio": {"data": base64.b64encode(pcm).decode()}}}
-                        ]
-                    }
-                ]
+                [{"choices": [{"delta": {"audio": {"data": base64.b64encode(pcm).decode()}}}]}]
             ),
         )
 
@@ -135,8 +125,7 @@ async def test_voice_tts_redacts_text_and_style_before_provider_egress() -> None
     )
     try:
         chunks = [
-            chunk
-            async for chunk in module.synthesize(raw_text, voice="冰糖", style=raw_style)
+            chunk async for chunk in module.synthesize(raw_text, voice="冰糖", style=raw_style)
         ]
         assert chunks == [pcm]
     finally:

@@ -16,7 +16,7 @@ scripts/quality-gate.sh <mode>
 | `backend` | Ruff format/check、strict mypy、单一 Alembic head、pytest+coverage | 否；integration/external 自动跳过 |
 | `frontend` | ESLint、Next production build | 否 |
 | `quick` | docs + backend + frontend + 门禁负向自检；默认 PR/本地门禁 | 否 |
-| `security` | Bandit、对 `uv.lock` 导出的完整依赖集执行 pip-audit | 需要包索引网络 |
+| `security` | Bandit、对 `uv.lock` 导出的完整依赖集执行 pip-audit、从 production API image 生成 Python runtime CycloneDX SBOM | 需要包索引网络与 Docker |
 | `migration` | 对专用测试库执行 Alembic upgrade/check | 是 |
 | `integration` | 真实 PostgreSQL/Redis/Qdrant，全套 `not external` | 是 |
 | `external` | 根 `.env` 配置的真实 Provider 测试 | 是，可能计费 |
@@ -46,7 +46,7 @@ cd ../mvp && npm ci
 
 `e2e` 必须设置 `GERCLAW_E2E_BASE_URL`，且只接受显式的 `http://127.0.0.1:<port>` 或 `http://localhost:<port>`，避免门禁意外操作外部站点。
 
-`docker` 需要 Docker daemon，并读取 `.env` 或 `.env.example` 对应变量。生产镜像验收不得使用 development placeholder。
+`docker` 与 `security` 的 SBOM 步骤需要 Docker daemon，并读取 `.env` 或 `.env.example` 对应变量。生产镜像验收不得使用 development placeholder。SBOM 的组件范围、许可证未知项和发布复审规则见 [SUPPLY_CHAIN](SUPPLY_CHAIN.md)。
 
 若宿主机未发布数据服务端口，或需要验证容器网络中的完整真实依赖路径，可运行 `docker compose --profile test up --build --abort-on-container-exit --exit-code-from test-api test-api`。该 profile 只创建/使用 `*_test` PostgreSQL 库和 Redis DB 15，测试镜像与 production API image 分离，且默认排除 `external` Provider 调用。
 

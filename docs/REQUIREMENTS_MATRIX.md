@@ -51,7 +51,7 @@
 | OPS-04 | ≤10 并发 | integration/perf | 隔离、幂等、限流、取消、p50/p95 | 🚧 已有 Compose API 的 10 并发安全短路 SSE 报告（p50 153ms/p95 154ms、10/10 done、跨访客 404）；完整临床 workflow、取消/限流/幂等的统一负载仍待补齐 |
 | OPS-05 | Docker 全栈 | Dockerfiles/compose | 空卷启动、迁移、health、重启、非 root | 🚧 基础 compose/Dockerfile 有，最终应用验收未做 |
 | OPS-06 | 故障注入 | unit/integration/e2e | 断流/429/5xx/依赖中断/lost-ack/竞争/重启 | 🚧 RAG/Chat 有较强覆盖，临床/Document/HITL 缺失 |
-| OPS-07 | 供应链/SBOM | locks/CI/images | 固定版本、audit、SBOM、许可证、升级策略 | 🚧 lock/audit/CI pin 有，缺 SBOM/许可证策略 |
+| OPS-07 | 供应链/SBOM | locks/CI/images | 固定版本、audit、SBOM、许可证、升级策略 | 🚧 lock/audit/CI pin 有；`security` 可从实际 production API image 生成 Python runtime CycloneDX SBOM，许可证未知项显式报告。Debian/npm runtime 清单、法务复审与发布签名仍待最终交付阶段。 |
 | OPS-08 | 千级扩展容量规划 | architecture/perf | 容量模型、背压、水平扩展、成本、压测计划 | ❌ 仅允许声明已验证的 10 并发范围 |
 | SEC-01 | red-team 与安全 eval | security/eval/bad-case | 攻击语料、复现、回放、修复回归 | 🚧 多项对抗测试已有，缺统一语料与回放 |
 | SEC-02 | 全出口泄露检测 | API/SSE/export/log/trace/vector | PHI/密钥 canary 在所有出口均不出现 | 🚧 核心日志/Trace/vector 已测，导出/临床未覆盖 |
