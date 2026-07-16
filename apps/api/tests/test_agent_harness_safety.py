@@ -40,7 +40,10 @@ def _result(index: int, *, valid: bool = True) -> RetrievalResult:
 def test_medical_classifier_fails_safe_outside_small_talk() -> None:
     assert not is_medical_message("您好！")
     assert not is_medical_message("谢谢")
+    assert not is_medical_message("请说明当前系统有哪些功能与限制？")
+    assert not is_medical_message("为什么上传资料不能直接作为确诊依据？")
     assert is_medical_message("老人最近总是头晕怎么办")
+    assert is_medical_message("上传资料提示头晕，应该怎样诊断？")
     assert is_medical_message("计算 1+1")
 
 

@@ -622,6 +622,30 @@ async def test_non_medical_small_talk_bypasses_evidence(unit_settings: Settings)
 
 
 @pytest.mark.asyncio
+async def test_system_capability_explanation_bypasses_evidence(unit_settings: Settings) -> None:
+    model = _HarnessModel(text="上传资料仅供提取和核验，不能替代医生的综合判断。")
+    rag = _HarnessRAG([])
+    harness = _harness(unit_settings, model=model, rag=rag)
+    context = await harness.assemble_context(
+        "108815d7-05bf-4c2a-a977-cd034f390fab",
+        "usr_patient00000001",
+        [],
+        [],
+    )
+
+    response = await harness.process_message(
+        "为什么上传资料不能直接作为确诊依据？",
+        "108815d7-05bf-4c2a-a977-cd034f390fab",
+        context,
+        lambda _event: None,
+    )
+
+    assert not response.medical_content
+    assert response.citations == []
+    assert rag.calls == []
+
+
+@pytest.mark.asyncio
 async def test_high_risk_notice_is_first_public_text(unit_settings: Settings) -> None:
     model = _HarnessModel(text="请立即就医。")
     rag = _HarnessRAG([_evidence()])

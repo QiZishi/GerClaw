@@ -17,6 +17,14 @@ _CLEARLY_NON_MEDICAL = re.compile(
     r"^(?:你好|您好|嗨|谢谢|多谢|再见|你是谁|你能做什么|怎么使用|帮助|help)[！!。.\s]*$",
     re.IGNORECASE,
 )
+_SYSTEM_CAPABILITY_EXPLANATION = re.compile(
+    r"^(?:(?:请(?:问|用一句话)?(?:说明|介绍|解释)?|为什么|为何)[，,:：\s]*)?"
+    r"(?:"
+    r"(?:(?:当前|本)?(?:系统|平台|GerClaw).{0,80}(?:功能|能力|限制|边界|使用|上传))"
+    r"|(?:上传(?:资料|文档|文件).{0,48}(?:不能|不可以|为何|为什么).{0,32}(?:确诊依据|诊断依据))"
+    r")[？?。！!\s]*$",
+    re.IGNORECASE,
+)
 _MALFORMED_LIMITATION_DIAGNOSIS = re.compile(
     r"(?P<prefix>(?:不能|无法|不应|不得)[^。！？!?；;\n]{0,80}?)"
     r"(?:明确(?:临床)?诊断|诊断结论|诊断)(?:为|是)结论"
@@ -80,9 +88,13 @@ class EvidenceUnavailableError(RuntimeError):
 
 
 def is_medical_message(text: str) -> bool:
-    """Fail safe: only a narrow conversational allowlist bypasses evidence."""
+    """Fail safe, except for narrow product-capability explanations."""
 
-    return _CLEARLY_NON_MEDICAL.fullmatch(text.strip()) is None
+    candidate = text.strip()
+    return (
+        _CLEARLY_NON_MEDICAL.fullmatch(candidate) is None
+        and _SYSTEM_CAPABILITY_EXPLANATION.fullmatch(candidate) is None
+    )
 
 
 def detect_high_risk(text: str) -> list[str]:
