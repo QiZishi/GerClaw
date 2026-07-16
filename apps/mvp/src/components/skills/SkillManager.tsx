@@ -3,6 +3,14 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { AlertCircle, Bot, FileUp, Plus, RefreshCw, Search } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { toast } from "@/components/ui/toast";
@@ -39,6 +47,7 @@ export function SkillManager() {
   const inspectUpload = useSkillStore((state) => state.inspectUpload);
   const [query, setQuery] = useState("");
   const [editor, setEditor] = useState<EditorState | null>(null);
+  const [deleteTarget, setDeleteTarget] = useState<SkillInfo | null>(null);
   const [busySkillId, setBusySkillId] = useState<string | null>(null);
   const uploadRef = useRef<HTMLInputElement>(null);
 
@@ -102,14 +111,15 @@ export function SkillManager() {
     }
   };
 
-  const handleDelete = async (skill: SkillInfo) => {
-    if (!window.confirm(`删除“${skill.name}”？此操作无法撤销。`)) return;
-    setBusySkillId(skill.skill_id);
+  const confirmDelete = async () => {
+    if (!deleteTarget) return;
+    setBusySkillId(deleteTarget.skill_id);
     try {
-      if (loadedSkillIds.includes(skill.skill_id)) {
-        await updateSelection(loadedSkillIds.filter((id) => id !== skill.skill_id));
+      if (loadedSkillIds.includes(deleteTarget.skill_id)) {
+        await updateSelection(loadedSkillIds.filter((id) => id !== deleteTarget.skill_id));
       }
-      await remove(skill);
+      await remove(deleteTarget);
+      setDeleteTarget(null);
       toast.show("自定义技能已删除");
     } catch (deleteError) {
       toast.show(deleteError instanceof Error ? deleteError.message : "删除失败");
@@ -152,7 +162,7 @@ export function SkillManager() {
                 <span className={cn("flex size-6 items-center justify-center rounded-md border border-primary/25 bg-primary/8 text-primary", seniorMode && "size-12")}>
                   <Bot className={cn("size-3.5", seniorMode && "size-6")} aria-hidden="true" />
                 </span>
-                AgentScope runtime
+                临床工作流
               </div>
               <h1 className={cn("text-2xl font-semibold tracking-tight", seniorMode && "text-3xl")}>
                 临床技能工作台
@@ -167,6 +177,8 @@ export function SkillManager() {
                 type="file"
                 accept=".md,.skill,.zip,text/markdown,application/zip"
                 className="sr-only"
+                tabIndex={-1}
+                aria-hidden="true"
                 onChange={(event) => void handleUpload(event.target.files?.[0])}
               />
               <Button variant="outline" onClick={() => uploadRef.current?.click()} className={cn(seniorMode && "h-12 px-4 text-lg")}>
@@ -247,7 +259,7 @@ export function SkillManager() {
                   onView={() => void handleOpenSkill(skill, "view")}
                   onEdit={() => void handleOpenSkill(skill, "edit")}
                   onEnabledChange={(enabled) => void handleEnabledChange(skill, enabled)}
-                  onDelete={() => void handleDelete(skill)}
+                  onDelete={() => setDeleteTarget(skill)}
                 />
               ))}
             </SkillSection>
@@ -265,6 +277,39 @@ export function SkillManager() {
           seniorMode={seniorMode}
         />
       )}
+      <Dialog
+        open={deleteTarget !== null}
+        onOpenChange={(open) => {
+          if (!open && busySkillId !== deleteTarget?.skill_id) setDeleteTarget(null);
+        }}
+      >
+        <DialogContent showCloseButton={!seniorMode} className={cn("sm:max-w-md", seniorMode && "p-5")}>
+          <DialogHeader>
+            <DialogTitle className={cn("text-destructive", seniorMode && "text-2xl")}>确认删除技能</DialogTitle>
+            <DialogDescription className={cn(seniorMode && "text-lg leading-8")}>
+              删除“{deleteTarget?.name}”后无法恢复；它也会从当前对话中移除。
+            </DialogDescription>
+          </DialogHeader>
+          <DialogFooter className={cn("mt-5", seniorMode && "flex-row justify-end gap-3 p-5")}>
+            <Button
+              variant="outline"
+              className={cn(seniorMode && "min-h-12 text-lg")}
+              disabled={busySkillId === deleteTarget?.skill_id}
+              onClick={() => setDeleteTarget(null)}
+            >
+              取消
+            </Button>
+            <Button
+              variant="destructive"
+              className={cn(seniorMode && "min-h-12 text-lg")}
+              disabled={busySkillId === deleteTarget?.skill_id}
+              onClick={() => void confirmDelete()}
+            >
+              {busySkillId === deleteTarget?.skill_id ? "正在删除" : "确认删除"}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </main>
   );
 }

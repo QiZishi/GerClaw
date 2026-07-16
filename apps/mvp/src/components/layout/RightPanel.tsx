@@ -25,7 +25,6 @@ import { SettingsPanel } from "@/components/settings/SettingsPanel";
 import { HealthProfilePanel } from "@/components/health/HealthProfilePanel";
 import { LAYOUT } from "@/lib/constants";
 
-// 注：技能管理（skills）已迁移至中间栏显示，不再占用右侧面板
 const PANEL_TITLES: Record<NonNullable<RightPanelType>, string> = {
   skills: "技能管理",
   prescription: "五大处方报告",
@@ -254,7 +253,8 @@ function PanelContent({
     case "skills":
       return (
         <div className="flex-1 min-h-0 overflow-y-auto p-4 flex flex-col items-center justify-center gap-2 text-center text-sm text-muted-foreground">
-          技能管理已迁移至中间栏，请点击侧边栏的技能管理按钮。
+          <p className="font-medium text-foreground">在对话主区管理临床技能</p>
+          <p className="leading-6">请关闭此面板后，点击左侧的“技能”继续选择、审阅或创建工作流。</p>
         </div>
       );
 
@@ -326,9 +326,10 @@ function PanelContent({
         );
       }
       return (
-        <div className="flex-1 min-h-0 overflow-y-auto p-4">
-          <DrugReviewPanel />
-        </div>
+        <UnavailablePanel
+          title="还没有用药审查报告"
+          description="请先在对话区启动“用药审查”并保存所需信息。完成真实审查后，结果才会显示在这里；不会使用示例结果代替。"
+        />
       );
 
     case "settings":
@@ -375,27 +376,6 @@ function FilePreviewPanel() {
   }
 
   return <FileUpload onFileParsed={(f) => setSelected(f)} />;
-}
-
-/** 用药审查结果面板（医生端专用，Phase 2 提供真实数据） */
-function DrugReviewPanel() {
-  return (
-    <div className="p-3 space-y-3">
-      <div className="rounded-md border border-border bg-muted/30 p-3 text-sm text-muted-foreground space-y-2">
-        <div className="font-medium text-foreground">用药审查结果</div>
-        <div>正在对接真实处方审查引擎，Phase 2 将支持：</div>
-        <ul className="list-disc pl-4 space-y-1 text-xs">
-          <li>药物相互作用（DDI）检测</li>
-          <li>老年患者 Beers 标准不合理用药筛查</li>
-          <li>重复用药、剂量异常、禁忌症提醒</li>
-          <li>肾功能/肝功能相关剂量调整建议</li>
-        </ul>
-      </div>
-      <div className="rounded-md border border-amber-200 bg-amber-50 dark:border-amber-900/40 dark:bg-amber-950/30 px-3 py-2 text-xs text-amber-800 dark:text-amber-200">
-        AI 审查结果仅供参考，最终处方权归执业医生所有。
-      </div>
-    </div>
-  );
 }
 
 function UnavailablePanel({ title, description }: { title: string; description: string }) {
