@@ -8,6 +8,8 @@ from typing import Literal
 
 from pydantic import BaseModel, ConfigDict, Field
 
+from gerclaw_api.modules.input_output.clinical_intake import ClinicalIntakeKind
+
 
 class ClinicalIntakeFieldRead(BaseModel):
     model_config = ConfigDict(extra="forbid")
@@ -23,7 +25,7 @@ class ClinicalIntakeStartRequest(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     session_id: uuid.UUID
-    kind: Literal["prescription", "medication_review"]
+    kind: ClinicalIntakeKind
 
 
 class ClinicalIntakeUpdateRequest(BaseModel):
@@ -41,7 +43,7 @@ class ClinicalIntakeRead(BaseModel):
 
     intake_id: uuid.UUID
     session_id: uuid.UUID
-    kind: Literal["prescription", "medication_review"]
+    kind: ClinicalIntakeKind
     definition_version: str = Field(min_length=1, max_length=32)
     status: Literal["collecting", "information_complete_pending_governance"]
     revision: int = Field(ge=1)

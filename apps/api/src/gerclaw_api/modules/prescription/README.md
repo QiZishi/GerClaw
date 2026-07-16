@@ -1,6 +1,6 @@
-# Prescription & Medication Intake
+# Five-prescription intake
 
-This is a fail-closed intake module for the future governed five-prescription and medication-review workflows. It stores only caller-provided, minimum discussion context in an encrypted record. It does not call an LLM, RAG, web search, rules engine or clinical tool.
+This is a fail-closed intake module for the future governed five-prescription workflow. It stores only caller-provided, minimum discussion context in an encrypted record. Medication-review collection is independently owned by `modules/medication_review/`. Neither module calls an LLM, RAG, web search, rules engine or clinical tool.
 
 For the five-prescription intake, the caller may attach up to five already parsed, active documents from the same conversation. The intake stores only encrypted document IDs; the MinerU-extracted text remains in the private document store. A later medically governed report may resolve those IDs into its input template and display them as “上传资料依据” for traceability. They are never indexed into the public/local knowledge base and never satisfy the medical-evidence requirement on their own.
 

@@ -202,3 +202,32 @@ async def test_prescription_intake_keeps_owner_scoped_uploaded_documents_as_inpu
     assert documents.calls == [document_id]
     assert updated.answers == {}
     assert updated.status == "collecting"
+
+
+@pytest.mark.asyncio
+async def test_medication_review_rejects_document_references_until_its_own_boundary_exists(
+) -> None:
+    document_id = uuid.uuid4()
+    documents = _DocumentService({document_id})
+    service = ClinicalIntakeService(
+        _Repository(),  # type: ignore[arg-type]
+        documents,  # type: ignore[arg-type]
+    )
+    started = await service.start(
+        tenant_id="tenant_public0001",
+        actor_id="usr_patient_intake0001",
+        session_id=uuid.uuid4(),
+        kind="medication_review",
+    )
+
+    with pytest.raises(ClinicalIntakeConflictError, match="only supported for prescription"):
+        await service.update(
+            started.intake_id,
+            tenant_id="tenant_public0001",
+            actor_id="usr_patient_intake0001",
+            expected_revision=started.revision,
+            answers={},
+            document_ids=[document_id],
+        )
+
+    assert documents.calls == []

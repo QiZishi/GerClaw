@@ -2,7 +2,7 @@
 
 ## Responsibility
 
-This module owns only the versioned, encrypted collection of minimum information for future five-prescription and medication-review workflows. It never generates a prescription, medication action, diagnosis, risk score, or clinical recommendation.
+This module owns only the versioned, encrypted collection of minimum information for the future five-prescription workflow. Medication-review collection has its own `modules/medication_review/` boundary. Neither module generates a prescription, medication action, diagnosis, risk score, or clinical recommendation.
 
 ## Invariants
 

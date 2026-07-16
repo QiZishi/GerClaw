@@ -1,9 +1,5 @@
 """Fail-closed prescription-intake contracts; this module never issues a prescription."""
 
-from gerclaw_api.modules.prescription.intake import (
-    CLINICAL_INTAKE_DEFINITIONS,
-    ClinicalIntakeDefinition,
-    ClinicalIntakeField,
-)
+from gerclaw_api.modules.prescription.intake import PRESCRIPTION_INTAKE_DEFINITION
 
-__all__ = ["CLINICAL_INTAKE_DEFINITIONS", "ClinicalIntakeDefinition", "ClinicalIntakeField"]
+__all__ = ["PRESCRIPTION_INTAKE_DEFINITION"]

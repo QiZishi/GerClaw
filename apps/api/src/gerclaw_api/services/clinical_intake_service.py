@@ -8,10 +8,12 @@ from typing import Literal, cast
 
 from gerclaw_api.database.models import ClinicalIntake
 from gerclaw_api.modules.document.service import DocumentContextError, DocumentService
-from gerclaw_api.modules.prescription.intake import (
+from gerclaw_api.modules.input_output.clinical_intake import (
+    ClinicalIntakeDefinition,
     ClinicalIntakeKind,
-    intake_definition,
 )
+from gerclaw_api.modules.medication_review.intake import MEDICATION_REVIEW_INTAKE_DEFINITION
+from gerclaw_api.modules.prescription.intake import PRESCRIPTION_INTAKE_DEFINITION
 from gerclaw_api.modules.prescription.models import (
     ClinicalIntakeFieldRead,
     ClinicalIntakeRead,
@@ -22,10 +24,20 @@ GOVERNANCE_NOTICE = (
     "当前仅完成信息收集。医学规则、医生审核和患者授权尚未启用，"
     "系统不会生成处方、用药调整或诊断结论。"
 )
+INTAKE_DEFINITIONS: dict[ClinicalIntakeKind, ClinicalIntakeDefinition] = {
+    "prescription": PRESCRIPTION_INTAKE_DEFINITION,
+    "medication_review": MEDICATION_REVIEW_INTAKE_DEFINITION,
+}
 
 
 class ClinicalIntakeConflictError(RuntimeError):
     """The requested transition violates the server-owned intake contract."""
+
+
+def intake_definition(kind: ClinicalIntakeKind) -> ClinicalIntakeDefinition:
+    """Resolve the one server-owned definition for a bounded intake kind."""
+
+    return INTAKE_DEFINITIONS[kind]
 
 
 class ClinicalIntakeService:
@@ -91,6 +103,10 @@ class ClinicalIntakeService:
             else self._validated_document_ids(document_ids)
         )
         if document_ids is not None:
+            if definition.kind != "prescription" and candidate_document_ids:
+                raise ClinicalIntakeConflictError(
+                    "uploaded documents are only supported for prescription intake"
+                )
             await self._validate_document_ownership(
                 candidate_document_ids,
                 tenant_id=tenant_id,
