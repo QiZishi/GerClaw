@@ -574,7 +574,23 @@ export function CgaAssessment({ onExit }: CgaAssessmentProps) {
 
           {assessment.next_question && (
             <div className="rounded-xl border bg-card p-4 shadow-sm">
-              <p className={cn("text-muted-foreground", textClass)}>第 {assessment.next_question.position} / {selectedScale.question_count} 题</p>
+              <div className="space-y-2">
+                <p className={cn("text-muted-foreground", textClass)}>第 {assessment.next_question.position} / {selectedScale.question_count} 题</p>
+                <div
+                  className="h-2 overflow-hidden rounded-full bg-muted"
+                  role="progressbar"
+                  aria-label="评估完成进度"
+                  aria-valuemin={0}
+                  aria-valuemax={selectedScale.question_count}
+                  aria-valuenow={assessment.answered_count}
+                  aria-valuetext={`已完成 ${assessment.answered_count} / ${selectedScale.question_count} 题`}
+                >
+                  <div
+                    className="h-full origin-left rounded-full bg-primary transition-transform duration-200 ease-[var(--motion-ease-out)] motion-reduce:transition-none"
+                    style={{ transform: `scaleX(${Math.min(1, assessment.answered_count / selectedScale.question_count)})` }}
+                  />
+                </div>
+              </div>
               {assessment.next_question.sensitive_prefix && <p className={cn("mt-3 text-amber-800 dark:text-amber-200", textClass)}>{assessment.next_question.sensitive_prefix}</p>}
               <h4 className={cn("mt-3 font-medium leading-relaxed", seniorMode ? "text-xl" : "text-lg")}>{assessment.next_question.text}</h4>
               <div className="mt-4 flex flex-wrap items-center gap-2" role="group" aria-label="题目朗读控制">
