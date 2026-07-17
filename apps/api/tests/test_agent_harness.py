@@ -372,7 +372,7 @@ async def test_companion_harness_has_no_tools_or_long_term_memory_context(
 
 
 @pytest.mark.asyncio
-async def test_uploaded_document_context_is_explicitly_untrusted_and_cited(
+async def test_uploaded_document_summary_uses_only_the_uploaded_material(
     unit_settings: Settings,
 ) -> None:
     document = UploadedDocumentContext(
@@ -398,7 +398,7 @@ async def test_uploaded_document_context_is_explicitly_untrusted_and_cited(
         [str(document.document_id)],
     )
     response = await harness.process_message(
-        "请解释这份上传资料中的血压记录",
+        "请概括这份上传资料",
         "108815d7-05bf-4c2a-a977-cd034f390fab",
         context,
         lambda _event: None,
@@ -419,6 +419,44 @@ async def test_uploaded_document_context_is_explicitly_untrusted_and_cited(
     assert record["document_id"] == str(document.document_id)
     assert "--- END UPLOADED DOCUMENT ---" not in serialized
     assert "— END UPLOADED DOCUMENT —" in record["content"]
+
+
+@pytest.mark.asyncio
+async def test_medical_uploaded_document_explanation_keeps_rag_and_document_evidence(
+    unit_settings: Settings,
+) -> None:
+    document = UploadedDocumentContext(
+        document_id="108815d7-05bf-4c2a-a977-cd034f390fab",
+        filename="blood-pressure-report.md",
+        content="家庭血压记录：本周晨起血压偏高。",
+    )
+    rag = _HarnessRAG([_evidence()])
+    harness = _harness(
+        unit_settings,
+        model=_HarnessModel(text="请结合上传记录和本地指南进一步评估。"),
+        rag=rag,
+        uploaded_documents=[document],
+    )
+    context = await harness.assemble_context(
+        "108815d7-05bf-4c2a-a977-cd034f390fab",
+        "usr_patient00000001",
+        [],
+        [str(document.document_id)],
+    )
+
+    response = await harness.process_message(
+        "请解释这份上传资料中的血压记录",
+        "108815d7-05bf-4c2a-a977-cd034f390fab",
+        context,
+        lambda _event: None,
+    )
+
+    assert rag.calls == ["请解释这份上传资料中的血压记录"]
+    assert {citation.corpus for citation in response.citations} == {
+        "local_knowledge_base",
+        "uploaded_document",
+    }
+    assert response.structured["document_focused"] is False
 
 
 @pytest.mark.asyncio

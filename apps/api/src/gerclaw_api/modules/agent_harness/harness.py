@@ -369,8 +369,17 @@ class ProductionAgentHarness:
             },
         )
         companion = is_companion_workflow(self._workflow)
-        document_focused = not companion and self._is_document_focused_request(user_message)
         medical_content = is_medical_message(user_message) and not companion
+        # A pure request to summarize/read an attachment should not fabricate
+        # unrelated medical context.  Once the user asks for a medical
+        # interpretation (for example a blood-pressure or medication report),
+        # the attachment is one evidence source alongside the normal governed
+        # RAG/search path rather than a reason to disable it.
+        document_focused = (
+            not companion
+            and not medical_content
+            and self._is_document_focused_request(user_message)
+        )
         should_prefetch_local_evidence = (
             medical_content and not document_focused and not companion
         )
