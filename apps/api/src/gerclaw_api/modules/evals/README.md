@@ -29,13 +29,16 @@ does not expose user data or claim to evaluate LLM quality, medical validity,
 retrieval quality, or capacity.
 
 `run_opt_in_rag_retrieval_evaluation` is a separate, asynchronous path for a
-reviewed synthetic RAG case set. It has no built-in cases: a reviewer must bind
-every synthetic query to expected local-corpus document IDs and one index
-version. The caller must pass `allow_external_rag=True`, an index version, a
-top-k value and a maximum case budget. Its report contains IDs, counts and
-outcomes only; it never emits queries, retrieved text, source paths or model
-content. It is an evidence-retrieval regression check, not a medical-validity
-or model-quality claim.
+reviewed synthetic RAG case set. The committed
+`evals/rag-retrieval-reviewed-v1.json` contains a version-bound positive
+retrieval baseline and a no-evidence baseline; it contains no patient or
+provider content. A reviewer must still bind every new synthetic query to its
+expected local-corpus document IDs (or explicitly require no evidence) and one
+index version. The caller must pass `allow_external_rag=True`, an index
+version, a top-k value and a maximum case budget. Its report contains IDs,
+counts and outcomes only; it never emits queries, retrieved text, source paths
+or model content. It is an evidence-retrieval regression check, not a
+medical-validity or model-quality claim.
 
 For a real, cost-bearing run use the separate CLI, which refuses to execute
 without an explicit opt-in:
@@ -44,12 +47,12 @@ without an explicit opt-in:
 cd apps/api
 uv run gerclaw-eval-rag \
   --allow-external-rag \
-  --cases /secure/reviewed-rag-cases.json \
-  --index-version local-corpus-v1 \
-  --top-k 5 --max-cases 20
+  --cases evals/rag-retrieval-reviewed-v1.json \
+  --index-version markdown-heading-v1:lexical-cjk-ngram-v1:BAAI/bge-m3:1024 \
+  --top-k 5 --max-cases 2
 ```
 
 The case file must be a `rag-retrieval-case-set-v1` JSON object with only
-reviewed synthetic `RAGRetrievalEvalCase` entries. It is intentionally not
-committed with a sample query: corpus-specific expected document IDs require a
-reviewer to confirm the intended source and index version first.
+reviewed synthetic `RAGRetrievalEvalCase` entries. New corpus-specific expected
+document IDs still require a reviewer to confirm the intended source and index
+version first.

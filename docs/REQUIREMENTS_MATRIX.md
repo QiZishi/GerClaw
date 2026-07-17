@@ -16,13 +16,13 @@
 | RUN-05 | workflow 与多智能体复核 | harness | standard/CGA；全科→老年专科复核 | 🚧 workflow 字段已有，缺生产复核链 |
 | RUN-06 | 长任务 checkpoint/replay | runtime、repositories | 重启恢复且副作用不重复 | 🚧 加密 checkpoint、状态指纹和版本 fail-closed 已实现；副作用 replay executor 待临床模块接入 |
 | RUN-07 | 执行预算 | harness、config | token/tool/time/call/output 超限稳定失败 | ✅ 统一 RuntimeBudgetTracker 已在 Agent Harness 计量 model/tool/step/token/output/wall-clock |
-| AI-01 | 本地 RAG | `modules/rag` | 436 文档、39,837 chunks、混合检索/重排/引用 | ✅ 真实重建与 E2E 通过 |
+| AI-01 | 本地 RAG | `modules/rag` | 436 文档、39,837 chunks、混合检索/重排/引用、显式 opt-in 合成评测 | 🚧 当前生产镜像 readiness 已核验语料/索引一致，2026-07-17 的真实 embedding/rerank/Qdrant 回归同时通过“命中文档”和“无本地证据返回空结果”两例；仍需扩大人工审核的医学正例/反例集并完成临床有效性评测 |
 | AI-02 | Memory/健康画像引擎 | `modules/memory` | 加密、跨会话、冲突、无 PHI vector | ✅ 0017 独立 PASS |
 | AI-03 | Skill 生命周期 | `modules/skill`、Skill UI | 注册/版本/隔离/viewer/安全/真实模型 | ✅ 0019 独立 PASS |
 | AI-04 | AnySearch→Tavily | `modules/search` | provider failover、网页隔离、引用 | ✅ 0018 独立 PASS |
 | AI-05 | Voice 后端 | `modules/input_output` 或 voice | ASR/TTS schema、PCM16 流、取消、故障 | 🚧 Next.js 服务端 BFF 已以非公开环境变量调用真实 MiMo ASR/TTS，并有 Zod/大小格式/音色约束、超时取消、安全阀和稳定错误；FastAPI 已有受限 ASR、24kHz 单声道 PCM16 TTS、文本/style 脱敏与 PHI-free TTS egress ledger。ASR 现以无文本分类的 `audio-egress-v1` 记录调用前后状态，绝不声称音频已去标识化或已获同意。缺 BFF→FastAPI 流迁移、统一 adapter 版本与完整故障评测 |
 | AI-06 | Privacy | security、harness safety | PHI/凭证、注入、诊断、红旗、自伤、免责声明 | 🚧 核心规则分散，缺独立完整模块 |
-| AI-07 | MinerU Document | document module、上传 UI | PDF/Office/MD/TXT 真实解析、轮询、重试 | 🚧 Next.js BFF 已真实完成签名上传、轮询和 Markdown 下载；FastAPI 已登记加密会话文档，删除会话会级联擦除会话消息、文档、临床收集及会话绑定审批/检查点。私有向量检索、长文档检索、跨会话保留、医生授权与病毒扫描待完成 |
+| AI-07 | MinerU Document | document module、上传 UI | PDF/Office/MD/TXT 真实解析、轮询、重试 | 🚧 Next.js BFF 已真实完成签名上传、轮询和 Markdown 下载；FastAPI 已登记加密会话文档，删除会话会级联擦除会话消息、文档、临床收集及会话绑定审批/检查点。上传资料按当前设计是当前会话的受控输入，**不作为私有向量知识库证据**；长文档受限上下文策略、跨会话保留、医生授权与病毒扫描待完成 |
 | AI-08 | Provider capability/version | services/adapters | schema/version/能力协商与不兼容拒绝 | 🚧 AgentScope 版本固定，其他 adapter 合同未统一 |
 | CLN-01 | CGA 后端闭环 | cga module/API/UI | 量表、答案、确定性计分、报告、历史 | 🚧 PHQ-9、SAS、PSQI 已具版本化 FastAPI 状态机、确定性计分、患者端真实 API、报告导出与本人历史；Mini-Cog/MMSE 的人工确认、医生授权与历史比较待完成 |
 | CLN-02 | 五大处方后端闭环 | prescription module/API/UI | 模板 JSON、四重校验、证据、版本、审批、导出 | 🚧 真实、加密、版本化的最小信息收集与 MinerU 资料绑定已接入；没有医学审核的 JSON 模板、四重校验、证据、报告、导出或医生批准，页面不得生成处方建议 |
@@ -30,7 +30,7 @@
 | CLN-04 | 健康画像产品 UI | memory API、RightPanel | 本人/授权医生读取、确认/退役、历史 | 🚧 当前访客可经受限 BFF 读取本人已确认事实，并确认/忽略待确认事实；账号、患者授权、医生跨患者读取与历史视图待完成 |
 | CLN-05 | 临床规则版本 | cga/prescription/medication/safety | 报告保存规则/模板/证据版本 | 🚧 CGA 的量表定义与确定性计分已版本化；五大处方通用模板、证据规则、用药审查规则及其医学审核记录尚未提供，不能生成临床建议 |
 | CLN-06 | 统一风险预警闭环 | alert rules/workflow/API/患者医生 UI | 红旗/CGA/慢病/用药事件分级、通知确认、升级和紧急就医 | 🚧 Chat 红旗、CGA 即时安全与高风险随访可真实、原子地创建加密且本人范围的告警，并支持版本围栏、幂等确认。尚缺慢病/用药来源、通知升级、医生队列与前端入口 |
-| CLN-07 | 慢病管理闭环 | chronic-care workflow/API/患者医生 UI | 疾病/目标/测量/用药/生活计划、趋势、依从性、提醒、异常升级 | 🚧 已有真实、加密且 tenant/actor 隔离的自述病情与测量账本，以及不含临床含义的数值方向；没有医学审核的目标/阈值、用药或生活计划、提醒、异常升级、患者/医生授权和前端链路 |
+| CLN-07 | 慢病管理闭环 | chronic-care workflow/API/患者医生 UI | 疾病/目标/测量/用药/生活计划、趋势、依从性、提醒、异常升级 | 🚧 已有真实、加密且 tenant/actor 隔离的自述病情与测量账本，以及不含临床含义的数值方向；患者端“我的慢病记录”已通过受控 BFF 读写和展示。没有医学审核的目标/阈值、用药或生活计划、提醒、异常升级、患者/医生授权 |
 | CLN-08 | 安全情感陪伴 | companion agent/privacy/safety/UI | 支持性对话、痛苦识别、禁依赖/禁冒充、危机和人工升级、可关闭记忆 | 🚧 `workflow=companion` 已接入真实 Chat Harness，禁用长期健康 Memory、RAG、联网、Skill 与上传资料，只保留加密的同会话短期上下文；红旗仍在模型前短路。尚缺前端入口、用户可配置记忆偏好、人工升级与医生授权 |
 | IAM-01 | 账号注册登录 | auth/account | 患者/医生注册登录、密码哈希、刷新/退出 | 🚧 已有本地患者/医生注册、登录、scrypt 密码哈希、refresh 轮换、登出、改密、服务端会话身份读取与 BFF HttpOnly cookie/CSRF；患者/医生登录注册入口已接入侧边栏，仍缺账号标识验证、找回、MFA、停用和风控策略 |
 | IAM-02 | 租户/主体/角色隔离 | auth/repositories | 越权 403/404、跨租户不可见 | 🚧 核心资源隔离；服务端 JWT 账号角色已进入 Runtime，医生未获 patient proof；缺医生资质、患者授权和完整 RBAC |

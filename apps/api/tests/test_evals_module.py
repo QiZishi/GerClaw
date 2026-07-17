@@ -243,6 +243,71 @@ async def test_opt_in_rag_evaluation_rejects_unapproved_budget_or_index_version(
         )
 
 
+@pytest.mark.asyncio
+async def test_opt_in_rag_no_evidence_case_requires_an_empty_result_without_echoing_query() -> None:
+    case = RAGRetrievalEvalCase(
+        case_id="rag-retrieval.reviewed_no_evidence",
+        title="reviewed no-evidence case",
+        synthetic_query="unrelated synthetic query",
+        expect_no_evidence=True,
+        index_version="corpus-v1",
+    )
+    report = await run_opt_in_rag_retrieval_evaluation(
+        _RAG([]),  # type: ignore[arg-type]
+        (case,),
+        config=RAGEvaluationRunConfig(
+            allow_external_rag=True,
+            index_version="corpus-v1",
+            max_cases=1,
+        ),
+    )
+    assert report.passed_count == 1
+    result = report.results[0]
+    assert result.expected_no_evidence is True
+    assert result.returned_result_count == 0
+    assert "unrelated synthetic query" not in report.model_dump_json()
+
+    false_positive = await run_opt_in_rag_retrieval_evaluation(
+        _RAG(
+            [
+                RetrievalResult(
+                    content="unrelated retrieved material",
+                    source="reviewed/source.md",
+                    score=0.9,
+                    metadata={"document_id": "d" * 64},
+                )
+            ]
+        ),  # type: ignore[arg-type]
+        (case,),
+        config=RAGEvaluationRunConfig(
+            allow_external_rag=True,
+            index_version="corpus-v1",
+            max_cases=1,
+        ),
+    )
+    assert false_positive.passed_count == 0
+
+
+def test_rag_eval_case_rejects_contradictory_no_evidence_expectations() -> None:
+    with pytest.raises(ValidationError, match="no-evidence cases"):
+        RAGRetrievalEvalCase(
+            case_id="rag-retrieval.invalid_no_evidence",
+            title="invalid no evidence",
+            synthetic_query="synthetic",
+            expected_document_ids=("e" * 64,),
+            minimum_expected_hits=1,
+            expect_no_evidence=True,
+            index_version="corpus-v1",
+        )
+    with pytest.raises(ValidationError, match="evidence-match cases"):
+        RAGRetrievalEvalCase(
+            case_id="rag-retrieval.invalid_empty_match",
+            title="invalid evidence match",
+            synthetic_query="synthetic",
+            index_version="corpus-v1",
+        )
+
+
 def test_rag_cli_loads_only_versioned_reviewed_case_sets(tmp_path: Path) -> None:
     document_id = "c" * 64
     case_file = tmp_path / "reviewed.json"
@@ -286,9 +351,10 @@ def test_committed_rag_case_set_stays_versioned_and_synthetic() -> None:
 
     loaded = load_rag_case_set(case_file)
 
-    assert len(loaded.cases) == 1
+    assert len(loaded.cases) == 2
     assert loaded.cases[0].case_id == "rag-retrieval.polypharmacy-safety-consensus"
     assert loaded.cases[0].provenance == "synthetic_reviewed"
+    assert loaded.cases[1].expect_no_evidence is True
 
 
 def test_rag_cli_rejects_unreviewed_or_unapproved_input_without_echoing_content(

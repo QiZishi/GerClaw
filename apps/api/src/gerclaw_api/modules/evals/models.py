@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from typing import Final, Literal
 
-from pydantic import BaseModel, ConfigDict, Field, ValidationInfo, field_validator
+from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
 from gerclaw_api.modules.privacy_redaction.models import (
     EgressPurpose,
@@ -105,8 +105,9 @@ class RAGRetrievalEvalCase(BaseModel):
     case_id: str = Field(pattern=r"^rag-retrieval\.[a-z0-9_.-]{3,80}$")
     title: str = Field(min_length=1, max_length=120)
     synthetic_query: str = Field(min_length=1, max_length=500)
-    expected_document_ids: tuple[str, ...] = Field(min_length=1, max_length=10)
-    minimum_expected_hits: int = Field(ge=1, le=10)
+    expected_document_ids: tuple[str, ...] = Field(default_factory=tuple, max_length=10)
+    minimum_expected_hits: int = Field(default=0, ge=0, le=10)
+    expect_no_evidence: bool = False
     index_version: str = Field(min_length=1, max_length=64)
     provenance: Literal["synthetic_reviewed"] = "synthetic_reviewed"
 
@@ -124,13 +125,21 @@ class RAGRetrievalEvalCase(BaseModel):
             raise ValueError("expected_document_ids must be unique 64-character hexadecimal IDs")
         return normalized
 
-    @field_validator("minimum_expected_hits")
-    @classmethod
-    def _validate_minimum_hits(cls, value: int, info: ValidationInfo) -> int:
-        expected = info.data.get("expected_document_ids", ())
-        if value > len(expected):
+    @model_validator(mode="after")
+    def validate_expectation(self) -> RAGRetrievalEvalCase:
+        if self.expect_no_evidence:
+            if self.expected_document_ids or self.minimum_expected_hits != 0:
+                raise ValueError(
+                    "no-evidence cases cannot declare expected document IDs or minimum hits"
+                )
+            return self
+        if not self.expected_document_ids or self.minimum_expected_hits < 1:
+            raise ValueError(
+                "evidence-match cases require expected document IDs and at least one minimum hit"
+            )
+        if self.minimum_expected_hits > len(self.expected_document_ids):
             raise ValueError("minimum_expected_hits cannot exceed expected_document_ids")
-        return value
+        return self
 
 
 class RAGRetrievalEvalCaseSet(BaseModel):
@@ -160,7 +169,8 @@ class RAGRetrievalEvalCaseResult(BaseModel):
 
     case_id: str
     passed: bool
-    expected_document_count: int = Field(ge=1)
+    expected_document_count: int = Field(ge=0)
+    expected_no_evidence: bool
     matched_expected_document_count: int = Field(ge=0)
     returned_result_count: int = Field(ge=0)
     index_version: str

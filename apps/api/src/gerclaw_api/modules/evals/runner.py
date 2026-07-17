@@ -148,10 +148,12 @@ async def run_rag_retrieval_case(
         and all(character in "0123456789abcdefABCDEF" for character in value)
     }
     matched = len(returned_document_ids.intersection(case.expected_document_ids))
+    passed = not results if case.expect_no_evidence else matched >= case.minimum_expected_hits
     return RAGRetrievalEvalCaseResult(
         case_id=case.case_id,
-        passed=matched >= case.minimum_expected_hits,
+        passed=passed,
         expected_document_count=len(case.expected_document_ids),
+        expected_no_evidence=case.expect_no_evidence,
         matched_expected_document_count=matched,
         returned_result_count=len(results),
         index_version=case.index_version,
