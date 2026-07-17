@@ -180,7 +180,14 @@ export function useAudioPlayer(): UseAudioPlayerReturn {
   const play = useCallback(async (text: string) => {
     claimPlayer();
     const chunks = splitTtsText(text);
-    if (chunks.length === 0) return;
+    if (chunks.length === 0) {
+      // `claimPlayer` deliberately enters the loading state before text is
+      // normalized.  Do not leave an empty/whitespace response looking as if
+      // it were still synthesizing: there is no request or audio to cancel.
+      setIsLoading(false);
+      releaseActiveAudioPlayer(playerIdRef.current);
+      return;
+    }
     queueRef.current = chunks;
     totalCharactersRef.current = chunks.reduce((total, chunk) => total + chunk.length, 0);
     completedCharactersRef.current = 0;
