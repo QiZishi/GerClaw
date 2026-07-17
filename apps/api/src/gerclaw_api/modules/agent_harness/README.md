@@ -37,4 +37,9 @@
 - Trace 保存不可变 `start_fingerprint`。completed 同 Trace/同 payload 返回已加密保存的 assistant 响应，不重新付费调用模型，也不重复写消息和事件。
 - 正在执行的同 Trace 重试如果未取得 lease，不得把原 owner 的 Trace 标记为失败；接管 running Trace 时排除已保存的当前 user message，避免模型上下文重复本轮输入。
 
-长期 Memory、Skill、上传文档、CGA、处方和 Voice 上下文尚未接入本 Harness；在对应模块实现前，非空 `loaded_skills`/`uploaded_files` 会明确拒绝，不会静默忽略。
+长期 Memory、Skill 与已解析上传文档已在标准聊天 turn 中接入本 Harness：文档只会在
+Document 模块按 tenant、actor、session 验证并限长后作为显式标记的**不可信输入数据**
+注入，绝不写入公共知识库或作为本地医学证据。用户明确要求阅读/概述上传资料时，
+Harness 会禁用 Memory、RAG、联网和 Skill，并仅以“上传资料”出处标记；一般医疗问题
+即使携带资料也仍必须满足本地证据与免责声明门禁。陪伴 workflow 继续拒绝 Skills 和
+上传资料。CGA、经治理的处方与 Voice 上下文仍未接入本 Harness。
