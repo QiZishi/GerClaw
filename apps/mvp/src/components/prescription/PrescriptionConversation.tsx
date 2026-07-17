@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
-import { RefreshCw } from "lucide-react";
+import { RefreshCw, Square } from "lucide-react";
 import { ChatInput, type ChatDocumentAttachment } from "@/components/chat/ChatInput";
 import { Button } from "@/components/ui/button";
 import { toast } from "@/components/ui/toast";
@@ -15,6 +15,7 @@ import {
 } from "@/services/gerclaw/clinical-intakes";
 import type { ClinicalIntake, FivePrescriptionDraft } from "@/services/gerclaw/schemas";
 import type { ImageAttachment } from "@/types";
+import { GerclawApiError } from "@/services/gerclaw/client";
 
 type ConversationMessage = {
   id: string;
@@ -52,11 +53,13 @@ export function PrescriptionConversation({
   const [messages, setMessages] = useState<ConversationMessage[]>([]);
   const [loading, setLoading] = useState(true);
   const [generating, setGenerating] = useState(false);
+  const [stopping, setStopping] = useState(false);
   const [generationFailed, setGenerationFailed] = useState(false);
   const [generationFailureMessageId, setGenerationFailureMessageId] = useState<string | null>(null);
   const [generationComplete, setGenerationComplete] = useState(false);
   const [elapsedSeconds, setElapsedSeconds] = useState(0);
   const generationStartedRef = useRef(false);
+  const generationAbortControllerRef = useRef<AbortController | null>(null);
 
   useEffect(() => {
     let live = true;
@@ -107,6 +110,12 @@ export function PrescriptionConversation({
     return () => window.clearInterval(timer);
   }, [generating]);
 
+  useEffect(() => () => {
+    // Leaving the clinical view must use the same durable cancellation path as
+    // the visible stop control; a navigation event is not a successful stop.
+    generationAbortControllerRef.current?.abort();
+  }, []);
+
   const append = (role: ConversationMessage["role"], text: string) => {
     const id = crypto.randomUUID();
     setMessages((current) => [...current, { id, role, text }]);
@@ -123,21 +132,38 @@ export function PrescriptionConversation({
     }
     setGenerationComplete(false);
     setGenerating(true);
+    setStopping(false);
     setElapsedSeconds(0);
+    const controller = new AbortController();
+    generationAbortControllerRef.current = controller;
     try {
-      const draft = await generatePrescriptionDraft(readyIntake.intake_id);
-      append("assistant", "五大处方草案已生成。您可以在右侧查看。 ");
+      const draft = await generatePrescriptionDraft(readyIntake.intake_id, { signal: controller.signal });
+      append("assistant", "五大处方草案已生成，可以查看草案内容。 ");
       onPrescriptionDraftGenerated(draft);
       setGenerationComplete(true);
     } catch (error) {
       generationStartedRef.current = false;
-      setGenerationFailed(true);
-      setGenerationFailureMessageId(
-        append("assistant", error instanceof Error ? error.message : "暂时无法生成草案，请重试。 ")
-      );
+      if (error instanceof GerclawApiError && error.code === "PRESCRIPTION_GENERATION_CANCELLED") {
+        append("assistant", "已停止生成，未完成内容不会保存为草案。您可以补充信息后重新生成。 ");
+      } else {
+        setGenerationFailed(true);
+        setGenerationFailureMessageId(
+          append("assistant", error instanceof Error ? error.message : "暂时无法生成草案，请重试。 ")
+        );
+      }
     } finally {
+      if (generationAbortControllerRef.current === controller) {
+        generationAbortControllerRef.current = null;
+      }
       setGenerating(false);
+      setStopping(false);
     }
+  };
+
+  const stopGeneration = () => {
+    if (!generating || stopping) return;
+    setStopping(true);
+    generationAbortControllerRef.current?.abort();
   };
 
   const handleSend = async (
@@ -204,8 +230,20 @@ export function PrescriptionConversation({
           ))}
           {loading && <p className={cn("text-muted-foreground", seniorMode ? "text-lg" : "text-sm")}>正在准备对话…</p>}
           {generating && (
-            <div className={cn("self-start rounded-2xl border border-border bg-muted/50 px-4 py-3 text-muted-foreground", seniorMode ? "text-lg" : "text-sm")} role="status">
-              正在整理资料并生成草案 · 已执行 {String(Math.floor(elapsedSeconds / 60)).padStart(2, "0")}:{String(elapsedSeconds % 60).padStart(2, "0")}
+            <div className={cn("flex flex-wrap items-center gap-x-3 gap-y-2 self-start rounded-2xl border border-border bg-muted/50 px-4 py-3 text-muted-foreground", seniorMode ? "text-lg" : "text-sm")} role="status" aria-live="polite">
+              <span className="inline-flex items-center gap-2 font-medium text-foreground">
+                <span className="codex-activity-dots" aria-hidden="true">
+                  <span className="codex-activity-dot" />
+                  <span className="codex-activity-dot" />
+                  <span className="codex-activity-dot" />
+                </span>
+                {stopping ? "正在安全停止" : "正在整理资料并生成草案"}
+              </span>
+              <span className="tabular-nums">已执行 {String(Math.floor(elapsedSeconds / 60)).padStart(2, "0")}:{String(elapsedSeconds % 60).padStart(2, "0")}</span>
+              <Button type="button" variant="outline" size="sm" onClick={stopGeneration} disabled={stopping}>
+                <Square className="size-3.5" aria-hidden="true" />
+                {stopping ? "正在停止" : "停止生成"}
+              </Button>
             </div>
           )}
           {!generating && !hasExistingDraft && !generationComplete && intake?.status === "information_complete_pending_governance" && (

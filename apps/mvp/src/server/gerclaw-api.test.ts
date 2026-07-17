@@ -82,6 +82,21 @@ test("prescription draft proxy permits only the caller-owned generation boundary
   assert.equal(isAllowedGerclawProxyTarget(`clinical-intakes/${intakeId}/prescription-draft/export`, "POST"), false);
 });
 
+test("prescription draft proxy permits only a bounded cancellation path", () => {
+  const traceId = "trace_1234567890abcdef";
+  const path = `clinical-intakes/${intakeId}/prescription-draft/${traceId}/cancel`;
+  assert.equal(isAllowedGerclawProxyTarget(path, "POST"), true);
+  assert.equal(isAllowedGerclawProxyTarget(path, "GET"), false);
+  assert.equal(
+    isAllowedGerclawProxyTarget(`clinical-intakes/${intakeId}/prescription-draft/${traceId}/finish`, "POST"),
+    false
+  );
+  assert.equal(
+    isAllowedGerclawProxyTarget(`clinical-intakes/${intakeId}/prescription-draft/trace_invalid/cancel`, "POST"),
+    false
+  );
+});
+
 test("prescription draft history proxy permits only an owner-scoped read", () => {
   const path = `clinical-intakes/${intakeId}/prescription-drafts`;
   assert.equal(isAllowedGerclawProxyTarget(path, "GET"), true);

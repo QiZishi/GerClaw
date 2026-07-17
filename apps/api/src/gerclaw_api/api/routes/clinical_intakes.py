@@ -8,7 +8,7 @@ import uuid
 from time import monotonic
 from typing import Annotated, cast
 
-from fastapi import APIRouter, Depends, HTTPException, Request, status
+from fastapi import APIRouter, Depends, HTTPException, Path, Request, status
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from gerclaw_api.auth import (
@@ -18,7 +18,12 @@ from gerclaw_api.auth import (
 )
 from gerclaw_api.dependencies import get_database_session, get_trace_service
 from gerclaw_api.domain.enums import TraceEventStatus, TraceEventType, TraceStatus
-from gerclaw_api.domain.trace_schemas import TraceEventCreate, TraceFinishRequest, TraceStartRequest
+from gerclaw_api.domain.trace_schemas import (
+    TRACE_ID_PATTERN,
+    TraceEventCreate,
+    TraceFinishRequest,
+    TraceStartRequest,
+)
 from gerclaw_api.middleware import set_active_trace
 from gerclaw_api.modules.agent_harness.safety import EvidenceUnavailableError
 from gerclaw_api.modules.document.service import DocumentService
@@ -56,6 +61,7 @@ from gerclaw_api.modules.prescription.models import (
     PrescriptionConversationTurnRequest,
     PrescriptionDraftHistoryRead,
     PrescriptionDraftRead,
+    PrescriptionGenerationCancelRead,
     PrescriptionInputReadiness,
 )
 from gerclaw_api.modules.risk_alert.service import RiskAlertService
@@ -73,6 +79,10 @@ from gerclaw_api.repositories.document import SqlAlchemyDocumentRepository
 from gerclaw_api.repositories.prescription_draft import SqlAlchemyPrescriptionDraftRepository
 from gerclaw_api.repositories.risk_alert import SqlAlchemyRiskAlertRepository
 from gerclaw_api.security import audit_hmac_digest
+from gerclaw_api.services.chat_cancellation import (
+    ChatCancellationRegistry,
+    ChatCancellationUnavailable,
+)
 from gerclaw_api.services.clinical_intake_service import (
     ClinicalIntakeConflictError,
     ClinicalIntakeService,
@@ -92,6 +102,7 @@ router = APIRouter(prefix="/clinical-intakes", tags=["clinical-intakes"])
 SessionDependency = Annotated[AsyncSession, Depends(get_database_session)]
 ReadIdentity = Annotated[AuthContext, Depends(require_clinical_intake_read)]
 WriteIdentity = Annotated[AuthContext, Depends(require_clinical_intake_write)]
+TraceIdPath = Annotated[str, Path(pattern=TRACE_ID_PATTERN)]
 
 
 async def _enforce_rate_limit(request: Request, identity: AuthContext) -> None:
@@ -432,6 +443,53 @@ async def _finish_prescription_failure_trace(
             status=TraceStatus.FAILED,
             error_code=error_code.casefold(),
             error_summary="prescription draft generation did not complete",
+            attributes={
+                "module": "prescription",
+                "operation": "generate_draft",
+                "success": False,
+            },
+        ),
+        commit=False,
+    )
+
+
+async def _finish_prescription_cancellation_trace(
+    *,
+    traces: TraceService,
+    tenant_id: str,
+    trace_id: str | None,
+    started_at: float | None,
+) -> None:
+    """Persist one PHI-free terminal cancellation and never create a draft."""
+
+    if trace_id is None or started_at is None:
+        return
+    trace_suffix = trace_id.removeprefix("trace_")
+    await traces.append_event(
+        tenant_id,
+        trace_id,
+        TraceEventCreate(
+            event_id=f"event_{trace_suffix}_generate_draft_cancelled",
+            event_type=TraceEventType.CLINICAL_INTAKE,
+            status=TraceEventStatus.CANCELLED,
+            payload={
+                "feature": "prescription",
+                "operation": "generate_draft",
+                "outcome": "cancelled",
+                "success": False,
+            },
+            duration_ms=max(0, int((monotonic() - started_at) * 1_000)),
+        ),
+        commit=False,
+    )
+    await traces.finish_trace(
+        tenant_id,
+        trace_id,
+        TraceFinishRequest(
+            idempotency_key=f"finish_{trace_suffix}_cancelled",
+            status=TraceStatus.CANCELLED,
+            error_code="prescription_generation_cancelled",
+            error_summary="prescription draft generation was cancelled",
             attributes={
                 "module": "prescription",
                 "operation": "generate_draft",
@@ -811,6 +869,8 @@ async def generate_prescription_draft(
     trace_id: str | None = None
     started_at: float | None = None
     attempts: list[ModelAttempt] = []
+    registry: ChatCancellationRegistry = request.app.state.chat_cancellations
+    registered_task: asyncio.Task[None] | None = None
     try:
         prepared = await _service(session, request).prepare_prescription_input(
             intake_id, tenant_id=identity.tenant_id, actor_id=identity.actor_id
@@ -848,7 +908,9 @@ async def generate_prescription_draft(
             trace_id=trace_id,
             tenant_id=identity.tenant_id,
             actor_id=identity.actor_id,
-            commit=False,
+            # The cancellation endpoint must be able to find this owner-bound
+            # running trace before an expensive model request begins.
+            commit=True,
         )
         if not trace_started.created:
             raise TraceConflictError("prescription generation trace is already in use")
@@ -858,6 +920,21 @@ async def generate_prescription_draft(
                 trace_id,
                 {"images": [image.trace_record() for image in prepared.uploaded_images]},
             )
+        current_task = asyncio.current_task()
+        if current_task is None:  # pragma: no cover - FastAPI always supplies a task
+            raise PrescriptionGenerationError("prescription cancellation task is unavailable")
+        registered_task = current_task
+        try:
+            await registry.register(
+                tenant_id=identity.tenant_id,
+                actor_id=identity.actor_id,
+                trace_id=trace_id,
+                task=current_task,
+            )
+        except ChatCancellationUnavailable as error:
+            raise PrescriptionGenerationError(
+                "prescription cancellation coordination unavailable"
+            ) from error
         with (
             bind_model_prompt_egress_audit(
                 SqlAlchemyModelPromptEgressAudit(
@@ -883,6 +960,17 @@ async def generate_prescription_draft(
                 ) from error
             finally:
                 attempts = list(captured_attempts)
+        try:
+            if await registry.is_cancel_requested(
+                tenant_id=identity.tenant_id,
+                actor_id=identity.actor_id,
+                trace_id=trace_id,
+            ):
+                raise asyncio.CancelledError("explicit prescription cancellation requested")
+        except ChatCancellationUnavailable as error:
+            raise PrescriptionGenerationError(
+                "prescription cancellation coordination unavailable"
+            ) from error
         await SqlAlchemyPrescriptionDraftRepository(session).create(
             tenant_id=identity.tenant_id,
             actor_id=identity.actor_id,
@@ -924,6 +1012,18 @@ async def generate_prescription_draft(
         )
         await session.commit()
         return draft
+    except asyncio.CancelledError:
+        try:
+            await _finish_prescription_cancellation_trace(
+                traces=traces,
+                tenant_id=identity.tenant_id,
+                trace_id=trace_id,
+                started_at=started_at,
+            )
+            await session.commit()
+        except Exception:
+            await session.rollback()
+        raise
     except (
         PrescriptionRedFlagError,
         EvidenceUnavailableError,
@@ -957,6 +1057,67 @@ async def generate_prescription_draft(
             else 503
         )
         raise HTTPException(status_code=status_code, detail={"code": error_code}) from error
+    finally:
+        if registered_task is not None and trace_id is not None:
+            await registry.unregister(
+                tenant_id=identity.tenant_id,
+                actor_id=identity.actor_id,
+                trace_id=trace_id,
+                task=registered_task,
+            )
+
+
+@router.post(
+    "/{intake_id}/prescription-draft/{trace_id}/cancel",
+    response_model=PrescriptionGenerationCancelRead,
+    status_code=status.HTTP_202_ACCEPTED,
+)
+async def cancel_prescription_generation(
+    intake_id: uuid.UUID,
+    trace_id: TraceIdPath,
+    request: Request,
+    session: SessionDependency,
+    identity: WriteIdentity,
+) -> PrescriptionGenerationCancelRead:
+    """Request safe termination of the caller's own running prescription draft.
+
+    The encrypted intake ownership check permits the startup race where the
+    generator has not committed its Trace yet.  Once it has registered, the
+    shared registry binds the cancellation to the same tenant/actor/Trace key;
+    a different caller can never target this task.
+    """
+
+    await _enforce_rate_limit(request, identity)
+    try:
+        intake = await SqlAlchemyClinicalIntakeRepository(session).get(
+            intake_id, tenant_id=identity.tenant_id, actor_id=identity.actor_id
+        )
+    except ClinicalIntakeNotFoundError as error:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail={"code": "CLINICAL_INTAKE_NOT_FOUND"},
+        ) from error
+    if intake.kind != "prescription":
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail={"code": "PRESCRIPTION_INTAKE_REQUIRED"},
+        )
+    registry: ChatCancellationRegistry = request.app.state.chat_cancellations
+    try:
+        await registry.request_cancel(
+            tenant_id=identity.tenant_id,
+            actor_id=identity.actor_id,
+            trace_id=trace_id,
+        )
+    except ChatCancellationUnavailable as error:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail={
+                "code": "PRESCRIPTION_CANCELLATION_UNAVAILABLE",
+                "message": "暂时无法安全停止, 请稍后重试。",
+            },
+        ) from error
+    return PrescriptionGenerationCancelRead(trace_id=trace_id)
 
 
 @router.get("/{intake_id}/prescription-drafts", response_model=PrescriptionDraftHistoryRead)

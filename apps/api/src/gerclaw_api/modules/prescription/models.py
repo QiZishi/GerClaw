@@ -31,6 +31,15 @@ MEDICAL_DRAFT_DISCLAIMER: Final[
 ] = "AI生成建议仅供参考，不能替代专业医生诊断、治疗建议或处方；如有不适请及时就医。"
 
 
+class PrescriptionGenerationCancelRead(BaseModel):
+    """Bounded acknowledgement for an owner-scoped draft cancellation request."""
+
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    trace_id: str = Field(pattern=r"^trace_[A-Za-z0-9][A-Za-z0-9_.:-]{7,57}$")
+    status: Literal["cancellation_requested"] = "cancellation_requested"
+
+
 class EvidenceSource(BaseModel):
     """One traceable local, online, or same-session patient evidence record."""
 

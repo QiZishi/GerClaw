@@ -1,6 +1,7 @@
 "use client";
 
-import { gerclawRequest } from "./client";
+import { z } from "zod";
+import { GerclawApiError, gerclawRequest } from "./client";
 import { ensureBackendSession } from "./skills";
 import {
   clinicalIntakeSchema,
@@ -17,6 +18,26 @@ import {
   prescriptionConversationTurnSchema,
 } from "./schemas";
 import type { ImageAttachment } from "@/types";
+import { getGerclawVisitorId } from "./visitor";
+
+const prescriptionCancellationSchema = z.object({
+  trace_id: z.string().regex(/^trace_[A-Za-z0-9][A-Za-z0-9_.:-]{7,57}$/),
+  status: z.literal("cancellation_requested"),
+});
+
+function toGerclawError(response: Response, traceId: string, payload: unknown): GerclawApiError {
+  const detail = typeof payload === "object" && payload !== null
+    ? ("error" in payload ? payload.error : "detail" in payload ? payload.detail : undefined)
+    : undefined;
+  const value = typeof detail === "object" && detail !== null ? detail : undefined;
+  const message = value && "message" in value && typeof value.message === "string"
+    ? value.message
+    : "请求未完成，请稍后重试";
+  const code = value && "code" in value && typeof value.code === "string"
+    ? value.code
+    : "GERCLAW_REQUEST_FAILED";
+  return new GerclawApiError(message, code, response.status, traceId);
+}
 
 export type ClinicalIntakeKind = "prescription" | "medication_review";
 
@@ -61,13 +82,81 @@ export async function generateMedicationReviewDraft(input: {
   );
 }
 
-/** Generate a source-bound draft; it remains unavailable as a formal prescription. */
-export async function generatePrescriptionDraft(intakeId: string): Promise<FivePrescriptionDraft> {
-  return gerclawRequest(
-    `clinical-intakes/${encodeURIComponent(intakeId)}/prescription-draft`,
-    fivePrescriptionDraftSchema,
-    { method: "POST" }
-  );
+/** Generate a source-bound draft; cancellation is only acknowledged by the governed API. */
+export async function generatePrescriptionDraft(
+  intakeId: string,
+  options: { signal?: AbortSignal } = {}
+): Promise<FivePrescriptionDraft> {
+  const traceId = `trace_${crypto.randomUUID().replaceAll("-", "")}`;
+  const transportController = new AbortController();
+  let requestStarted = false;
+  let cancellationConfirmed = false;
+  let cancellationFailure: GerclawApiError | null = null;
+  const requestCancellation = () => {
+    if (!requestStarted || cancellationConfirmed || cancellationFailure) return;
+    void (async () => {
+      try {
+        const response = await fetch(
+          `/api/gerclaw/clinical-intakes/${encodeURIComponent(intakeId)}/prescription-draft/${encodeURIComponent(traceId)}/cancel`,
+          {
+            method: "POST",
+            headers: {
+              Accept: "application/json",
+              "X-GerClaw-Visitor-ID": getGerclawVisitorId(),
+            },
+            credentials: "same-origin",
+            cache: "no-store",
+          }
+        );
+        const payload = await response.json().catch(() => null);
+        if (!response.ok) throw toGerclawError(response, traceId, payload);
+        const parsed = prescriptionCancellationSchema.safeParse(payload);
+        if (!parsed.success || parsed.data.trace_id !== traceId) {
+          throw new GerclawApiError("停止确认格式不正确", "PRESCRIPTION_CANCELLATION_INVALID", 502, traceId);
+        }
+        cancellationConfirmed = true;
+        transportController.abort();
+      } catch (error) {
+        cancellationFailure = error instanceof GerclawApiError
+          ? error
+          : new GerclawApiError("暂时无法安全停止，请稍后重试", "PRESCRIPTION_CANCELLATION_UNAVAILABLE", 503, traceId);
+        transportController.abort();
+      }
+    })();
+  };
+  options.signal?.addEventListener("abort", requestCancellation, { once: true });
+  try {
+    if (options.signal?.aborted) {
+      throw new GerclawApiError("生成已在发送前停止。", "PRESCRIPTION_GENERATION_CANCELLED", 499, traceId);
+    }
+    requestStarted = true;
+    const response = await fetch(`/api/gerclaw/clinical-intakes/${encodeURIComponent(intakeId)}/prescription-draft`, {
+      method: "POST",
+      headers: {
+        Accept: "application/json",
+        "X-GerClaw-Visitor-ID": getGerclawVisitorId(),
+        "X-Trace-ID": traceId,
+      },
+      credentials: "same-origin",
+      cache: "no-store",
+      signal: transportController.signal,
+    });
+    const payload = await response.json().catch(() => null);
+    if (!response.ok) throw toGerclawError(response, traceId, payload);
+    const parsed = fivePrescriptionDraftSchema.safeParse(payload);
+    if (!parsed.success) {
+      throw new GerclawApiError("后端响应格式不正确", "GERCLAW_RESPONSE_INVALID", 502, traceId);
+    }
+    return parsed.data;
+  } catch (error) {
+    if (cancellationConfirmed) {
+      throw new GerclawApiError("已停止生成，未完成内容不会保存为草案。", "PRESCRIPTION_GENERATION_CANCELLED", 499, traceId);
+    }
+    if (cancellationFailure) throw cancellationFailure;
+    throw error;
+  } finally {
+    options.signal?.removeEventListener("abort", requestCancellation);
+  }
 }
 
 /** Read the newest persisted drafts belonging to this intake's current owner. */

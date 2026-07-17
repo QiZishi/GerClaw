@@ -78,6 +78,13 @@ const proxyRules: Array<{ pattern: RegExp; methods: ReadonlySet<string> }> = [
     methods: new Set(["POST"]),
   },
   {
+    pattern: new RegExp(
+      `^clinical-intakes/${uuidPattern}/prescription-draft/trace_[A-Za-z0-9][A-Za-z0-9_.:-]{7,57}/cancel$`,
+      "i"
+    ),
+    methods: new Set(["POST"]),
+  },
+  {
     pattern: new RegExp(`^clinical-intakes/${uuidPattern}/conversation-turn$`, "i"),
     methods: new Set(["POST"]),
   },

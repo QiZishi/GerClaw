@@ -1,5 +1,6 @@
 """Trace ownership and safe read-boundary contracts for intake routes."""
 
+import asyncio
 import uuid
 from types import SimpleNamespace
 
@@ -7,13 +8,16 @@ import pytest
 from fastapi import HTTPException
 
 from gerclaw_api.api.routes.clinical_intakes import (
+    _finish_prescription_cancellation_trace,
     _finish_prescription_failure_trace,
     _medication_alert_fingerprints,
     _module_name,
+    cancel_prescription_generation,
+    generate_prescription_draft,
     get_medication_reconciliation,
     get_prescription_input_readiness,
 )
-from gerclaw_api.domain.enums import TraceEventStatus, TraceEventType
+from gerclaw_api.domain.enums import TraceEventStatus, TraceEventType, TraceStatus
 from gerclaw_api.domain.trace_schemas import TraceEventCreate, TraceStartRequest
 from gerclaw_api.modules.medication_review.rules_engine import review_medication_list
 from gerclaw_api.modules.prescription.models import (
@@ -145,6 +149,227 @@ async def test_prescription_failure_trace_keeps_slot_only_attempts() -> None:
     assert traces.events[-1].event_type is TraceEventType.SYSTEM_ERROR
     assert traces.events[-1].payload["error_code"] == "prescription_draft_unavailable"
     assert traces.finish is not None
+
+
+@pytest.mark.asyncio
+async def test_prescription_cancellation_finishes_without_private_input() -> None:
+    class _Traces:
+        def __init__(self) -> None:
+            self.events: list[TraceEventCreate] = []
+            self.finish = None
+
+        async def append_event(
+            self, _tenant_id: str, _trace_id: str, event: TraceEventCreate, **_kwargs: object
+        ) -> None:
+            self.events.append(event)
+
+        async def finish_trace(
+            self, _tenant_id: str, _trace_id: str, payload: object, **_kwargs: object
+        ) -> None:
+            self.finish = payload
+
+    traces = _Traces()
+    await _finish_prescription_cancellation_trace(
+        traces=traces,  # type: ignore[arg-type]
+        tenant_id="tenant",
+        trace_id="trace_" + "a" * 32,
+        started_at=0.0,
+    )
+
+    assert len(traces.events) == 1
+    event = traces.events[0]
+    assert event.status is TraceEventStatus.CANCELLED
+    assert event.payload == {
+        "feature": "prescription",
+        "operation": "generate_draft",
+        "outcome": "cancelled",
+        "success": False,
+    }
+    assert traces.finish is not None
+    assert traces.finish.status is TraceStatus.CANCELLED
+
+
+@pytest.mark.asyncio
+async def test_prescription_cancellation_is_scoped_to_the_owned_intake(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    intake_id = uuid.uuid4()
+    trace_id = "trace_" + "a" * 32
+
+    class _Repository:
+        async def get(self, requested_id: uuid.UUID, **kwargs: object) -> object:
+            assert requested_id == intake_id
+            assert kwargs == {"tenant_id": "tenant", "actor_id": "actor"}
+            return SimpleNamespace(kind="prescription")
+
+    class _Registry:
+        def __init__(self) -> None:
+            self.calls: list[dict[str, str]] = []
+
+        async def request_cancel(self, **kwargs: str) -> None:
+            self.calls.append(kwargs)
+
+    async def _no_rate_limit(*_args: object, **_kwargs: object) -> None:
+        return None
+
+    registry = _Registry()
+    monkeypatch.setattr(
+        "gerclaw_api.api.routes.clinical_intakes.SqlAlchemyClinicalIntakeRepository",
+        lambda _session: _Repository(),
+    )
+    monkeypatch.setattr(
+        "gerclaw_api.api.routes.clinical_intakes._enforce_rate_limit", _no_rate_limit
+    )
+    request = SimpleNamespace(
+        app=SimpleNamespace(state=SimpleNamespace(chat_cancellations=registry))
+    )
+
+    result = await cancel_prescription_generation(
+        intake_id,
+        trace_id,
+        request,  # type: ignore[arg-type]
+        object(),  # type: ignore[arg-type]
+        SimpleNamespace(tenant_id="tenant", actor_id="actor"),  # type: ignore[arg-type]
+    )
+
+    assert result.trace_id == trace_id
+    assert result.status == "cancellation_requested"
+    assert registry.calls == [{"tenant_id": "tenant", "actor_id": "actor", "trace_id": trace_id}]
+
+
+@pytest.mark.asyncio
+async def test_cancelled_prescription_generation_finishes_trace_without_draft(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    intake_id = uuid.uuid4()
+    trace_id = "trace_" + "b" * 32
+    session_id = uuid.uuid4()
+
+    class _Service:
+        async def prepare_prescription_input(
+            self, requested_id: uuid.UUID, **kwargs: object
+        ) -> object:
+            assert requested_id == intake_id
+            assert kwargs == {"tenant_id": "tenant", "actor_id": "actor"}
+            return SimpleNamespace(
+                uploaded_documents=(),
+                uploaded_images=(),
+                session_id=session_id,
+                input_template_version="five-prescription-input-v1",
+            )
+
+    class _Traces:
+        def __init__(self) -> None:
+            self.start_commits: list[bool] = []
+            self.events: list[TraceEventCreate] = []
+            self.finished: list[object] = []
+
+        async def start_trace_with_status(self, *_args: object, **kwargs: object) -> object:
+            self.start_commits.append(kwargs["commit"])
+            return SimpleNamespace(created=True)
+
+        async def append_event(self, *_args: object, **kwargs: object) -> None:
+            self.events.append(_args[2])
+
+        async def finish_trace(self, *_args: object, **kwargs: object) -> None:
+            self.finished.append(_args[2])
+
+    class _Registry:
+        def __init__(self) -> None:
+            self.registered: list[dict[str, object]] = []
+            self.unregistered: list[dict[str, object]] = []
+
+        async def register(self, **kwargs: object) -> None:
+            self.registered.append(kwargs)
+
+        async def unregister(self, **kwargs: object) -> None:
+            self.unregistered.append(kwargs)
+
+        async def is_cancel_requested(self, **_kwargs: object) -> bool:
+            return True
+
+    class _Session:
+        committed = 0
+        rolled_back = 0
+
+        async def commit(self) -> None:
+            self.committed += 1
+
+        async def rollback(self) -> None:
+            self.rolled_back += 1
+
+    async def _cancelled_generate(_prepared: object) -> object:
+        raise asyncio.CancelledError("test cancellation")
+
+    async def _no_rate_limit(*_args: object, **_kwargs: object) -> None:
+        return None
+
+    traces = _Traces()
+    registry = _Registry()
+    session = _Session()
+    monkeypatch.setattr(
+        "gerclaw_api.api.routes.clinical_intakes._service", lambda *_args: _Service()
+    )
+    monkeypatch.setattr(
+        "gerclaw_api.api.routes.clinical_intakes._enforce_rate_limit",
+        _no_rate_limit,
+    )
+    monkeypatch.setattr(
+        "gerclaw_api.api.routes.clinical_intakes.get_default_workflow_registry",
+        lambda: SimpleNamespace(
+            validate_context=lambda *_args, **_kwargs: SimpleNamespace(
+                workflow_id=SimpleNamespace(value="prescription"), version="1.0.0"
+            )
+        ),
+    )
+    monkeypatch.setattr(
+        "gerclaw_api.api.routes.clinical_intakes.EvidenceBoundPrescriptionGenerator",
+        lambda **_kwargs: SimpleNamespace(generate=_cancelled_generate),
+    )
+    request = SimpleNamespace(
+        state=SimpleNamespace(
+            trace_id=trace_id,
+            request_id="req_" + "c" * 32,
+            chat_cancellations=registry,
+            settings=SimpleNamespace(
+                prescription_generation_timeout_seconds=1,
+                auth_jwt_secret=SimpleNamespace(get_secret_value=lambda: "a" * 64),
+            ),
+            agent_model=object(),
+            rag_runtime=SimpleNamespace(module=object()),
+            search_runtime=SimpleNamespace(module=object()),
+            database=object(),
+        ),
+        app=SimpleNamespace(
+            state=SimpleNamespace(
+                chat_cancellations=registry,
+                settings=SimpleNamespace(
+                    prescription_generation_timeout_seconds=1,
+                    auth_jwt_secret=SimpleNamespace(get_secret_value=lambda: "a" * 64),
+                ),
+                agent_model=object(),
+                rag_runtime=SimpleNamespace(module=object()),
+                search_runtime=SimpleNamespace(module=object()),
+                database=object(),
+            )
+        ),
+        scope={},
+    )
+
+    with pytest.raises(asyncio.CancelledError):
+        await generate_prescription_draft(
+            intake_id,
+            request,  # type: ignore[arg-type]
+            session,  # type: ignore[arg-type]
+            SimpleNamespace(tenant_id="tenant", actor_id="actor"),  # type: ignore[arg-type]
+            traces,  # type: ignore[arg-type]
+        )
+
+    assert traces.start_commits == [True]
+    assert traces.events[-1].status is TraceEventStatus.CANCELLED
+    assert traces.finished[-1].status is TraceStatus.CANCELLED
+    assert registry.registered and registry.unregistered
+    assert session.committed == 1
 
 
 class _Request:

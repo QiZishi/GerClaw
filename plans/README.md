@@ -19,6 +19,7 @@ loader wall or fake progress.
 | 006 | 为通用弹层补齐 reduced-motion 退化 | MEDIUM | DONE |
 | 007 | 限定开关的过渡属性 | MEDIUM | DONE |
 | 008 | 降低抽屉与高频控件的无障碍运动负担 | MEDIUM | DONE |
+| 009 | 使五大处方生成可感知且可安全停止 | HIGH | DONE |
 
 Executed in order 001 → 002 → 003 → 004. Plans 002 and 003 use the motion
 tokens and reduced-motion policy introduced by 001; plan 004 uses the shared
@@ -34,3 +35,7 @@ Plan 008 records the follow-up browser review of the mandatory login and guest
 patient entry. It is intentionally separate from plan 006: Drawer gesture
 motion and high-frequency press feedback need different verification from
 anchored popovers and status notices.
+
+Plan 009 is complete. It reuses the existing low-frequency Codex activity
+indicator instead of introducing new decorative motion; browser and database
+evidence confirm a user cancellation reaches a terminal cancelled Trace.
