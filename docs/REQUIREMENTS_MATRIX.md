@@ -46,7 +46,7 @@
 | UI-06 | 多格式导出 | export libs | PDF/Word/MD/TXT 内容与布局回归 | 🚧 前端能力已有，缺后端报告真数据和 TXT 一致性 |
 | UI-07 | 兼容/恢复/审批/删除状态 | app UI | 不兼容、恢复、等待、撤回均可理解可操作 | ❌ 缺统一产品状态 |
 | OPS-01 | Readiness | health service | DB/Redis/Qdrant/RAG generation/配置 503 | ✅ 真实依赖套件通过 |
-| OPS-02 | metrics/feedback/eval/Bad Case | metrics/trace/feedback/eval | API、存储、回放、趋势 | 🚧 Trace/基础反馈与加密 Bad Case 已有；新增 6 个合成、人工审阅的确定性安全 golden case，禁止回放真实输入，已验证不调用模型/RAG。尚缺授权脱敏晋升、模型/RAG 评测、趋势与指标闭环 |
+| OPS-02 | metrics/feedback/eval/Bad Case | metrics/trace/feedback/eval | API、存储、回放、趋势 | 🚧 Trace/基础反馈与加密 Bad Case 已有；2026-07-17 负反馈经受限 BFF 实测 201，Compose 数据库生成 1 条 `negative_feedback` Bad Case。13 个合成安全/输出安全/隐私 policy case 不回放真实输入，test image 的显式 opt-in RAG 命中/无证据两例为 2/2；尚缺授权脱敏晋升、模型/临床评测、趋势与指标闭环 |
 | OPS-03 | 测试覆盖门禁 | pytest/coverage | ≥80%，负向阈值 exit 1 | ✅ 80.02%，审阅者验证负向门禁 |
 | OPS-04 | ≤10 并发 | integration/perf | 隔离、幂等、限流、取消、p50/p95 | 🚧 已有 Compose API 的 10 并发安全短路 SSE 报告（p50 153ms/p95 154ms、10/10 done、跨访客 404）；完整临床 workflow、取消/限流/幂等的统一负载仍待补齐 |
 | OPS-05 | Docker 全栈 | Dockerfiles/compose | 空卷启动、迁移、health、重启、非 root | 🚧 基础 compose/Dockerfile 有，最终应用验收未做 |

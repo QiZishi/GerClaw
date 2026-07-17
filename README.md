@@ -20,7 +20,7 @@ GerClaw 是面向老年患者与老年科医生的 Web 端 AI 双向诊疗平台
 - `input_output` 生产边界：Chat 输入在 Trace/存储/Harness 前规范化，SSE 终态只投影已审核的公开文本、引用与安全信息
 - Chat/CGA 风险告警的本人范围账本与确认、慢病自述/测量账本，以及隔离的安全情感陪伴 workflow；均明确不替代临床审批或医生服务
 - 五大处方与用药审查的最小信息收集：真实 API、加密持久化、乐观 revision 与 PHI-free Trace；页面明确不会产生处方、诊断、停药、加药或剂量结论
-- 用户反馈、加密 Bad Case 与合成确定性安全 golden case 基线；golden case 不回放用户原文，也不调用模型或 RAG
+- 用户反馈、加密 Bad Case 与 13 个合成确定性安全/输出安全/隐私 policy case 基线；golden case 不回放用户原文，也不调用模型或 RAG
 - 版本化 `privacy_redaction`：外部搜索 query 与 FastAPI TTS 正文/style 在 Provider 调用前最小化并脱敏，审计摘要只保留类别计数
 - Docker Compose API 的 10 并发高风险安全短路 SSE 证据（仅该确定性工作负载，非模型/RAG/临床 workflow 吞吐结论）
 
@@ -197,7 +197,7 @@ docker compose --profile test up --build --abort-on-container-exit \
 
 历史全量门禁数字、独立审阅与完整命令见 [Development Harness](docs/DEVELOPMENT_HARNESS.md) 和各 active exec-plan，不能因后续变更自动继承。本次近期可复现实证包括：`apps/mvp` 的 `npm run lint`、`npm run test:audio`（5 passed）、`npm run test:gerclaw-proxy`（5 passed）与 `npm run build`；`apps/api` 的 Input/Output 与 Chat 定向 pytest（20 passed）、Ruff、Mypy，以及核心 Memory/Skill/RAG 定向 pytest（170 passed）。Docker Compose 的确定性安全短路报告见 [`docs/evidence/`](docs/evidence/)。全量门禁、全站 E2E、临床 workflow 压测与最终 Docker 验收仍需在交付前重新执行。
 
-当前没有千级吞吐能力结论。Compose 已实际验证 10 个并发的确定性高风险安全短路 SSE（10/10 done、失败率 0、p50 153ms、p95 154ms、Trace/消息/跨访客隔离均通过）；这不能替代模型、RAG、临床 workflow、取消/限流/幂等的统一性能报告，后者仍归属 `OPS-04/OPS-08`。
+当前没有千级吞吐能力结论。Compose 已实际验证 10 个并发的确定性高风险安全短路 SSE（10/10 done、失败率 0、p50 153ms、p95 154ms、Trace/消息/跨访客隔离均通过）；test image 中经显式 opt-in 的合成 RAG 评测为 2/2（命中文档、无证据为空）。两者均不能替代模型、临床 workflow、取消/限流/幂等的统一性能报告，后者仍归属 `OPS-04/OPS-08`。
 
 ## 风险与改进
 

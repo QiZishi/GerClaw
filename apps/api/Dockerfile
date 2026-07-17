@@ -38,7 +38,8 @@ USER root
 COPY tests ./tests
 COPY evals ./evals
 RUN --mount=type=cache,target=/root/.cache/uv \
-    uv sync --frozen --all-extras --dev
+    uv sync --frozen --all-extras --dev \
+    && chown -R gerclaw:gerclaw /app/.venv
 
 USER gerclaw
 
