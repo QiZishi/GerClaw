@@ -19,7 +19,7 @@ import { DocumentPreview } from "@/components/document/DocumentPreview";
 import { CitationList } from "@/components/search/CitationList";
 import { ExportButton } from "@/components/prescription/ExportButton";
 import { toast } from "@/components/ui/toast";
-import type { FileTag as FileTagData, RightPanelType } from "@/types";
+import type { FileTag as FileTagData, RightPanelType, Role } from "@/types";
 import { useReducedMotion } from "@/hooks/useReducedMotion";
 import { SettingsPanel } from "@/components/settings/SettingsPanel";
 import { HealthProfilePanel } from "@/components/health/HealthProfilePanel";
@@ -245,6 +245,7 @@ export function RightPanel() {
             type={rightPanelType}
             panelContent={panelContent}
             onContentChange={setPanelContent}
+            role={role}
           />
         </div>
       </aside>
@@ -257,10 +258,12 @@ function PanelContent({
   type,
   panelContent,
   onContentChange,
+  role,
 }: {
   type: NonNullable<RightPanelType>;
   panelContent: string;
   onContentChange: (content: string) => void;
+  role: Role;
 }) {
   switch (type) {
     case "skills":
@@ -278,6 +281,7 @@ function PanelContent({
             value={panelContent}
             onChange={onContentChange}
             className="flex-1 min-h-0"
+            readOnly={role !== "doctor"}
           />
         );
       }
@@ -302,7 +306,7 @@ function PanelContent({
           value={panelContent}
           onChange={onContentChange}
           className="flex-1 min-h-0"
-          readOnly={!panelContent}
+          readOnly
         />
       );
     }
@@ -335,6 +339,7 @@ function PanelContent({
             value={panelContent}
             onChange={onContentChange}
             className="flex-1 min-h-0"
+            readOnly={role !== "doctor"}
           />
         );
       }
