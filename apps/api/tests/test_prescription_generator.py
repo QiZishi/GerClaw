@@ -16,6 +16,7 @@ from gerclaw_api.modules.prescription.generator import (
     PrescriptionRedFlagError,
 )
 from gerclaw_api.modules.prescription.models import (
+    FIVE_PRESCRIPTION_MODEL_OUTPUT_SCHEMA_VERSION,
     ExerciseDraft,
     ExercisePhase,
     GeneratedPrescriptionContent,
@@ -92,6 +93,7 @@ def _content() -> GeneratedPrescriptionContent:
         content="待医生核对后执行。", evidence_ids=(evidence_id,)
     )
     return GeneratedPrescriptionContent(
+        model_output_schema_version=FIVE_PRESCRIPTION_MODEL_OUTPUT_SCHEMA_VERSION,
         patient_summary=PatientSummary(
             health_goals=("改善活动耐受",), current_concerns=("走路后容易疲劳",)
         ),
@@ -379,6 +381,7 @@ async def test_generator_uses_validated_json_only_after_structured_provider_fail
     ).generate(_prepared())  # type: ignore[arg-type]
 
     assert draft.status == "needs_clinician_review"
+    assert draft.model_output_schema_version == FIVE_PRESCRIPTION_MODEL_OUTPUT_SCHEMA_VERSION
     assert len(model.fallback_messages) == 3
     assert "JSON Schema" in str(model.fallback_messages[1])
 

@@ -26,6 +26,7 @@ from gerclaw_api.modules.medication_review.rules_engine import (
     review_medication_list,
 )
 from gerclaw_api.modules.prescription.models import (
+    FIVE_PRESCRIPTION_MODEL_OUTPUT_SCHEMA_VERSION,
     EvidenceSource,
     ExerciseDraft,
     ExercisePhase,
@@ -43,6 +44,11 @@ from gerclaw_api.modules.prescription.models import (
 from gerclaw_api.modules.rag.protocols import RAGModule, RetrievalResult
 from gerclaw_api.modules.search.models import SearchResult
 from gerclaw_api.modules.search.protocols import SearchModule
+from gerclaw_api.modules.validation import (
+    ModelOutputContractValidationError,
+    validate_versioned_model_output,
+    validate_versioned_model_output_json,
+)
 
 _SYSTEM_PROMPT = "\n".join(
     (
@@ -161,7 +167,11 @@ class EvidenceBoundPrescriptionGenerator:
                 messages,
                 GeneratedPrescriptionContent,
             )
-            content = GeneratedPrescriptionContent.model_validate(response.content)
+            content = validate_versioned_model_output(
+                response.content,
+                output_model=GeneratedPrescriptionContent,
+                schema_version=FIVE_PRESCRIPTION_MODEL_OUTPUT_SCHEMA_VERSION,
+            )
         except Exception as structured_error:
             try:
                 content = await self._generate_json_fallback(messages, structured_error)
@@ -268,6 +278,7 @@ class EvidenceBoundPrescriptionGenerator:
             else ("尚未提供完整用药清单；未执行 DDI、Beers 或剂量规则审查。",)
         )
         return GeneratedPrescriptionContent(
+            model_output_schema_version=FIVE_PRESCRIPTION_MODEL_OUTPUT_SCHEMA_VERSION,
             patient_summary=PatientSummary(
                 health_goals=(goal,), current_concerns=(concern,)
             ),
@@ -355,13 +366,21 @@ class EvidenceBoundPrescriptionGenerator:
             )
             payload = self._strip_json_fence(text)
             try:
-                return GeneratedPrescriptionContent.model_validate_json(payload)
-            except ValidationError:
+                return validate_versioned_model_output_json(
+                    payload,
+                    output_model=GeneratedPrescriptionContent,
+                    schema_version=FIVE_PRESCRIPTION_MODEL_OUTPUT_SCHEMA_VERSION,
+                )
+            except (ModelOutputContractValidationError, ValidationError):
                 # Providers occasionally emit a JSON object with recoverable
                 # syntax defects (for example a trailing comma).  Repair only
                 # the JSON syntax; the complete Pydantic contract still rejects
                 # prose, missing sections, invented evidence IDs, or extra data.
-                return GeneratedPrescriptionContent.model_validate_json(repair_json(payload))
+                return validate_versioned_model_output_json(
+                    repair_json(payload),
+                    output_model=GeneratedPrescriptionContent,
+                    schema_version=FIVE_PRESCRIPTION_MODEL_OUTPUT_SCHEMA_VERSION,
+                )
         except (ValidationError, ValueError, TypeError) as error:
             raise PrescriptionGenerationError(
                 "prescription model returned an invalid schema"

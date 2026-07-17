@@ -33,6 +33,10 @@ class RAGEvidenceContractValidationError(ValueError):
     """A bounded, non-sensitive error for malformed local RAG provenance."""
 
 
+class ModelOutputContractValidationError(ValueError):
+    """A bounded, non-sensitive error for a malformed versioned model output."""
+
+
 class LocalRAGEvidenceProvenance(BaseModel):
     """Complete provenance required before local RAG may become an AI citation.
 
@@ -198,3 +202,50 @@ def validate_local_rag_evidence_provenance(
         raise RAGEvidenceContractValidationError(
             f"invalid {LOCAL_RAG_EVIDENCE_SCHEMA_VERSION} provenance"
         ) from error
+
+
+def validate_versioned_model_output[ModelOutput: BaseModel](
+    payload: object,
+    *,
+    output_model: type[ModelOutput],
+    schema_version: str,
+) -> ModelOutput:
+    """Validate a strict, explicitly versioned structured-model projection.
+
+    The model class owns every domain field.  This shared boundary only makes
+    its version an executable contract and guarantees that callers receive a
+    bounded error rather than raw provider content.
+    """
+
+    try:
+        validated = output_model.model_validate(payload)
+    except ValidationError as error:
+        raise ModelOutputContractValidationError(
+            f"invalid {schema_version} model output"
+        ) from error
+    if getattr(validated, "model_output_schema_version", None) != schema_version:
+        raise ModelOutputContractValidationError(
+            f"invalid {schema_version} model output"
+        )
+    return validated
+
+
+def validate_versioned_model_output_json[ModelOutput: BaseModel](
+    payload: str | bytes | bytearray,
+    *,
+    output_model: type[ModelOutput],
+    schema_version: str,
+) -> ModelOutput:
+    """JSON counterpart of :func:`validate_versioned_model_output`."""
+
+    try:
+        validated = output_model.model_validate_json(payload)
+    except ValidationError as error:
+        raise ModelOutputContractValidationError(
+            f"invalid {schema_version} model output"
+        ) from error
+    if getattr(validated, "model_output_schema_version", None) != schema_version:
+        raise ModelOutputContractValidationError(
+            f"invalid {schema_version} model output"
+        )
+    return validated

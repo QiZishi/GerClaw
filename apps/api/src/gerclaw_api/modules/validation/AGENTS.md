@@ -15,6 +15,10 @@ boundaries. It does not replace domain models or business/medical policy.
 - `local-rag-evidence-v1` is required at the Hybrid RAG producer and must be
   reused by the AgentScope adapter, citation projection and RAG evals; invalid
   provenance may not be repaired with fallback location fields.
+- Versioned structured-model projections use
+  `validate_versioned_model_output*`; their domain schema must expose a
+  literal `model_output_schema_version`, and a mismatch may not be repaired
+  into a different contract.
 - Add a contract test for every event/schema change and update the frontend Zod
   consumer in the same change when the public payload changes.
 

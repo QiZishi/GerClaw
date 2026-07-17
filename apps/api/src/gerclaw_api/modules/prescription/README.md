@@ -28,6 +28,15 @@ and patient-material sources remain distinguishable in the output; an online
 outage produces no invented web source. The result is always
 `needs_clinician_review` and contains the fixed medical disclaimer.
 
+The model projection is independently versioned as
+`five-prescription-model-output-v1` and retained in the owner-visible report,
+separate from `five-prescription-report-v1`. The chat-native intake extractor
+requires `prescription-intake-model-output-v1`. Structured and plain-JSON
+fallbacks both reject missing, stale, malformed or extra output fields through
+the same strict contract; a generation formatting failure takes the existing
+evidence-bound review baseline instead of blending unversioned provider data
+into a report.
+
 Each successful generation is retained as an encrypted draft revision, separate
 from the PHI-free Runtime Trace. `GET
 /api/v1/clinical-intakes/{intake_id}/prescription-drafts` returns at most the

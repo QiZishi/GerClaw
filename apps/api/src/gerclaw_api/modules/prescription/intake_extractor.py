@@ -15,7 +15,15 @@ from pydantic import BaseModel, ValidationError
 from gerclaw_api.modules.document.models import UploadedDocumentContext
 from gerclaw_api.modules.input_output import ImageInput
 from gerclaw_api.modules.input_output.clinical_intake import ClinicalIntakeField
-from gerclaw_api.modules.prescription.models import PrescriptionIntakeExtraction
+from gerclaw_api.modules.prescription.models import (
+    PRESCRIPTION_INTAKE_MODEL_OUTPUT_SCHEMA_VERSION,
+    PrescriptionIntakeExtraction,
+)
+from gerclaw_api.modules.validation import (
+    ModelOutputContractValidationError,
+    validate_versioned_model_output,
+    validate_versioned_model_output_json,
+)
 
 _SYSTEM_PROMPT = "\n".join(
     (
@@ -114,7 +122,11 @@ class PrescriptionIntakeExtractor:
                 messages,
                 PrescriptionIntakeExtraction,
             )
-            extracted = PrescriptionIntakeExtraction.model_validate(response.content)
+            extracted = validate_versioned_model_output(
+                response.content,
+                output_model=PrescriptionIntakeExtraction,
+                schema_version=PRESCRIPTION_INTAKE_MODEL_OUTPUT_SCHEMA_VERSION,
+            )
         except Exception as structured_error:
             extracted = await self._generate_json_fallback(messages, structured_error)
 
@@ -132,6 +144,7 @@ class PrescriptionIntakeExtractor:
             and not existing_answers.get(field_id, "").strip()
         }
         return PrescriptionIntakeExtraction(
+            model_output_schema_version=PRESCRIPTION_INTAKE_MODEL_OUTPUT_SCHEMA_VERSION,
             answer_updates=updates,
             follow_up_question=extracted.follow_up_question,
         )
@@ -159,9 +172,17 @@ class PrescriptionIntakeExtractor:
             )
             payload = self._strip_json_fence(text)
             try:
-                return PrescriptionIntakeExtraction.model_validate_json(payload)
-            except ValidationError:
-                return PrescriptionIntakeExtraction.model_validate_json(repair_json(payload))
+                return validate_versioned_model_output_json(
+                    payload,
+                    output_model=PrescriptionIntakeExtraction,
+                    schema_version=PRESCRIPTION_INTAKE_MODEL_OUTPUT_SCHEMA_VERSION,
+                )
+            except (ModelOutputContractValidationError, ValidationError):
+                return validate_versioned_model_output_json(
+                    repair_json(payload),
+                    output_model=PrescriptionIntakeExtraction,
+                    schema_version=PRESCRIPTION_INTAKE_MODEL_OUTPUT_SCHEMA_VERSION,
+                )
         except (ValidationError, ValueError, TypeError) as error:
             raise PrescriptionIntakeExtractionError(
                 "prescription intake extraction did not return a valid schema"

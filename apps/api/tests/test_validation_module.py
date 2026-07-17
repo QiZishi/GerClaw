@@ -8,12 +8,18 @@ from datetime import UTC, datetime
 import pytest
 
 from gerclaw_api.modules.agent_harness import StreamEvent
+from gerclaw_api.modules.prescription.models import (
+    PRESCRIPTION_INTAKE_MODEL_OUTPUT_SCHEMA_VERSION,
+    PrescriptionIntakeExtraction,
+)
 from gerclaw_api.modules.validation import (
+    ModelOutputContractValidationError,
     RAGEvidenceContractValidationError,
     StreamContractValidationError,
     validate_harness_stream_event,
     validate_local_rag_evidence_provenance,
     validate_public_chat_stream_event,
+    validate_versioned_model_output,
 )
 
 
@@ -102,6 +108,26 @@ def test_local_rag_evidence_contract_accepts_complete_provenance() -> None:
 
     assert provenance.document_id == "a" * 64
     assert provenance.chunk_index == 2
+
+
+def test_model_output_contract_requires_the_declared_output_version() -> None:
+    valid = validate_versioned_model_output(
+        {
+            "model_output_schema_version": PRESCRIPTION_INTAKE_MODEL_OUTPUT_SCHEMA_VERSION,
+            "answer_updates": {"health_goal": "改善睡眠"},
+            "follow_up_question": None,
+        },
+        output_model=PrescriptionIntakeExtraction,
+        schema_version=PRESCRIPTION_INTAKE_MODEL_OUTPUT_SCHEMA_VERSION,
+    )
+    assert valid.answer_updates == {"health_goal": "改善睡眠"}
+
+    with pytest.raises(ModelOutputContractValidationError, match="model output"):
+        validate_versioned_model_output(
+            {"answer_updates": {}, "follow_up_question": None},
+            output_model=PrescriptionIntakeExtraction,
+            schema_version=PRESCRIPTION_INTAKE_MODEL_OUTPUT_SCHEMA_VERSION,
+        )
 
 
 @pytest.mark.parametrize(

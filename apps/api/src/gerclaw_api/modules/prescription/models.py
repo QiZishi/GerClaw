@@ -20,6 +20,12 @@ FIVE_PRESCRIPTION_TEMPLATE_VERSION: Final[Literal["five-prescription-report-v1"]
 PRESCRIPTION_INPUT_TEMPLATE_VERSION: Final[Literal["five-prescription-input-v1"]] = (
     "five-prescription-input-v1"
 )
+FIVE_PRESCRIPTION_MODEL_OUTPUT_SCHEMA_VERSION: Final[
+    Literal["five-prescription-model-output-v1"]
+] = "five-prescription-model-output-v1"
+PRESCRIPTION_INTAKE_MODEL_OUTPUT_SCHEMA_VERSION: Final[
+    Literal["prescription-intake-model-output-v1"]
+] = "prescription-intake-model-output-v1"
 MEDICAL_DRAFT_DISCLAIMER: Final[
     Literal["AI生成建议仅供参考，不能替代专业医生诊断、治疗建议或处方；如有不适请及时就医。"]
 ] = (
@@ -140,6 +146,12 @@ class FivePrescriptionDraft(BaseModel):
     model_config = ConfigDict(extra="forbid", frozen=True)
 
     template_version: Literal["five-prescription-report-v1"] = FIVE_PRESCRIPTION_TEMPLATE_VERSION
+    # The model's strict projection is versioned independently from the
+    # owner-visible report template.  The server preserves this value to make
+    # later trace/evaluation comparisons unambiguous.
+    model_output_schema_version: Literal["five-prescription-model-output-v1"] = (
+        FIVE_PRESCRIPTION_MODEL_OUTPUT_SCHEMA_VERSION
+    )
     status: Literal["needs_medical_governance", "needs_clinician_review"]
     patient_summary: PatientSummary
     health_assessment: HealthAssessmentDraft
@@ -212,6 +224,7 @@ class GeneratedPrescriptionContent(BaseModel):
 
     model_config = ConfigDict(extra="forbid", frozen=True)
 
+    model_output_schema_version: Literal["five-prescription-model-output-v1"]
     patient_summary: PatientSummary
     health_assessment: HealthAssessmentDraft
     medication: MedicationDraft
@@ -263,6 +276,7 @@ class PrescriptionIntakeExtraction(BaseModel):
 
     model_config = ConfigDict(extra="forbid", frozen=True)
 
+    model_output_schema_version: Literal["prescription-intake-model-output-v1"]
     answer_updates: dict[str, str] = Field(default_factory=dict, max_length=3)
     follow_up_question: str | None = Field(default=None, min_length=1, max_length=300)
 

@@ -14,6 +14,9 @@ from gerclaw_api.modules.prescription.intake_extractor import (
     PrescriptionIntakeExtractionError,
     PrescriptionIntakeExtractor,
 )
+from gerclaw_api.modules.prescription.models import (
+    PRESCRIPTION_INTAKE_MODEL_OUTPUT_SCHEMA_VERSION,
+)
 
 
 class _Model:
@@ -42,6 +45,7 @@ class _Model:
 async def test_extractor_uses_untrusted_document_material_and_only_fills_blank_fields() -> None:
     model = _Model(
         {
+            "model_output_schema_version": PRESCRIPTION_INTAKE_MODEL_OUTPUT_SCHEMA_VERSION,
             "answer_updates": {
                 "health_goal": "改善步行耐力",
                 "current_concerns": "活动后疲劳",
@@ -72,6 +76,7 @@ async def test_extractor_uses_untrusted_document_material_and_only_fills_blank_f
 async def test_extractor_rejects_unknown_or_overwrite_field_output() -> None:
     model = _Model(
         {
+            "model_output_schema_version": PRESCRIPTION_INTAKE_MODEL_OUTPUT_SCHEMA_VERSION,
             "answer_updates": {"not_declared": "x"},
             "follow_up_question": "请补充情况。",
         }
@@ -90,7 +95,13 @@ async def test_extractor_rejects_unknown_or_overwrite_field_output() -> None:
 async def test_extractor_uses_validated_json_fallback_after_structured_failure() -> None:
     model = _Model(
         RuntimeError("provider rejected structured output"),
-        fallback='```json\n{"answer_updates":{"health_goal":"改善睡眠"},"follow_up_question":"请补充目前的困扰。"}\n```',
+        fallback=(
+            "```json\\n{"
+            '"model_output_schema_version":"prescription-intake-model-output-v1",'
+            '"answer_updates":{"health_goal":"改善睡眠"},'
+            '"follow_up_question":"请补充目前的困扰。"}'
+            "\\n```"
+        ),
     )
 
     result = await PrescriptionIntakeExtractor(model).extract(
