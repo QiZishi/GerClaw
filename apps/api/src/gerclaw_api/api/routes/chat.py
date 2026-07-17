@@ -40,6 +40,7 @@ from gerclaw_api.modules.memory.memory_module import ProductionMemoryModule
 from gerclaw_api.modules.memory.runtime import create_memory_module
 from gerclaw_api.modules.risk_alert.service import RiskAlertService
 from gerclaw_api.modules.skill import ProductionSkillModule
+from gerclaw_api.modules.validation import validate_public_chat_stream_event
 from gerclaw_api.repositories.approval import SqlAlchemyApprovalRepository
 from gerclaw_api.repositories.conversation import (
     ConversationConflictError,
@@ -258,6 +259,7 @@ async def chat(
     registry: ChatCancellationRegistry = request.app.state.chat_cancellations
 
     async def publish(event: StreamEvent) -> None:
+        event = validate_public_chat_stream_event(event)
         if event.event_type == "tool_result":
             _force_enqueue(queue, event)
         else:

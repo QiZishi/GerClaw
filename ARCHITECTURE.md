@@ -120,6 +120,7 @@ apps/api
 | `agent_harness` | AgentScope ReAct、SSE、模型 failover、取消、医疗安全后处理 | 多智能体临床复核与临床副作用 workflow 未接入 |
 | `workflows` | Chat workflow 的版本、责任模块、允许上下文和 workflow 风险档案注册 | 不是工作流执行器；临床副作用恢复、补偿与批准后执行未接入 |
 | `runtime` | Capability registry、ALLOW/DENY/ASK、预算、审批与 checkpoint 契约 | 临床恢复 executor 未启用 |
+| `validation` | `public-chat-sse-v1` 的严格 Harness 与浏览器 SSE 事件契约；生产端双重校验 | 其余 HTTP、模型、工具、RAG、memory、voice 和 export 边界尚未统一迁移 |
 | `rag` | 本地知识库摄取、混合检索、重排、引用与 Agent 工具 | 专项质量/安全评测缺口见矩阵 |
 | `memory` | 加密会话事实、健康画像与无 PHI 语义引用 | 正式身份授权和生命周期治理未完成 |
 | `search` | AnySearch 优先、Tavily 兜底、SSRF 与不可信内容隔离 | 不应替代本地循证证据 |

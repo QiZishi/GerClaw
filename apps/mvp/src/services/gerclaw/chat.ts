@@ -5,20 +5,37 @@ import { ensureBackendSession } from "./skills";
 import { getGerclawVisitorId } from "./visitor";
 import type { Citation, ImageAttachment } from "@/types";
 
-const textDeltaSchema = z.object({ content: z.string() }).passthrough();
-const thinkingSchema = z.object({ content: z.string(), status: z.string() }).passthrough();
+const streamMetadataSchema = z.object({ timestamp: z.number().finite().nonnegative() });
+const agentStartSchema = streamMetadataSchema.extend({
+  agent: z.enum(["gerclaw_geriatric_specialist", "gerclaw_emotional_companion"]),
+  status: z.enum(["running", "replay"]),
+}).strict();
+const textDeltaSchema = streamMetadataSchema.extend({ content: z.string().min(1).max(50_000) }).strict();
+const thinkingSchema = streamMetadataSchema.extend({
+  content: z.string().min(1).max(1_000),
+  status: z.literal("running"),
+}).strict();
 const toolCallSchema = z
-  .object({ tool_call_id: z.string(), tool_name: z.string(), status: z.string() })
-  .passthrough();
+  .object({
+    tool_call_id: z.string().min(1).max(256),
+    tool_name: z.string().min(1).max(128),
+    status: z.literal("running"),
+    timestamp: z.number().finite().nonnegative(),
+  })
+  .strict();
 const toolResultSchema = z
   .object({
-    tool_call_id: z.string(),
-    tool_name: z.string(),
-    status: z.string(),
+    tool_call_id: z.string().min(1).max(256),
+    tool_name: z.string().min(1).max(128),
+    status: z.enum(["success", "failed", "cancelled"]),
     duration_ms: z.number().int().nonnegative(),
-    results: z.array(z.unknown()).optional(),
+    result_count: z.number().int().nonnegative().max(100).optional(),
+    results: z.array(z.record(z.string(), z.unknown())).max(50).optional(),
+    skill: z.string().min(1).max(100).optional(),
+    version: z.string().min(1).max(100).optional(),
+    timestamp: z.number().finite().nonnegative(),
   })
-  .passthrough();
+  .strict();
 type ChatReference = z.infer<typeof chatDoneEventSchema>["references"][number];
 const errorSchema = z
   .object({
@@ -49,17 +66,16 @@ const approvalRequiredSchema = z
     expires_at: z.string().datetime(),
     policy_version: z.string().min(1),
     tool_version: z.string().min(1),
+    timestamp: z.number().finite().nonnegative(),
   })
   .strict();
 const safetyNoticeSchema = z
   .object({
     codes: z.array(z.string().min(1).max(80)).min(1).max(10),
     content: z.string().min(1).max(1_000),
+    timestamp: z.number().finite().nonnegative(),
   })
-  // SSE middleware appends observability fields (for example timestamp).
-  // Keep the safety payload fail-closed for its required fields while allowing
-  // transport metadata to evolve independently.
-  .passthrough();
+  .strict();
 
 export interface AgentToolEvent {
   id: string;
@@ -216,7 +232,9 @@ export async function streamAgentChat(
     const processBlock = (block: string) => {
       const parsed = parseEventBlock(block);
       if (!parsed) return;
-      if (parsed.event === "text_delta") {
+      if (parsed.event === "agent_start") {
+        agentStartSchema.parse(parsed.data);
+      } else if (parsed.event === "text_delta") {
         callbacks.onText?.(textDeltaSchema.parse(parsed.data).content);
       } else if (parsed.event === "thinking") {
         callbacks.onThinking?.(thinkingSchema.parse(parsed.data).content);
@@ -259,6 +277,8 @@ export async function streamAgentChat(
       } else if (parsed.event === "error") {
         const error = errorSchema.parse(parsed.data);
         throw new GerclawApiError(error.message, error.code, 500, error.trace_id);
+      } else {
+        throw new GerclawApiError("流式响应包含不支持的事件", "CHAT_STREAM_INVALID", 502, traceId);
       }
     };
 

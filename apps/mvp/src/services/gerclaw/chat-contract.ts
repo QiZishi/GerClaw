@@ -22,9 +22,9 @@ const safetySchema = z
   .strict();
 
 /**
- * Required final payload plus forward-compatible server transport metadata.
- * The API emits ``timestamp`` on every SSE event, so strict rejection of that
- * metadata must never convert a completed response into a client-side error.
+ * Required final payload and the exact server-owned transport metadata. New
+ * fields require a versioned backend/frontend contract change; silently
+ * accepting them would hide a protocol drift at a medical UI boundary.
  */
 export const chatDoneEventSchema = z
   .object({
@@ -34,5 +34,6 @@ export const chatDoneEventSchema = z
     session_id: z.string().uuid(),
     safety: safetySchema,
     replayed: z.boolean(),
+    timestamp: z.number().finite().nonnegative(),
   })
-  .passthrough();
+  .strict();

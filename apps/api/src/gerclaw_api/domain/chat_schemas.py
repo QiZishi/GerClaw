@@ -8,9 +8,10 @@ from typing import Literal
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
-from gerclaw_api.modules.contracts import Citation, SafetyDecision
+from gerclaw_api.modules.contracts import Citation
 from gerclaw_api.modules.input_output import ImageInput
 from gerclaw_api.modules.skill.models import SkillId
+from gerclaw_api.modules.validation import PublicChatDoneData
 from gerclaw_api.modules.workflows import (
     WorkflowContextError,
     WorkflowId,
@@ -117,17 +118,7 @@ class SessionMessagesRead(BaseModel):
     messages: list[ChatMessageRead]
 
 
-class ChatDoneData(BaseModel):
-    """Terminal successful SSE payload emitted only after durable persistence."""
-
-    model_config = STRICT
-
-    full_text: str = Field(min_length=1, max_length=50_000)
-    references: list[Citation] = Field(default_factory=list, max_length=50)
-    safety: SafetyDecision
-    trace_id: str
-    session_id: uuid.UUID
-    replayed: bool = False
+ChatDoneData = PublicChatDoneData
 
 
 class ChatErrorData(BaseModel):

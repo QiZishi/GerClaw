@@ -103,6 +103,7 @@ from gerclaw_api.modules.search import (
 from gerclaw_api.modules.search.protocols import SearchModule
 from gerclaw_api.modules.security_evaluation import build_chat_tool_security_registry
 from gerclaw_api.modules.skill.agentscope_adapter import SAFE_SKILL_INSTRUCTION_TEMPLATE
+from gerclaw_api.modules.validation import validate_harness_stream_event
 from gerclaw_api.security import JsonValue
 from gerclaw_api.services.model_router import FailoverChatModel, capture_model_attempts
 
@@ -1277,10 +1278,12 @@ class ProductionAgentHarness:
         event_type: str,
         data: dict[str, JsonValue],
     ) -> None:
-        event = StreamEvent(
-            event_type=event_type,
-            data=data,
-            timestamp=datetime.now(UTC),
+        event = validate_harness_stream_event(
+            StreamEvent(
+                event_type=event_type,
+                data=data,
+                timestamp=datetime.now(UTC),
+            )
         )
         result = callback(event)
         if inspect.isawaitable(result):
