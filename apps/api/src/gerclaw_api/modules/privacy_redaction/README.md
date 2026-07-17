@@ -18,7 +18,11 @@ provider record before/after egress; it contains only purpose, processor,
 policy version and per-field category counts. FastAPI ASR has a separate,
 non-redaction `audio-egress-v1` record with the fixed audio purpose, processor,
 outcome and an empty findings list. It does not assert that audio is
-de-identified, safe to send, or consented. The legacy Next.js TTS BFF, MinerU,
-model prompts, exports, AgentScope internal search and a user-facing processing
-ledger still require their own purpose-specific adapters before they can claim
-unified coverage.
+de-identified, safe to send, or consented. The Next.js MinerU BFF records an
+owner-bound `external_document_parse` decision before the provider starts and
+finishes it after the provider outcome. Its `document-egress-v1` record has no
+filename, document text, size, page count or findings, and it does not assert
+that the document is de-identified, safe to send, or consented. The legacy
+Next.js TTS BFF, model prompts, exports, AgentScope internal search and a
+user-facing processing ledger still require their own purpose-specific adapters
+before they can claim unified coverage.

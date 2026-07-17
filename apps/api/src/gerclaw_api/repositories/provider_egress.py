@@ -2,8 +2,10 @@
 
 from __future__ import annotations
 
-from typing import Literal
+import uuid
+from typing import Literal, cast
 
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from gerclaw_api.database.models import ProviderEgressEvent
@@ -71,8 +73,42 @@ class SqlAlchemyProviderEgressRepository:
         await self._session.flush()
         return event
 
+    async def record_prepared_document_parse(
+        self, *, tenant_id: str, actor_id: str
+    ) -> ProviderEgressEvent:
+        """Record one MinerU parse without persisting file metadata or content."""
+
+        event = ProviderEgressEvent(
+            tenant_id=tenant_id,
+            actor_id=actor_id,
+            purpose="external_document_parse",
+            processor="mineru",
+            policy_version="document-egress-v1",
+            findings=[],
+            outcome="prepared",
+        )
+        self._session.add(event)
+        await self._session.flush()
+        return event
+
     async def set_outcome(
         self, event: ProviderEgressEvent, *, outcome: Literal["succeeded", "failed"]
     ) -> None:
         event.outcome = outcome
         await self._session.flush()
+
+    async def get_document_parse_for_owner(
+        self, event_id: uuid.UUID, *, tenant_id: str, actor_id: str
+    ) -> ProviderEgressEvent | None:
+        statement = (
+            select(ProviderEgressEvent)
+            .where(
+                ProviderEgressEvent.id == event_id,
+                ProviderEgressEvent.tenant_id == tenant_id,
+                ProviderEgressEvent.actor_id == actor_id,
+                ProviderEgressEvent.purpose == "external_document_parse",
+                ProviderEgressEvent.processor == "mineru",
+            )
+            .with_for_update()
+        )
+        return cast(ProviderEgressEvent | None, await self._session.scalar(statement))

@@ -1,4 +1,5 @@
 import { NextRequest } from "next/server";
+import { z } from "zod";
 import {
   assertAllowedProviderUrl,
   opaqueProviderFileName,
@@ -7,6 +8,12 @@ import {
   parseSubmitResponse,
   readStreamWithLimit,
 } from "@/server/mineru-contract";
+import {
+  hasGerclawAccountAccess,
+  resolveGerclawAccess,
+  type GerclawAccess,
+} from "@/server/gerclaw-access";
+import { getGerclawApiBaseUrl } from "@/server/gerclaw-api";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -42,11 +49,72 @@ interface ParseResponse {
   fileName: string;
 }
 
+const preparedEgressSchema = z.object({ egress_id: z.string().uuid() }).strict();
+
 function errorResponse(error: string, fileName: string, status: number) {
   return Response.json(
     { success: false, error, fileName } satisfies ParseResponse,
     { status }
   );
+}
+
+function withAccess(response: Response, access: GerclawAccess | null): Response {
+  access?.applyCookies(response);
+  return response;
+}
+
+async function mineruAuditRequest(
+  request: NextRequest,
+  access: GerclawAccess,
+  path: string,
+  init: RequestInit
+): Promise<{ access: GerclawAccess; response: Response }> {
+  const call = (token: string) =>
+    fetch(`${getGerclawApiBaseUrl()}/api/v1/documents/provider-egress/mineru${path}`, {
+      ...init,
+      headers: { ...init.headers, Authorization: `Bearer ${token}` },
+      cache: "no-store",
+    });
+  let currentAccess = access;
+  let response = await call(currentAccess.accessToken);
+  if (response.status === 401 && !hasGerclawAccountAccess(request)) {
+    currentAccess = await resolveGerclawAccess(request, { refreshGuest: true });
+    response = await call(currentAccess.accessToken);
+  }
+  return { access: currentAccess, response };
+}
+
+async function prepareMineruEgress(
+  request: NextRequest,
+  access: GerclawAccess
+): Promise<{ access: GerclawAccess; egressId: string }> {
+  const { access: resolvedAccess, response } = await mineruAuditRequest(request, access, "", {
+    method: "POST",
+    headers: { Accept: "application/json" },
+  });
+  const parsed = preparedEgressSchema.safeParse(await response.json().catch(() => null));
+  if (!response.ok || !parsed.success) throw new Error("document egress preparation failed");
+  return { access: resolvedAccess, egressId: parsed.data.egress_id };
+}
+
+async function finishMineruEgress(
+  request: NextRequest,
+  access: GerclawAccess,
+  egressId: string,
+  outcome: "succeeded" | "failed"
+): Promise<GerclawAccess> {
+  const { access: resolvedAccess, response } = await mineruAuditRequest(
+    request,
+    access,
+    `/${encodeURIComponent(egressId)}`,
+    {
+      method: "POST",
+      headers: { Accept: "application/json", "Content-Type": "application/json" },
+      body: JSON.stringify({ outcome }),
+    }
+  );
+  if (response.status !== 204) throw new Error("document egress finish failed");
+  return resolvedAccess;
 }
 
 function getProviderConfig() {
@@ -124,6 +192,8 @@ async function readJsonResponse(response: Response): Promise<unknown> {
 export async function POST(request: NextRequest): Promise<Response> {
   let fileName = "";
   const traceId = crypto.randomUUID();
+  let access: GerclawAccess | null = null;
+  let egressId: string | null = null;
 
   try {
     const contentType = request.headers.get("content-type") ?? "";
@@ -165,11 +235,23 @@ export async function POST(request: NextRequest): Promise<Response> {
     }
     assertAllowedProviderUrl(config.baseUrl, config.allowedHosts);
 
+    access = await resolveGerclawAccess(request);
+    const prepared = await prepareMineruEgress(request, access);
+    access = prepared.access;
+    egressId = prepared.egressId;
     const providerFileName = opaqueProviderFileName(extension, crypto.randomUUID());
     const markdown = await parseWithMinerU(entry, providerFileName, config, request.signal);
+    access = await finishMineruEgress(request, access, egressId, "succeeded");
     console.info("[GerClaw][Document] parse completed", { traceId, outcome: "succeeded" });
-    return Response.json({ success: true, markdown, fileName } satisfies ParseResponse);
+    return withAccess(Response.json({ success: true, markdown, fileName } satisfies ParseResponse), access);
   } catch (error) {
+    if (access !== null && egressId !== null) {
+      try {
+        access = await finishMineruEgress(request, access, egressId, "failed");
+      } catch {
+        // A terminal-audit failure must not disclose or log document content.
+      }
+    }
     if (error instanceof PayloadLimitError) {
       return errorResponse("上传内容超过 10MB 限制", fileName, 413);
     }
@@ -186,7 +268,7 @@ export async function POST(request: NextRequest): Promise<Response> {
       error instanceof Error && error.name === "AbortError"
         ? "文档解析超时，请稍后重试"
         : "文档解析服务暂时不可用，请稍后重试；图片仍可直接上传";
-    return errorResponse(message, fileName, 503);
+    return withAccess(errorResponse(message, fileName, 503), access);
   }
 }
 

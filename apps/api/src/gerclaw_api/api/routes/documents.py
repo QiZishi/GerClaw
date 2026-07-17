@@ -15,6 +15,8 @@ from gerclaw_api.auth import (
 )
 from gerclaw_api.dependencies import get_database_session
 from gerclaw_api.modules.document.models import (
+    DocumentParseEgressFinish,
+    DocumentParseEgressPrepared,
     UploadedDocumentCreate,
     UploadedDocumentDeleted,
     UploadedDocumentRead,
@@ -25,6 +27,7 @@ from gerclaw_api.repositories.document import (
     SqlAlchemyDocumentRepository,
     UploadedDocumentNotFoundError,
 )
+from gerclaw_api.repositories.provider_egress import SqlAlchemyProviderEgressRepository
 from gerclaw_api.services.conversation_service import ConversationNotFoundError, ConversationService
 from gerclaw_api.services.rate_limit import RateLimiter
 
@@ -79,6 +82,41 @@ async def register_document(
         ) from error
     await session.commit()
     return result
+
+
+@router.post("/provider-egress/mineru", response_model=DocumentParseEgressPrepared)
+async def prepare_mineru_egress(
+    request: Request, session: SessionDependency, identity: WriteIdentity
+) -> DocumentParseEgressPrepared:
+    """Prepare an owner-bound MinerU audit record before the BFF calls the provider."""
+
+    await _enforce_rate_limit(request, identity)
+    event = await SqlAlchemyProviderEgressRepository(session).record_prepared_document_parse(
+        tenant_id=identity.tenant_id, actor_id=identity.actor_id
+    )
+    await session.commit()
+    return DocumentParseEgressPrepared(egress_id=event.id)
+
+
+@router.post("/provider-egress/mineru/{egress_id}", status_code=status.HTTP_204_NO_CONTENT)
+async def finish_mineru_egress(
+    egress_id: uuid.UUID,
+    payload: DocumentParseEgressFinish,
+    request: Request,
+    session: SessionDependency,
+    identity: WriteIdentity,
+) -> None:
+    """Finish only the caller's prepared MinerU egress record."""
+
+    await _enforce_rate_limit(request, identity)
+    repository = SqlAlchemyProviderEgressRepository(session)
+    event = await repository.get_document_parse_for_owner(
+        egress_id, tenant_id=identity.tenant_id, actor_id=identity.actor_id
+    )
+    if event is None or event.outcome != "prepared":
+        raise HTTPException(status_code=404, detail={"code": "DOCUMENT_EGRESS_NOT_FOUND"})
+    await repository.set_outcome(event, outcome=payload.outcome)
+    await session.commit()
 
 
 @router.get("/sessions/{session_id}/{document_id}", response_model=UploadedDocumentRead)

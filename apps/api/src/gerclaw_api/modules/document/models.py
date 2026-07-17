@@ -78,3 +78,19 @@ class UploadedDocumentContext(BaseModel):
     document_id: uuid.UUID
     filename: str = Field(min_length=1, max_length=255)
     content: str = Field(min_length=1, max_length=2_000_000)
+
+
+class DocumentParseEgressPrepared(BaseModel):
+    """Opaque provider-egress handle; it carries no document metadata."""
+
+    model_config = STRICT
+
+    egress_id: uuid.UUID
+
+
+class DocumentParseEgressFinish(BaseModel):
+    """The BFF may report only the terminal provider outcome."""
+
+    model_config = STRICT
+
+    outcome: Literal["succeeded", "failed"]

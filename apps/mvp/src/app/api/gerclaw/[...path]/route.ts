@@ -1,33 +1,18 @@
 import { NextRequest, NextResponse } from "next/server";
-import { createHmac } from "node:crypto";
 import { z } from "zod";
 import {
   getGerclawApiBaseUrl,
   isAllowedGerclawProxyTarget,
 } from "@/server/gerclaw-api";
+import { hasGerclawAccountAccess, resolveGerclawAccess } from "@/server/gerclaw-access";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
-const COOKIE_NAME = "gerclaw_guest_token";
-const ACCOUNT_COOKIE_NAME = "gerclaw_account_access";
-const VISITOR_COOKIE_NAME = "gerclaw_visitor_id";
-const visitorIdSchema = z.string().regex(/^[a-f0-9]{32}$/);
 const proxyTraceIdSchema = z.string().regex(/^trace_[a-f0-9]{32}$/);
-const guestTokenSchema = z
-  .object({
-    access_token: z.string().min(32),
-    expires_in: z.number().int().min(300).max(86_400),
-  })
-  .passthrough();
 
 interface RouteContext {
   params: Promise<{ path: string[] }>;
-}
-
-interface GuestCredential {
-  accessToken: string;
-  expiresIn: number;
 }
 
 class ProxyBodyTooLargeError extends Error {}
@@ -73,42 +58,6 @@ async function readBoundedBody(request: NextRequest): Promise<ArrayBuffer | unde
     offset += chunk.byteLength;
   }
   return body;
-}
-
-function visitorSignature(visitorId: string): string {
-  const secret = z
-    .string()
-    .min(32)
-    .parse(process.env.GERCLAW_GUEST_IDENTITY_SECRET);
-  return createHmac("sha256", secret)
-    .update(`gerclaw-guest-bootstrap:v1:${visitorId}`)
-    .digest("hex");
-}
-
-async function issueGuestCredential(
-  apiBase: string,
-  visitorId: string
-): Promise<GuestCredential> {
-  const response = await fetch(`${apiBase}/api/v1/auth/guest`, {
-    method: "POST",
-    headers: {
-      Accept: "application/json",
-      "X-GerClaw-Visitor-ID": visitorId,
-      "X-GerClaw-Visitor-Signature": visitorSignature(visitorId),
-    },
-    cache: "no-store",
-  });
-  if (!response.ok) {
-    throw new Error("访客身份服务暂时不可用");
-  }
-  const parsed = guestTokenSchema.safeParse(await response.json().catch(() => null));
-  if (!parsed.success) {
-    throw new Error("访客身份响应格式不正确");
-  }
-  return {
-    accessToken: parsed.data.access_token,
-    expiresIn: parsed.data.expires_in,
-  };
 }
 
 function responseHeaders(upstream: Response): Headers {
@@ -160,39 +109,9 @@ async function proxy(request: NextRequest, context: RouteContext): Promise<Respo
       { status: 400 }
     );
   }
-  let credential: GuestCredential | null = null;
-  const accountAccessToken = request.cookies.get(ACCOUNT_COOKIE_NAME)?.value;
-  let accessToken = accountAccessToken ?? request.cookies.get(COOKIE_NAME)?.value;
-  const cookieVisitorId = visitorIdSchema.safeParse(
-    request.cookies.get(VISITOR_COOKIE_NAME)?.value
-  );
-  const headerVisitorId = visitorIdSchema.safeParse(
-    request.headers.get("x-gerclaw-visitor-id")
-  );
-  let visitorId: string | null = null;
-  if (accountAccessToken) {
-    // Account access is server-issued and must not be rebound to a visitor identity.
-  } else if (cookieVisitorId.success) {
-    visitorId = cookieVisitorId.data;
-  } else if (headerVisitorId.success) {
-    visitorId = headerVisitorId.data;
-  } else {
-    return NextResponse.json(
-      { error: { code: "VISITOR_ID_REQUIRED", message: "访客身份尚未初始化，请刷新后重试" } },
-      { status: 400 }
-    );
-  }
-  const visitorCookieRequired = !accountAccessToken && !cookieVisitorId.success;
-  if (visitorCookieRequired) {
-    // A token without its identity cookie cannot be proven to match the client-generated ID.
-    accessToken = undefined;
-  }
-
   try {
-    if (!accessToken) {
-      credential = await issueGuestCredential(apiBase, visitorId!);
-      accessToken = credential.accessToken;
-    }
+    let access = await resolveGerclawAccess(request);
+    let accessToken = access.accessToken;
 
     const callUpstream = (token: string) => {
       const headers = new Headers({
@@ -211,34 +130,16 @@ async function proxy(request: NextRequest, context: RouteContext): Promise<Respo
     };
 
     let upstream = await callUpstream(accessToken);
-    if (upstream.status === 401 && !accountAccessToken) {
-      credential = await issueGuestCredential(apiBase, visitorId!);
-      accessToken = credential.accessToken;
+    if (upstream.status === 401 && !hasGerclawAccountAccess(request)) {
+      access = await resolveGerclawAccess(request, { refreshGuest: true });
+      accessToken = access.accessToken;
       upstream = await callUpstream(accessToken);
     }
-
     const response = new NextResponse(upstream.body, {
       status: upstream.status,
       headers: responseHeaders(upstream),
     });
-    if (credential) {
-      response.cookies.set(COOKIE_NAME, credential.accessToken, {
-        httpOnly: true,
-        sameSite: "lax",
-        secure: process.env.NODE_ENV === "production",
-        path: "/",
-        maxAge: credential.expiresIn,
-      });
-    }
-    if (visitorCookieRequired && visitorId !== null) {
-      response.cookies.set(VISITOR_COOKIE_NAME, visitorId, {
-        httpOnly: true,
-        sameSite: "lax",
-        secure: process.env.NODE_ENV === "production",
-        path: "/",
-        maxAge: 31_536_000,
-      });
-    }
+    access.applyCookies(response);
     return response;
   } catch {
     return NextResponse.json(
