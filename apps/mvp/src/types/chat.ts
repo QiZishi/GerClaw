@@ -288,6 +288,7 @@ export interface InputContext {
 export type ChatActionType =
   | "none"
   | "companion"
+  | "risk-alerts"
   | "prescription"
   | "cga"
   | "drug-review"

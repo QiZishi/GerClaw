@@ -24,6 +24,7 @@ import { SkillManager } from "@/components/skills/SkillManager";
 import { CgaAssessment } from "@/components/cga/CgaAssessment";
 import { ClinicalIntakeForm } from "@/components/prescription/ClinicalIntakeForm";
 import { ChronicCareLedger } from "@/components/chronic/ChronicCareLedger";
+import { RiskAlertLedger } from "@/components/risk-alert/RiskAlertLedger";
 import { useAppStore } from "@/stores/appStore";
 import { useChatStore } from "@/stores/chatStore";
 import { cn } from "@/lib/utils";
@@ -161,7 +162,7 @@ export function ChatArea() {
 
   // 仅健康画像由右侧面板承载；其余入口均由各自的真实后端流程承载。
   useEffect(() => {
-    if (chatAction === "none" || chatAction === "companion" || chatAction === "cga" || chatAction === "prescription" || chatAction === "drug-review" || chatAction === "chronic-care") return;
+    if (chatAction === "none" || chatAction === "companion" || chatAction === "cga" || chatAction === "prescription" || chatAction === "drug-review" || chatAction === "chronic-care" || chatAction === "risk-alerts") return;
     setChatAction("none");
   }, [chatAction, setChatAction]);
 
@@ -653,6 +654,10 @@ const handleExampleClick = (text: string) => {
       setChatAction("chronic-care");
       return;
     }
+    if (action === "risk-alerts") {
+      setChatAction("risk-alerts");
+      return;
+    }
     if (action === "companion") {
       // A fresh local session prevents ordinary medical-chat context, a selected
       // Skill, or a pending document from silently crossing into this mode.
@@ -706,6 +711,7 @@ const handleExampleClick = (text: string) => {
     cga: "老年综合评估",
     "drug-review": "用药信息收集",
     "chronic-care": "我的慢病记录",
+    "risk-alerts": "我的安全提醒",
     "health-profile": "查看健康画像",
   };
 
@@ -814,6 +820,10 @@ const handleExampleClick = (text: string) => {
       ) : chatAction === "chronic-care" ? (
         <div className="flex-1 min-h-0 overflow-y-auto">
           <ChronicCareLedger seniorMode={seniorMode} />
+        </div>
+      ) : chatAction === "risk-alerts" ? (
+        <div className="flex-1 min-h-0 overflow-y-auto">
+          <RiskAlertLedger seniorMode={seniorMode} />
         </div>
       ) : (
         <div className="flex-1 min-h-0 overflow-hidden flex flex-col">

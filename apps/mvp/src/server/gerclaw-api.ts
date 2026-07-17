@@ -59,6 +59,11 @@ const proxyRules: Array<{ pattern: RegExp; methods: ReadonlySet<string> }> = [
     methods: new Set(["POST"]),
   },
   { pattern: /^chronic-care\/conditions$/, methods: new Set(["GET", "POST"]) },
+  { pattern: /^risk-alerts$/, methods: new Set(["GET"]) },
+  {
+    pattern: new RegExp(`^risk-alerts/${uuidPattern}/acknowledgements$`, "i"),
+    methods: new Set(["POST"]),
+  },
   {
     pattern: new RegExp(`^chronic-care/conditions/${uuidPattern}/measurements$`, "i"),
     methods: new Set(["GET", "POST"]),

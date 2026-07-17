@@ -280,6 +280,26 @@ export type ChronicCondition = z.infer<typeof chronicConditionSchema>;
 export type ChronicMeasurement = z.infer<typeof chronicMeasurementSchema>;
 export type ChronicTrend = z.infer<typeof chronicTrendSchema>;
 
+export const riskAlertSchema = z
+  .object({
+    alert_id: z.string().uuid(),
+    kind: z.enum(["cga_immediate_safety", "cga_high_follow_up", "chat_red_flag"]),
+    severity: z.enum(["critical", "high"]),
+    title: z.string().min(1).max(120),
+    message: z.string().min(1).max(500),
+    action: z.string().min(1).max(300),
+    status: z.enum(["active", "acknowledged"]),
+    revision: z.number().int().positive(),
+    policy_version: z.literal("risk-alert-v1"),
+    created_at: z.string().datetime(),
+    updated_at: z.string().datetime(),
+    acknowledged_at: z.string().datetime().nullable(),
+  })
+  .strict();
+
+export const riskAlertListSchema = z.object({ items: z.array(riskAlertSchema).max(50) }).strict();
+export type RiskAlert = z.infer<typeof riskAlertSchema>;
+
 export const uploadedDocumentSchema = z
   .object({
     document_id: z.string().uuid(),

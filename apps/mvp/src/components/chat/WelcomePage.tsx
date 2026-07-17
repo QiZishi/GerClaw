@@ -6,6 +6,7 @@ import {
   FileSearch,
   HeartHandshake,
   HeartPulse,
+  ShieldAlert,
   Pill,
   Stethoscope,
   UserRound,
@@ -95,6 +96,12 @@ export function WelcomePage({
       label: "暖心陪伴",
       desc: "倾诉与陪伴；不替代医疗咨询",
       action: "companion" as const,
+    },
+    {
+      icon: ShieldAlert,
+      label: "我的安全提醒",
+      desc: "查看系统已确定的本人提醒",
+      action: "risk-alerts" as const,
     },
   ];
 

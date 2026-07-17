@@ -15,6 +15,12 @@ It is deliberately not a clinician notification, emergency dispatch, diagnosis,
 or a replacement for medical care. Cross-patient queues, human escalation and
 contact notifications remain blocked on the account/RBAC/authorisation plan.
 
+The patient UI exposes **我的安全提醒** through a strict BFF allowlist. It
+shows only this caller's server-determined alerts and can submit the existing
+revision-fenced acknowledgement. The button says “我已了解此提醒”, never
+“解除” or “关闭”: acknowledgement is not a clinical resolution or an external
+notification.
+
 For operational visibility, `gerclaw_risk_alerts_total` counts only the bounded
 source (`cga` or `chat`), severity and lifecycle outcome (creation,
 deduplication, acknowledgement or idempotent acknowledgement replay). It intentionally has no patient, alert,
