@@ -22,8 +22,7 @@ def test_reconciliation_only_groups_exact_normalized_entries() -> None:
     result = reconcile_medication_list(
         intake_id=uuid.uuid4(),
         medication_list=(
-            "阿司匹林｜100mg｜每日一次\n 阿司匹林 | 100mg | 每日一次 \n"
-            "阿司匹林肠溶片｜100mg"
+            "阿司匹林｜100mg｜每日一次\n 阿司匹林 | 100mg | 每日一次 \n阿司匹林肠溶片｜100mg"
         ),
     )
 
@@ -135,9 +134,7 @@ def test_rule_review_v3_emits_evidence_bound_new_high_risk_pairs() -> None:
         "polypharmacy_5_to_9",
     }
     assert findings["ddi_nitroglycerin_sildenafil"].severity == "contraindicated"
-    assert findings["ddi_digoxin_amiodarone"].source_ids == (
-        "frailty_polypharmacy_2022",
-    )
+    assert findings["ddi_digoxin_amiodarone"].source_ids == ("frailty_polypharmacy_2022",)
     assert findings["ddi_clopidogrel_omeprazole"].source_ids == (
         "stable_cad_primary_care",
         "frailty_polypharmacy_2022",
@@ -150,9 +147,7 @@ def test_rule_review_v3_covers_exact_local_daily_dose_limits() -> None:
         intake_id=uuid.uuid4(),
         patient_age=75,
         medication_list=(
-            "比索洛尔 12mg 每日一次\n"
-            "硝苯地平 130mg 每日一次\n"
-            "左旋氨氯地平 6mg 每日一次"
+            "比索洛尔 12mg 每日一次\n硝苯地平 130mg 每日一次\n左旋氨氯地平 6mg 每日一次"
         ),
     )
 
@@ -167,9 +162,7 @@ def test_rule_review_v3_covers_exact_local_daily_dose_limits() -> None:
 
 
 def test_rule_review_does_not_infer_beers_signal_without_age_context() -> None:
-    result = review_medication_list(
-        intake_id=uuid.uuid4(), medication_list="地西泮 2mg 每晚一次"
-    )
+    result = review_medication_list(intake_id=uuid.uuid4(), medication_list="地西泮 2mg 每晚一次")
 
     assert not [finding for finding in result.findings if finding.kind == "beers"]
 

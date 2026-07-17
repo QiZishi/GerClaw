@@ -24,6 +24,8 @@ _HTML_ACTIVE_CONTENT = re.compile(
 _HTML_ACTIVE_SINGLE = re.compile(
     r"<(?:script|style|iframe|object|embed|svg|meta)[^>]*?/?>", re.IGNORECASE
 )
+
+
 class DocumentContextError(RuntimeError):
     """A document cannot safely be used as the requested chat context."""
 
@@ -138,9 +140,7 @@ class DocumentService:
             if remaining <= 0:
                 break
             if not allow_truncation and len(record.content) > remaining:
-                raise DocumentContextError(
-                    "uploaded document context exceeds the configured limit"
-                )
+                raise DocumentContextError("uploaded document context exceeds the configured limit")
             content = record.content[:remaining].strip()
             if not content:
                 continue

@@ -225,9 +225,7 @@ async def run_rag_retrieval_case(
     """Evaluate one reviewed synthetic case without retaining its query or results."""
 
     results = await module.retrieve(case.synthetic_query, top_k=top_k)
-    valid_results = [
-        result for result in results if _has_complete_rag_provenance(result.metadata)
-    ]
+    valid_results = [result for result in results if _has_complete_rag_provenance(result.metadata)]
     returned_document_ids = {
         str(result.metadata["document_id"]).casefold() for result in valid_results
     }

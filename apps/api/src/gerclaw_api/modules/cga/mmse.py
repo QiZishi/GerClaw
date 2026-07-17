@@ -100,9 +100,7 @@ def score_mmse(
     unexpected = set(reported_item_scores) - MMSE_ITEM_IDS
     missing = MMSE_ITEM_IDS - set(reported_item_scores)
     if unexpected or missing:
-        raise ValueError(
-            "MMSE requires exactly the thirty server-defined item identifiers"
-        )
+        raise ValueError("MMSE requires exactly the thirty server-defined item identifiers")
     for item_id, value in reported_item_scores.items():
         if isinstance(value, bool) or not isinstance(value, int) or value not in (0, 1):
             raise ValueError(f"{item_id} must be a binary score")

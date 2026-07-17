@@ -227,9 +227,9 @@ async def test_generator_can_use_same_session_uploaded_material_without_local_hi
     document = UploadedDocumentContext(
         document_id=uuid.uuid4(), filename="patient-report.pdf", content="患者自述的检查资料"
     )
-    uploaded_evidence_id = "ev_" + sha256(
-        f"uploaded-document:{document.document_id}".encode()
-    ).hexdigest()[:24]
+    uploaded_evidence_id = (
+        "ev_" + sha256(f"uploaded-document:{document.document_id}".encode()).hexdigest()[:24]
+    )
     payload = _content().model_dump(mode="json")
     for section_name in ("medication", "exercise", "nutrition", "psychological", "rehabilitation"):
         payload[section_name]["evidence_ids"] = [uploaded_evidence_id]
@@ -303,9 +303,9 @@ async def test_generator_allows_evidence_bound_clinician_medication_candidate() 
             "medication": _content().medication.model_copy(
                 update={
                     "recommendations": (
-                        _content().medication.recommendations[0].model_copy(
-                            update={"content": "待临床复核：开始服用某药。"}
-                        ),
+                        _content()
+                        .medication.recommendations[0]
+                        .model_copy(update={"content": "待临床复核：开始服用某药。"}),
                     )
                 }
             )

@@ -166,9 +166,12 @@ def test_runtime_registry_rejects_unprofiled_and_unredacted_external_tools() -> 
     )
     with pytest.raises(ToolSecurityProfileError, match="without redaction proof"):
         registry.build_tools(principal=principal)
-    assert len(
-        registry.build_tools(
-            principal=principal,
-            outbound_redacted_tools=frozenset({"web_search"}),
+    assert (
+        len(
+            registry.build_tools(
+                principal=principal,
+                outbound_redacted_tools=frozenset({"web_search"}),
+            )
         )
-    ) == 1
+        == 1
+    )

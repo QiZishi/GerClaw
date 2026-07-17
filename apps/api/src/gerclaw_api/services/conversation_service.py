@@ -77,9 +77,7 @@ class ConversationService:
             session_id, tenant_id=tenant_id, actor_id=actor_id
         )
 
-    async def delete_session(
-        self, session_id: uuid.UUID, *, tenant_id: str, actor_id: str
-    ) -> None:
+    async def delete_session(self, session_id: uuid.UUID, *, tenant_id: str, actor_id: str) -> None:
         """Erase an idle caller-owned session and its database-cascaded session data."""
 
         conversation = await self._repository.get_session(
@@ -87,9 +85,7 @@ class ConversationService:
         )
         if conversation is None:
             raise ConversationNotFoundError(str(session_id))
-        await self._repository.delete_session(
-            session_id, tenant_id=tenant_id, actor_id=actor_id
-        )
+        await self._repository.delete_session(session_id, tenant_id=tenant_id, actor_id=actor_id)
         await self._repository.commit()
 
     async def load_history(

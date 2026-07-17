@@ -535,9 +535,7 @@ async def test_uploaded_image_reaches_agentscope_as_visual_data_and_is_cited(
     )
 
     user_message = model.last_messages[-1]
-    visual_blocks = [
-        block for block in user_message.content if isinstance(block, DataBlock)
-    ]
+    visual_blocks = [block for block in user_message.content if isinstance(block, DataBlock)]
     assert len(visual_blocks) == 1
     visual = visual_blocks[0]
     assert visual.id == image.evidence_id
@@ -621,9 +619,10 @@ async def test_medical_image_remains_usable_when_local_rag_is_unavailable(
     # The prefetch failure is public. AgentScope may still make a separate,
     # governed retrieval attempt while answering, so it is intentionally not
     # asserted to be the only tool-result event.
-    assert next(
-        event.data["status"] for event in events if event.event_type == "tool_result"
-    ) == "failed"
+    assert (
+        next(event.data["status"] for event in events if event.event_type == "tool_result")
+        == "failed"
+    )
 
 
 @pytest.mark.asyncio

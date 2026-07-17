@@ -778,9 +778,7 @@ async def deactivate_account(
     # Account access tokens have a fixed 15-minute lifetime. Marking the
     # caller revoked before committing the relational state makes any stale
     # short-lived token fail closed immediately across all API routes.
-    await request.app.state.redis.set(
-        account_access_revocation_key(identity.actor_id), "1", ex=900
-    )
+    await request.app.state.redis.set(account_access_revocation_key(identity.actor_id), "1", ex=900)
     await session.commit()
 
 

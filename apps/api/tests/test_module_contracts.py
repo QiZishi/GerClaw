@@ -106,9 +106,7 @@ def test_shared_contracts_reject_unsafe_or_oversized_public_data() -> None:
         AgentResponse(
             text="目前缺少可核验资料,请补充检查或用药信息。",
             citations=[],
-            safety=_safety().model_copy(
-                update={"notices": ["evidence_unavailable_clarification"]}
-            ),
+            safety=_safety().model_copy(update={"notices": ["evidence_unavailable_clarification"]}),
             medical_content=True,
             structured={"evidence_state": "unavailable", "model_invoked": True},
         )

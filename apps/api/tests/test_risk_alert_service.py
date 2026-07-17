@@ -182,8 +182,7 @@ async def test_severe_medication_findings_create_fixed_owner_alerts_only() -> No
         medication_list="瑞舒伐他汀 40mg 每日一次\n环孢素",
     )
     fingerprints = {
-        finding.finding_id: f"{index:064x}"
-        for index, finding in enumerate(review.findings, 1)
+        finding.finding_id: f"{index:064x}" for index, finding in enumerate(review.findings, 1)
     }
 
     first = await service.sync_medication_review(

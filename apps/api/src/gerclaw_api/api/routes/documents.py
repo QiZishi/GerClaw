@@ -77,7 +77,7 @@ async def register_document(
         )
     except DocumentContextError as error:
         raise HTTPException(
-            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
             detail={"code": "DOCUMENT_CONTENT_INVALID", "message": "文档解析内容无法安全使用"},
         ) from error
     await session.commit()

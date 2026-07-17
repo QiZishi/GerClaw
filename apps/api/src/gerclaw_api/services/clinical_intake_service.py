@@ -122,9 +122,7 @@ class ClinicalIntakeService:
             else self._validated_document_ids(document_ids)
         )
         candidate_images = (
-            previous_images
-            if not images
-            else self._validated_images([*previous_images, *images])
+            previous_images if not images else self._validated_images([*previous_images, *images])
         )
         if conversation_turn_increment is not None:
             if definition.kind != "prescription" or conversation_turn_increment != 1:
@@ -161,9 +159,7 @@ class ClinicalIntakeService:
         record.status = (
             "information_complete_pending_governance"
             if all(
-                candidate.get(field.id, "").strip()
-                for field in definition.fields
-                if field.required
+                candidate.get(field.id, "").strip() for field in definition.fields if field.required
             )
             else "collecting"
         )
@@ -287,8 +283,7 @@ class ClinicalIntakeService:
     def _answers(record: ClinicalIntake) -> dict[str, str]:
         raw = record.answers
         if not isinstance(raw, dict) or any(
-            not isinstance(key, str) or not isinstance(value, str)
-            for key, value in raw.items()
+            not isinstance(key, str) or not isinstance(value, str) for key, value in raw.items()
         ):
             raise ClinicalIntakeConflictError("persisted intake answers are invalid")
         return dict(raw)

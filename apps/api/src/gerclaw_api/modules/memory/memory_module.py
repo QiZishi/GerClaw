@@ -545,9 +545,7 @@ class ProductionMemoryModule:
             facts=[_fact_view(fact) for fact in facts],
         )
 
-    async def read_fact_history(
-        self, fact_id: uuid.UUID, *, limit: int
-    ) -> MemoryFactHistoryRead:
+    async def read_fact_history(self, fact_id: uuid.UUID, *, limit: int) -> MemoryFactHistoryRead:
         """Return only the caller's encrypted, immutable previous fact versions."""
 
         if not 1 <= limit <= 50:

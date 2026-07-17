@@ -232,11 +232,7 @@ def test_medication_rule_eval_detects_a_regression_without_echoing_medication_li
 @pytest.mark.asyncio
 async def test_opt_in_rag_evaluation_is_bounded_and_never_echoes_query_or_content() -> None:
     document_id = "a" * 64
-    rag = _RAG(
-        [
-            _evidence(document_id)
-        ]
-    )
+    rag = _RAG([_evidence(document_id)])
     case = RAGRetrievalEvalCase(
         case_id="rag-retrieval.reviewed_match",
         title="reviewed synthetic retrieval match",
@@ -334,11 +330,7 @@ async def test_opt_in_rag_no_evidence_case_requires_an_empty_result_without_echo
     assert "unrelated synthetic query" not in report.model_dump_json()
 
     false_positive = await run_opt_in_rag_retrieval_evaluation(
-        _RAG(
-            [
-                _evidence("d" * 64)
-            ]
-        ),  # type: ignore[arg-type]
+        _RAG([_evidence("d" * 64)]),  # type: ignore[arg-type]
         (case,),
         config=RAGEvaluationRunConfig(
             allow_external_rag=True,

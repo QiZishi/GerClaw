@@ -162,9 +162,9 @@ async def test_medication_reconciliation_is_unavailable_for_prescription_intake(
                 session_id=uuid.uuid4(),
                 kind="prescription",
                 definition_version="clinical-intake-v1",
-                    status="collecting",
-                    revision=1,
-                    conversation_turns=0,
+                status="collecting",
+                revision=1,
+                conversation_turns=0,
                 title="x",
                 description="x",
                 fields=[

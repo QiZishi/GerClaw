@@ -180,9 +180,7 @@ def _normalized(value: str) -> str:
     return "".join(unicodedata.normalize("NFKC", value).casefold().split())
 
 
-def _recognized_generic_names(
-    text: str, aliases: dict[str, tuple[str, ...]]
-) -> tuple[str, ...]:
+def _recognized_generic_names(text: str, aliases: dict[str, tuple[str, ...]]) -> tuple[str, ...]:
     normalized = _normalized(text)
     return tuple(
         generic
@@ -305,7 +303,7 @@ def _beers_findings(
                 finding_id=rule.id,
                 kind="beers",
                 severity=rule.severity,
-                title=f"≥{rule.minimum_age} 岁：{ '、'.join(matched) } 老年用药核对提示",
+                title=f"≥{rule.minimum_age} 岁：{'、'.join(matched)} 老年用药核对提示",
                 involved_generic_names=matched,
                 conclusion=rule.conclusion,
                 clinician_action=_review_action(rule.clinician_action),

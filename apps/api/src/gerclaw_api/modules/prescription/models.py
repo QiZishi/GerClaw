@@ -28,10 +28,7 @@ PRESCRIPTION_INTAKE_MODEL_OUTPUT_SCHEMA_VERSION: Final[
 ] = "prescription-intake-model-output-v1"
 MEDICAL_DRAFT_DISCLAIMER: Final[
     Literal["AI生成建议仅供参考，不能替代专业医生诊断、治疗建议或处方；如有不适请及时就医。"]
-] = (
-    "AI生成建议仅供参考，不能替代专业医生诊断、治疗建议或处方；"
-    "如有不适请及时就医。"
-)
+] = "AI生成建议仅供参考，不能替代专业医生诊断、治疗建议或处方；如有不适请及时就医。"
 
 
 class EvidenceSource(BaseModel):
@@ -177,9 +174,7 @@ class FivePrescriptionDraft(BaseModel):
         # workflow.  It therefore cannot claim patient-material provenance.
         # Only the server-built, clinician-review draft may carry those IDs.
         if self.status == "needs_medical_governance" and self.uploaded_document_ids:
-            raise ValueError(
-                "governance-pending drafts cannot claim uploaded-document provenance"
-            )
+            raise ValueError("governance-pending drafts cannot claim uploaded-document provenance")
         available = {source.evidence_id for source in self.evidence_sources}
         sections: tuple[PrescriptionSection, ...] = (
             self.medication,

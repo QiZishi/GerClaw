@@ -200,18 +200,21 @@ async def test_active_list_keeps_only_the_newest_state_per_scale() -> None:
     assert repository.record is not None
     repository.record.answers = {"phq9_1": 0}
     repository.record.current_position = 2
-    repository.active_records = [repository.record, CgaAssessment(
-        id=older.assessment_id,
-        tenant_id="tenant_public0001",
-        actor_id="usr_patient_test0001",
-        scale_id="phq9",
-        definition_version="phq9-v1",
-        status="active",
-        current_position=1,
-        revision=1,
-        answers={},
-        notes={},
-    )]
+    repository.active_records = [
+        repository.record,
+        CgaAssessment(
+            id=older.assessment_id,
+            tenant_id="tenant_public0001",
+            actor_id="usr_patient_test0001",
+            scale_id="phq9",
+            definition_version="phq9-v1",
+            status="active",
+            current_position=1,
+            revision=1,
+            answers={},
+            notes={},
+        ),
+    ]
 
     active = await service.active(
         tenant_id="tenant_public0001", actor_id="usr_patient_test0001", limit=20

@@ -150,6 +150,7 @@ async def test_medication_review_intake_discloses_limited_rule_coverage() -> Non
     assert "Beers 相关核对目前只覆盖少量本地来源情境" in started.governance_notice
     assert "未命中不代表用药安全" in started.governance_notice
 
+
 @pytest.mark.asyncio
 async def test_intake_rejects_unknown_or_oversized_fields_and_stale_writes() -> None:
     service = ClinicalIntakeService(_Repository())  # type: ignore[arg-type]
@@ -241,8 +242,9 @@ async def test_intake_rejects_an_unsupported_persisted_definition_version() -> N
 
 
 @pytest.mark.asyncio
-async def test_prescription_intake_keeps_owner_scoped_uploaded_documents_as_input_references(
-) -> None:
+async def test_prescription_intake_keeps_owner_scoped_uploaded_documents_as_input_references() -> (
+    None
+):
     document_id = uuid.uuid4()
     documents = _DocumentService({document_id})
     service = ClinicalIntakeService(
@@ -330,8 +332,9 @@ async def test_prescription_clarification_turns_are_server_bounded() -> None:
 
 
 @pytest.mark.asyncio
-async def test_medication_review_rejects_document_references_until_its_own_boundary_exists(
-) -> None:
+async def test_medication_review_rejects_document_references_until_its_own_boundary_exists() -> (
+    None
+):
     document_id = uuid.uuid4()
     documents = _DocumentService({document_id})
     service = ClinicalIntakeService(
@@ -359,8 +362,9 @@ async def test_medication_review_rejects_document_references_until_its_own_bound
 
 
 @pytest.mark.asyncio
-async def test_prescription_preparation_resolves_complete_same_session_documents_as_input_only(
-) -> None:
+async def test_prescription_preparation_uses_complete_same_session_documents_as_input_only() -> (
+    None
+):
     document_id = uuid.uuid4()
     documents = _PreparationDocumentService({document_id})
     service = ClinicalIntakeService(

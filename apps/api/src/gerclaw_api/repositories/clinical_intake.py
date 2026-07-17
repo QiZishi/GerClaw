@@ -50,9 +50,7 @@ class SqlAlchemyClinicalIntakeRepository:
                 revision=1,
                 answers={},
             )
-            .on_conflict_do_nothing(
-                constraint="uq_clinical_intakes_principal_session_kind"
-            )
+            .on_conflict_do_nothing(constraint="uq_clinical_intakes_principal_session_kind")
             .returning(ClinicalIntake.id)
         )
         created_id = await self._session.scalar(statement)
@@ -85,9 +83,7 @@ class SqlAlchemyClinicalIntakeRepository:
         )
         return cast(ClinicalIntake | None, await self._session.scalar(statement))
 
-    async def get(
-        self, intake_id: uuid.UUID, *, tenant_id: str, actor_id: str
-    ) -> ClinicalIntake:
+    async def get(self, intake_id: uuid.UUID, *, tenant_id: str, actor_id: str) -> ClinicalIntake:
         statement = select(ClinicalIntake).where(
             ClinicalIntake.id == intake_id,
             ClinicalIntake.tenant_id == tenant_id,
@@ -98,9 +94,7 @@ class SqlAlchemyClinicalIntakeRepository:
             raise ClinicalIntakeNotFoundError(str(intake_id))
         return record
 
-    async def lock(
-        self, intake_id: uuid.UUID, *, tenant_id: str, actor_id: str
-    ) -> ClinicalIntake:
+    async def lock(self, intake_id: uuid.UUID, *, tenant_id: str, actor_id: str) -> ClinicalIntake:
         statement = (
             select(ClinicalIntake)
             .where(

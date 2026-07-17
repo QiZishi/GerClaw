@@ -86,9 +86,7 @@ class PrescriptionIntakeExtractor:
             ],
             "existing_answers": existing_answers,
             "latest_user_message": user_message,
-            "uploaded_documents": [
-                {"content": document.content} for document in documents
-            ],
+            "uploaded_documents": [{"content": document.content} for document in documents],
         }
         messages = [
             SystemMsg(name="prescription_intake_policy", content=_SYSTEM_PROMPT),
@@ -140,8 +138,7 @@ class PrescriptionIntakeExtractor:
         updates = {
             field_id: value.strip()
             for field_id, value in extracted.answer_updates.items()
-            if field_id in field_ids
-            and not existing_answers.get(field_id, "").strip()
+            if field_id in field_ids and not existing_answers.get(field_id, "").strip()
         }
         return PrescriptionIntakeExtraction(
             model_output_schema_version=PRESCRIPTION_INTAKE_MODEL_OUTPUT_SCHEMA_VERSION,

@@ -386,9 +386,7 @@ class FailoverChatModel(ChatModelBase):
         """Collect text without publishing partial provider output to callers."""
 
         def text_from(chunk: ChatResponse) -> str:
-            return "".join(
-                block.text for block in chunk.content if isinstance(block, TextBlock)
-            )
+            return "".join(block.text for block in chunk.content if isinstance(block, TextBlock))
 
         if isinstance(response, ChatResponse):
             text = text_from(response)

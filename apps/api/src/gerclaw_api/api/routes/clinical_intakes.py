@@ -296,11 +296,7 @@ async def _append_model_attempt_events(
                     "model": f"slot_{attempt.preference}",
                     "outcome": attempt.outcome,
                     "success": attempt.outcome == "succeeded",
-                    **(
-                        {"error_code": attempt.error_code.casefold()}
-                        if attempt.error_code
-                        else {}
-                    ),
+                    **({"error_code": attempt.error_code.casefold()} if attempt.error_code else {}),
                 },
             ),
             commit=False,
@@ -406,11 +402,7 @@ async def _finish_prescription_failure_trace(
                     "model": f"slot_{attempt.preference}",
                     "outcome": attempt.outcome,
                     "success": attempt.outcome == "succeeded",
-                    **(
-                        {"error_code": attempt.error_code.casefold()}
-                        if attempt.error_code
-                        else {}
-                    ),
+                    **({"error_code": attempt.error_code.casefold()} if attempt.error_code else {}),
                 },
             ),
             commit=False,
@@ -1057,9 +1049,9 @@ async def update_intake(
             tenant_id=identity.tenant_id,
             actor_id=identity.actor_id,
             expected_revision=payload.expected_revision,
-        answers=payload.answers,
-        document_ids=payload.document_ids,
-        conversation_turn_increment=payload.conversation_turn_increment,
+            answers=payload.answers,
+            document_ids=payload.document_ids,
+            conversation_turn_increment=payload.conversation_turn_increment,
         )
     except ClinicalIntakeNotFoundError as error:
         raise HTTPException(

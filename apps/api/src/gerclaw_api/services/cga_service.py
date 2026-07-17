@@ -97,9 +97,7 @@ class CgaService:
     async def get(
         self, assessment_id: uuid.UUID, *, tenant_id: str, actor_id: str
     ) -> CgaAssessmentRead:
-        record = await self._repository.get(
-            assessment_id, tenant_id=tenant_id, actor_id=actor_id
-        )
+        record = await self._repository.get(assessment_id, tenant_id=tenant_id, actor_id=actor_id)
         return self._read(record)
 
     async def answer(
@@ -180,16 +178,12 @@ class CgaService:
     async def report(
         self, assessment_id: uuid.UUID, *, tenant_id: str, actor_id: str
     ) -> CgaReportRead:
-        record = await self._repository.get(
-            assessment_id, tenant_id=tenant_id, actor_id=actor_id
-        )
+        record = await self._repository.get(assessment_id, tenant_id=tenant_id, actor_id=actor_id)
         if record.status != "completed" or record.report is None:
             raise CgaAssessmentConflictError("assessment report is not available")
         return CgaReportRead.model_validate(record.report)
 
-    async def history(
-        self, *, tenant_id: str, actor_id: str, limit: int
-    ) -> CgaHistoryRead:
+    async def history(self, *, tenant_id: str, actor_id: str, limit: int) -> CgaHistoryRead:
         """List bounded, caller-owned completed reports without exposing answers."""
 
         records = await self._repository.list_completed(
@@ -238,8 +232,7 @@ class CgaService:
             prior=prior,
             score_delta=current.report.total_score - prior.report.total_score,
             disclaimer=(
-                "分数变化仅供回顾同一量表的两次筛查结果, 不等于病情诊断或治疗建议; "
-                "请结合医生评估。"
+                "分数变化仅供回顾同一量表的两次筛查结果, 不等于病情诊断或治疗建议; 请结合医生评估。"
             ),
         )
 
@@ -460,9 +453,7 @@ class CgaService:
             }[answers[MMSE_EDUCATION_ID]]
             mmse_result = score_mmse(
                 reported_item_scores={
-                    item_id: answers[item_id]
-                    for item_id in answers
-                    if item_id != MMSE_EDUCATION_ID
+                    item_id: answers[item_id] for item_id in answers if item_id != MMSE_EDUCATION_ID
                 },
                 education_level=cast(
                     Literal["none", "primary_or_less", "secondary_or_more"], education_level
@@ -478,25 +469,19 @@ class CgaService:
                 high_severity_follow_up=mmse_result.high_severity_follow_up,
                 safety_messages=list(mmse_result.safety_messages),
                 component_scores={
-                    "orientation": sum(
-                        answers[f"mmse_{position}"] for position in range(1, 11)
-                    ),
+                    "orientation": sum(answers[f"mmse_{position}"] for position in range(1, 11)),
                     "immediate_memory": sum(
                         answers[f"mmse_{position}"] for position in range(11, 14)
                     ),
                     "attention_calculation": sum(
                         answers[f"mmse_{position}"] for position in range(14, 19)
                     ),
-                    "recall": sum(
-                        answers[f"mmse_{position}"] for position in range(19, 22)
-                    ),
+                    "recall": sum(answers[f"mmse_{position}"] for position in range(19, 22)),
                     "language_and_tasks": sum(
                         answers[f"mmse_{position}"] for position in range(22, 31)
                     ),
                 },
-                disclaimer=(
-                    "本结果基于本人作答的认知筛查, 不能替代医生的临床诊断。"
-                ),
+                disclaimer=("本结果基于本人作答的认知筛查, 不能替代医生的临床诊断。"),
             )
         raise CgaAssessmentConflictError("assessment uses an unsupported scale")
 
@@ -514,12 +499,9 @@ class CgaService:
         if not isinstance(record.notes, dict):
             raise CgaAssessmentConflictError("stored supplemental assessment detail is invalid")
         values: dict[str, Any] = record.notes
-        if (
-            set(values) - {"psqi_5j"}
-            or any(
-                not isinstance(value, str) or not value.strip() or len(value) > 500
-                for value in values.values()
-            )
+        if set(values) - {"psqi_5j"} or any(
+            not isinstance(value, str) or not value.strip() or len(value) > 500
+            for value in values.values()
         ):
             raise CgaAssessmentConflictError("stored supplemental assessment detail is invalid")
         return dict(values)

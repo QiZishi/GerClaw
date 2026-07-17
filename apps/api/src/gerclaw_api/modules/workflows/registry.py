@@ -125,12 +125,8 @@ class WorkflowRegistry:
         uploaded_image_count: int = 0,
     ) -> WorkflowDefinition:
         definition = self.resolve(workflow_id)
-        if (
-            (loaded_skill_count and not definition.accepts_skills)
-            or (
-                (uploaded_file_count or uploaded_image_count)
-                and not definition.accepts_uploaded_files
-            )
+        if (loaded_skill_count and not definition.accepts_skills) or (
+            (uploaded_file_count or uploaded_image_count) and not definition.accepts_uploaded_files
         ):
             raise WorkflowContextError("workflow does not accept Skills or uploaded files")
         return definition

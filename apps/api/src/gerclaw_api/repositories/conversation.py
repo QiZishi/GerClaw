@@ -35,9 +35,7 @@ class ConversationRepository(Protocol):
     ) -> list[ConversationSession]:
         """Return only active sessions owned by one account principal."""
 
-    async def delete_session(
-        self, session_id: uuid.UUID, *, tenant_id: str, actor_id: str
-    ) -> bool:
+    async def delete_session(self, session_id: uuid.UUID, *, tenant_id: str, actor_id: str) -> bool:
         """Delete one idle owned session and its database-cascaded session data."""
 
     async def list_messages(
@@ -194,9 +192,7 @@ class SqlAlchemyConversationRepository:
         messages.reverse()
         return messages
 
-    async def delete_session(
-        self, session_id: uuid.UUID, *, tenant_id: str, actor_id: str
-    ) -> bool:
+    async def delete_session(self, session_id: uuid.UUID, *, tenant_id: str, actor_id: str) -> bool:
         """Physically erase an idle session; running turns must finish or cancel first."""
 
         conversation = await self._locked_owned_session(

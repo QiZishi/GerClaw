@@ -24,9 +24,11 @@ def main() -> Never:
         + len(privacy_redaction_results)
         + len(medication_rule_results)
     )
-    passed_count = sum(result.passed for result in safety_results) + sum(
-        result.passed for result in output_safety_results
-    ) + sum(result.passed for result in privacy_redaction_results)
+    passed_count = (
+        sum(result.passed for result in safety_results)
+        + sum(result.passed for result in output_safety_results)
+        + sum(result.passed for result in privacy_redaction_results)
+    )
     passed_count += sum(result.passed for result in medication_rule_results)
     print(
         json.dumps(

@@ -81,9 +81,7 @@ def score_phq9(answers: Mapping[str, int]) -> Phq9Score:
     unexpected = set(answers) - PHQ9_QUESTION_IDS
     missing = PHQ9_QUESTION_IDS - set(answers)
     if unexpected or missing:
-        raise ValueError(
-            "PHQ-9 answers must contain exactly the nine defined question identifiers"
-        )
+        raise ValueError("PHQ-9 answers must contain exactly the nine defined question identifiers")
     for question_id, value in answers.items():
         if isinstance(value, bool) or not isinstance(value, int) or value not in range(4):
             raise ValueError(f"{question_id} must be an integer score from 0 through 3")

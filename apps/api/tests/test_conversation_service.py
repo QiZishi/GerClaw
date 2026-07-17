@@ -76,9 +76,7 @@ class _ConversationRepository:
             reverse=True,
         )[:limit]
 
-    async def delete_session(
-        self, session_id: uuid.UUID, *, tenant_id: str, actor_id: str
-    ) -> bool:
+    async def delete_session(self, session_id: uuid.UUID, *, tenant_id: str, actor_id: str) -> bool:
         if session_id in self.running_sessions:
             raise ConversationConflictError("conversation has a running execution")
         stored = self.sessions.get(session_id)

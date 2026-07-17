@@ -279,9 +279,7 @@ class EvidenceBoundPrescriptionGenerator:
         )
         return GeneratedPrescriptionContent(
             model_output_schema_version=FIVE_PRESCRIPTION_MODEL_OUTPUT_SCHEMA_VERSION,
-            patient_summary=PatientSummary(
-                health_goals=(goal,), current_concerns=(concern,)
-            ),
+            patient_summary=PatientSummary(health_goals=(goal,), current_concerns=(concern,)),
             health_assessment=HealthAssessmentDraft(
                 summary=(
                     "基础待审核草案：模型结构化输出未通过校验。已保留患者提供的目标和困扰，"
@@ -472,9 +470,12 @@ class EvidenceBoundPrescriptionGenerator:
                 f"{citation.excerpt[:2_000]}\n</untrusted-medical-evidence>"
             )
         for position, document in enumerate(uploaded_documents, start=1):
-            evidence_id = "ev_" + hashlib.sha256(
-                f"uploaded-document:{document.document_id}".encode()
-            ).hexdigest()[:24]
+            evidence_id = (
+                "ev_"
+                + hashlib.sha256(f"uploaded-document:{document.document_id}".encode()).hexdigest()[
+                    :24
+                ]
+            )
             sources.append(
                 EvidenceSource(
                     evidence_id=evidence_id,

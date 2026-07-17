@@ -102,9 +102,7 @@ async def transcribe(
     )
     await session.commit()
     try:
-        result = VoiceASRResponse(
-            text=await module.transcribe(audio, audio_format=payload.format)
-        )
+        result = VoiceASRResponse(text=await module.transcribe(audio, audio_format=payload.format))
     except VoiceProviderUnavailable as error:
         await egress.set_outcome(event, outcome="failed")
         await session.commit()

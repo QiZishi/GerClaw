@@ -224,9 +224,7 @@ def validate_versioned_model_output[ModelOutput: BaseModel](
             f"invalid {schema_version} model output"
         ) from error
     if getattr(validated, "model_output_schema_version", None) != schema_version:
-        raise ModelOutputContractValidationError(
-            f"invalid {schema_version} model output"
-        )
+        raise ModelOutputContractValidationError(f"invalid {schema_version} model output")
     return validated
 
 
@@ -245,7 +243,5 @@ def validate_versioned_model_output_json[ModelOutput: BaseModel](
             f"invalid {schema_version} model output"
         ) from error
     if getattr(validated, "model_output_schema_version", None) != schema_version:
-        raise ModelOutputContractValidationError(
-            f"invalid {schema_version} model output"
-        )
+        raise ModelOutputContractValidationError(f"invalid {schema_version} model output")
     return validated

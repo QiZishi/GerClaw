@@ -384,9 +384,7 @@ class ProductionAgentHarness:
             and not medical_content
             and self._is_document_focused_request(user_message)
         )
-        should_prefetch_local_evidence = (
-            medical_content and not document_focused and not companion
-        )
+        should_prefetch_local_evidence = medical_content and not document_focused and not companion
         has_uploaded_evidence = bool(self._uploaded_documents or self._uploaded_images)
         can_search_for_evidence = (
             self._search_module is not None and self._search_enabled and not document_focused
@@ -493,9 +491,7 @@ class ProductionAgentHarness:
                     "tool_call_id": prefetch_call_id,
                     "tool_name": "search_knowledge",
                     "status": "success",
-                    "duration_ms": max(
-                        0, int((time.monotonic() - prefetch_started_at) * 1_000)
-                    ),
+                    "duration_ms": max(0, int((time.monotonic() - prefetch_started_at) * 1_000)),
                     "result_count": len(evidence_results),
                 },
             )
