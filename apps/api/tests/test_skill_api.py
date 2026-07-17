@@ -31,6 +31,12 @@ async def test_guest_bootstrap_uses_peer_rate_identity_and_least_privilege_token
     app = create_app(unit_settings)
     limiter = _RateLimiter()
     app.state.rate_limiter = limiter
+    visitor_id = "a" * 32
+    signature = hmac.new(
+        unit_settings.guest_identity_secret.get_secret_value().encode(),
+        f"gerclaw-guest-bootstrap:v1:{visitor_id}".encode(),
+        hashlib.sha256,
+    ).hexdigest()
 
     @app.get("/_test/unsafe-skill")
     async def unsafe_skill(_request: Request) -> None:
@@ -40,7 +46,13 @@ async def test_guest_bootstrap_uses_peer_rate_identity_and_least_privilege_token
         transport=ASGITransport(app=app, client=("203.0.113.8", 43100)),
         base_url="http://testserver",
     ) as client:
-        response = await client.post("/api/v1/auth/guest")
+        response = await client.post(
+            "/api/v1/auth/guest",
+            headers={
+                "X-GerClaw-Visitor-ID": visitor_id,
+                "X-GerClaw-Visitor-Signature": signature,
+            },
+        )
         rejected = await client.get("/_test/unsafe-skill")
 
     assert response.status_code == 200, response.text
@@ -54,12 +66,12 @@ async def test_guest_bootstrap_uses_peer_rate_identity_and_least_privilege_token
     )
     assert claims["sub"] == payload["actor_id"]
     assert claims["tenant_id"] == "tenant_public0001"
-    assert "skill:read" in claims["scope"].split()
-    assert "skill:write" in claims["scope"].split()
-    assert "skill:execute" in claims["scope"].split()
+    assert "skill:read" not in claims["scope"].split()
+    assert "skill:write" not in claims["scope"].split()
+    assert "skill:execute" not in claims["scope"].split()
     assert "metrics:read" not in claims["scope"].split()
     assert limiter.calls[0][0] == "tenant_public0001"
-    assert limiter.calls[0][1].startswith("auth_")
+    assert limiter.calls[0][1].startswith("guest_")
     assert "203.0.113.8" not in limiter.calls[0][1]
     assert rejected.status_code == 422
     assert rejected.json() == {
@@ -112,10 +124,9 @@ async def test_guest_bootstrap_uses_only_a_valid_bff_signed_visitor_identity(
 
     assert signed.status_code == 200
     assert refreshed.status_code == 200
-    assert forged.status_code == 200
+    assert forged.status_code == 403
     assert signed.json()["actor_id"] == refreshed.json()["actor_id"]
-    assert signed.json()["actor_id"] != forged.json()["actor_id"]
-    assert len(limiter.calls) == 3
+    assert forged.json() == {"detail": {"code": "GUEST_IDENTITY_INVALID"}}
+    assert len(limiter.calls) == 2
     assert limiter.calls[0][1] == limiter.calls[1][1]
-    assert limiter.calls[0][1] != limiter.calls[2][1]
-    assert all(actor_id.startswith("auth_") for _tenant_id, actor_id in limiter.calls)
+    assert all(actor_id.startswith("guest_") for _tenant_id, actor_id in limiter.calls)
