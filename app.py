@@ -15,6 +15,7 @@ import os
 import shutil
 import subprocess
 import sys
+import time
 from pathlib import Path
 from urllib.parse import urlsplit, urlunsplit
 
@@ -111,6 +112,19 @@ def start_frontend(port: int) -> subprocess.Popen[bytes]:
     )
 
 
+def ensure_process_started(
+    process: subprocess.Popen[bytes], *, label: str, grace_period_seconds: float = 2.0
+) -> None:
+    """Do not announce a service until its launcher survived initial startup."""
+
+    deadline = time.monotonic() + grace_period_seconds
+    while time.monotonic() < deadline:
+        exit_code = process.poll()
+        if exit_code is not None:
+            raise RuntimeError(f"{label} 启动后立即退出（退出码 {exit_code}）。")
+        time.sleep(0.1)
+
+
 def start_api_dependencies() -> None:
     require_command("docker", "请安装 Docker Desktop 后重试。")
     run_checked(
@@ -170,14 +184,16 @@ def main() -> int:
     if not 1 <= args.port <= 65535:
         parser.error("--port 必须在 1 到 65535 之间。")
 
+    api_process: subprocess.Popen[bytes] | None = None
+    frontend_process: subprocess.Popen[bytes] | None = None
     try:
         require_command("npm", "请安装 Node.js 20+ 与 npm 后重试。")
-        api_process: subprocess.Popen[bytes] | None = None
         if args.api:
             start_api_dependencies()
             api_process = start_local_api()
 
         frontend_process = start_frontend(args.port)
+        ensure_process_started(frontend_process, label="前端")
         print(f"\nGerClaw 前端已启动： http://127.0.0.1:{args.port}")
         if api_process is not None:
             print("GerClaw API 已启动：  http://127.0.0.1:8000")
@@ -195,6 +211,10 @@ def main() -> int:
             if api_process is not None:
                 terminate(api_process)
     except (RuntimeError, subprocess.CalledProcessError) as error:
+        if frontend_process is not None:
+            terminate(frontend_process)
+        if api_process is not None:
+            terminate(api_process)
         print(f"启动失败：{error}", file=sys.stderr)
         return 1
 
