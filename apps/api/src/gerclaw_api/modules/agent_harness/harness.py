@@ -412,8 +412,52 @@ class ProductionAgentHarness:
                 "reasoning_summary",
                 {"content": "正在检索本地医学证据…", "status": "running"},
             )
-            evidence_results = await self._rag_module.retrieve(
-                user_message, top_k=self._settings.agent_evidence_top_k
+            # The mandatory initial retrieval happens before AgentScope calls the
+            # model, so it cannot be inferred from an AgentScope tool event.
+            # Project the *same* operation as search_knowledge for the UI and
+            # trace: users must be able to see evidence work actually occurring,
+            # and no second retrieval or provider call is introduced here.
+            prefetch_call_id = f"rag-prefetch:{self._execution.trace_id}"
+            prefetch_started_at = time.monotonic()
+            await self._emit(
+                stream_callback,
+                "tool_call",
+                {
+                    "tool_call_id": prefetch_call_id,
+                    "tool_name": "search_knowledge",
+                    "status": "running",
+                },
+            )
+            try:
+                evidence_results = await self._rag_module.retrieve(
+                    user_message, top_k=self._settings.agent_evidence_top_k
+                )
+            except BaseException:
+                await self._emit(
+                    stream_callback,
+                    "tool_result",
+                    {
+                        "tool_call_id": prefetch_call_id,
+                        "tool_name": "search_knowledge",
+                        "status": "failed",
+                        "duration_ms": max(
+                            0, int((time.monotonic() - prefetch_started_at) * 1_000)
+                        ),
+                    },
+                )
+                raise
+            await self._emit(
+                stream_callback,
+                "tool_result",
+                {
+                    "tool_call_id": prefetch_call_id,
+                    "tool_name": "search_knowledge",
+                    "status": "success",
+                    "duration_ms": max(
+                        0, int((time.monotonic() - prefetch_started_at) * 1_000)
+                    ),
+                    "result_count": len(evidence_results),
+                },
             )
             if not evidence_results:
                 raise EvidenceUnavailableError("no sufficiently relevant local evidence was found")

@@ -274,6 +274,21 @@ async def test_medical_harness_streams_sanitized_cited_response(
     assert event_types[0] == "agent_start"
     assert "reasoning_summary" in event_types
     assert event_types[-1] == "done"
+    prefetch = [
+        event
+        for event in events
+        if event.event_type == "tool_call" and event.data.get("tool_name") == "search_knowledge"
+    ]
+    assert len(prefetch) == 1
+    prefetch_results = [
+        event
+        for event in events
+        if event.event_type == "tool_result"
+        and event.data.get("tool_call_id") == prefetch[0].data["tool_call_id"]
+    ]
+    assert len(prefetch_results) == 1
+    assert prefetch_results[0].data["status"] == "success"
+    assert prefetch_results[0].data["result_count"] == 1
     assert "确诊" not in response.text
     assert "进一步评估" in response.text
     assert response.safety.deterministic_diagnosis_blocked
@@ -425,8 +440,12 @@ async def test_agentic_search_tool_projects_tool_events(unit_settings: Settings)
     )
     assert model.calls == 2
     assert len(rag.calls) == 2
-    assert [event.event_type for event in events].count("tool_call") == 1
-    assert [event.event_type for event in events].count("tool_result") == 1
+    tool_calls = [event for event in events if event.event_type == "tool_call"]
+    tool_results = [event for event in events if event.event_type == "tool_result"]
+    assert len(tool_calls) == 2
+    assert len(tool_results) == 2
+    assert all(event.data["tool_name"] == "search_knowledge" for event in tool_calls)
+    assert all(event.data["status"] == "success" for event in tool_results)
     assert len(response.citations) == 1
 
 
@@ -717,13 +736,20 @@ async def test_medical_request_without_evidence_fails_closed(
         [],
         [],
     )
+    events: list[StreamEvent] = []
     with pytest.raises(EvidenceUnavailableError):
         await harness.process_message(
             "这个药安全吗？",
             "108815d7-05bf-4c2a-a977-cd034f390fab",
             context,
-            lambda _event: None,
+            events.append,
         )
+    assert [event.data.get("status") for event in events if event.event_type == "tool_result"] == [
+        "success"
+    ]
+    assert [
+        event.data.get("result_count") for event in events if event.event_type == "tool_result"
+    ] == [0]
 
 
 @pytest.mark.asyncio
