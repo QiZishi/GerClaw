@@ -13,9 +13,11 @@ production consumers are:
 - Versioned model output: `validate_versioned_model_output` and its JSON
   counterpart reject model projections unless their strict domain schema and
   literal `model_output_schema_version` match the caller's declared version.
-  The first production consumers are five-prescription generation
-  (`five-prescription-model-output-v1`) and chat-native intake extraction
-  (`prescription-intake-model-output-v1`).
+  Production consumers include five-prescription generation
+  (`five-prescription-model-output-v1`), chat-native intake extraction
+  (`prescription-intake-model-output-v1`), Memory extraction
+  (`memory-extraction-model-output-v1`) and Skill generation/evolution
+  (`skill-generation-model-output-v1`).
 
 The module uses strict Pydantic schemas. It owns transport shape, bounds and
 compatibility versioning; Chat, Runtime and medical modules retain ownership of

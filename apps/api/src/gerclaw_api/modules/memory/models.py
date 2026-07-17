@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import uuid
 from datetime import datetime
-from typing import Literal
+from typing import Final, Literal
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
@@ -13,6 +13,10 @@ from gerclaw_api.modules.memory.protocols import (
     MemoryFactView,
     MemoryStatus,
     MemoryType,
+)
+
+MEMORY_MODEL_OUTPUT_SCHEMA_VERSION: Final[Literal["memory-extraction-model-output-v1"]] = (
+    "memory-extraction-model-output-v1"
 )
 
 
@@ -68,6 +72,7 @@ class MemoryExtraction(BaseModel):
 
     model_config = ConfigDict(extra="forbid")
 
+    model_output_schema_version: Literal["memory-extraction-model-output-v1"]
     facts: list[ExtractedMemoryFact] = Field(default_factory=list, max_length=30)
 
 

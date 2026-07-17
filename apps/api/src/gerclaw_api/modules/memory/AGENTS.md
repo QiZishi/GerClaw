@@ -10,6 +10,9 @@ This module owns encrypted, revisioned health facts, profiles, bounded conversat
 - Tenant, actor and session isolation, envelope encryption, revisions and optimistic concurrency apply to every read and write.
 - Never store PHI/plain medical text in vectors, traces, logs or Qdrant payloads. Inactive, stale or orphaned vector revisions cannot enter prompts.
 - Memory is untrusted contextual data, never a system instruction or replacement for current medical evidence.
+- Model extraction accepts only strict `memory-extraction-model-output-v1` via
+  the shared versioned output contract; missing, stale or extra provider fields
+  must fail before any candidate reaches evidence or persistence logic.
 
 ## Change and test rules
 

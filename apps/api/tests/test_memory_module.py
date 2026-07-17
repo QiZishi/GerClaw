@@ -40,6 +40,7 @@ from gerclaw_api.modules.memory.compressor import (
 from gerclaw_api.modules.memory.extractor import MemoryExtractionError, RealMemoryExtractor
 from gerclaw_api.modules.memory.memory_module import MemoryDataError, ProductionMemoryModule
 from gerclaw_api.modules.memory.models import (
+    MEMORY_MODEL_OUTPUT_SCHEMA_VERSION,
     ExtractedMemoryFact,
     MemoryFactDecisionRequest,
     MemoryFactDetails,
@@ -118,7 +119,10 @@ def _fact(
 
 class _StructuredModel:
     def __init__(self, content: dict[str, object] | None = None, error: Exception | None = None):
-        self.content = content or {"facts": []}
+        self.content = {
+            "model_output_schema_version": MEMORY_MODEL_OUTPUT_SCHEMA_VERSION,
+            **(content or {"facts": []}),
+        }
         self.error = error
         self.messages: list[Msg] = []
 
@@ -183,6 +187,20 @@ async def test_real_extractor_enforces_redaction_evidence_deduplication_and_stat
     with pytest.raises(MemoryExtractionError):
         await RealMemoryExtractor(
             cast(Any, _StructuredModel({"facts": [{"bad": "shape"}]})),
+            min_confidence=0.8,
+            max_facts=2,
+        ).extract("对青霉素过敏")
+    with pytest.raises(MemoryExtractionError, match="invalid schema"):
+        await RealMemoryExtractor(
+            cast(
+                Any,
+                _StructuredModel(
+                    {
+                        "model_output_schema_version": "memory-extraction-model-output-v0",
+                        "facts": [],
+                    }
+                ),
+            ),
             min_confidence=0.8,
             max_facts=2,
         ).extract("对青霉素过敏")

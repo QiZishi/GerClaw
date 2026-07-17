@@ -10,7 +10,15 @@ from agentscope.model import StructuredResponse
 from pydantic import BaseModel, ValidationError
 
 from gerclaw_api.modules.skill.loader import DEFAULT_ALLOWED_TOOLS, parse_skill_markdown
-from gerclaw_api.modules.skill.models import GeneratedSkillContent, SkillDefinition
+from gerclaw_api.modules.skill.models import (
+    SKILL_MODEL_OUTPUT_SCHEMA_VERSION,
+    GeneratedSkillContent,
+    SkillDefinition,
+)
+from gerclaw_api.modules.validation import (
+    ModelOutputContractValidationError,
+    validate_versioned_model_output,
+)
 from gerclaw_api.security import redact_text
 
 _SYSTEM_PROMPT = """你是 GerClaw 的声明式 Skill 设计器。把用户需求转换为可审阅的医疗工作流草稿。
@@ -75,9 +83,13 @@ class RealSkillGenerator:
                 ],
                 GeneratedSkillContent,
             )
-            generated = GeneratedSkillContent.model_validate(response.content)
+            generated = validate_versioned_model_output(
+                response.content,
+                output_model=GeneratedSkillContent,
+                schema_version=SKILL_MODEL_OUTPUT_SCHEMA_VERSION,
+            )
             return self._definition_from_generated(generated)
-        except ValidationError as error:
+        except (ModelOutputContractValidationError, ValidationError) as error:
             raise SkillGenerationError("Skill model returned an invalid schema") from error
         except SkillGenerationError:
             raise
@@ -108,14 +120,18 @@ class RealSkillGenerator:
                 ],
                 GeneratedSkillContent,
             )
-            generated = GeneratedSkillContent.model_validate(response.content)
+            generated = validate_versioned_model_output(
+                response.content,
+                output_model=GeneratedSkillContent,
+                schema_version=SKILL_MODEL_OUTPUT_SCHEMA_VERSION,
+            )
             definition = self._definition_from_generated(generated)
             if definition.skill_id != current.skill_id:
                 raise SkillGenerationError("Skill evolution cannot change the Skill id")
             if _semver(definition.version) <= _semver(current.version):
                 raise SkillGenerationError("Skill evolution must increase the Skill version")
             return definition
-        except ValidationError as error:
+        except (ModelOutputContractValidationError, ValidationError) as error:
             raise SkillGenerationError("Skill model returned an invalid schema") from error
         except SkillGenerationError:
             raise

@@ -29,6 +29,7 @@ from gerclaw_api.modules.skill.loader import (
     parse_skill_markdown,
     validate_skill_params,
 )
+from gerclaw_api.modules.skill.models import SKILL_MODEL_OUTPUT_SCHEMA_VERSION
 from gerclaw_api.modules.skill.quality import evaluate_skill_draft
 from gerclaw_api.modules.skill.registry import BuiltinSkillRegistry
 from gerclaw_api.modules.skill.security import UnsafeSkillError
@@ -387,7 +388,10 @@ def test_archive_rejects_markdown_member_larger_than_character_budget() -> None:
 
 class _SkillModel:
     def __init__(self, content: dict[str, Any]) -> None:
-        self.content = content
+        self.content = {
+            "model_output_schema_version": SKILL_MODEL_OUTPUT_SCHEMA_VERSION,
+            **content,
+        }
         self.calls = 0
 
     async def generate_structured_output(self, *_args: Any, **_kwargs: Any) -> Any:
@@ -426,6 +430,11 @@ async def test_generator_returns_reviewable_draft_without_registering() -> None:
     assert definition.origin == "generated"
     assert definition.source == "custom"
     assert definition.source_markdown.startswith("---\n")
+    model.content["model_output_schema_version"] = "skill-generation-model-output-v0"
+    with pytest.raises(SkillGenerationError, match="invalid schema"):
+        await RealSkillGenerator(cast(StructuredSkillModel, model)).generate(
+            "请设计一个老年患者血压随访技能，需要检索本地证据"
+        )
 
 
 @pytest.mark.asyncio

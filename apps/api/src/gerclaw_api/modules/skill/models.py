@@ -3,13 +3,16 @@
 from __future__ import annotations
 
 from datetime import datetime
-from typing import Annotated, Literal
+from typing import Annotated, Final, Literal
 
 from pydantic import AfterValidator, BaseModel, ConfigDict, Field, field_validator, model_validator
 
 from gerclaw_api.security import JsonValue, redact_text
 
 STRICT = ConfigDict(extra="forbid")
+SKILL_MODEL_OUTPUT_SCHEMA_VERSION: Final[Literal["skill-generation-model-output-v1"]] = (
+    "skill-generation-model-output-v1"
+)
 
 
 def _phi_free_skill_id(value: str) -> str:
@@ -131,6 +134,7 @@ class GeneratedSkillContent(BaseModel):
 
     model_config = STRICT
 
+    model_output_schema_version: Literal["skill-generation-model-output-v1"]
     skill_id: SkillId
     name: str = Field(min_length=1, max_length=100)
     description: str = Field(min_length=1, max_length=500)

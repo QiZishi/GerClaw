@@ -14,10 +14,12 @@ from agentscope.model import StructuredResponse
 from pydantic import BaseModel, ValidationError
 
 from gerclaw_api.modules.memory.models import (
+    MEMORY_MODEL_OUTPUT_SCHEMA_VERSION,
     ExtractedMemoryFact,
     MemoryExtraction,
     MemoryFactDetails,
 )
+from gerclaw_api.modules.validation import validate_versioned_model_output
 from gerclaw_api.security import redact_text
 
 _SYSTEM_PROMPT = """你是 GerClaw 的医疗记忆抽取器。只抽取用户在本条消息中明确自述的事实。
@@ -620,8 +622,12 @@ class RealMemoryExtractor:
                 ],
                 MemoryExtraction,
             )
-            extraction = MemoryExtraction.model_validate(response.content)
-        except ValidationError as error:
+            extraction = validate_versioned_model_output(
+                response.content,
+                output_model=MemoryExtraction,
+                schema_version=MEMORY_MODEL_OUTPUT_SCHEMA_VERSION,
+            )
+        except (ValidationError, ValueError) as error:
             raise MemoryExtractionError("memory model returned an invalid schema") from error
         except Exception as error:
             raise MemoryExtractionError("memory model extraction failed") from error

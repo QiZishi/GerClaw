@@ -15,7 +15,7 @@
 1. 从加密 `messages` 加载有界短期历史；超出 token budget 时用 AgentScope 医疗摘要压缩，强制保留过敏、当前/停用药物、红旗事件和待确认信息。
 2. 将确认画像和摘要作为 `<untrusted-user-memory>` 背景，而不是 system instruction。
 3. `Mem0Middleware(mode="both")` 自动召回并暴露 `search_memory`/`add_memory`；GerClaw async client adapter 将调用映射回同一 `ProductionMemoryModule`。
-4. 写入只抽取本轮真实 user message，不从 assistant 回复或工具建议反向造事实。否认按 category/entity 作用域处理；限定频率和双重否定不得错误停用事实，低置信度和不确定冲突进入 pending/inactive。
+4. 写入只抽取本轮真实 user message，不从 assistant 回复或工具建议反向造事实。模型投影必须符合严格、显式版本化的 `memory-extraction-model-output-v1`；缺失/旧版本、未知字段或异常 shape 在证据核对和持久化前失败。否认按 category/entity 作用域处理；限定频率和双重否定不得错误停用事实，低置信度和不确定冲突进入 pending/inactive。
 5. assistant、事实/画像、`memory.update` Trace 与 completed Trace 在同一 request-scoped PostgreSQL 事务提交。模型、Qdrant、schema 或 ownership 失败均不发送 `done`。
 
 Qdrant 在 PostgreSQL commit 前可能存在不含 PHI 的孤儿 revision point；authoritative point-ID allowlist 令其不可检索。当前 Unit of Work 在写入前已持有精确 UUIDv5 fenced point IDs，回滚补偿直接删除这些 IDs；只有按 fact ID 做泛化维护清理时才先 scroll 快照 point IDs，禁止宽 filter 误删并发新 revision。

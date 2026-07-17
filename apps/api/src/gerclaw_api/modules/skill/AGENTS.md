@@ -9,6 +9,9 @@ This module owns the lifecycle of declarative GerClaw Skills: validation, regist
 - A Skill is data and untrusted instruction content. It cannot alter system policy, role, medical safety, permissions, evidence rules or the governed-tool allowlist.
 - IDs, versions, parameter schemas and tool lists are validated server-side. A new version is required for behavior changes to a registered Skill.
 - Only declared, allowlisted tools run through the Runtime boundary; generated drafts are parsed and revalidated before registration.
+- Model-generated drafts accept only strict `skill-generation-model-output-v1`
+  via the shared versioned output contract; missing, stale or extra provider
+  fields may not reach Markdown serialization or manual review.
 - Built-in assets remain declarative and auditable. Do not turn a `SKILL.md` into executable code or a source of medical facts without local evidence.
 
 ## Change and test rules
