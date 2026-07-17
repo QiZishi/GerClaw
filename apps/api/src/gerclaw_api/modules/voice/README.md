@@ -24,3 +24,11 @@ a WAV container solely for native playback. This keeps the existing message
 player's pause, resume, stop and progress controls while eliminating the legacy
 direct-provider BFF route. ASR has a dedicated bounded request limit because
 base64 WAV payloads are larger than ordinary JSON requests.
+
+The public voice transport is versioned: a successful ASR JSON response is
+`voice-asr-response-v1` and repeats that literal in
+`X-GerClaw-Voice-Contract`; a successful PCM16 TTS stream declares
+`voice-tts-pcm16-v1` in the same header. The restricted BFF forwards only the
+declared header and the browser requires an exact version before it parses an
+ASR response or constructs a playable WAV. This turns a cross-tier format drift
+into a controlled client error rather than misleading playback or transcript.

@@ -7,7 +7,7 @@ import binascii
 from collections.abc import AsyncGenerator
 from typing import Annotated, cast
 
-from fastapi import APIRouter, Depends, HTTPException, Request, status
+from fastapi import APIRouter, Depends, HTTPException, Request, Response, status
 from fastapi.responses import StreamingResponse
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -19,7 +19,13 @@ from gerclaw_api.modules.voice import (
     VoiceProviderInvalidResponse,
     VoiceProviderUnavailable,
 )
-from gerclaw_api.modules.voice.models import VoiceASRRequest, VoiceASRResponse, VoiceTTSRequest
+from gerclaw_api.modules.voice.models import (
+    VOICE_ASR_RESPONSE_SCHEMA_VERSION,
+    VOICE_TTS_MEDIA_CONTRACT_VERSION,
+    VoiceASRRequest,
+    VoiceASRResponse,
+    VoiceTTSRequest,
+)
 from gerclaw_api.repositories.provider_egress import SqlAlchemyProviderEgressRepository
 from gerclaw_api.services.rate_limit import RateLimiter
 
@@ -80,6 +86,7 @@ async def _prepend_first_chunk(
 async def transcribe(
     payload: VoiceASRRequest,
     request: Request,
+    http_response: Response,
     identity: VoiceIdentity,
     session: SessionDependency,
     module: VoiceModuleDependency,
@@ -95,7 +102,7 @@ async def transcribe(
     )
     await session.commit()
     try:
-        response = VoiceASRResponse(
+        result = VoiceASRResponse(
             text=await module.transcribe(audio, audio_format=payload.format)
         )
     except VoiceProviderUnavailable as error:
@@ -110,7 +117,8 @@ async def transcribe(
         ) from error
     await egress.set_outcome(event, outcome="succeeded")
     await session.commit()
-    return response
+    http_response.headers["X-GerClaw-Voice-Contract"] = VOICE_ASR_RESPONSE_SCHEMA_VERSION
+    return result
 
 
 @router.post("/tts")
@@ -166,5 +174,9 @@ async def synthesize(
     return StreamingResponse(
         _prepend_first_chunk(stream, first_chunk),
         media_type="audio/L16;rate=24000;channels=1",
-        headers={"Cache-Control": "no-store", "X-Content-Type-Options": "nosniff"},
+        headers={
+            "Cache-Control": "no-store",
+            "X-Content-Type-Options": "nosniff",
+            "X-GerClaw-Voice-Contract": VOICE_TTS_MEDIA_CONTRACT_VERSION,
+        },
     )

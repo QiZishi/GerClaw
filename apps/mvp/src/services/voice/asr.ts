@@ -1,5 +1,11 @@
 import { generateTraceId, classifyError } from "../api-client";
 import { convertBlobToWavBase64 } from "./audio-convert";
+import { z } from "zod";
+
+const asrResponseSchema = z.object({
+  schema_version: z.literal("voice-asr-response-v1"),
+  text: z.string().min(1).max(4_000),
+}).strict();
 
 function throwIfAborted(signal?: AbortSignal) {
   if (signal?.aborted) {
@@ -46,15 +52,14 @@ export async function recognizeAudio(audioBlob: Blob, signal?: AbortSignal): Pro
       throw new Error(errorMessage);
     }
 
-    const json = await response.json();
-
-    const text = json.text;
-
-    if (typeof text !== "string") {
+    if (response.headers.get("x-gerclaw-voice-contract") !== "voice-asr-response-v1") {
+      throw new Error("ASR 服务版本不兼容，请稍后重试");
+    }
+    const parsed = asrResponseSchema.safeParse(await response.json());
+    if (!parsed.success) {
       throw new Error("ASR 响应格式异常，未获取到识别文本");
     }
-
-    return text.trim();
+    return parsed.data.text.trim();
   } catch (error) {
     if (signal?.aborted) {
       throw signal.reason ?? new DOMException("语音识别已取消", "AbortError");

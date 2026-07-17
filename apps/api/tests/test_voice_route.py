@@ -104,10 +104,12 @@ async def test_voice_routes_require_scope_and_return_bounded_asr_and_pcm16() -> 
         )
 
     assert asr.status_code == 200
-    assert asr.json() == {"text": "测试转写"}
+    assert asr.json() == {"schema_version": "voice-asr-response-v1", "text": "测试转写"}
+    assert asr.headers["x-gerclaw-voice-contract"] == "voice-asr-response-v1"
     assert tts.status_code == 200
     assert tts.content == b"\x01\x00"
     assert tts.headers["content-type"].startswith("audio/L16")
+    assert tts.headers["x-gerclaw-voice-contract"] == "voice-tts-pcm16-v1"
     assert voice.tts_requests == [
         (
             "您，电话 [PHONE]，请慢一点朗读",

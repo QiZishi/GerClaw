@@ -18,6 +18,10 @@ production consumers are:
   (`prescription-intake-model-output-v1`), Memory extraction
   (`memory-extraction-model-output-v1`) and Skill generation/evolution
   (`skill-generation-model-output-v1`).
+- Public Voice transport is explicitly versioned as `voice-asr-response-v1`
+  (strict ASR JSON) and `voice-tts-pcm16-v1` (PCM16 media header). The BFF
+  allowlists the contract header and the browser verifies its exact value
+  before decoding either response.
 
 The module uses strict Pydantic schemas. It owns transport shape, bounds and
 compatibility versioning; Chat, Runtime and medical modules retain ownership of
@@ -26,7 +30,6 @@ their domain semantics. A malformed payload raises
 `ModelOutputContractValidationError`, whose public handling is deliberately
 generic and does not echo the rejected data.
 
-Current scope is deliberately narrow and real. HTTP, model structured output,
-tool parameters/results, memory, voice and export boundaries continue to use
-their existing strict contracts and are listed for incremental migration in the
-requirements matrix.
+Current scope is deliberately narrow and real. HTTP, tool parameters/results
+and export boundaries continue to use their existing strict contracts and are
+listed for incremental migration in the requirements matrix.

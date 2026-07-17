@@ -79,7 +79,7 @@ async function readBoundedBody(request: NextRequest, path: string): Promise<Arra
 
 function responseHeaders(upstream: Response): Headers {
   const headers = new Headers();
-  for (const name of ["content-type", "cache-control", "x-trace-id"]) {
+  for (const name of ["content-type", "cache-control", "x-trace-id", "x-gerclaw-voice-contract"]) {
     const value = upstream.headers.get(name);
     if (value) headers.set(name, value);
   }

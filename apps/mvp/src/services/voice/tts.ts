@@ -36,6 +36,9 @@ export async function synthesizeSpeech(text: string, signal?: AbortSignal): Prom
     if (!response.headers.get("content-type")?.toLowerCase().startsWith("audio/l16")) {
       throw new Error("TTS 返回的音频格式不正确");
     }
+    if (response.headers.get("x-gerclaw-voice-contract") !== "voice-tts-pcm16-v1") {
+      throw new Error("TTS 服务版本不兼容，请稍后重试");
+    }
     return pcm16leToWav(await response.arrayBuffer());
   } catch (error) {
     if (signal?.aborted) {

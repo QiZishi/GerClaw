@@ -27,6 +27,11 @@ policy version, field name/category counts (if text was classified) and outcome.
   matches, URLs, credentials or audio bytes to that record.
 - Every external call has a bounded timeout and is behind `voice:use` scope and
   the shared tenant/actor rate limiter.
+- ASR responses carry the literal `voice-asr-response-v1` both in
+  `schema_version` and `X-GerClaw-Voice-Contract`; TTS PCM16 streams carry
+  `voice-tts-pcm16-v1` in that header. The BFF may forward only this declared
+  contract header and the browser must reject a missing or mismatched version
+  before parsing or playing provider data.
 
 ## Change and test rules
 
