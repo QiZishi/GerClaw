@@ -21,6 +21,11 @@ from gerclaw_api.domain.trace_schemas import TraceEventCreate, TraceFinishReques
 from gerclaw_api.middleware import set_active_trace
 from gerclaw_api.modules.document.service import DocumentService
 from gerclaw_api.modules.input_output.clinical_intake import ClinicalIntakeKind
+from gerclaw_api.modules.medication_review.models import MedicationReconciliationRead
+from gerclaw_api.modules.medication_review.reconciliation import (
+    MedicationReconciliationInputError,
+    reconcile_medication_list,
+)
 from gerclaw_api.modules.prescription.models import (
     ClinicalIntakeRead,
     ClinicalIntakeStartRequest,
@@ -233,6 +238,42 @@ async def start_intake(
     )
     await session.commit()
     return result
+
+
+@router.get(
+    "/{intake_id}/medication-reconciliation",
+    response_model=MedicationReconciliationRead,
+)
+async def get_medication_reconciliation(
+    intake_id: uuid.UUID,
+    request: Request,
+    session: SessionDependency,
+    identity: ReadIdentity,
+) -> MedicationReconciliationRead:
+    """Return a caller-owned list-quality preview, never a clinical review."""
+
+    await _enforce_rate_limit(request, identity)
+    try:
+        intake = await _service(session, request).get(
+            intake_id, tenant_id=identity.tenant_id, actor_id=identity.actor_id
+        )
+    except ClinicalIntakeNotFoundError as error:
+        raise HTTPException(
+            status_code=404, detail={"code": "CLINICAL_INTAKE_NOT_FOUND"}
+        ) from error
+    if intake.kind != "medication_review":
+        raise HTTPException(
+            status_code=409, detail={"code": "MEDICATION_RECONCILIATION_UNAVAILABLE"}
+        )
+    try:
+        return reconcile_medication_list(
+            intake_id=intake.intake_id,
+            medication_list=intake.answers.get("medication_list", ""),
+        )
+    except MedicationReconciliationInputError as error:
+        raise HTTPException(
+            status_code=409, detail={"code": "MEDICATION_RECONCILIATION_INPUT_INVALID"}
+        ) from error
 
 
 @router.get("/{intake_id}", response_model=ClinicalIntakeRead)

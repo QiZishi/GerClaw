@@ -20,7 +20,7 @@ MEDICATION_REVIEW_INTAKE_DEFINITION = ClinicalIntakeDefinition(
             label="正在使用的药物",
             required=True,
             max_length=1_500,
-            placeholder="请按药盒逐项填写药物名称；剂量不确定时可留待医生核对",
+            placeholder="请一行填写一种药物；可按“药品名｜规格｜用法”填写，剂量不确定时留待医生核对",
         ),
         ClinicalIntakeField(
             id="review_goal",

@@ -2,7 +2,12 @@
 
 import { gerclawRequest } from "./client";
 import { ensureBackendSession } from "./skills";
-import { clinicalIntakeSchema, type ClinicalIntake } from "./schemas";
+import {
+  clinicalIntakeSchema,
+  medicationReconciliationSchema,
+  type ClinicalIntake,
+  type MedicationReconciliation,
+} from "./schemas";
 
 export type ClinicalIntakeKind = "prescription" | "medication_review";
 
@@ -19,6 +24,15 @@ export async function startClinicalIntake(input: {
 
 export async function getClinicalIntake(intakeId: string): Promise<ClinicalIntake> {
   return gerclawRequest(`clinical-intakes/${encodeURIComponent(intakeId)}`, clinicalIntakeSchema);
+}
+
+export async function getMedicationReconciliation(
+  intakeId: string
+): Promise<MedicationReconciliation> {
+  return gerclawRequest(
+    `clinical-intakes/${encodeURIComponent(intakeId)}/medication-reconciliation`,
+    medicationReconciliationSchema
+  );
 }
 
 export async function updateClinicalIntake(input: {

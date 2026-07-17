@@ -2,12 +2,13 @@
 
 ## Responsibility
 
-This module owns the versioned, encrypted intake definition for a future governed medication-review workflow. It does not evaluate medicines, infer a diagnosis, calculate a risk score, or recommend stopping, starting, or changing a dose.
+This module owns the versioned, encrypted intake definition and owner-scoped medication-list reconciliation for a future governed medication-review workflow. Reconciliation is limited to exact normalized-text duplicates; it does not evaluate medicines, infer a diagnosis, calculate a risk score, or recommend stopping, starting, or changing a dose.
 
 ## Invariants
 
 - The server owns immutable fields and requiredness; clients submit values only for declared IDs.
 - The present intake accepts no uploaded-document references. A future review workflow must define and validate its own evidence boundary before enabling attachments.
+- The reconciliation preview may compare only Unicode/whitespace-normalized complete list rows. It must not normalize synonyms, dosage forms, ingredients or dosing instructions, and every duplicate is labelled as a candidate for human review.
 - No medication list, reaction description, identifier, or raw request body may enter logs, Trace payloads, vector indexes, model prompts, or public contracts.
 - Any future rules engine must be versioned, source-traceable, medically reviewed, and governed by Runtime/HITL before it can emit a clinical fact.
 

@@ -26,7 +26,7 @@
 | AI-08 | Provider capability/version | services/adapters | schema/version/能力协商与不兼容拒绝 | 🚧 AgentScope 版本固定，其他 adapter 合同未统一 |
 | CLN-01 | CGA 后端闭环 | cga module/API/UI | 量表、答案、确定性计分、报告、历史 | 🚧 PHQ-9、SAS、PSQI 已具版本化 FastAPI 状态机、确定性计分、患者端真实 API、报告导出与本人历史；Mini-Cog/MMSE 的人工确认、医生授权与历史比较待完成 |
 | CLN-02 | 五大处方后端闭环 | prescription module/API/UI | 模板 JSON、四重校验、证据、版本、审批、导出 | 🚧 真实、加密、版本化的最小信息收集与 MinerU 资料绑定已接入；没有医学审核的 JSON 模板、四重校验、证据、报告、导出或医生批准，页面不得生成处方建议 |
-| CLN-03 | 用药审查规则 | medication module/API/UI | DDI/Beers/剂量/重复、版本和来源 | 🚧 真实、加密、版本化的用药信息收集已接入；没有经医学审核的 DDI/Beers/剂量/重复用药规则、来源版本、审查结论或医生批准 |
+| CLN-03 | 用药审查规则 | medication module/API/UI | DDI/Beers/剂量/重复、版本和来源 | 🚧 真实、加密、版本化的用药信息收集已接入；本人范围内可核对 Unicode/空白规范化后完全相同的录入行，明确不推断药物、成分、剂量或重复用药。没有经医学审核的 DDI/Beers/剂量/重复用药规则、来源版本、审查结论或医生批准 |
 | CLN-04 | 健康画像产品 UI | memory API、RightPanel | 本人/授权医生读取、确认/退役、历史 | 🚧 当前访客可经受限 BFF 读取本人已确认事实，并确认/忽略待确认事实；账号、患者授权、医生跨患者读取与历史视图待完成 |
 | CLN-05 | 临床规则版本 | cga/prescription/medication/safety | 报告保存规则/模板/证据版本 | 🚧 CGA 的量表定义与确定性计分已版本化；五大处方通用模板、证据规则、用药审查规则及其医学审核记录尚未提供，不能生成临床建议 |
 | CLN-06 | 统一风险预警闭环 | alert rules/workflow/API/患者医生 UI | 红旗/CGA/慢病/用药事件分级、通知确认、升级和紧急就医 | 🚧 Chat 红旗、CGA 即时安全与高风险随访可真实、原子地创建加密且本人范围的告警，并支持版本围栏、幂等确认。患者端“我的安全提醒”已经受限 BFF 读取本人告警并可记录“已了解”（不解除风险）；浏览器实测无告警读取 200。尚缺慢病/用药来源、通知升级、医生队列，以及含合成告警的确认 E2E |

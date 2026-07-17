@@ -19,7 +19,7 @@ GerClaw 是面向老年患者与老年科医生的 Web 端 AI 双向诊疗平台
 - 受限 BFF→FastAPI Voice Runtime：WAV/MP3 ASR、24kHz PCM16 TTS 和浏览器 WAV 播放封装；真实 TTS→ASR 回环已验证
 - `input_output` 生产边界：Chat 输入在 Trace/存储/Harness 前规范化，SSE 终态只投影已审核的公开文本、引用与安全信息
 - Chat/CGA 风险告警的本人范围账本与确认、慢病自述/测量账本，以及隔离的安全情感陪伴 workflow；均明确不替代临床审批或医生服务
-- 五大处方与用药审查的最小信息收集：真实 API、加密持久化、乐观 revision 与 PHI-free Trace；页面明确不会产生处方、诊断、停药、加药或剂量结论
+- 五大处方与用药审查的最小信息收集：真实 API、加密持久化、乐观 revision 与 PHI-free Trace；用药审查还会在本人范围内提示完全相同的录入项，页面明确不会产生处方、诊断、停药、加药、剂量或相互作用结论
 - 用户反馈、加密 Bad Case 与 13 个合成确定性安全/输出安全/隐私 policy case 基线；golden case 不回放用户原文，也不调用模型或 RAG
 - 版本化 `privacy_redaction`：外部搜索 query 与 FastAPI TTS 正文/style 在 Provider 调用前最小化并脱敏，审计摘要只保留类别计数
 - Docker Compose API 的 10 并发高风险安全短路 SSE 证据（仅该确定性工作负载，非模型/RAG/临床 workflow 吞吐结论）
@@ -30,7 +30,7 @@ GerClaw 是面向老年患者与老年科医生的 Web 端 AI 双向诊疗平台
 - Voice 已经由受限 BFF 接入 FastAPI Runtime、PCM16 流和 provider egress audit；缺真实人声质量、取消、浏览器播放完整 E2E 与 adapter version 协商
 - MinerU 已以用户指定病例 PDF 实测解析并登记为会话输入；缺私有长文档检索、跨会话保留、授权与独立病毒扫描
 - CGA 仅覆盖 PHQ-9、SAS、PSQI；Mini-Cog/MMSE 人工确认、医生授权查看及跨时间比较未实现
-- 五大处方和用药审查只有受限信息收集；缺经医学审核的模板、规则集、证据校验、报告生成、医生批准与患者授权
+- 五大处方只有受限信息收集；用药审查另有完全相同文本的录入核对，但两者均缺经医学审核的模板、规则集、证据校验、报告生成、医生批准与患者授权
 - 风险预警、慢病管理、情感陪伴均只具当前最小的本人范围 workflow；缺通知升级、医学审核规则、人工升级、患者授权与医生队列
 - 患者授权、医生资质/RBAC 与跨患者访问；本地账号登录/注册入口已接入侧边栏，但没有账号验证、找回、MFA、停用与风控
 - Bad Case 的授权脱敏晋升、模型/RAG/医疗评测、趋势指标与安全回放闭环

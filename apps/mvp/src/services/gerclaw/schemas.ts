@@ -356,6 +356,33 @@ export const clinicalIntakeSchema = z
 
 export type ClinicalIntake = z.infer<typeof clinicalIntakeSchema>;
 
+const medicationListEntrySchema = z
+  .object({
+    position: z.number().int().min(1).max(50),
+    text: z.string().min(1).max(1_500),
+  })
+  .strict();
+
+const medicationDuplicateCandidateSchema = z
+  .object({
+    text: z.string().min(1).max(1_500),
+    positions: z.array(z.number().int().min(1).max(50)).min(2).max(50),
+  })
+  .strict();
+
+export const medicationReconciliationSchema = z
+  .object({
+    intake_id: z.string().uuid(),
+    version: z.string().regex(/^medication-reconciliation-v[0-9]+$/),
+    has_medication_list: z.boolean(),
+    entries: z.array(medicationListEntrySchema).max(50),
+    exact_duplicate_candidates: z.array(medicationDuplicateCandidateSchema).max(50),
+    notice: z.string().min(1).max(500),
+  })
+  .strict();
+
+export type MedicationReconciliation = z.infer<typeof medicationReconciliationSchema>;
+
 export { feedbackSubmitSchema } from "./feedback-contract";
 
 export const feedbackReadSchema = z

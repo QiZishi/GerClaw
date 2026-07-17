@@ -1,18 +1,19 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
-import { AlertTriangle, CheckCircle2, FileText, Paperclip, Save, X } from "lucide-react";
+import { AlertTriangle, CheckCircle2, FileText, Paperclip, Save, SearchCheck, X } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 import { toast } from "@/components/ui/toast";
 import { GerclawApiError } from "@/services/gerclaw/client";
 import {
   getClinicalIntake,
+  getMedicationReconciliation,
   startClinicalIntake,
   updateClinicalIntake,
   type ClinicalIntakeKind,
 } from "@/services/gerclaw/clinical-intakes";
-import type { ClinicalIntake } from "@/services/gerclaw/schemas";
+import type { ClinicalIntake, MedicationReconciliation } from "@/services/gerclaw/schemas";
 import { parseFile } from "@/services/document/mineru";
 import { registerParsedDocument, revokeParsedDocument } from "@/services/gerclaw/documents";
 
@@ -94,6 +95,8 @@ export function ClinicalIntakeForm({
   const [documentNames, setDocumentNames] = useState<Record<string, string>>({});
   const [reloadNonce, setReloadNonce] = useState(0);
   const [showValidation, setShowValidation] = useState(false);
+  const [medicationReconciliation, setMedicationReconciliation] =
+    useState<MedicationReconciliation | null>(null);
   const fieldRefs = useRef<Record<string, HTMLTextAreaElement | null>>({});
   const documentInputRef = useRef<HTMLInputElement>(null);
   const pendingStartRef = useRef<{
@@ -156,6 +159,7 @@ export function ClinicalIntakeForm({
         }
         if (!live) return;
         storeIntakeId(localSessionId, kind, next.intake_id);
+        setMedicationReconciliation(null);
         setIntake(next);
         setAnswers(next.answers);
         setDocumentNames((previous) => {
@@ -179,6 +183,23 @@ export function ClinicalIntakeForm({
       live = false;
     };
   }, [kind, localSessionId, reloadNonce]);
+
+  useEffect(() => {
+    if (kind !== "medication_review" || !intake) return;
+    let live = true;
+    void getMedicationReconciliation(intake.intake_id).then(
+      (result) => {
+        if (live) setMedicationReconciliation(result);
+      },
+      () => {
+        // The collection form remains usable if this optional read view is unavailable.
+        if (live) setMedicationReconciliation(null);
+      }
+    );
+    return () => {
+      live = false;
+    };
+  }, [intake, kind]);
 
   const save = async () => {
     if (!intake || saving) return;
@@ -449,6 +470,57 @@ export function ClinicalIntakeForm({
                   </li>
                 ))}
               </ul>
+            )}
+          </section>
+        )}
+
+        {kind === "medication_review" && (
+          <section
+            className="space-y-3 rounded-xl border border-primary/25 bg-primary/5 p-4"
+            aria-labelledby="medication-reconciliation-title"
+          >
+            <div className="flex items-start gap-3">
+              <SearchCheck className="mt-0.5 size-5 shrink-0 text-primary" aria-hidden="true" />
+              <div className="space-y-1">
+                <h2
+                  id="medication-reconciliation-title"
+                  className={cn("font-medium text-foreground", seniorMode ? "text-lg" : "text-base")}
+                >
+                  录入核对
+                </h2>
+                <p className={cn("leading-relaxed text-muted-foreground", seniorMode ? "text-lg" : "text-sm")}>
+                  保存后，系统只会提示完全相同的录入项，方便您和医生逐项核对。
+                </p>
+              </div>
+            </div>
+            {medicationReconciliation?.has_medication_list ? (
+              <>
+                {medicationReconciliation.exact_duplicate_candidates.length > 0 ? (
+                  <div className="rounded-lg border border-amber-500/40 bg-amber-50/70 p-3 text-amber-950 dark:bg-amber-950/20 dark:text-amber-100">
+                    <p className={cn("font-medium", seniorMode ? "text-lg" : "text-sm")}>
+                      发现 {medicationReconciliation.exact_duplicate_candidates.length} 组完全相同的录入项
+                    </p>
+                    <ul className={cn("mt-2 space-y-1 leading-relaxed", seniorMode ? "text-lg" : "text-sm")}>
+                      {medicationReconciliation.exact_duplicate_candidates.map((candidate) => (
+                        <li key={`${candidate.text}-${candidate.positions.join("-")}`}>
+                          第 {candidate.positions.join("、")} 项内容相同，请带药盒请医生或药师核对。
+                        </li>
+                      ))}
+                    </ul>
+                  </div>
+                ) : (
+                  <p className={cn("rounded-lg border border-border bg-background p-3 text-muted-foreground", seniorMode ? "text-lg" : "text-sm")}>
+                    暂未发现完全相同的录入项。不同名称、同类药或剂量问题仍需要医生或药师核对。
+                  </p>
+                )}
+                <p className={cn("leading-relaxed text-muted-foreground", seniorMode ? "text-lg" : "text-sm")}>
+                  {medicationReconciliation.notice}
+                </p>
+              </>
+            ) : (
+              <p className={cn("rounded-lg border border-border bg-background p-3 text-muted-foreground", seniorMode ? "text-lg" : "text-sm")}>
+                填写并保存“正在使用的药物”后，可在这里查看录入核对结果。
+              </p>
             )}
           </section>
         )}

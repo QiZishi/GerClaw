@@ -6,6 +6,7 @@ import { isAllowedGerclawProxyTarget } from "./gerclaw-api.ts";
 const conditionId = "6cf3c10d-1d9e-4cfb-8d42-1e32fdb92911";
 const alertId = "8a3e70a1-8b3a-4a9b-9e6a-0148d6e1ef3b";
 const sessionId = "f177dc56-cf27-4c5f-8ebd-683d6a2d6e75";
+const intakeId = "8c711e7e-7ddd-47df-8863-1a0f3d183509";
 
 test("session proxy permits only the declared session lifecycle operations", () => {
   assert.equal(isAllowedGerclawProxyTarget("sessions", "POST"), true);
@@ -57,4 +58,11 @@ test("voice proxy only exposes the governed FastAPI ASR and TTS boundaries", () 
   assert.equal(isAllowedGerclawProxyTarget("voice/tts", "POST"), true);
   assert.equal(isAllowedGerclawProxyTarget("voice/asr", "GET"), false);
   assert.equal(isAllowedGerclawProxyTarget("voice/unknown", "POST"), false);
+});
+
+test("medication reconciliation proxy permits only its owner-scoped read boundary", () => {
+  const path = `clinical-intakes/${intakeId}/medication-reconciliation`;
+  assert.equal(isAllowedGerclawProxyTarget(path, "GET"), true);
+  assert.equal(isAllowedGerclawProxyTarget(path, "POST"), false);
+  assert.equal(isAllowedGerclawProxyTarget(`clinical-intakes/${intakeId}/other`, "GET"), false);
 });
