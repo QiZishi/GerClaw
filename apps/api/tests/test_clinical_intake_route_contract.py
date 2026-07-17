@@ -7,6 +7,7 @@ import pytest
 from fastapi import HTTPException
 
 from gerclaw_api.api.routes.clinical_intakes import (
+    _finish_prescription_failure_trace,
     _module_name,
     get_medication_reconciliation,
     get_prescription_input_readiness,
@@ -18,6 +19,7 @@ from gerclaw_api.modules.prescription.models import (
     ClinicalIntakeRead,
     PrescriptionInputReadiness,
 )
+from gerclaw_api.services.model_router import ModelAttempt
 
 
 def test_clinical_intake_trace_uses_the_actual_domain_owner() -> None:
@@ -57,6 +59,53 @@ def test_prescription_draft_trace_metadata_obeys_the_audit_allowlist() -> None:
 
     assert start.attributes["version"] == "five-prescription-input-v1"
     assert event.payload["event_count"] == 2
+
+
+@pytest.mark.asyncio
+async def test_prescription_failure_trace_keeps_slot_only_attempts() -> None:
+    class _Traces:
+        def __init__(self) -> None:
+            self.events: list[TraceEventCreate] = []
+            self.finish = None
+
+        async def append_event(
+            self, _tenant_id: str, _trace_id: str, event: TraceEventCreate, **_kwargs: object
+        ) -> None:
+            self.events.append(event)
+
+        async def finish_trace(
+            self, _tenant_id: str, _trace_id: str, payload: object, **_kwargs: object
+        ) -> None:
+            self.finish = payload
+
+    traces = _Traces()
+    await _finish_prescription_failure_trace(
+        traces=traces,  # type: ignore[arg-type]
+        tenant_id="tenant",
+        trace_id="trace_" + "a" * 32,
+        started_at=0.0,
+        attempts=[
+            ModelAttempt("primary", "failed", "MODEL_TIMEOUT"),
+            ModelAttempt("backup1", "started"),
+        ],
+        error_code="PRESCRIPTION_DRAFT_UNAVAILABLE",
+    )
+
+    model_events = [
+        event for event in traces.events if event.event_type is TraceEventType.MODEL_CALL
+    ]
+    assert [event.payload for event in model_events] == [
+        {
+            "model": "slot_primary",
+            "outcome": "failed",
+            "success": False,
+            "error_code": "model_timeout",
+        },
+        {"model": "slot_backup1", "outcome": "started", "success": False},
+    ]
+    assert traces.events[-1].event_type is TraceEventType.SYSTEM_ERROR
+    assert traces.events[-1].payload["error_code"] == "prescription_draft_unavailable"
+    assert traces.finish is not None
 
 
 class _Request:
