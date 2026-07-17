@@ -1,7 +1,10 @@
-# Medication review intake
+# Medication review
 
-This module defines the server-owned, non-clinical information collection contract for the future medication-review workflow. Values are stored through the encrypted clinical-intake service. It also exposes an owner-scoped reconciliation preview for complete list rows: after Unicode/whitespace normalization it reports only rows whose text is exactly identical, so a patient and clinician can spot accidental duplicate entry.
+This module stores medication-review inputs through the encrypted clinical-intake service and provides two separate outputs:
 
-The preview is not duplicate-drug detection: it does not infer drug identities, map synonyms or ingredients, parse dosage, or make DDI, Beers, contraindication or dose decisions. Every match is explicitly a candidate for clinician/pharmacist review. `GET /api/v1/clinical-intakes/{id}/medication-reconciliation` is rate-limited, owner-scoped, non-persistent and never writes raw medication text into Trace payloads.
+- `GET /api/v1/clinical-intakes/{id}/medication-reconciliation` is a non-clinical preview of only Unicode/whitespace-equivalent list rows.
+- `POST /api/v1/clinical-intakes/{id}/medication-review-draft` creates a deterministic, clinician-review-only artifact from the installed source-traceable rule set. It returns risk hits, rule version, source locators, corpus SHA-256 fingerprints, coverage state, and a fixed medical disclaimer. No LLM, RAG, web search, or external medication provider receives the list.
 
-The current contract deliberately does not accept uploaded documents. Five prescription intake has a distinct, owner/session-scoped MinerU document input path; reusing it for medication review would silently expand the evidence boundary before medical rules, patient authorization, and physician approval exist.
+`rules/core-v1.json` currently contains a limited group of statin-related DDI rules and a rosuvastatin daily-dose threshold from the local `冠心病心脏康复基层合理用药指南` corpus file. Each source record carries a locator and the source file SHA-256, so a reviewer can verify the exact corpus version. Results are concrete rule-hit conclusions for clinician/pharmacist review, not a diagnosis or a patient-executable medication decision.
+
+Beers coverage is intentionally reported as `not_installed_no_licensed_source`. The system does not turn an unavailable Beers data source into a “no finding”; adding Beers requires a permitted versioned dataset and clinical governance review. Medication-review intake accepts no document references, because five-prescription uploads have a distinct owner/session-scoped MinerU input boundary.

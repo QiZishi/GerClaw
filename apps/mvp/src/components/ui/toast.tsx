@@ -67,14 +67,13 @@ export function Toaster() {
   useEffect(() => {
     const timers = timersRef.current;
     const listener = (item: ToastItem) => {
-      const existingTimer = timers.get(item.id);
-      if (existingTimer) window.clearTimeout(existingTimer);
-      setItems((prev) => {
-        const hasSameToast = prev.some((existing) => existing.id === item.id);
-        return hasSameToast
-          ? prev.map((existing) => (existing.id === item.id ? item : existing))
-          : [...prev, item];
-      });
+      // A stack of success messages can cover the action the user has just
+      // completed, especially on a 390px screen.  Keep one current status
+      // message instead of asking users to dismiss older, superseded notices.
+      timers.forEach((timer) => window.clearTimeout(timer));
+      timers.clear();
+      activeToastByMessage.clear();
+      setItems([item]);
       timers.set(
         item.id,
         window.setTimeout(() => removeItem(item.id), item.duration)

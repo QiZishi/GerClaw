@@ -1,0 +1,180 @@
+{
+  "version": "medication-rules-v1",
+  "sources": [
+    {
+      "source_id": "cad_rehab_primary_care",
+      "title": "冠心病心脏康复基层合理用药指南",
+      "publisher": "中华医学会临床药学分会等",
+      "locator": "三、治疗药物：辛伐他汀、阿托伐他汀、瑞舒伐他汀的用法和药物相互作用条目",
+      "local_corpus_path": "冠心病md/冠心病心脏康复基层合理用药指南_MinerU__20251010034941.md",
+      "content_sha256": "940965391565b0de32f3aba51c5a323542f5af9b18162c5075130ba63437feeb",
+      "review_status": "source_traceable_pending_clinician_approval"
+    }
+  ],
+  "aliases": {
+    "辛伐他汀": ["辛伐他汀", "simvastatin"],
+    "阿托伐他汀": ["阿托伐他汀", "atorvastatin"],
+    "瑞舒伐他汀": ["瑞舒伐他汀", "rosuvastatin"],
+    "地高辛": ["地高辛", "digoxin"],
+    "胺碘酮": ["胺碘酮", "amiodarone"],
+    "维拉帕米": ["维拉帕米", "verapamil"],
+    "地尔硫䓬": ["地尔硫䓬", "地尔硫卓", "diltiazem"],
+    "氨氯地平": ["氨氯地平", "amlodipine"],
+    "环孢素": ["环孢素", "cyclosporine"],
+    "红霉素": ["红霉素", "erythromycin"],
+    "克拉霉素": ["克拉霉素", "clarithromycin"],
+    "吉非贝齐": ["吉非贝齐", "gemfibrozil"],
+    "伊曲康唑": ["伊曲康唑", "itraconazole"],
+    "烟酸": ["烟酸", "niacin"],
+    "夫西地酸": ["夫西地酸", "fusidic acid"]
+  },
+  "ddi_rules": [
+    {
+      "id": "ddi_simvastatin_amiodarone",
+      "drugs": ["辛伐他汀", "胺碘酮"],
+      "severity": "major",
+      "conclusion": "该组合命中规则：合用可增加横纹肌溶解风险。",
+      "clinician_action": "请由医师或药师尽快核对适应证、剂量、替代方案及肌肉不适等情况；患者不要自行改药。",
+      "elderly_note": "老年人合并多病和多重用药时，应特别核对不良反应和监测条件。",
+      "source_ids": ["cad_rehab_primary_care"]
+    },
+    {
+      "id": "ddi_simvastatin_verapamil",
+      "drugs": ["辛伐他汀", "维拉帕米"],
+      "severity": "major",
+      "conclusion": "该组合命中规则：合用可增加横纹肌溶解风险。",
+      "clinician_action": "请由医师或药师尽快核对适应证、剂量、替代方案及肌肉不适等情况；患者不要自行改药。",
+      "elderly_note": "老年人合并多病和多重用药时，应特别核对不良反应和监测条件。",
+      "source_ids": ["cad_rehab_primary_care"]
+    },
+    {
+      "id": "ddi_simvastatin_diltiazem",
+      "drugs": ["辛伐他汀", "地尔硫䓬"],
+      "severity": "major",
+      "conclusion": "该组合命中规则：合用可增加横纹肌溶解风险。",
+      "clinician_action": "请由医师或药师尽快核对适应证、剂量、替代方案及肌肉不适等情况；患者不要自行改药。",
+      "elderly_note": "老年人合并多病和多重用药时，应特别核对不良反应和监测条件。",
+      "source_ids": ["cad_rehab_primary_care"]
+    },
+    {
+      "id": "ddi_simvastatin_amlodipine",
+      "drugs": ["辛伐他汀", "氨氯地平"],
+      "severity": "major",
+      "conclusion": "该组合命中规则：合用可增加横纹肌溶解风险。",
+      "clinician_action": "请由医师或药师尽快核对适应证、剂量、替代方案及肌肉不适等情况；患者不要自行改药。",
+      "elderly_note": "老年人合并多病和多重用药时，应特别核对不良反应和监测条件。",
+      "source_ids": ["cad_rehab_primary_care"]
+    },
+    {
+      "id": "ddi_simvastatin_cyclosporine",
+      "drugs": ["辛伐他汀", "环孢素"],
+      "severity": "major",
+      "conclusion": "该组合命中规则：合用可增加横纹肌溶解风险。",
+      "clinician_action": "请由医师或药师尽快核对适应证、剂量、替代方案及肌肉不适等情况；患者不要自行改药。",
+      "elderly_note": "老年人合并多病和多重用药时，应特别核对不良反应和监测条件。",
+      "source_ids": ["cad_rehab_primary_care"]
+    },
+    {
+      "id": "ddi_simvastatin_erythromycin",
+      "drugs": ["辛伐他汀", "红霉素"],
+      "severity": "major",
+      "conclusion": "该组合命中规则：合用可增加横纹肌溶解风险。",
+      "clinician_action": "请由医师或药师尽快核对适应证、剂量、替代方案及肌肉不适等情况；患者不要自行改药。",
+      "elderly_note": "老年人合并多病和多重用药时，应特别核对不良反应和监测条件。",
+      "source_ids": ["cad_rehab_primary_care"]
+    },
+    {
+      "id": "ddi_simvastatin_gemfibrozil",
+      "drugs": ["辛伐他汀", "吉非贝齐"],
+      "severity": "major",
+      "conclusion": "该组合命中规则：合用可增加横纹肌溶解风险。",
+      "clinician_action": "请由医师或药师尽快核对适应证、剂量、替代方案及肌肉不适等情况；患者不要自行改药。",
+      "elderly_note": "老年人合并多病和多重用药时，应特别核对不良反应和监测条件。",
+      "source_ids": ["cad_rehab_primary_care"]
+    },
+    {
+      "id": "ddi_simvastatin_niacin",
+      "drugs": ["辛伐他汀", "烟酸"],
+      "severity": "major",
+      "conclusion": "该组合命中规则：合用可增加横纹肌溶解风险。",
+      "clinician_action": "请由医师或药师尽快核对适应证、剂量、替代方案及肌肉不适等情况；患者不要自行改药。",
+      "elderly_note": "老年人合并多病和多重用药时，应特别核对不良反应和监测条件。",
+      "source_ids": ["cad_rehab_primary_care"]
+    },
+    {
+      "id": "ddi_simvastatin_fusidic_acid",
+      "drugs": ["辛伐他汀", "夫西地酸"],
+      "severity": "major",
+      "conclusion": "该组合命中规则：合用可增加横纹肌溶解风险。",
+      "clinician_action": "请由医师或药师尽快核对适应证、剂量、替代方案及肌肉不适等情况；患者不要自行改药。",
+      "elderly_note": "老年人合并多病和多重用药时，应特别核对不良反应和监测条件。",
+      "source_ids": ["cad_rehab_primary_care"]
+    },
+    {
+      "id": "ddi_atorvastatin_digoxin",
+      "drugs": ["阿托伐他汀", "地高辛"],
+      "severity": "moderate",
+      "conclusion": "该组合命中规则：阿托伐他汀可增加地高辛血药浓度。",
+      "clinician_action": "请由医师或药师核对地高辛浓度监测和个体化给药方案；患者不要自行调整剂量。",
+      "elderly_note": "老年人可能更易受肾功能变化和多重用药影响。",
+      "source_ids": ["cad_rehab_primary_care"]
+    },
+    {
+      "id": "ddi_atorvastatin_clarithromycin",
+      "drugs": ["阿托伐他汀", "克拉霉素"],
+      "severity": "major",
+      "conclusion": "该组合命中规则：合用可增加横纹肌溶解和/或急性肾功能衰竭风险。",
+      "clinician_action": "请由医师或药师尽快核对联用必要性、剂量和替代方案；患者不要自行改药。",
+      "elderly_note": "老年人应特别核对肾功能和肌肉不适等风险线索。",
+      "source_ids": ["cad_rehab_primary_care"]
+    },
+    {
+      "id": "ddi_atorvastatin_cyclosporine",
+      "drugs": ["阿托伐他汀", "环孢素"],
+      "severity": "major",
+      "conclusion": "该组合命中规则：合用可增加横纹肌溶解和/或急性肾功能衰竭风险。",
+      "clinician_action": "请由医师或药师尽快核对联用必要性、剂量和替代方案；患者不要自行改药。",
+      "elderly_note": "老年人应特别核对肾功能和肌肉不适等风险线索。",
+      "source_ids": ["cad_rehab_primary_care"]
+    },
+    {
+      "id": "ddi_atorvastatin_itraconazole",
+      "drugs": ["阿托伐他汀", "伊曲康唑"],
+      "severity": "major",
+      "conclusion": "该组合命中规则：合用可增加横纹肌溶解和/或急性肾功能衰竭风险。",
+      "clinician_action": "请由医师或药师尽快核对联用必要性、剂量和替代方案；患者不要自行改药。",
+      "elderly_note": "老年人应特别核对肾功能和肌肉不适等风险线索。",
+      "source_ids": ["cad_rehab_primary_care"]
+    },
+    {
+      "id": "ddi_rosuvastatin_cyclosporine",
+      "drugs": ["瑞舒伐他汀", "环孢素"],
+      "severity": "contraindicated",
+      "conclusion": "该组合命中规则：指南条目记载瑞舒伐他汀禁用于同时接受环孢素治疗的患者。",
+      "clinician_action": "请尽快由开方医师或临床药师核对；患者不要自行停药或替换药物。",
+      "elderly_note": "老年人发生不良反应时应及时寻求医疗帮助。",
+      "source_ids": ["cad_rehab_primary_care"]
+    },
+    {
+      "id": "ddi_rosuvastatin_gemfibrozil",
+      "drugs": ["瑞舒伐他汀", "吉非贝齐"],
+      "severity": "major",
+      "conclusion": "该组合命中规则：指南条目不建议瑞舒伐他汀与吉非贝齐合用。",
+      "clinician_action": "请由医师或药师核对联用必要性、剂量和替代方案；患者不要自行改药。",
+      "elderly_note": "老年人应结合肾功能和整体用药情况复核。",
+      "source_ids": ["cad_rehab_primary_care"]
+    }
+  ],
+  "dose_rules": [
+    {
+      "id": "dose_rosuvastatin_max_daily_20mg",
+      "drug": "瑞舒伐他汀",
+      "max_daily_mg": 20,
+      "severity": "major",
+      "conclusion": "录入的瑞舒伐他汀日剂量超过本规则来源所列的一日最大剂量20 mg。",
+      "clinician_action": "请由医师或药师核对适应证、实际服用频次、肾功能和原始处方；患者不要自行调整剂量。",
+      "elderly_note": "来源指出65岁及以上患者调整剂量时应慎重。",
+      "source_ids": ["cad_rehab_primary_care"]
+    }
+  ]
+}

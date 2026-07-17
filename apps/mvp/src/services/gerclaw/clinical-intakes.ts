@@ -6,9 +6,11 @@ import {
   clinicalIntakeSchema,
   fivePrescriptionDraftSchema,
   medicationReconciliationSchema,
+  medicationReviewDraftSchema,
   type ClinicalIntake,
   type FivePrescriptionDraft,
   type MedicationReconciliation,
+  type MedicationReviewDraft,
 } from "./schemas";
 
 export type ClinicalIntakeKind = "prescription" | "medication_review";
@@ -34,6 +36,23 @@ export async function getMedicationReconciliation(
   return gerclawRequest(
     `clinical-intakes/${encodeURIComponent(intakeId)}/medication-reconciliation`,
     medicationReconciliationSchema
+  );
+}
+
+/** Generate a deterministic, source-traceable review; it is never a prescription. */
+export async function generateMedicationReviewDraft(input: {
+  intakeId: string;
+  patientAge?: number;
+}): Promise<MedicationReviewDraft> {
+  return gerclawRequest(
+    `clinical-intakes/${encodeURIComponent(input.intakeId)}/medication-review-draft`,
+    medicationReviewDraftSchema,
+    {
+      method: "POST",
+      body: JSON.stringify(
+        input.patientAge === undefined ? {} : { patient_age: input.patientAge }
+      ),
+    }
   );
 }
 

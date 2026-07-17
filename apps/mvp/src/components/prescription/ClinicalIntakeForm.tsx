@@ -18,6 +18,7 @@ import { GerclawApiError } from "@/services/gerclaw/client";
 import {
   getClinicalIntake,
   getMedicationReconciliation,
+  generateMedicationReviewDraft,
   generatePrescriptionDraft,
   startClinicalIntake,
   updateClinicalIntake,
@@ -27,6 +28,7 @@ import type {
   ClinicalIntake,
   FivePrescriptionDraft,
   MedicationReconciliation,
+  MedicationReviewDraft,
 } from "@/services/gerclaw/schemas";
 import { parseFile } from "@/services/document/mineru";
 import { registerParsedDocument, revokeParsedDocument } from "@/services/gerclaw/documents";
@@ -60,6 +62,24 @@ function formatElapsed(elapsedSeconds: number): string {
   const minutes = Math.floor(normalizedSeconds / 60);
   const seconds = normalizedSeconds % 60;
   return `${String(minutes).padStart(2, "0")}:${String(seconds).padStart(2, "0")}`;
+}
+
+function medicationSeverityLabel(severity: MedicationReviewDraft["findings"][number]["severity"]): string {
+  return {
+    contraindicated: "禁忌",
+    major: "严重",
+    moderate: "中等",
+    minor: "轻微",
+  }[severity];
+}
+
+function medicationSeverityClass(severity: MedicationReviewDraft["findings"][number]["severity"]): string {
+  return {
+    contraindicated: "border-red-600/50 bg-red-50 text-red-950 dark:bg-red-950/25 dark:text-red-100",
+    major: "border-orange-600/50 bg-orange-50 text-orange-950 dark:bg-orange-950/25 dark:text-orange-100",
+    moderate: "border-amber-500/50 bg-amber-50 text-amber-950 dark:bg-amber-950/25 dark:text-amber-100",
+    minor: "border-blue-600/40 bg-blue-50 text-blue-950 dark:bg-blue-950/25 dark:text-blue-100",
+  }[severity];
 }
 
 function readStoredIntakeId(sessionId: string, kind: ClinicalIntakeKind): string | null {
@@ -116,6 +136,11 @@ export function ClinicalIntakeForm({
   const [showValidation, setShowValidation] = useState(false);
   const [medicationReconciliation, setMedicationReconciliation] =
     useState<MedicationReconciliation | null>(null);
+  const [medicationReviewDraft, setMedicationReviewDraft] =
+    useState<MedicationReviewDraft | null>(null);
+  const [medicationReviewState, setMedicationReviewState] = useState<"idle" | "generating">("idle");
+  const [medicationReviewElapsedSeconds, setMedicationReviewElapsedSeconds] = useState(0);
+  const [patientAge, setPatientAge] = useState("");
   const fieldRefs = useRef<Record<string, HTMLTextAreaElement | null>>({});
   const documentInputRef = useRef<HTMLInputElement>(null);
   const pendingStartRef = useRef<{
@@ -140,6 +165,15 @@ export function ClinicalIntakeForm({
     );
     return () => window.clearInterval(timer);
   }, [draftState]);
+
+  useEffect(() => {
+    if (medicationReviewState !== "generating") return;
+    const timer = window.setInterval(
+      () => setMedicationReviewElapsedSeconds((elapsed) => elapsed + 1),
+      1_000
+    );
+    return () => window.clearInterval(timer);
+  }, [medicationReviewState]);
 
   useEffect(() => {
     let live = true;
@@ -188,6 +222,7 @@ export function ClinicalIntakeForm({
         if (!live) return;
         storeIntakeId(localSessionId, kind, next.intake_id);
         setMedicationReconciliation(null);
+        setMedicationReviewDraft(null);
         setDraft(null);
         setIntake(next);
         setAnswers(next.answers);
@@ -250,11 +285,16 @@ export function ClinicalIntakeForm({
       setIntake(next);
       setAnswers(next.answers);
       setDraft(null);
-      toast.show(
-        next.status === "information_complete_pending_governance"
-          ? "信息已保存；现在可以生成待临床复核的五大处方草案"
-          : "信息已保存，您可以继续补充"
-      );
+      setMedicationReviewDraft(null);
+      if (next.kind === "medication_review") {
+        toast.show("信息已保存，可以开始规则审查。", 1_800);
+      } else {
+        toast.show(
+          next.status === "information_complete_pending_governance"
+            ? "信息已保存；现在可以生成待临床复核的五大处方草案"
+            : "信息已保存，您可以继续补充"
+        );
+      }
     } catch (error) {
       toast.show(error instanceof Error ? error.message : "信息暂未保存，请检查网络后重试");
     } finally {
@@ -357,6 +397,35 @@ export function ClinicalIntakeForm({
     } finally {
       setDraftState("idle");
       setDraftElapsedSeconds(0);
+    }
+  };
+
+  const generateMedicationReview = async () => {
+    if (!intake || intake.kind !== "medication_review" || medicationReviewState === "generating") return;
+    const normalizedAge = patientAge.trim();
+    const age = normalizedAge === "" ? undefined : Number(normalizedAge);
+    if (age !== undefined && (!Number.isInteger(age) || age < 0 || age > 130)) {
+      toast.show("患者年龄请填写 0 到 130 之间的整数；不确定时可留空。 ");
+      return;
+    }
+    setMedicationReviewElapsedSeconds(0);
+    setMedicationReviewState("generating");
+    try {
+      const next = await generateMedicationReviewDraft({
+        intakeId: intake.intake_id,
+        patientAge: age,
+      });
+      setMedicationReviewDraft(next);
+      toast.show("用药审查已完成，请查看禁忌、严重风险和规则覆盖范围。", 1_800);
+    } catch (error) {
+      if (error instanceof GerclawApiError && error.code === "MEDICATION_REVIEW_INPUT_INVALID") {
+        toast.show("请先保存至少一条正在使用的药物，再进行用药审查。");
+      } else {
+        toast.show("用药审查暂时无法完成；您的信息没有被修改，请稍后重试。");
+      }
+    } finally {
+      setMedicationReviewState("idle");
+      setMedicationReviewElapsedSeconds(0);
     }
   };
 
@@ -548,10 +617,10 @@ export function ClinicalIntakeForm({
                   id="medication-reconciliation-title"
                   className={cn("font-medium text-foreground", seniorMode ? "text-lg" : "text-base")}
                 >
-                  录入核对
+                  用药规则审查
                 </h2>
                 <p className={cn("leading-relaxed text-muted-foreground", seniorMode ? "text-lg" : "text-sm")}>
-                  保存后，系统只会提示完全相同的录入项，方便您和医生逐项核对。
+                  先核对录入，再按已安装、可追溯的有限规则生成待复核结果。
                 </p>
               </div>
             </div>
@@ -584,6 +653,110 @@ export function ClinicalIntakeForm({
                 填写并保存“正在使用的药物”后，可在这里查看录入核对结果。
               </p>
             )}
+            <div className="space-y-3 border-t border-primary/15 pt-4">
+              <div className="flex flex-wrap items-end justify-between gap-3">
+                <label className="block min-w-40 space-y-1.5">
+                  <span className={cn("font-medium text-foreground", seniorMode ? "text-lg" : "text-sm")}>患者年龄（可选）</span>
+                  <input
+                    inputMode="numeric"
+                    type="text"
+                    value={patientAge}
+                    onChange={(event) => setPatientAge(event.target.value.replace(/\D/g, "").slice(0, 3))}
+                    disabled={saving || medicationReviewState === "generating"}
+                    placeholder="不确定可留空"
+                    className={cn(
+                      "h-11 w-full rounded-lg border border-input bg-background px-3 text-foreground outline-none transition-colors focus-visible:border-ring focus-visible:ring-2 focus-visible:ring-ring/30 disabled:cursor-not-allowed disabled:opacity-60",
+                      seniorMode && "min-h-12 text-lg"
+                    )}
+                  />
+                </label>
+                <Button
+                  type="button"
+                  className={actionClass}
+                  onClick={() => void generateMedicationReview()}
+                  disabled={
+                    saving ||
+                    hasUnsavedChanges ||
+                    !medicationReconciliation?.has_medication_list ||
+                    medicationReviewState === "generating"
+                  }
+                >
+                  {medicationReviewState === "generating" ? (
+                    <span className="inline-flex items-center gap-2" aria-live="polite">
+                      <span className="codex-activity-dots" aria-hidden="true">
+                        <span className="codex-activity-dot" />
+                        <span className="codex-activity-dot" />
+                        <span className="codex-activity-dot" />
+                      </span>
+                      审查中 · {formatElapsed(medicationReviewElapsedSeconds)}
+                    </span>
+                  ) : (
+                    "开始规则审查"
+                  )}
+                </Button>
+              </div>
+              {hasUnsavedChanges && (
+                <p className={cn("leading-relaxed text-muted-foreground", seniorMode ? "text-lg" : "text-sm")}>
+                  请先保存对药物列表的修改，再进行规则审查，避免审查到旧信息。
+                </p>
+              )}
+              <p className={cn("leading-relaxed text-muted-foreground", seniorMode ? "text-lg" : "text-sm")}>
+                审查只使用已安装、可追溯的本地规则；不会把药物列表发送给大模型。结果供医师或药师复核，不能自行改药。
+              </p>
+              {medicationReviewDraft && (
+                <div className="space-y-3 rounded-lg border border-primary/30 bg-background p-3" aria-live="polite">
+                  <div className="space-y-1">
+                    <p className={cn("font-medium text-foreground", seniorMode ? "text-lg" : "text-sm")}>
+                      规则审查结果 · {medicationReviewDraft.ruleset_version}
+                    </p>
+                    <p className={cn("leading-relaxed text-foreground", seniorMode ? "text-lg" : "text-sm")}>
+                      {medicationReviewDraft.conclusion}
+                    </p>
+                  </div>
+                  <p className={cn("rounded-md border border-amber-500/40 bg-amber-50/70 p-3 text-amber-950 dark:bg-amber-950/20 dark:text-amber-100", seniorMode ? "text-lg" : "text-sm")}>
+                    Beers 筛查：尚未安装可授权、可审计的规则来源，因此本次没有执行 Beers 判断；“未命中”不等于安全。
+                  </p>
+                  {medicationReviewDraft.unrecognized_entry_count > 0 && (
+                    <p className={cn("leading-relaxed text-muted-foreground", seniorMode ? "text-lg" : "text-sm")}>
+                      有 {medicationReviewDraft.unrecognized_entry_count} 条药物未被当前有限词表识别，不能完成其完整交互检查。
+                    </p>
+                  )}
+                  {medicationReviewDraft.findings.length > 0 ? (
+                    <ul className="space-y-2" aria-label="用药审查发现">
+                      {medicationReviewDraft.findings.map((finding) => (
+                        <li key={finding.finding_id} className={cn("space-y-2 rounded-lg border p-3", medicationSeverityClass(finding.severity))}>
+                          <p className={cn("font-medium", seniorMode ? "text-lg" : "text-sm")}>
+                            【{medicationSeverityLabel(finding.severity)}】{finding.title}
+                            {finding.age_escalated ? "（因年龄≥75岁已升级）" : ""}
+                          </p>
+                          <p className={cn("leading-relaxed", seniorMode ? "text-lg" : "text-sm")}>{finding.conclusion}</p>
+                          <p className={cn("leading-relaxed", seniorMode ? "text-lg" : "text-sm")}>复核建议：{finding.clinician_action}</p>
+                          {finding.elderly_note && <p className={cn("leading-relaxed", seniorMode ? "text-lg" : "text-sm")}>老年提示：{finding.elderly_note}</p>}
+                        </li>
+                      ))}
+                    </ul>
+                  ) : (
+                    <p className={cn("rounded-md border border-border p-3 text-muted-foreground", seniorMode ? "text-lg" : "text-sm")}>
+                      当前有限规则未命中风险；请仍由医师或药师完成完整核对。
+                    </p>
+                  )}
+                  <details className={cn("rounded-md border border-border p-3 text-muted-foreground", seniorMode ? "text-lg" : "text-sm")}>
+                    <summary className="cursor-pointer font-medium text-foreground">查看规则来源与覆盖范围</summary>
+                    <ul className="mt-2 space-y-2 leading-relaxed">
+                      {medicationReviewDraft.sources.map((source) => (
+                        <li key={source.source_id}>
+                          <span className="font-medium text-foreground">{source.title}</span>（{source.publisher}）<br />
+                          定位：{source.locator}；语料校验：{source.content_sha256.slice(0, 12)}…；状态：来源可追溯，待临床治理批准。
+                        </li>
+                      ))}
+                    </ul>
+                  </details>
+                  <p className={cn("leading-relaxed text-muted-foreground", seniorMode ? "text-lg" : "text-sm")}>
+                    {medicationReviewDraft.disclaimer}
+                  </p>
+                </div>
+              )}
+            </div>
           </section>
         )}
       </div>

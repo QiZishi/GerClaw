@@ -441,6 +441,67 @@ export const medicationReconciliationSchema = z
 
 export type MedicationReconciliation = z.infer<typeof medicationReconciliationSchema>;
 
+const medicationRiskLevelSchema = z.enum(["contraindicated", "major", "moderate", "minor"]);
+const medicationRuleSourceSchema = z
+  .object({
+    source_id: z.string().regex(/^[a-z][a-z0-9_]{2,63}$/),
+    title: z.string().min(1).max(300),
+    publisher: z.string().min(1).max(300),
+    locator: z.string().min(1).max(500),
+    local_corpus_path: z.string().min(1).max(500),
+    content_sha256: z.string().regex(/^[a-f0-9]{64}$/),
+    review_status: z.literal("source_traceable_pending_clinician_approval"),
+  })
+  .strict();
+
+const reviewedMedicationSchema = z
+  .object({
+    position: z.number().int().min(1).max(50),
+    text: z.string().min(1).max(1_500),
+    recognized_generic_names: z.array(z.string().min(1)).max(4),
+  })
+  .strict();
+
+const medicationReviewFindingSchema = z
+  .object({
+    finding_id: z.string().regex(/^[a-z][a-z0-9_]{2,95}$/),
+    kind: z.enum(["ddi", "dose", "duplicate", "polypharmacy"]),
+    severity: medicationRiskLevelSchema,
+    title: z.string().min(1).max(300),
+    involved_generic_names: z.array(z.string().min(1)).min(1).max(4),
+    conclusion: z.string().min(1).max(1_000),
+    clinician_action: z.string().min(1).max(1_000),
+    elderly_note: z.string().min(1).max(1_000).nullable(),
+    source_ids: z.array(z.string().min(1)).max(4),
+    age_escalated: z.boolean(),
+  })
+  .strict();
+
+export const medicationReviewDraftSchema = z
+  .object({
+    intake_id: z.string().uuid(),
+    ruleset_version: z.string().regex(/^medication-rules-v[0-9]+$/),
+    patient_age: z.number().int().min(0).max(130).nullable(),
+    reviewed_medications: z.array(reviewedMedicationSchema).min(1).max(50),
+    findings: z.array(medicationReviewFindingSchema).max(200),
+    sources: z.array(medicationRuleSourceSchema).min(1).max(20),
+    coverage: z
+      .object({
+        ddi: z.literal("limited_source_traceable"),
+        dose: z.literal("limited_source_traceable"),
+        beers: z.literal("not_installed_no_licensed_source"),
+      })
+      .strict(),
+    unrecognized_entry_count: z.number().int().min(0).max(50),
+    conclusion: z.string().min(1).max(1_000),
+    disclaimer: z.literal(
+      "本审查仅基于已安装且来源可追溯的有限规则，不能替代医师或药师的完整用药核对；不得据此自行开始、停用或调整剂量。"
+    ),
+  })
+  .strict();
+
+export type MedicationReviewDraft = z.infer<typeof medicationReviewDraftSchema>;
+
 const prescriptionEvidenceSourceSchema = z
   .object({
     evidence_id: z.string().regex(/^ev_[a-z0-9]{8,64}$/),

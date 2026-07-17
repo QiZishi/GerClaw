@@ -122,7 +122,7 @@ export function WelcomePage({
     {
       icon: FileSearch,
       label: "用药信息收集",
-      desc: "记录用药信息；当前不输出审查结论",
+      desc: "按有限可追溯规则核对用药风险",
       action: "drug-review" as const,
     },
     {

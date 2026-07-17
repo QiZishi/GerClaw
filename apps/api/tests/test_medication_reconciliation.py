@@ -12,6 +12,10 @@ from gerclaw_api.modules.medication_review.reconciliation import (
     MedicationReconciliationInputError,
     reconcile_medication_list,
 )
+from gerclaw_api.modules.medication_review.rules_engine import (
+    MedicationRulesInputError,
+    review_medication_list,
+)
 
 
 def test_reconciliation_only_groups_exact_normalized_entries() -> None:
@@ -56,3 +60,43 @@ def test_reconciliation_rejects_an_unbounded_list() -> None:
                 f"药物{index}" for index in range(MAX_MEDICATION_ENTRIES + 1)
             ),
         )
+
+
+def test_rule_review_emits_source_traceable_ddi_and_dose_findings() -> None:
+    result = review_medication_list(
+        intake_id=uuid.uuid4(),
+        patient_age=76,
+        medication_list="瑞舒伐他汀 40mg 每日一次\n环孢素\n阿托伐他汀\n地高辛",
+    )
+
+    assert result.ruleset_version == "medication-rules-v1"
+    assert result.coverage.beers == "not_installed_no_licensed_source"
+    assert result.sources[0].content_sha256 == (
+        "940965391565b0de32f3aba51c5a323542f5af9b18162c5075130ba63437feeb"
+    )
+    assert [finding.finding_id for finding in result.findings] == [
+        "ddi_rosuvastatin_cyclosporine",
+        "ddi_atorvastatin_cyclosporine",
+        "ddi_atorvastatin_digoxin",
+        "dose_rosuvastatin_max_daily_20mg_1",
+    ]
+    assert result.findings[2].severity == "major"
+    assert result.findings[2].age_escalated is True
+    assert result.findings[0].source_ids == ("cad_rehab_primary_care",)
+
+
+def test_rule_review_detects_normalized_generic_duplicates_and_polypharmacy() -> None:
+    result = review_medication_list(
+        intake_id=uuid.uuid4(),
+        medication_list="阿托伐他汀 10mg 每日一次\natorvastatin 10mg qd\n药物甲\n药物乙\n药物丙",
+    )
+
+    assert [finding.kind for finding in result.findings] == ["duplicate", "polypharmacy"]
+    assert result.unrecognized_entry_count == 3
+    assert result.findings[0].involved_generic_names == ("阿托伐他汀",)
+    assert result.findings[0].source_ids == ()
+
+
+def test_rule_review_rejects_empty_list() -> None:
+    with pytest.raises(MedicationRulesInputError, match="required"):
+        review_medication_list(intake_id=uuid.uuid4(), medication_list=" \n")

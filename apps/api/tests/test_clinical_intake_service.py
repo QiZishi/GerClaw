@@ -131,6 +131,21 @@ async def test_prescription_intake_is_server_defined_and_states_draft_governance
 
 
 @pytest.mark.asyncio
+async def test_medication_review_intake_discloses_limited_rule_coverage() -> None:
+    service = ClinicalIntakeService(_Repository())  # type: ignore[arg-type]
+
+    started = await service.start(
+        tenant_id="tenant_public0001",
+        actor_id="usr_patient_intake0001",
+        session_id=uuid.uuid4(),
+        kind="medication_review",
+    )
+
+    assert "有限规则审查结果" in started.governance_notice
+    assert "Beers 规则尚未安装" in started.governance_notice
+    assert "未命中不代表用药安全" in started.governance_notice
+
+@pytest.mark.asyncio
 async def test_intake_rejects_unknown_or_oversized_fields_and_stale_writes() -> None:
     service = ClinicalIntakeService(_Repository())  # type: ignore[arg-type]
     started = await service.start(

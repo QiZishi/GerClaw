@@ -23,9 +23,13 @@ from gerclaw_api.modules.prescription.models import (
 )
 from gerclaw_api.repositories.clinical_intake import SqlAlchemyClinicalIntakeRepository
 
-GOVERNANCE_NOTICE = (
+PRESCRIPTION_GOVERNANCE_NOTICE = (
     "信息完整后可生成带本地医学证据的五大处方待临床复核草案；它不是正式处方或诊断。"
     "DDI、Beers 和剂量规则尚未配置，任何药物调整必须由医生或药师核对。"
+)
+MEDICATION_REVIEW_GOVERNANCE_NOTICE = (
+    "可生成来源可追溯的有限规则审查结果，供医生或药师复核；它不是正式处方或诊断。"
+    "Beers 规则尚未安装，有限规则未命中不代表用药安全，任何药物调整必须由医生或药师核对。"
 )
 INTAKE_DEFINITIONS: dict[ClinicalIntakeKind, ClinicalIntakeDefinition] = {
     "prescription": PRESCRIPTION_INTAKE_DEFINITION,
@@ -41,6 +45,16 @@ def intake_definition(kind: ClinicalIntakeKind) -> ClinicalIntakeDefinition:
     """Resolve the one server-owned definition for a bounded intake kind."""
 
     return INTAKE_DEFINITIONS[kind]
+
+
+def governance_notice(kind: ClinicalIntakeKind) -> str:
+    """Keep the owner-visible notice aligned with the actual workflow boundary."""
+
+    return (
+        PRESCRIPTION_GOVERNANCE_NOTICE
+        if kind == "prescription"
+        else MEDICATION_REVIEW_GOVERNANCE_NOTICE
+    )
 
 
 class ClinicalIntakeService:
@@ -189,7 +203,7 @@ class ClinicalIntakeService:
             definition_version=prepared.definition_version,
             answer_field_count=len(prepared.answers),
             uploaded_document_count=len(prepared.uploaded_documents),
-            governance_notice=GOVERNANCE_NOTICE,
+            governance_notice=PRESCRIPTION_GOVERNANCE_NOTICE,
         )
 
     @staticmethod
@@ -302,6 +316,6 @@ class ClinicalIntakeService:
             answers=answers,
             document_ids=[uuid.UUID(item) for item in document_ids],
             missing_required_fields=missing,
-            governance_notice=GOVERNANCE_NOTICE,
+            governance_notice=governance_notice(definition.kind),
             updated_at=record.updated_at,
         )

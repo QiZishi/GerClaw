@@ -1,8 +1,10 @@
-"""Public, non-clinical medication-reconciliation contracts."""
+"""Versioned, source-traceable medication-review contracts."""
+# ruff: noqa: RUF001
 
 from __future__ import annotations
 
 import uuid
+from typing import Literal
 
 from pydantic import BaseModel, ConfigDict, Field
 
@@ -36,3 +38,88 @@ class MedicationReconciliationRead(BaseModel):
     entries: tuple[MedicationListEntry, ...] = Field(max_length=50)
     exact_duplicate_candidates: tuple[MedicationDuplicateCandidate, ...] = Field(max_length=50)
     notice: str = Field(min_length=1, max_length=500)
+
+
+MedicationRiskLevel = Literal["contraindicated", "major", "moderate", "minor"]
+MedicationFindingKind = Literal["ddi", "dose", "duplicate", "polypharmacy"]
+
+
+class MedicationReviewRequest(BaseModel):
+    """Optional age context for one review; it is not written into Trace data."""
+
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    patient_age: int | None = Field(default=None, ge=0, le=130)
+
+
+class MedicationRuleSource(BaseModel):
+    """A human-verifiable source record for every installed medical rule."""
+
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    source_id: str = Field(pattern=r"^[a-z][a-z0-9_]{2,63}$")
+    title: str = Field(min_length=1, max_length=300)
+    publisher: str = Field(min_length=1, max_length=300)
+    locator: str = Field(min_length=1, max_length=500)
+    local_corpus_path: str = Field(min_length=1, max_length=500)
+    content_sha256: str = Field(pattern=r"^[a-f0-9]{64}$")
+    review_status: Literal["source_traceable_pending_clinician_approval"]
+
+
+class MedicationRuleCoverage(BaseModel):
+    """Coverage state prevents a no-finding result from being mistaken for safety."""
+
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    ddi: Literal["limited_source_traceable"]
+    dose: Literal["limited_source_traceable"]
+    beers: Literal["not_installed_no_licensed_source"]
+
+
+class ReviewedMedication(BaseModel):
+    """An explicit text match only; unmatched text is retained for clinician review."""
+
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    position: int = Field(ge=1, le=50)
+    text: str = Field(min_length=1, max_length=1_500)
+    recognized_generic_names: tuple[str, ...] = Field(default_factory=tuple, max_length=4)
+
+
+class MedicationReviewFinding(BaseModel):
+    """One deterministic rule hit, never an instruction to prescribe or stop medication."""
+
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    finding_id: str = Field(pattern=r"^[a-z][a-z0-9_]{2,95}$")
+    kind: MedicationFindingKind
+    severity: MedicationRiskLevel
+    title: str = Field(min_length=1, max_length=300)
+    involved_generic_names: tuple[str, ...] = Field(min_length=1, max_length=4)
+    conclusion: str = Field(min_length=1, max_length=1_000)
+    clinician_action: str = Field(min_length=1, max_length=1_000)
+    elderly_note: str | None = Field(default=None, max_length=1_000)
+    source_ids: tuple[str, ...] = Field(default_factory=tuple, max_length=4)
+    age_escalated: bool = False
+
+
+class MedicationReviewDraft(BaseModel):
+    """Concrete clinician-review artifact from the installed deterministic rule set."""
+
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    intake_id: uuid.UUID
+    ruleset_version: str = Field(pattern=r"^medication-rules-v[0-9]+$")
+    patient_age: int | None = Field(default=None, ge=0, le=130)
+    reviewed_medications: tuple[ReviewedMedication, ...] = Field(min_length=1, max_length=50)
+    findings: tuple[MedicationReviewFinding, ...] = Field(max_length=200)
+    sources: tuple[MedicationRuleSource, ...] = Field(min_length=1, max_length=20)
+    coverage: MedicationRuleCoverage
+    unrecognized_entry_count: int = Field(ge=0, le=50)
+    conclusion: str = Field(min_length=1, max_length=1_000)
+    disclaimer: Literal[
+        "本审查仅基于已安装且来源可追溯的有限规则，不能替代医师或药师的完整用药核对；不得据此自行开始、停用或调整剂量。"
+    ] = (
+        "本审查仅基于已安装且来源可追溯的有限规则，不能替代医师或药师的完整用药核对；"
+        "不得据此自行开始、停用或调整剂量。"
+    )

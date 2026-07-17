@@ -22,10 +22,18 @@ from gerclaw_api.middleware import set_active_trace
 from gerclaw_api.modules.agent_harness.safety import EvidenceUnavailableError
 from gerclaw_api.modules.document.service import DocumentService
 from gerclaw_api.modules.input_output.clinical_intake import ClinicalIntakeKind
-from gerclaw_api.modules.medication_review.models import MedicationReconciliationRead
+from gerclaw_api.modules.medication_review.models import (
+    MedicationReconciliationRead,
+    MedicationReviewDraft,
+    MedicationReviewRequest,
+)
 from gerclaw_api.modules.medication_review.reconciliation import (
     MedicationReconciliationInputError,
     reconcile_medication_list,
+)
+from gerclaw_api.modules.medication_review.rules_engine import (
+    MedicationRulesInputError,
+    review_medication_list,
 )
 from gerclaw_api.modules.prescription.generator import (
     EvidenceBoundPrescriptionGenerator,
@@ -384,6 +392,108 @@ async def get_medication_reconciliation(
         raise HTTPException(
             status_code=409, detail={"code": "MEDICATION_RECONCILIATION_INPUT_INVALID"}
         ) from error
+
+
+@router.post(
+    "/{intake_id}/medication-review-draft",
+    response_model=MedicationReviewDraft,
+)
+async def generate_medication_review_draft(
+    intake_id: uuid.UUID,
+    payload: MedicationReviewRequest,
+    request: Request,
+    session: SessionDependency,
+    identity: WriteIdentity,
+    traces: TraceServiceDependency,
+) -> MedicationReviewDraft:
+    """Evaluate the installed source-traceable medication rules for one owner."""
+
+    await _enforce_rate_limit(request, identity)
+    try:
+        intake = await _service(session, request).get(
+            intake_id, tenant_id=identity.tenant_id, actor_id=identity.actor_id
+        )
+    except ClinicalIntakeNotFoundError as error:
+        raise HTTPException(
+            status_code=404, detail={"code": "CLINICAL_INTAKE_NOT_FOUND"}
+        ) from error
+    if intake.kind != "medication_review":
+        raise HTTPException(status_code=409, detail={"code": "MEDICATION_REVIEW_UNAVAILABLE"})
+    try:
+        result = review_medication_list(
+            intake_id=intake.intake_id,
+            medication_list=intake.answers.get("medication_list", ""),
+            patient_age=payload.patient_age,
+        )
+    except MedicationRulesInputError as error:
+        raise HTTPException(
+            status_code=409, detail={"code": "MEDICATION_REVIEW_INPUT_INVALID"}
+        ) from error
+
+    trace_id = str(request.state.trace_id)
+    set_active_trace(request.scope, trace_id)
+    started_at = monotonic()
+    trace_started = await traces.start_trace_with_status(
+        TraceStartRequest(
+            session_id=intake.session_id,
+            execution_type="medication_review.generate",
+            attributes={
+                "feature": "medication_review",
+                "module": "medication_review",
+                "operation": "generate_draft",
+                "version": result.ruleset_version,
+                "request_fingerprint": audit_hmac_digest(
+                    request.app.state.settings.auth_jwt_secret.get_secret_value().encode(),
+                    f"{intake_id}:{payload.patient_age}".encode(),
+                ),
+            },
+        ),
+        str(request.state.request_id),
+        trace_id=trace_id,
+        tenant_id=identity.tenant_id,
+        actor_id=identity.actor_id,
+        commit=False,
+    )
+    if not trace_started.created:
+        raise HTTPException(status_code=409, detail={"code": "MEDICATION_REVIEW_TRACE_CONFLICT"})
+    trace_suffix = trace_id.removeprefix("trace_")
+    await traces.append_event(
+        identity.tenant_id,
+        trace_id,
+        TraceEventCreate(
+            event_id=f"event_{trace_suffix}_generate_medication_review",
+            event_type=TraceEventType.CLINICAL_INTAKE,
+            status=TraceEventStatus.SUCCEEDED,
+            payload={
+                "feature": "medication_review",
+                "operation": "generate_draft",
+                "version": result.ruleset_version,
+                "document_count": 0,
+                "event_count": len(result.findings),
+                "outcome": "needs_clinician_review",
+                "success": True,
+            },
+            duration_ms=max(0, int((monotonic() - started_at) * 1_000)),
+        ),
+        commit=False,
+    )
+    await traces.finish_trace(
+        identity.tenant_id,
+        trace_id,
+        TraceFinishRequest(
+            idempotency_key=f"finish_{trace_suffix}",
+            status=TraceStatus.COMPLETED,
+            attributes={
+                "module": "medication_review",
+                "operation": "generate_draft",
+                "version": result.ruleset_version,
+                "success": True,
+            },
+        ),
+        commit=False,
+    )
+    await session.commit()
+    return result
 
 
 @router.get(
