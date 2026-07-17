@@ -59,6 +59,7 @@ import type { Session } from "@/types";
 import { toast } from "@/components/ui/toast";
 import { AccountDialog } from "@/components/account/AccountDialog";
 import { getAccountIdentity, logoutAccount, type AccountIdentity } from "@/services/account";
+import { deleteBackendSession } from "@/services/gerclaw/skills";
 
 interface SidebarProps {
   /** 移动端用：关闭抽屉的回调 */
@@ -98,6 +99,7 @@ export function Sidebar({ onNavigate }: SidebarProps) {
   const [renameTarget, setRenameTarget] = useState<Session | null>(null);
   const [renameTitle, setRenameTitle] = useState("");
   const [deleteTarget, setDeleteTarget] = useState<Session | null>(null);
+  const [deletingSession, setDeletingSession] = useState(false);
   const [pendingRole, setPendingRole] = useState<"visitor" | "patient" | "doctor" | null>(null);
   const [account, setAccount] = useState<AccountIdentity | null>(null);
   const [accountDialogOpen, setAccountDialogOpen] = useState(false);
@@ -248,19 +250,27 @@ export function Sidebar({ onNavigate }: SidebarProps) {
     toast.show("对话名称已更新");
   };
 
-  const confirmDelete = () => {
+  const confirmDelete = async () => {
     if (!deleteTarget) return;
-    const wasCurrentSession = deleteTarget.id === currentSessionId;
-    removeSession(deleteTarget.id);
-    if (wasCurrentSession) {
-      setCurrentSession(null);
-      setMainView("chat");
-      setPanelContent("");
-      closeRightPanel();
+    setDeletingSession(true);
+    try {
+      await deleteBackendSession(deleteTarget.id);
+      const wasCurrentSession = deleteTarget.id === currentSessionId;
+      removeSession(deleteTarget.id);
+      if (wasCurrentSession) {
+        setCurrentSession(null);
+        setMainView("chat");
+        setPanelContent("");
+        closeRightPanel();
+      }
+      setDeleteTarget(null);
+      toast.show("对话已删除");
+      onNavigate?.();
+    } catch {
+      toast.show("暂时无法删除对话，请稍后重试。对话内容仍被保留。");
+    } finally {
+      setDeletingSession(false);
     }
-    setDeleteTarget(null);
-    toast.show("对话已删除");
-    onNavigate?.();
   };
 
   const roleLabel = (value: "visitor" | "patient" | "doctor") => {
@@ -597,11 +607,11 @@ export function Sidebar({ onNavigate }: SidebarProps) {
             </DialogDescription>
           </DialogHeader>
           <DialogFooter className={cn("mt-5", seniorMode && "flex-row justify-end gap-3 p-5")}>
-            <Button variant="outline" className={cn(seniorMode && "min-h-12 text-lg")} onClick={() => setDeleteTarget(null)}>
+            <Button variant="outline" className={cn(seniorMode && "min-h-12 text-lg")} onClick={() => setDeleteTarget(null)} disabled={deletingSession}>
               取消
             </Button>
-            <Button variant="destructive" className={cn(seniorMode && "min-h-12 text-lg")} onClick={confirmDelete}>
-              确认删除
+            <Button variant="destructive" className={cn(seniorMode && "min-h-12 text-lg")} onClick={confirmDelete} disabled={deletingSession}>
+              {deletingSession ? "正在删除…" : "确认删除"}
             </Button>
           </DialogFooter>
         </DialogContent>
