@@ -17,6 +17,7 @@ class WorkflowId(StrEnum):
     STANDARD = "standard"
     CGA = "cga"
     COMPANION = "companion"
+    PRESCRIPTION = "prescription"
 
 
 class WorkflowDefinition(BaseModel):
@@ -46,4 +47,3 @@ class WorkflowDefinition(BaseModel):
 
 class WorkflowContextError(ValueError):
     """A caller proposed context that the server-owned workflow does not allow."""
-

@@ -8,15 +8,18 @@ from fastapi import HTTPException
 
 from gerclaw_api.api.routes.clinical_intakes import (
     _finish_prescription_failure_trace,
+    _medication_alert_fingerprints,
     _module_name,
     get_medication_reconciliation,
     get_prescription_input_readiness,
 )
 from gerclaw_api.domain.enums import TraceEventStatus, TraceEventType
 from gerclaw_api.domain.trace_schemas import TraceEventCreate, TraceStartRequest
+from gerclaw_api.modules.medication_review.rules_engine import review_medication_list
 from gerclaw_api.modules.prescription.models import (
     ClinicalIntakeFieldRead,
     ClinicalIntakeRead,
+    PrescriptionDraftHistoryRead,
     PrescriptionInputReadiness,
 )
 from gerclaw_api.services.model_router import ModelAttempt
@@ -25,6 +28,33 @@ from gerclaw_api.services.model_router import ModelAttempt
 def test_clinical_intake_trace_uses_the_actual_domain_owner() -> None:
     assert _module_name("prescription") == "prescription"
     assert _module_name("medication_review") == "medication_review"
+
+
+def test_medication_alert_fingerprints_do_not_retain_drug_text() -> None:
+    intake_id = uuid.uuid4()
+    review = review_medication_list(
+        intake_id=intake_id,
+        medication_list="瑞舒伐他汀 40mg 每日一次\n环孢素",
+    )
+    request = SimpleNamespace(
+        app=SimpleNamespace(
+            state=SimpleNamespace(
+                settings=SimpleNamespace(
+                    auth_jwt_secret=SimpleNamespace(get_secret_value=lambda: "a" * 64)
+                )
+            )
+        )
+    )
+
+    fingerprints = _medication_alert_fingerprints(request, intake_id=intake_id, result=review)  # type: ignore[arg-type]
+
+    assert set(fingerprints) == {
+        "ddi_rosuvastatin_cyclosporine",
+        "dose_rosuvastatin_max_daily_20mg_1",
+    }
+    assert all(len(value) == 52 for value in fingerprints.values())
+    assert "瑞舒伐他汀" not in str(fingerprints)
+    assert "环孢素" not in str(fingerprints)
 
 
 def test_prescription_draft_trace_metadata_obeys_the_audit_allowlist() -> None:
@@ -37,6 +67,8 @@ def test_prescription_draft_trace_metadata_obeys_the_audit_allowlist() -> None:
             "feature": "five_prescription",
             "module": "prescription",
             "operation": "generate_draft",
+            "workflow": "prescription",
+            "workflow_version": "1.0.0",
             "version": "five-prescription-input-v1",
             "request_fingerprint": "a" * 52,
         },
@@ -58,7 +90,14 @@ def test_prescription_draft_trace_metadata_obeys_the_audit_allowlist() -> None:
     )
 
     assert start.attributes["version"] == "five-prescription-input-v1"
+    assert start.attributes["workflow"] == "prescription"
     assert event.payload["event_count"] == 2
+
+
+def test_prescription_draft_history_is_bounded_and_strict() -> None:
+    assert PrescriptionDraftHistoryRead.model_validate({}).items == ()
+    with pytest.raises(ValueError):
+        PrescriptionDraftHistoryRead.model_validate({"items": [], "extra": True})
 
 
 @pytest.mark.asyncio
@@ -123,8 +162,9 @@ async def test_medication_reconciliation_is_unavailable_for_prescription_intake(
                 session_id=uuid.uuid4(),
                 kind="prescription",
                 definition_version="clinical-intake-v1",
-                status="collecting",
-                revision=1,
+                    status="collecting",
+                    revision=1,
+                    conversation_turns=0,
                 title="x",
                 description="x",
                 fields=[

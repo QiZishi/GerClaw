@@ -28,11 +28,35 @@ def test_registered_workflows_have_exact_active_security_profiles() -> None:
         loaded_skill_count=0,
         uploaded_file_count=0,
     )
+    prescription = registry.validate_context(
+        WorkflowId.PRESCRIPTION,
+        loaded_skill_count=0,
+        uploaded_file_count=10,
+    )
 
     assert standard.version == "1.0.0"
     assert standard.search_enabled is True
     assert companion.owner_module == "companion"
     assert companion.search_enabled is False
+    assert prescription.owner_module == "prescription"
+    assert prescription.risk_level.value == "high"
+
+
+def test_prescription_workflow_rejects_skills_but_accepts_its_bounded_documents() -> None:
+    registry = get_default_workflow_registry()
+
+    with pytest.raises(WorkflowContextError, match="does not accept Skills or uploaded files"):
+        registry.validate_context(
+            WorkflowId.PRESCRIPTION,
+            loaded_skill_count=1,
+            uploaded_file_count=0,
+        )
+
+    assert registry.validate_context(
+        WorkflowId.PRESCRIPTION,
+        loaded_skill_count=0,
+        uploaded_file_count=10,
+    ).accepts_uploaded_files
 
 
 @pytest.mark.parametrize(

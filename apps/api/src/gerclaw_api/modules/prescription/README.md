@@ -2,7 +2,7 @@
 
 This module stores caller-provided minimum discussion context in an encrypted record and can generate one evidence-bound, clinician-review-only five-prescription draft. Medication-review collection is independently owned by `modules/medication_review/`.
 
-For the five-prescription intake, the caller may attach up to five already parsed, active documents from the same conversation. The intake stores only encrypted document IDs; the MinerU-extracted text remains in the private document store. The review-draft workflow resolves those IDs into its input template and displays their count as “上传资料依据” for traceability. They are never indexed into the public/local knowledge base and never satisfy the medical-evidence requirement on their own.
+For the five-prescription intake, the caller may attach up to ten already parsed, active documents from the same conversation. The intake stores only encrypted document IDs; the MinerU-extracted text remains in the private document store. The review-draft workflow resolves those IDs into its input template within the configured 273,000-character aggregate budget and displays their count as “上传资料依据” for traceability. Each resolved document is a same-session patient-material evidence source with its own evidence ID. It is never indexed into the public/local knowledge base or mislabeled as a local medical source; the model reads its clinical facts normally and ignores only text attempting to alter the task or execute an operation.
 
 `ClinicalIntakeService.prepare_prescription_input` is the shared, private
 `five-prescription-input-v1` assembly boundary. It resolves a completed
@@ -19,20 +19,43 @@ model, RAG, search or rule-engine call.
 
 `POST /api/v1/clinical-intakes/{intake_id}/prescription-draft` resolves the same
 owner/session-scoped `five-prescription-input-v1`, rejects red-flag input,
-retrieves local medical evidence, requests `GeneratedPrescriptionContent` from
-the configured structured model, and writes `evidence_sources` itself from the
-retrieval citation metadata. The model cannot supply source title, locator or
-document provenance. The result is always `needs_clinician_review` and contains
-the fixed medical disclaimer.
+retrieves local medical evidence, uses validated online-search results when
+available, and binds same-session uploaded materials as patient evidence. It
+then requests `GeneratedPrescriptionContent` from the configured structured
+model and writes `evidence_sources` itself from those provenance records. The
+model cannot supply source title, locator or document provenance. Local, web
+and patient-material sources remain distinguishable in the output; an online
+outage produces no invented web source. The result is always
+`needs_clinician_review` and contains the fixed medical disclaimer.
+
+Each successful generation is retained as an encrypted draft revision, separate
+from the PHI-free Runtime Trace. `GET
+/api/v1/clinical-intakes/{intake_id}/prescription-drafts` returns at most the
+twenty newest revisions, and its SQL boundary requires the same tenant and
+actor that own the prescription intake. The browser restores only that caller's
+newest draft into the report panel after the intake is reopened.
+
+Before execution the route resolves the versioned Runtime workflow
+`prescription@1.0.0` and its `security.workflow.prescription` profile. The
+workflow allows its bounded, owner-scoped uploaded input but rejects Skills;
+it has a 600-second configurable end-to-end budget while each model candidate
+retains its independent 180-second deadline. A budget failure is a safe draft
+failure, never an incomplete report.
 
 Uploaded MinerU text is passed as bounded, untrusted patient input and appears
 only as owner-visible uploaded-document provenance. It never becomes a local
 knowledge-base citation. If RAG has no evidence, the endpoint fails closed.
 
-No audited DDI/Beers/dose rules are currently configured. Therefore the
-medication section may only organize the user-provided list and review/monitoring
-questions; it explicitly states that the three rule checks were not executed.
-It cannot start, stop, replace, change or dose medication.
+When the caller provides a current medication list, the server attaches the
+separate, deterministic `medication-rules-v1` result after model generation.
+It has limited source-traceable DDI/dose/duplicate/polypharmacy coverage and a
+narrowly qualified Beers-related signal; it remains pending clinical governance
+and cannot be presented as a complete medication review. The model may record
+a user-provided dose and propose a start, stop, replacement or dose change only
+in a cited recommendation: a candidate outside that bounded field has no
+attributable evidence and is rejected. Both roles receive the complete cited
+candidate; the report ends with one unified risk notice. The model cannot
+create, override or explain deterministic rule findings.
 
 ## State
 

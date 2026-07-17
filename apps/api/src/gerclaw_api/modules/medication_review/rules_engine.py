@@ -69,6 +69,21 @@ class _DoseRule(BaseModel):
     source_ids: tuple[str, ...] = Field(min_length=1, max_length=4)
 
 
+class _BeersRule(BaseModel):
+    """A narrowly sourced older-adult PIM signal, never a full Beers table."""
+
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    id: str = Field(pattern=r"^[a-z][a-z0-9_]{2,95}$")
+    drugs: tuple[str, ...] = Field(min_length=1, max_length=30)
+    minimum_age: int = Field(ge=65, le=130)
+    severity: MedicationRiskLevel
+    conclusion: str = Field(min_length=1, max_length=1_000)
+    clinician_action: str = Field(min_length=1, max_length=1_000)
+    elderly_note: str | None = Field(default=None, max_length=1_000)
+    source_ids: tuple[str, ...] = Field(min_length=1, max_length=4)
+
+
 class _RuleSet(BaseModel):
     model_config = ConfigDict(extra="forbid", frozen=True)
 
@@ -77,6 +92,7 @@ class _RuleSet(BaseModel):
     aliases: dict[str, tuple[str, ...]] = Field(min_length=1, max_length=500)
     ddi_rules: tuple[_DdiRule, ...] = Field(max_length=2_000)
     dose_rules: tuple[_DoseRule, ...] = Field(max_length=2_000)
+    beers_rules: tuple[_BeersRule, ...] = Field(max_length=2_000)
 
 
 @lru_cache(maxsize=1)
@@ -120,6 +136,7 @@ def review_medication_list(
     findings = [
         *_ddi_findings(ruleset, recognized_by_position, patient_age),
         *_dose_findings(ruleset, reconciliation.entries, recognized_by_position, patient_age),
+        *_beers_findings(ruleset, recognized_by_position, patient_age),
         *_duplicate_findings(recognized_by_position),
         *_polypharmacy_findings(len(reconciliation.entries)),
     ]
@@ -135,7 +152,7 @@ def review_medication_list(
         coverage=MedicationRuleCoverage(
             ddi="limited_source_traceable",
             dose="limited_source_traceable",
-            beers="not_installed_no_licensed_source",
+            beers="limited_source_traceable",
         ),
         unrecognized_entry_count=len(reviewed) - recognized_entries,
         conclusion=_conclusion(findings),
@@ -246,6 +263,42 @@ def _duplicate_findings(
     ]
 
 
+def _beers_findings(
+    ruleset: _RuleSet,
+    recognized_by_position: dict[int, tuple[str, ...]],
+    patient_age: int | None,
+) -> list[MedicationReviewFinding]:
+    """Return only age-qualified, locally sourced PIM review signals.
+
+    The installed source is limited to a specific older-adult insomnia statement.
+    A medication list does not establish indication, so every hit requires that
+    the clinician verify whether the condition in the source actually applies.
+    """
+
+    if patient_age is None:
+        return []
+    present = {generic for names in recognized_by_position.values() for generic in names}
+    findings: list[MedicationReviewFinding] = []
+    for rule in ruleset.beers_rules:
+        matched = tuple(drug for drug in rule.drugs if drug in present)
+        if patient_age < rule.minimum_age or not matched:
+            continue
+        findings.append(
+            MedicationReviewFinding(
+                finding_id=rule.id,
+                kind="beers",
+                severity=rule.severity,
+                title=f"≥{rule.minimum_age} 岁：{ '、'.join(matched) } 老年用药核对提示",
+                involved_generic_names=matched,
+                conclusion=rule.conclusion,
+                clinician_action=rule.clinician_action,
+                elderly_note=rule.elderly_note,
+                source_ids=rule.source_ids,
+            )
+        )
+    return findings
+
+
 def _polypharmacy_findings(entry_count: int) -> list[MedicationReviewFinding]:
     if entry_count < 5:
         return []
@@ -298,8 +351,8 @@ def _severity_label(severity: MedicationRiskLevel) -> str:
 def _conclusion(findings: list[MedicationReviewFinding]) -> str:
     if not findings:
         return (
-            "在当前已安装的有限 DDI 和剂量规则中未命中风险；这不代表用药方案安全，"
-            "且 Beers 筛查尚未安装。请由医师或药师完成完整核对。"
+            "在当前已安装的有限 DDI、剂量和 Beers 相关规则中未命中风险；"
+            "这不代表用药方案安全或已完成完整 Beers 筛查。请由医师或药师完成完整核对。"
         )
     highest = _severity_label(findings[0].severity)
     return (

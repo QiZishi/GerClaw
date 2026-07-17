@@ -38,6 +38,7 @@ class SecurityThreat(StrEnum):
     TOOL_MISUSE = "tool_misuse"
     SENSITIVE_EGRESS = "sensitive_egress"
     HALLUCINATED_EVIDENCE = "hallucinated_evidence"
+    MEDICAL_HARM = "medical_harm"
     RESOURCE_EXHAUSTION = "resource_exhaustion"
 
 

@@ -4,16 +4,17 @@
 from __future__ import annotations
 
 import asyncio
-from collections.abc import AsyncGenerator
+from collections.abc import AsyncGenerator, Sequence
 from dataclasses import dataclass
-from typing import Any
+from typing import Any, Literal
 from unittest.mock import patch
 
 import pytest
 from agentscope.credential import CredentialBase
 from agentscope.message import Msg, TextBlock, ThinkingBlock, UserMsg
-from agentscope.model import ChatModelBase, ChatResponse, ChatUsage
+from agentscope.model import ChatModelBase, ChatResponse, ChatUsage, StructuredResponse
 from agentscope.tool import ToolChoice
+from pydantic import BaseModel
 
 from gerclaw_api.config import AgentModelConfig
 from gerclaw_api.services import model_router
@@ -87,6 +88,32 @@ class _ScriptedModel(ChatModelBase):
         return stream()
 
 
+class _StructuredScriptedModel(_ScriptedModel):
+    """A provider double whose structured boundary can fail independently."""
+
+    def __init__(self, name: str, actions: list[_Action]) -> None:
+        super().__init__(name, actions)
+        self.structured_tool_choices: list[ToolChoice | None] = []
+        self.structured_messages: list[list[Msg]] = []
+        self.structured_models: list[type[BaseModel] | dict[str, Any]] = []
+
+    async def generate_structured_output(
+        self,
+        messages: list[Msg],
+        structured_model: type[BaseModel] | dict[str, Any],
+        tool_choice: ToolChoice | None = None,
+        **kwargs: Any,
+    ) -> StructuredResponse:
+        del kwargs
+        self.calls += 1
+        self.structured_messages.append(messages)
+        self.structured_models.append(structured_model)
+        self.structured_tool_choices.append(tool_choice)
+        if self.actions and self.actions[0].kind == "raise_structured":
+            raise ValueError("provider returned a non-tool response")
+        return StructuredResponse(content={"result": self.actions[0].text})
+
+
 class _PromptAudit:
     def __init__(self) -> None:
         self.events: list[tuple[str, str, object]] = []
@@ -100,17 +127,31 @@ class _PromptAudit:
         self.events.append((outcome, "", handle))
 
 
-def _router(models: list[_ScriptedModel], *, timeout_seconds: float = 30.0) -> FailoverChatModel:
+def _router(
+    models: Sequence[_ScriptedModel],
+    *,
+    timeout_seconds: float = 30.0,
+    protocols: tuple[
+        Literal["openai", "dashscope", "anthropic"],
+        Literal["openai", "dashscope", "anthropic"],
+        Literal["openai", "dashscope", "anthropic"],
+    ] = ("openai", "openai", "openai"),
+    model_names: tuple[str, str, str] = (
+        "primary-model",
+        "backup1-model",
+        "backup2-model",
+    ),
+) -> FailoverChatModel:
     configs = tuple(
         AgentModelConfig(
             url=f"https://{preference}.example/v1",
             api_key=f"tests-{preference}-secret",
-            model_name=f"{preference}-model",
-            protocol="openai",
+            model_name=model_names[index],
+            protocol=protocols[index],
             preference=preference,
             timeout_seconds=timeout_seconds,
         )
-        for preference in ("primary", "backup1", "backup2")
+        for index, preference in enumerate(("primary", "backup1", "backup2"))
     )
     with patch.object(model_router, "build_agentscope_model", side_effect=models):
         return FailoverChatModel(configs)
@@ -165,6 +206,76 @@ async def test_open_failure_falls_over_in_order() -> None:
         "started",
         "succeeded",
     ]
+
+
+@pytest.mark.asyncio
+async def test_structured_output_fails_over_after_provider_schema_failure() -> None:
+    models = [
+        _StructuredScriptedModel("primary", [_Action("raise_structured")]),
+        _StructuredScriptedModel("backup1", [_Action("structured", "fallback")]),
+        _StructuredScriptedModel("backup2", [_Action("structured", "unused")]),
+    ]
+    router = _router(models, protocols=("openai", "dashscope", "openai"))
+
+    with capture_model_attempts() as attempts:
+        response = await router.generate_structured_output(
+            [UserMsg(name="user", content="hello")],
+            {"type": "object", "properties": {"result": {"type": "string"}}},
+        )
+
+    assert response.content == {"result": "fallback"}
+    assert [model.calls for model in models] == [1, 1, 0]
+    assert [(item.preference, item.outcome, item.error_code) for item in attempts] == [
+        ("primary", "started", None),
+        ("primary", "failed", "MODEL_INVALID_STRUCTURED_OUTPUT"),
+        ("backup1", "started", None),
+        ("backup1", "succeeded", None),
+    ]
+    assert models[1].structured_tool_choices[0] == ToolChoice(mode="auto")
+
+
+@pytest.mark.asyncio
+async def test_structured_failover_replays_full_context_and_same_schema_to_backup() -> None:
+    """A backup must receive task context, not an unprompted schema request."""
+
+    models = [
+        _StructuredScriptedModel("primary", [_Action("raise_structured")]),
+        _StructuredScriptedModel("backup1", [_Action("structured", "fallback")]),
+        _StructuredScriptedModel("backup2", [_Action("structured", "unused")]),
+    ]
+    router = _router(models)
+    messages = [
+        UserMsg(name="user", content="患者主诉：近三日头晕"),
+        UserMsg(name="user", content="任务：仅输出结构化分诊草案"),
+    ]
+    schema = {"type": "object", "properties": {"result": {"type": "string"}}}
+
+    await router.generate_structured_output(messages, schema)
+
+    assert models[0].structured_messages == models[1].structured_messages
+    assert models[1].structured_messages[0][1].content[0].text == "任务：仅输出结构化分诊草案"
+    assert models[0].structured_models == models[1].structured_models == [schema]
+
+
+@pytest.mark.asyncio
+async def test_qwen_compatible_openai_endpoint_uses_auto_structured_tool_choice() -> None:
+    models = [
+        _StructuredScriptedModel("primary", [_Action("structured", "primary")]),
+        _StructuredScriptedModel("backup1", [_Action("structured", "unused")]),
+        _StructuredScriptedModel("backup2", [_Action("structured", "unused")]),
+    ]
+    router = _router(
+        models,
+        model_names=("qwen3.7-plus", "backup1-model", "backup2-model"),
+    )
+
+    await router.generate_structured_output(
+        [UserMsg(name="user", content="hello")],
+        {"type": "object", "properties": {"result": {"type": "string"}}},
+        tool_choice=ToolChoice(mode="required"),
+    )
+
+    assert models[0].structured_tool_choices == [ToolChoice(mode="auto")]
 
 
 @pytest.mark.asyncio
@@ -319,7 +430,7 @@ async def test_factory_owned_http_client_closes_idempotently() -> None:
     client = model._gerclaw_owned_http_client
 
     assert not client.is_closed
-    assert model.parameters.max_tokens == 1_024
+    assert model.parameters.max_tokens == 32_768
     await close_agentscope_model(model)
     assert client.is_closed
     await close_agentscope_model(model)

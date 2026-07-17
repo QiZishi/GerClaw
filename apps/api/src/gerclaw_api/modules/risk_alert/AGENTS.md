@@ -22,6 +22,13 @@ or make a clinical recommendation.
   idempotent and revision-fenced; it never resolves or downgrades a risk.
 - Alert creation is a persistence side effect of a deterministic source state,
   not an LLM/tool action. It must share the source transaction where possible.
+- The current typed sources are CGA, chat red flags and only
+  `contraindicated`/`major` hits from the deterministic medication rules.
+  Medication alerts contain fixed guidance only: medication names, doses,
+  source locators and rule text remain exclusively in the clinician-review
+  artifact.
+- List results must be safety-first: active `critical` alerts precede active
+  `high` alerts, regardless of database recency or identifier order.
 
 ## Change and test rules
 

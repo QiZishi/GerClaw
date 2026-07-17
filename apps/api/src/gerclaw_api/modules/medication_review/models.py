@@ -41,7 +41,7 @@ class MedicationReconciliationRead(BaseModel):
 
 
 MedicationRiskLevel = Literal["contraindicated", "major", "moderate", "minor"]
-MedicationFindingKind = Literal["ddi", "dose", "duplicate", "polypharmacy"]
+MedicationFindingKind = Literal["ddi", "dose", "beers", "duplicate", "polypharmacy"]
 
 
 class MedicationReviewRequest(BaseModel):
@@ -73,7 +73,7 @@ class MedicationRuleCoverage(BaseModel):
 
     ddi: Literal["limited_source_traceable"]
     dose: Literal["limited_source_traceable"]
-    beers: Literal["not_installed_no_licensed_source"]
+    beers: Literal["limited_source_traceable"]
 
 
 class ReviewedMedication(BaseModel):

@@ -1,9 +1,11 @@
 # Risk Alert
 
 `risk_alert` is the deterministic, caller-owned alert ledger for safety signals
-already established elsewhere in the backend. The first supported source is
-CGA: immediate safety assessment and high-severity follow-up signals returned
-by the server-owned scale workflow.
+already established elsewhere in the backend. Supported sources are CGA
+immediate-safety/high-follow-up signals, server-detected chat red flags, and
+only contraindicated or major hits from the deterministic medication-rule
+review. Medication alerts contain no drug name, dose, rule text or source
+locator; those remain in the clinician/pharmacist review artifact.
 
 The module stores no questionnaire text, answer, assessment ID, user text or
 identifier in an alert. A keyed source fingerprint deduplicates a signal, while
@@ -19,9 +21,10 @@ The patient UI exposes **我的安全提醒** through a strict BFF allowlist. It
 shows only this caller's server-determined alerts and can submit the existing
 revision-fenced acknowledgement. The button says “我已了解此提醒”, never
 “解除” or “关闭”: acknowledgement is not a clinical resolution or an external
-notification.
+notification. Active critical alerts are ordered before active high alerts, so
+an immediate-safety reminder cannot be visually buried by a newer follow-up.
 
 For operational visibility, `gerclaw_risk_alerts_total` counts only the bounded
-source (`cga` or `chat`), severity and lifecycle outcome (creation,
+source (`cga`, `chat` or `medication_review`), severity and lifecycle outcome (creation,
 deduplication, acknowledgement or idempotent acknowledgement replay). It intentionally has no patient, alert,
 assessment, session, free-text or guidance label.

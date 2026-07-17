@@ -1,4 +1,5 @@
 """Policy-owned alert creation and owner acknowledgement semantics."""
+# ruff: noqa: RUF001
 
 from __future__ import annotations
 
@@ -9,6 +10,7 @@ from typing import Protocol
 from gerclaw_api.database.models import RiskAlert
 from gerclaw_api.metrics import RISK_ALERTS
 from gerclaw_api.modules.cga.models import CgaRiskRead
+from gerclaw_api.modules.medication_review.models import MedicationReviewDraft
 from gerclaw_api.modules.risk_alert.models import (
     RISK_ALERT_POLICY_VERSION,
     RiskAlertDetails,
@@ -69,6 +71,20 @@ _CHAT_RED_FLAG_DETAILS = RiskAlertDetails(
     message="本次对话提示可能存在紧急健康风险。",
     action="请立即联系家人、医生或当地紧急医疗服务; 如有紧急危险, 请立即拨打当地急救电话。",
 )
+_MEDICATION_CONTRAINDICATED_DETAILS = RiskAlertDetails(
+    kind="medication_contraindicated",
+    severity="critical",
+    title="发现需要立即复核的用药风险",
+    message="本次用药规则核对发现禁忌级风险，需要由医师或药师立即复核。",
+    action="请立即联系医生或药师复核原始处方和完整用药；如出现严重不适或急症症状，请立即就医。不要自行停药或调整剂量。",
+)
+_MEDICATION_MAJOR_RISK_DETAILS = RiskAlertDetails(
+    kind="medication_major_risk",
+    severity="high",
+    title="发现需要尽快复核的用药风险",
+    message="本次用药规则核对发现严重级风险，需要尽快由医师或药师复核。",
+    action="请尽快联系医生或药师复核原始处方、完整用药和近期检查。不要自行停药或调整剂量。",
+)
 
 
 class RiskAlertService:
@@ -128,13 +144,63 @@ class RiskAlertService:
             details=_CHAT_RED_FLAG_DETAILS,
         )
 
+    async def sync_medication_review(
+        self,
+        *,
+        tenant_id: str,
+        actor_id: str,
+        source_fingerprints: dict[str, str],
+        review: MedicationReviewDraft,
+    ) -> tuple[RiskAlertRead, ...]:
+        """Persist only severe deterministic medication-rule hits.
+
+        The review itself remains the source for medication names, doses and
+        source citations.  This owner alert ledger receives only a fixed,
+        actionable safety notice keyed by an opaque per-finding fingerprint.
+        """
+
+        alerts: list[RiskAlertRead] = []
+        for finding in review.findings:
+            if finding.severity == "contraindicated":
+                details = _MEDICATION_CONTRAINDICATED_DETAILS
+            elif finding.severity == "major":
+                details = _MEDICATION_MAJOR_RISK_DETAILS
+            else:
+                continue
+            source_fingerprint = source_fingerprints.get(finding.finding_id)
+            if source_fingerprint is None:
+                raise ValueError("severe medication finding has no alert fingerprint")
+            alerts.append(
+                await self._ensure(
+                    tenant_id=tenant_id,
+                    actor_id=actor_id,
+                    source="medication_review",
+                    source_fingerprint=source_fingerprint,
+                    details=details,
+                )
+            )
+        return tuple(alerts)
+
     async def list(
         self, *, tenant_id: str, actor_id: str, status: str | None, limit: int
     ) -> RiskAlertListRead:
         records = await self._repository.list_for_owner(
             tenant_id=tenant_id, actor_id=actor_id, status=status, limit=limit
         )
-        return RiskAlertListRead(items=[self._read(record) for record in records])
+        items = [self._read(record) for record in records]
+        # Database ordering gives us a stable recency order, but it must never
+        # make an immediate-safety item appear below a less urgent reminder.
+        # Keep the ordering policy server-owned so every client gets the same
+        # safety-first presentation.
+        items.sort(
+            key=lambda alert: (
+                0 if alert.status == "active" else 1,
+                0 if alert.severity == "critical" else 1,
+                -alert.updated_at.timestamp(),
+                str(alert.alert_id),
+            )
+        )
+        return RiskAlertListRead(items=items)
 
     async def acknowledge(
         self,
@@ -198,7 +264,7 @@ class RiskAlertService:
             details = RiskAlertDetails.model_validate(record.details)
         except ValueError:
             return
-        if record.source not in {"cga", "chat"}:
+        if record.source not in {"cga", "chat", "medication_review"}:
             return
         RISK_ALERTS.labels(source=record.source, severity=details.severity, outcome=outcome).inc()
 

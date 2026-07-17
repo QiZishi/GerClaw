@@ -23,7 +23,12 @@ class _Repository:
 
     async def create(self, **kwargs: object) -> ClinicalIntake:
         self.record = ClinicalIntake(
-            id=uuid.uuid4(), status="collecting", revision=1, **kwargs, answers={}
+            id=uuid.uuid4(),
+            status="collecting",
+            revision=1,
+            conversation_turns=0,
+            **kwargs,
+            answers={},
         )
         self.record.updated_at = datetime.now(UTC)
         return self.record
@@ -101,8 +106,7 @@ async def test_prescription_intake_is_server_defined_and_states_draft_governance
 
     assert started.status == "collecting"
     assert started.missing_required_fields == ["health_goal", "current_concerns"]
-    assert "待临床复核草案" in started.governance_notice
-    assert "DDI、Beers 和剂量规则尚未配置" in started.governance_notice
+    assert started.governance_notice == "生成结果须经医生复核。"
     assert {field.id for field in started.fields} == {
         "health_goal",
         "current_concerns",
@@ -119,6 +123,7 @@ async def test_prescription_intake_is_server_defined_and_states_draft_governance
     assert complete.status == "information_complete_pending_governance"
     assert complete.missing_required_fields == []
     assert complete.revision == 2
+    assert complete.conversation_turns == 0
 
     resumed = await service.start(
         tenant_id="tenant_public0001",
@@ -264,6 +269,64 @@ async def test_prescription_intake_keeps_owner_scoped_uploaded_documents_as_inpu
     assert documents.calls == [document_id]
     assert updated.answers == {}
     assert updated.status == "collecting"
+
+
+@pytest.mark.asyncio
+async def test_prescription_intake_accepts_ten_owned_document_references() -> None:
+    document_ids = [uuid.uuid4() for _ in range(10)]
+    documents = _DocumentService(set(document_ids))
+    service = ClinicalIntakeService(
+        _Repository(),  # type: ignore[arg-type]
+        documents,  # type: ignore[arg-type]
+    )
+    started = await service.start(
+        tenant_id="tenant_public0001",
+        actor_id="usr_patient_intake0001",
+        session_id=uuid.uuid4(),
+        kind="prescription",
+    )
+
+    updated = await service.update(
+        started.intake_id,
+        tenant_id="tenant_public0001",
+        actor_id="usr_patient_intake0001",
+        expected_revision=started.revision,
+        answers={},
+        document_ids=document_ids,
+    )
+
+    assert updated.document_ids == document_ids
+    assert documents.calls == document_ids
+
+
+@pytest.mark.asyncio
+async def test_prescription_clarification_turns_are_server_bounded() -> None:
+    service = ClinicalIntakeService(_Repository())  # type: ignore[arg-type]
+    intake = await service.start(
+        tenant_id="tenant_public0001",
+        actor_id="usr_patient_intake0001",
+        session_id=uuid.uuid4(),
+        kind="prescription",
+    )
+    for _ in range(5):
+        intake = await service.update(
+            intake.intake_id,
+            tenant_id="tenant_public0001",
+            actor_id="usr_patient_intake0001",
+            expected_revision=intake.revision,
+            answers={},
+            conversation_turn_increment=1,
+        )
+    assert intake.conversation_turns == 5
+    with pytest.raises(ClinicalIntakeConflictError, match="turn limit"):
+        await service.update(
+            intake.intake_id,
+            tenant_id="tenant_public0001",
+            actor_id="usr_patient_intake0001",
+            expected_revision=intake.revision,
+            answers={},
+            conversation_turn_increment=1,
+        )
 
 
 @pytest.mark.asyncio

@@ -10,6 +10,7 @@ from typing import Any
 
 import pytest
 
+from gerclaw_api.modules.document.models import UploadedDocumentContext
 from gerclaw_api.modules.prescription.generator import (
     EvidenceBoundPrescriptionGenerator,
     PrescriptionGenerationError,
@@ -29,6 +30,7 @@ from gerclaw_api.modules.prescription.models import (
     RehabilitationDraft,
 )
 from gerclaw_api.modules.rag.protocols import RetrievalResult
+from gerclaw_api.modules.search.models import SearchResult
 
 
 class _Model:
@@ -39,6 +41,22 @@ class _Model:
         return SimpleNamespace(content=self.content)
 
 
+class _JsonFallbackModel(_Model):
+    def __init__(
+        self, content: GeneratedPrescriptionContent, *, response: str | None = None
+    ) -> None:
+        super().__init__(content)
+        self.response = response or content.model_dump_json()
+        self.fallback_messages: list[object] = []
+
+    async def generate_structured_output(self, *_args: Any, **_kwargs: Any) -> object:
+        raise RuntimeError("provider structured tools are unavailable")
+
+    async def generate_text_output(self, messages: list[object]) -> str:
+        self.fallback_messages = messages
+        return self.response
+
+
 class _RAG:
     def __init__(self, results: list[RetrievalResult]) -> None:
         self.results = results
@@ -47,6 +65,26 @@ class _RAG:
         assert query == "改善活动耐受 走路后容易疲劳"
         assert top_k == 8
         return self.results
+
+
+class _OnlineSearch:
+    async def search(
+        self, query: str, max_results: int = 5, domain: str = "health"
+    ) -> list[SearchResult]:
+        assert query == "改善活动耐受 走路后容易疲劳"
+        assert max_results == 5
+        assert domain == "health"
+        return [
+            SearchResult(
+                id="web_0123456789abcdef",
+                title="联网循证资料",
+                snippet="经校验的联网资料摘要。",
+                url="https://example.com/evidence",
+                source="example.com",
+                authority_level="A",
+                provider="anysearch",
+            )
+        ]
 
 
 def _content() -> GeneratedPrescriptionContent:
@@ -118,13 +156,21 @@ def _content() -> GeneratedPrescriptionContent:
     )
 
 
-def _prepared(*, concerns: str = "走路后容易疲劳") -> PreparedPrescriptionInput:
+def _prepared(
+    *,
+    concerns: str = "走路后容易疲劳",
+    medications: str | None = None,
+    uploaded_documents: tuple[UploadedDocumentContext, ...] = (),
+) -> PreparedPrescriptionInput:
+    answers = {"health_goal": "改善活动耐受", "current_concerns": concerns}
+    if medications is not None:
+        answers["current_medications"] = medications
     return PreparedPrescriptionInput(
         intake_id=uuid.uuid4(),
         session_id=uuid.uuid4(),
         definition_version="clinical-intake-v1",
-        answers={"health_goal": "改善活动耐受", "current_concerns": concerns},
-        uploaded_documents=(),
+        answers=answers,
+        uploaded_documents=uploaded_documents,
     )
 
 
@@ -160,6 +206,88 @@ async def test_generator_attaches_server_owned_evidence_and_review_status() -> N
 
 
 @pytest.mark.asyncio
+async def test_generator_binds_uploaded_patient_material_as_distinct_evidence() -> None:
+    document = UploadedDocumentContext(
+        document_id=uuid.uuid4(), filename="patient-report.pdf", content="患者自述的检查资料"
+    )
+    draft = await EvidenceBoundPrescriptionGenerator(
+        model=_Model(_content()), rag_module=_RAG([_result()])
+    ).generate(_prepared(uploaded_documents=(document,)))  # type: ignore[arg-type]
+
+    uploaded = [source for source in draft.evidence_sources if source.source == "患者上传资料"]
+    assert len(uploaded) == 1
+    assert uploaded[0].title == "患者上传资料 1"
+    assert "patient-report.pdf" not in draft.model_dump_json()
+    assert document.document_id in draft.uploaded_document_ids
+
+
+@pytest.mark.asyncio
+async def test_generator_can_use_same_session_uploaded_material_without_local_hits() -> None:
+    document = UploadedDocumentContext(
+        document_id=uuid.uuid4(), filename="patient-report.pdf", content="患者自述的检查资料"
+    )
+    uploaded_evidence_id = "ev_" + sha256(
+        f"uploaded-document:{document.document_id}".encode()
+    ).hexdigest()[:24]
+    payload = _content().model_dump(mode="json")
+    for section_name in ("medication", "exercise", "nutrition", "psychological", "rehabilitation"):
+        payload[section_name]["evidence_ids"] = [uploaded_evidence_id]
+        for recommendation in payload[section_name]["recommendations"]:
+            recommendation["evidence_ids"] = [uploaded_evidence_id]
+    content = GeneratedPrescriptionContent.model_validate(payload)
+
+    draft = await EvidenceBoundPrescriptionGenerator(
+        model=_Model(content), rag_module=_RAG([])
+    ).generate(_prepared(uploaded_documents=(document,)))  # type: ignore[arg-type]
+
+    assert [source.source for source in draft.evidence_sources] == ["患者上传资料"]
+
+
+@pytest.mark.asyncio
+async def test_generator_binds_validated_online_search_as_distinct_evidence() -> None:
+    draft = await EvidenceBoundPrescriptionGenerator(
+        model=_Model(_content()),
+        rag_module=_RAG([_result()]),
+        online_search_module=_OnlineSearch(),
+    ).generate(_prepared())  # type: ignore[arg-type]
+
+    online = [source for source in draft.evidence_sources if source.source == "联网检索"]
+    assert len(online) == 1
+    assert online[0].title == "联网循证资料"
+    assert online[0].url == "https://example.com/evidence"
+
+
+@pytest.mark.asyncio
+async def test_generator_embeds_deterministic_medication_review_outside_model_content() -> None:
+    draft = await EvidenceBoundPrescriptionGenerator(
+        model=_Model(_content()), rag_module=_RAG([_result()])
+    ).generate(_prepared(medications="阿托伐他汀 20mg 每日一次\n地高辛 0.125mg 每日一次"))  # type: ignore[arg-type]
+
+    assert draft.medication_review is not None
+    assert draft.medication_review.ruleset_version == "medication-rules-v1"
+    assert [finding.kind for finding in draft.medication_review.findings] == ["ddi"]
+    assert draft.medication_review.findings[0].finding_id == "ddi_atorvastatin_digoxin"
+
+
+@pytest.mark.asyncio
+async def test_generator_allows_recording_user_provided_medication_doses() -> None:
+    reported_medications = "阿托伐他汀 20mg 每日一次\n地高辛 0.125mg 每日一次"
+    content = _content().model_copy(
+        update={
+            "medication": _content().medication.model_copy(
+                update={"medication_items": (reported_medications,)}
+            )
+        }
+    )
+
+    draft = await EvidenceBoundPrescriptionGenerator(
+        model=_Model(content), rag_module=_RAG([_result()])
+    ).generate(_prepared(medications=reported_medications))  # type: ignore[arg-type]
+
+    assert draft.medication.medication_items == (reported_medications,)
+
+
+@pytest.mark.asyncio
 async def test_generator_blocks_red_flag_input_before_retrieval() -> None:
     with pytest.raises(PrescriptionRedFlagError):
         await EvidenceBoundPrescriptionGenerator(
@@ -168,15 +296,111 @@ async def test_generator_blocks_red_flag_input_before_retrieval() -> None:
 
 
 @pytest.mark.asyncio
-async def test_generator_rejects_ungoverned_medication_directive() -> None:
-    unsafe = _content().model_copy(
+async def test_generator_allows_evidence_bound_clinician_medication_candidate() -> None:
+    proposal = _content().model_copy(
+        update={
+            "medication": _content().medication.model_copy(
+                update={
+                    "recommendations": (
+                        _content().medication.recommendations[0].model_copy(
+                            update={"content": "待临床复核：开始服用某药。"}
+                        ),
+                    )
+                }
+            )
+        }
+    )
+    draft = await EvidenceBoundPrescriptionGenerator(
+        model=_Model(proposal), rag_module=_RAG([_result()])
+    ).generate(_prepared())  # type: ignore[arg-type]
+    assert draft.status == "needs_clinician_review"
+    assert draft.medication.recommendations[0].content == "待临床复核：开始服用某药。"
+
+
+@pytest.mark.asyncio
+async def test_generator_rejects_uncited_medication_change_candidate() -> None:
+    unsupported = _content().model_copy(
         update={
             "medication": _content().medication.model_copy(
                 update={"medication_items": ("开始服用某药。",)}
             )
         }
     )
-    with pytest.raises(PrescriptionGenerationError, match="ungoverned safety"):
+    with pytest.raises(PrescriptionGenerationError, match="no attributable evidence"):
         await EvidenceBoundPrescriptionGenerator(
-            model=_Model(unsafe), rag_module=_RAG([_result()])
+            model=_Model(unsupported), rag_module=_RAG([_result()])
         ).generate(_prepared())  # type: ignore[arg-type]
+
+
+@pytest.mark.asyncio
+async def test_generator_uses_validated_json_only_after_structured_provider_failure() -> None:
+    model = _JsonFallbackModel(_content())
+
+    draft = await EvidenceBoundPrescriptionGenerator(
+        model=model, rag_module=_RAG([_result()])
+    ).generate(_prepared())  # type: ignore[arg-type]
+
+    assert draft.status == "needs_clinician_review"
+    assert len(model.fallback_messages) == 3
+    assert "JSON Schema" in str(model.fallback_messages[1])
+
+
+@pytest.mark.asyncio
+async def test_generator_degrades_to_a_review_only_baseline_for_non_json_text() -> None:
+    model = _JsonFallbackModel(_content(), response="这里不是 JSON")
+
+    draft = await EvidenceBoundPrescriptionGenerator(
+        model=model, rag_module=_RAG([_result()])
+    ).generate(_prepared())  # type: ignore[arg-type]
+
+    assert "基础待审核草案" in draft.health_assessment.summary
+
+
+@pytest.mark.asyncio
+async def test_generator_repairs_json_syntax_but_still_validates_full_contract() -> None:
+    malformed = _content().model_dump_json().removesuffix("}") + ",}"
+    model = _JsonFallbackModel(_content(), response=malformed)
+
+    draft = await EvidenceBoundPrescriptionGenerator(
+        model=model, rag_module=_RAG([_result()])
+    ).generate(_prepared())  # type: ignore[arg-type]
+
+    assert draft.rehabilitation.kind == "rehabilitation"
+
+
+@pytest.mark.asyncio
+async def test_generator_accepts_one_fenced_json_fallback_without_accepting_prose() -> None:
+    response = "模型输出：\n```json\n" + _content().model_dump_json() + "\n```"
+    model = _JsonFallbackModel(_content(), response=response)
+
+    draft = await EvidenceBoundPrescriptionGenerator(
+        model=model, rag_module=_RAG([_result()])
+    ).generate(_prepared())  # type: ignore[arg-type]
+
+    assert draft.exercise.kind == "exercise"
+
+
+@pytest.mark.asyncio
+async def test_generator_accepts_one_json_object_prefixed_with_provider_text() -> None:
+    model = _JsonFallbackModel(
+        _content(), response="以下是结构化结果：\n" + _content().model_dump_json()
+    )
+
+    draft = await EvidenceBoundPrescriptionGenerator(
+        model=model, rag_module=_RAG([_result()])
+    ).generate(_prepared())  # type: ignore[arg-type]
+
+    assert draft.nutrition.kind == "nutrition"
+
+
+@pytest.mark.asyncio
+async def test_generator_returns_explicit_safe_baseline_when_all_model_formats_fail() -> None:
+    model = _JsonFallbackModel(_content(), response="not a JSON object")
+
+    draft = await EvidenceBoundPrescriptionGenerator(
+        model=model, rag_module=_RAG([_result()])
+    ).generate(_prepared())  # type: ignore[arg-type]
+
+    assert "基础待审核草案" in draft.health_assessment.summary
+    assert draft.medication.evidence_ids == (draft.evidence_sources[0].evidence_id,)
+    assert draft.medication.medication_items[0].startswith("尚未提供")

@@ -11,8 +11,12 @@ This module owns the versioned, encrypted intake definition, owner-scoped medica
 - The reconciliation preview may compare only Unicode/whitespace-normalized complete list rows. It must not normalize synonyms, dosage forms, ingredients or dosing instructions, and every duplicate is labelled as a candidate for human review.
 - The rules engine may perform only explicit alias matches declared in the versioned rule artifact. A non-match is incomplete coverage, never a safety conclusion.
 - Every DDI/dose finding must carry source IDs resolving to a source title, locator, local corpus path, and SHA-256 fingerprint. Do not embed copyrighted source text in a rule file.
-- Beers rules remain `not_installed_no_licensed_source` until a permitted, versioned source and clinical governance approval are supplied. Do not silently convert this state to “no Beers finding”.
+- `core-v1` includes only one source-traceable Beers-related signal: an age-qualified benzodiazepine check that still requires the clinician to verify insomnia indication. Coverage is `limited_source_traceable`, not a complete Beers screen; do not convert a non-match into “safe” or “no Beers finding”.
 - Rule output must say it needs clinician/pharmacist review and must not instruct a patient to start, stop, replace, or independently adjust any medication.
+- A `contraindicated` or `major` deterministic hit also creates an owner-scoped
+  fixed safety alert in the same transaction. That alert must not include a
+  medication name, dose, rule text, source locator or raw intake content; it
+  asks for urgent clinician/pharmacist review and never authorises self-change.
 - No medication list, reaction description, identifier, or raw request body may enter logs, Trace payloads, vector indexes, model prompts, or public contracts.
 - Any additional rules engine must be versioned, source-traceable, medically reviewed, and governed by Runtime/HITL before it can emit a clinical fact. Update the coverage contract whenever a source is added, removed, or expires.
 

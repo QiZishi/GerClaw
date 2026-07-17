@@ -135,6 +135,20 @@ def test_generated_draft_quality_report_is_deterministic_and_nonclinical() -> No
     assert evaluate_skill_draft(complete).missing_checks == ()
 
 
+def test_generated_draft_quality_recognizes_equivalent_medical_disclaimer() -> None:
+    complete = parse_skill_markdown(
+        _markdown(
+            instructions=(
+                "# 工作流\n\n先核对用户输入完整性，再检索本地证据并标注引用；"
+                "发现高风险症状时提示立即就医。所有输出不可替代专业医疗建议。"
+            )
+        ),
+        source="custom",
+        origin="generated",
+    )
+    assert evaluate_skill_draft(complete).missing_checks == ()
+
+
 def test_parser_enforces_numeric_array_and_item_bounds_at_runtime() -> None:
     definition = parse_skill_markdown(
         _markdown(

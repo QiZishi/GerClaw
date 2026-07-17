@@ -61,15 +61,17 @@ def test_production_settings_accept_explicit_safe_endpoints() -> None:
         "backup1",
         "backup2",
     ]
-    assert {item.max_output_tokens for item in settings.agent_model_configs} == {1_024}
-    assert {item.timeout_seconds for item in settings.agent_model_configs} == {60.0}
+    assert {item.max_output_tokens for item in settings.agent_model_configs} == {32_768}
+    assert {item.timeout_seconds for item in settings.agent_model_configs} == {180.0}
+    assert settings.prescription_generation_timeout_seconds == 600.0
 
 
 @pytest.mark.parametrize(
     ("field", "value"),
     [
-        ("agent_model_timeout_seconds", 60.01),
-        ("agent_model_max_output_tokens", 1_025),
+        ("agent_model_timeout_seconds", 300.01),
+        ("agent_model_max_output_tokens", 32_769),
+        ("prescription_generation_timeout_seconds", 900.01),
     ],
 )
 def test_model_deadline_and_output_budget_are_hard_upper_bounds(field: str, value: object) -> None:

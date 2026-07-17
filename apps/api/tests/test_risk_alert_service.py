@@ -10,6 +10,7 @@ import pytest
 from gerclaw_api.database.models import RiskAlert
 from gerclaw_api.metrics import RISK_ALERTS
 from gerclaw_api.modules.cga.models import CgaRiskRead
+from gerclaw_api.modules.medication_review.rules_engine import review_medication_list
 from gerclaw_api.modules.risk_alert.service import RiskAlertConflictError, RiskAlertService
 
 
@@ -170,6 +171,57 @@ async def test_chat_red_flag_is_deduplicated_without_retaining_chat_content() ->
     assert len(repository.records) == 1
     assert repository.records[0].source == "chat"
     assert "source_fingerprint" not in first.model_dump()
+
+
+@pytest.mark.asyncio
+async def test_severe_medication_findings_create_fixed_owner_alerts_only() -> None:
+    repository = _Repository()
+    service = RiskAlertService(repository)  # type: ignore[arg-type]
+    review = review_medication_list(
+        intake_id=uuid.uuid4(),
+        medication_list="瑞舒伐他汀 40mg 每日一次\n环孢素",
+    )
+    fingerprints = {
+        finding.finding_id: f"{index:064x}"
+        for index, finding in enumerate(review.findings, 1)
+    }
+
+    first = await service.sync_medication_review(
+        tenant_id="tenant_public0001",
+        actor_id="usr_patient_alert0001",
+        source_fingerprints=fingerprints,
+        review=review,
+    )
+    replayed = await service.sync_medication_review(
+        tenant_id="tenant_public0001",
+        actor_id="usr_patient_alert0001",
+        source_fingerprints=fingerprints,
+        review=review,
+    )
+
+    assert [alert.kind for alert in first] == [
+        "medication_contraindicated",
+        "medication_major_risk",
+    ]
+    assert [alert.alert_id for alert in replayed] == [alert.alert_id for alert in first]
+    assert len(repository.records) == 2
+    payload = first[0].model_dump_json()
+    assert "瑞舒伐他汀" not in payload
+    assert "环孢素" not in payload
+    assert "source_fingerprint" not in payload
+    assert all(record.source == "medication_review" for record in repository.records)
+
+    # Repository recency/UUID ordering can be arbitrary for records created in
+    # one transaction. The server must still place an immediate-safety alert
+    # before a follow-up alert for every client.
+    repository.records.reverse()
+    listed = await service.list(
+        tenant_id="tenant_public0001", actor_id="usr_patient_alert0001", status=None, limit=20
+    )
+    assert [alert.kind for alert in listed.items] == [
+        "medication_contraindicated",
+        "medication_major_risk",
+    ]
 
 
 @pytest.mark.asyncio

@@ -96,6 +96,39 @@ WORKFLOW_SECURITY_PROFILES: tuple[SecurityRiskProfile, ...] = (
             "deterministically escalated."
         ),
     ),
+    SecurityRiskProfile(
+        profile_id="security.workflow.prescription",
+        profile_version="1.0.0",
+        asset_kind=SecurityAssetKind.WORKFLOW,
+        asset_name="prescription",
+        asset_version="1.0.0",
+        owner_module="prescription",
+        risk_level=RiskLevel.HIGH,
+        network_access=NetworkAccess.EXTERNAL,
+        data_classes=frozenset({DataClass.INTERNAL, DataClass.PHI}),
+        threats=frozenset(
+            {
+                SecurityThreat.INDIRECT_PROMPT_INJECTION,
+                SecurityThreat.RAG_POISONING,
+                SecurityThreat.SENSITIVE_EGRESS,
+                SecurityThreat.HALLUCINATED_EVIDENCE,
+                SecurityThreat.RESOURCE_EXHAUSTION,
+                SecurityThreat.MEDICAL_HARM,
+            }
+        ),
+        required_controls=_BASE_CONTROLS
+        | frozenset(
+            {
+                SecurityControl.PATIENT_OWNERSHIP,
+                SecurityControl.EVIDENCE_PROVENANCE,
+                SecurityControl.EXTERNAL_EGRESS_REDACTION,
+            }
+        ),
+        residual_risk=(
+            "A draft may still be clinically unsuitable; it remains evidence-bound, "
+            "review-only and cannot become an executable prescription."
+        ),
+    ),
 )
 
 

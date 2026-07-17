@@ -9,6 +9,15 @@
       "local_corpus_path": "冠心病md/冠心病心脏康复基层合理用药指南_MinerU__20251010034941.md",
       "content_sha256": "940965391565b0de32f3aba51c5a323542f5af9b18162c5075130ba63437feeb",
       "review_status": "source_traceable_pending_clinician_approval"
+    },
+    {
+      "source_id": "insomnia_bz_older_adults",
+      "title": "慢性失眠药物治疗临床实践指南（本地语料节选）",
+      "publisher": "American Academy of Sleep Medicine（文献所载来源）",
+      "locator": "老年患者段：Beers criteria 对失眠治疗中苯二氮卓类的避免建议",
+      "local_corpus_path": "睡眠障碍md/zhinan7_MinerU__20251005130232.md",
+      "content_sha256": "9a13eb48d863f09921d7830078f179c85cc634d5fe180f4b00be64a6973e92f5",
+      "review_status": "source_traceable_pending_clinician_approval"
     }
   ],
   "aliases": {
@@ -26,7 +35,13 @@
     "吉非贝齐": ["吉非贝齐", "gemfibrozil"],
     "伊曲康唑": ["伊曲康唑", "itraconazole"],
     "烟酸": ["烟酸", "niacin"],
-    "夫西地酸": ["夫西地酸", "fusidic acid"]
+    "夫西地酸": ["夫西地酸", "fusidic acid"],
+    "地西泮": ["地西泮", "diazepam"],
+    "劳拉西泮": ["劳拉西泮", "lorazepam"],
+    "阿普唑仑": ["阿普唑仑", "alprazolam"],
+    "氯硝西泮": ["氯硝西泮", "clonazepam"],
+    "替马西泮": ["替马西泮", "temazepam"],
+    "三唑仑": ["三唑仑", "triazolam"]
   },
   "ddi_rules": [
     {
@@ -175,6 +190,18 @@
       "clinician_action": "请由医师或药师核对适应证、实际服用频次、肾功能和原始处方；患者不要自行调整剂量。",
       "elderly_note": "来源指出65岁及以上患者调整剂量时应慎重。",
       "source_ids": ["cad_rehab_primary_care"]
+    }
+  ],
+  "beers_rules": [
+    {
+      "id": "beers_benzodiazepines_insomnia_older_adults",
+      "drugs": ["地西泮", "劳拉西泮", "阿普唑仑", "氯硝西泮", "替马西泮", "三唑仑"],
+      "minimum_age": 65,
+      "severity": "moderate",
+      "conclusion": "本地来源转述：对老年患者，Beers criteria 建议避免将苯二氮卓类用于失眠治疗，因可能增加认知损害和跌倒等风险。当前药物清单不能确定该药的实际适应证。",
+      "clinician_action": "请由医师或药师核对该药的适应证、疗程、跌倒/认知风险及其他中枢抑制药；仅在确认属于来源所述情境后再作个体化判断，患者不要自行停药。",
+      "elderly_note": "这是有限、本地可追溯来源的核对信号，不代表完整 Beers 筛查或个体化禁忌结论。",
+      "source_ids": ["insomnia_bz_older_adults"]
     }
   ]
 }

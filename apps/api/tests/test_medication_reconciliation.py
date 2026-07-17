@@ -70,7 +70,7 @@ def test_rule_review_emits_source_traceable_ddi_and_dose_findings() -> None:
     )
 
     assert result.ruleset_version == "medication-rules-v1"
-    assert result.coverage.beers == "not_installed_no_licensed_source"
+    assert result.coverage.beers == "limited_source_traceable"
     assert result.sources[0].content_sha256 == (
         "940965391565b0de32f3aba51c5a323542f5af9b18162c5075130ba63437feeb"
     )
@@ -95,6 +95,26 @@ def test_rule_review_detects_normalized_generic_duplicates_and_polypharmacy() ->
     assert result.unrecognized_entry_count == 3
     assert result.findings[0].involved_generic_names == ("阿托伐他汀",)
     assert result.findings[0].source_ids == ()
+
+
+def test_rule_review_emits_limited_beers_signal_only_for_age_qualified_input() -> None:
+    result = review_medication_list(
+        intake_id=uuid.uuid4(), patient_age=70, medication_list="地西泮 2mg 每晚一次"
+    )
+
+    assert [(finding.kind, finding.finding_id) for finding in result.findings] == [
+        ("beers", "beers_benzodiazepines_insomnia_older_adults")
+    ]
+    assert result.findings[0].source_ids == ("insomnia_bz_older_adults",)
+    assert "不能确定该药的实际适应证" in result.findings[0].conclusion
+
+
+def test_rule_review_does_not_infer_beers_signal_without_age_context() -> None:
+    result = review_medication_list(
+        intake_id=uuid.uuid4(), medication_list="地西泮 2mg 每晚一次"
+    )
+
+    assert not [finding for finding in result.findings if finding.kind == "beers"]
 
 
 def test_rule_review_rejects_empty_list() -> None:

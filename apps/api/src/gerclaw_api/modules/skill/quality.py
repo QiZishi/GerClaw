@@ -24,7 +24,10 @@ def evaluate_skill_draft(definition: SkillDefinition) -> SkillDraftQualityReport
         missing.append("local_evidence")
     if not _contains_any(source, ("红旗", "高风险", "紧急", "立即就医", "急诊")):
         missing.append("red_flag")
-    if not _contains_any(source, ("免责声明", "仅供参考", "不能替代", "不替代")):
+    if not _contains_any(
+        source,
+        ("免责声明", "仅供参考", "不能替代", "不可替代", "不替代"),
+    ):
         missing.append("medical_disclaimer")
     return SkillDraftQualityReport(missing_checks=tuple(missing))
 
