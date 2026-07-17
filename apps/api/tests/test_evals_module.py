@@ -15,6 +15,7 @@ from gerclaw_api.modules.evals.models import (
     PrivacyRedactionEvalCase,
     RAGEvaluationRunConfig,
     RAGRetrievalEvalCase,
+    RAGRetrievalEvalCaseSet,
 )
 from gerclaw_api.modules.evals.rag_cli import (
     RAGEvaluationCliError,
@@ -493,10 +494,36 @@ def test_committed_rag_case_set_stays_versioned_and_synthetic() -> None:
 
     loaded = load_rag_case_set(case_file)
 
-    assert len(loaded.cases) == 2
+    assert len(loaded.cases) == 6
     assert loaded.cases[0].case_id == "rag-retrieval.polypharmacy-safety-consensus"
     assert loaded.cases[0].provenance == "synthetic_reviewed"
-    assert loaded.cases[1].expect_no_evidence is True
+    assert len({case.case_id for case in loaded.cases}) == len(loaded.cases)
+    assert all(case.provenance == "synthetic_reviewed" for case in loaded.cases)
+    assert loaded.cases[-1].expect_no_evidence is True
+
+
+def test_rag_case_set_rejects_duplicate_case_ids() -> None:
+    with pytest.raises(ValidationError, match="case IDs must be unique"):
+        RAGRetrievalEvalCaseSet(
+            cases=(
+                RAGRetrievalEvalCase(
+                    case_id="rag-retrieval.duplicate_case",
+                    title="first reviewed case",
+                    synthetic_query="first synthetic query",
+                    expected_document_ids=("a" * 64,),
+                    minimum_expected_hits=1,
+                    index_version="corpus-v1",
+                ),
+                RAGRetrievalEvalCase(
+                    case_id="rag-retrieval.duplicate_case",
+                    title="second reviewed case",
+                    synthetic_query="second synthetic query",
+                    expected_document_ids=("b" * 64,),
+                    minimum_expected_hits=1,
+                    index_version="corpus-v1",
+                ),
+            )
+        )
 
 
 def test_rag_cli_rejects_unreviewed_or_unapproved_input_without_echoing_content(

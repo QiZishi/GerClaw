@@ -36,11 +36,13 @@ retrieval quality, or capacity.
 
 `run_opt_in_rag_retrieval_evaluation` is a separate, asynchronous path for a
 reviewed synthetic RAG case set. The committed
-`evals/rag-retrieval-reviewed-v1.json` contains a version-bound positive
-retrieval baseline and a no-evidence baseline; it contains no patient or
-provider content. A reviewer must still bind every new synthetic query to its
-expected local-corpus document IDs (or explicitly require no evidence) and one
-index version. A positive case also rejects every returned result whose
+`evals/rag-retrieval-reviewed-v1.json` currently contains five version-bound,
+source-checked positive retrieval baselines spanning polypharmacy, falls,
+frailty, cognition and stable coronary medication management, plus one
+no-evidence baseline. It contains no patient or provider content. A reviewer
+must still bind every new synthetic query to its expected local-corpus document
+IDs (or explicitly require no evidence) and one index version; duplicate case
+IDs are rejected. A positive case also rejects every returned result whose
 citation provenance cannot locate its chunk (document ID, chunk ID, title,
 chapter, category, source type and bounded chunk position); a reviewed case
 may further require specific source types. The caller must pass
@@ -59,7 +61,7 @@ uv run gerclaw-eval-rag \
   --allow-external-rag \
   --cases evals/rag-retrieval-reviewed-v1.json \
   --index-version markdown-heading-v1:lexical-cjk-ngram-v1:BAAI/bge-m3:1024 \
-  --top-k 5 --max-cases 2
+  --top-k 5 --max-cases 6
 ```
 
 The case file must be a `rag-retrieval-case-set-v1` JSON object with only

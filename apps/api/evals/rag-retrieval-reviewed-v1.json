@@ -13,6 +13,50 @@
       "provenance": "synthetic_reviewed"
     },
     {
+      "case_id": "rag-retrieval.fall-risk-consensus",
+      "title": "老年跌倒风险综合管理的合成检索基线",
+      "synthetic_query": "老年人预防跌倒时，风险综合管理通常需要关注哪些方面？",
+      "expected_document_ids": [
+        "919cd37c8d54b4c56ab0e76003aa00f61c814777a94a5e6f7a114b84ade9bb00"
+      ],
+      "minimum_expected_hits": 1,
+      "index_version": "markdown-heading-v1:lexical-cjk-ngram-v1:BAAI/bge-m3:1024",
+      "provenance": "synthetic_reviewed"
+    },
+    {
+      "case_id": "rag-retrieval.frailty-prevention-consensus",
+      "title": "老年衰弱预防的合成检索基线",
+      "synthetic_query": "老年人衰弱的预防和干预应如何评估与安排？",
+      "expected_document_ids": [
+        "9777556288a7186f4004811907d505cb948eeb6da5d836606373216378733ae4"
+      ],
+      "minimum_expected_hits": 1,
+      "index_version": "markdown-heading-v1:lexical-cjk-ngram-v1:BAAI/bge-m3:1024",
+      "provenance": "synthetic_reviewed"
+    },
+    {
+      "case_id": "rag-retrieval.mci-neuropsych-consensus",
+      "title": "轻度认知损害神经心理评估的合成检索基线",
+      "synthetic_query": "轻度认知损害的神经心理评估应如何进行？",
+      "expected_document_ids": [
+        "915de3025cf54809b3943a882696b30bdbabae985d511b40eed3bc64ca23e127"
+      ],
+      "minimum_expected_hits": 1,
+      "index_version": "markdown-heading-v1:lexical-cjk-ngram-v1:BAAI/bge-m3:1024",
+      "provenance": "synthetic_reviewed"
+    },
+    {
+      "case_id": "rag-retrieval.stable-cad-medication-guideline",
+      "title": "稳定性冠心病合理用药的合成检索基线",
+      "synthetic_query": "稳定性冠心病患者长期用药管理需要和医生核对哪些内容？",
+      "expected_document_ids": [
+        "9522fd07f17778f5001f38801e10a13120b4b64d6c32b99d215f58040f6ac202"
+      ],
+      "minimum_expected_hits": 1,
+      "index_version": "markdown-heading-v1:lexical-cjk-ngram-v1:BAAI/bge-m3:1024",
+      "provenance": "synthetic_reviewed"
+    },
+    {
       "case_id": "rag-retrieval.no-local-medical-evidence",
       "title": "非医学公共问题必须拒绝伪造本地证据",
       "synthetic_query": "北京今天的天气怎么样？",

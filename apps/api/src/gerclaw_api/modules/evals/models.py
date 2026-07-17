@@ -217,6 +217,15 @@ class RAGRetrievalEvalCaseSet(BaseModel):
     schema_version: Literal["rag-retrieval-case-set-v1"] = "rag-retrieval-case-set-v1"
     cases: tuple[RAGRetrievalEvalCase, ...] = Field(min_length=1, max_length=50)
 
+    @model_validator(mode="after")
+    def validate_unique_case_ids(self) -> RAGRetrievalEvalCaseSet:
+        """Prevent a case file from silently running one case more than once."""
+
+        case_ids = tuple(case.case_id for case in self.cases)
+        if len(set(case_ids)) != len(case_ids):
+            raise ValueError("RAG retrieval case IDs must be unique")
+        return self
+
 
 class RAGEvaluationRunConfig(BaseModel):
     """Explicitly opt-in, bounded external RAG evaluation configuration."""

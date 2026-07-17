@@ -46,7 +46,7 @@
 | UI-06 | 多格式导出 | export libs | PDF/Word/MD/TXT 内容与布局回归 | 🚧 CGA 已从真实服务端报告导出 Markdown/PDF/Word；2026-07-17 浏览器实际下载 DOCX 并通过 Office 包完整性及免责声明内容检查。普通对话现支持 Markdown/PDF/DOCX/TXT（图片为补充格式），四种文本类导出均使用同一条医疗免责声明；2026-07-18 真实访客患者会话已实际下载 TXT，核验含原始紧急分流内容且不再出现“空消息”。五大处方与各格式的统一内容/布局回归仍缺 |
 | UI-07 | 兼容/恢复/审批/删除状态 | app UI | 不兼容、恢复、等待、撤回均可理解可操作 | ❌ 缺统一产品状态 |
 | OPS-01 | Readiness | health service | DB/Redis/Qdrant/RAG generation/配置 503 | ✅ 真实依赖套件通过 |
-| OPS-02 | metrics/feedback/eval/Bad Case | metrics/trace/feedback/eval | API、存储、回放、趋势 | 🚧 Trace/基础反馈与加密 Bad Case 已有；2026-07-18 管理员可通过 `account:admin` 读取 PHI-free 队列元数据并更新处置状态，管理员前端已实际接入，API/BFF 均不暴露 snapshot/评论/原始输入。队列查询显式不加载加密 snapshot，历史密钥不可读时仍可读取和处置。19 个合成安全/输出安全/隐私/用药规则 policy case 不回放真实输入，test image 的显式 opt-in RAG 命中/无证据两例为 2/2；尚缺授权脱敏晋升、模型/临床评测、趋势与指标闭环 |
+| OPS-02 | metrics/feedback/eval/Bad Case | metrics/trace/feedback/eval | API、存储、回放、趋势 | 🚧 Trace/基础反馈与加密 Bad Case 已有；2026-07-18 管理员可通过 `account:admin` 读取 PHI-free 队列元数据并更新处置状态，管理员前端已实际接入，API/BFF 均不暴露 snapshot/评论/原始输入。队列查询显式不加载加密 snapshot，历史密钥不可读时仍可读取和处置。19 个合成安全/输出安全/隐私/用药规则 policy case 不回放真实输入；test image 的显式 opt-in RAG 评测对五个本地老年医学主题命中和一个无证据例均为 6/6。尚缺授权脱敏晋升、模型/临床评测、趋势与指标闭环 |
 | OPS-03 | 测试覆盖门禁 | pytest/coverage | ≥80%，负向阈值 exit 1 | ✅ 80.02%，审阅者验证负向门禁 |
 | OPS-04 | ≤10 并发 | integration/perf | 隔离、幂等、限流、取消、p50/p95 | 🚧 已有 Compose API 的 10 并发安全短路 SSE 报告（p50 153ms/p95 154ms、10/10 done、跨访客 404）；完整临床 workflow、取消/限流/幂等的统一负载仍待补齐 |
 | OPS-05 | Docker 全栈 | Dockerfiles/compose | 空卷启动、迁移、health、重启、非 root | 🚧 基础 compose/Dockerfile 有，最终应用验收未做 |
