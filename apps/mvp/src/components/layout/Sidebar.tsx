@@ -76,6 +76,7 @@ export function Sidebar({ onNavigate }: SidebarProps) {
   const [mounted, setMounted] = useState(false);
 
   const role = useAppStore((s) => s.role);
+  const isGuest = useAppStore((s) => s.isGuest);
   const seniorMode = useAppStore((s) => s.seniorMode);
   const toggleSidebar = useAppStore((s) => s.toggleSidebar);
   const currentSessionId = useAppStore((s) => s.currentSessionId);
@@ -352,8 +353,8 @@ export function Sidebar({ onNavigate }: SidebarProps) {
         </Button>
       </div>
 
-      {/* 第2行：技能管理（⚡图标在前，"技能"两字在后） */}
-      <div className="px-3 pb-2">
+      {/* 技能管理仅对已登录账户开放；游客仅使用患者服务。 */}
+      {!isGuest && <div className="px-3 pb-2">
         <Button
           variant={mainView === "skills" ? "secondary" : "ghost"}
           className={cn("w-full justify-start gap-2", seniorMode && "min-h-12 text-lg")}
@@ -363,7 +364,7 @@ export function Sidebar({ onNavigate }: SidebarProps) {
           <Zap className="size-4" />
           <span>技能</span>
         </Button>
-      </div>
+      </div>}
 
       {/* History stays available without occupying the patient's primary action area. */}
       {(!isPatient || patientHistoryOpen) && <div className="px-3 pb-2">

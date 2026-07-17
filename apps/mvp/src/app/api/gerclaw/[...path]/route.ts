@@ -2,9 +2,10 @@ import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
 import {
   getGerclawApiBaseUrl,
+  isGuestAllowedGerclawProxyTarget,
   isAllowedGerclawProxyTarget,
 } from "@/server/gerclaw-api";
-import { resolveGerclawAccess } from "@/server/gerclaw-access";
+import { hasGerclawAccountAccess, resolveGerclawAccess } from "@/server/gerclaw-access";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -93,6 +94,12 @@ async function proxy(request: NextRequest, context: RouteContext): Promise<Respo
     return NextResponse.json(
       { error: { code: "PROXY_ROUTE_REJECTED", message: "请求路径不受支持" } },
       { status: 404 }
+    );
+  }
+  if (!hasGerclawAccountAccess(request) && !isGuestAllowedGerclawProxyTarget(path, request.method)) {
+    return NextResponse.json(
+      { error: { code: "GUEST_ROUTE_RESTRICTED", message: "请登录后使用技能管理" } },
+      { status: 403 },
     );
   }
 

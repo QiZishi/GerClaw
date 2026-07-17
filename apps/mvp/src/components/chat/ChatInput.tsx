@@ -147,6 +147,7 @@ function FunctionButtonGroup({
   onPickImage,
   onPickFile,
   prescriptionConversation,
+  isGuest,
 }: {
   disabled: boolean;
   role: Role;
@@ -156,6 +157,7 @@ function FunctionButtonGroup({
   onPickImage: () => void;
   onPickFile: () => void;
   prescriptionConversation: boolean;
+  isGuest: boolean;
 }) {
   const isDoctor = mounted && role === "doctor";
   return (
@@ -196,7 +198,7 @@ function FunctionButtonGroup({
         </TooltipTrigger>
         <TooltipContent>上传文件（PDF/DOCX/MD/图片）</TooltipContent>
       </Tooltip>
-      {!prescriptionConversation && <SkillSelector showLabel={seniorMode}>
+      {!isGuest && !prescriptionConversation && <SkillSelector showLabel={seniorMode}>
         <Button
           variant="ghost"
           size={seniorMode ? "default" : "icon"}
@@ -298,6 +300,7 @@ export function ChatInput({
   const [mounted, setMounted] = useState(false);
   const role = useAppStore((s) => s.role);
   const seniorMode = useAppStore((s) => s.seniorMode);
+  const isGuest = useAppStore((s) => s.isGuest);
   const loadedSkillIds = useAppStore((s) => s.loadedSkillIds);
   const setLoadedSkills = useAppStore((s) => s.setLoadedSkills);
   const currentSessionId = useAppStore((s) => s.currentSessionId);
@@ -1028,6 +1031,7 @@ export function ChatInput({
                 onPickImage={handleImageSelect}
                 onPickFile={handleFileSelect}
                 prescriptionConversation={prescriptionConversation}
+                isGuest={isGuest}
               />
             )}
 

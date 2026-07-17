@@ -17,6 +17,9 @@ interface AppState {
   // === 角色 ===
   role: Role;
   setRole: (role: Role) => void;
+  /** 仅保留当前页面生命周期；游客重新进入时不恢复本地会话或管理入口。 */
+  isGuest: boolean;
+  setGuestMode: (isGuest: boolean) => void;
 
   // === 老年模式（仅患者端，默认开启）===
   seniorMode: boolean;
@@ -119,6 +122,9 @@ export const useAppStore = create<AppState>()(
           streamingInterrupted: false,
           interruptedMessageId: null,
         }),
+      isGuest: false,
+      setGuestMode: (isGuest) =>
+        set({ isGuest, mainView: isGuest ? "chat" : get().mainView }),
 
       // === 老年模式 ===
       seniorMode: false,
@@ -166,7 +172,8 @@ export const useAppStore = create<AppState>()(
 
       // === 中间栏视图 ===
       mainView: "chat",
-      setMainView: (mainView) => set({ mainView }),
+      setMainView: (mainView) =>
+        set({ mainView: mainView === "skills" && get().isGuest ? "chat" : mainView }),
 
       // === 聊天中加载的功能动作 ===
       chatAction: "none",

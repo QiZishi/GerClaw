@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 
-import { isAllowedGerclawProxyTarget } from "./gerclaw-api.ts";
+import { isAllowedGerclawProxyTarget, isGuestAllowedGerclawProxyTarget } from "./gerclaw-api.ts";
 
 const conditionId = "6cf3c10d-1d9e-4cfb-8d42-1e32fdb92911";
 const alertId = "8a3e70a1-8b3a-4a9b-9e6a-0148d6e1ef3b";
@@ -85,6 +85,13 @@ test("skill evolution proxy permits only a caller-owned review-draft request", (
   assert.equal(isAllowedGerclawProxyTarget("skills/safe-followup/evolve", "POST"), true);
   assert.equal(isAllowedGerclawProxyTarget("skills/safe-followup/evolve", "GET"), false);
   assert.equal(isAllowedGerclawProxyTarget("skills/safe-followup/evolve/commit", "POST"), false);
+});
+
+test("guest proxy keeps patient care flows but rejects every Skill endpoint", () => {
+  assert.equal(isGuestAllowedGerclawProxyTarget("chat", "POST"), true);
+  assert.equal(isGuestAllowedGerclawProxyTarget("cga/scales", "GET"), true);
+  assert.equal(isGuestAllowedGerclawProxyTarget("skills", "GET"), false);
+  assert.equal(isGuestAllowedGerclawProxyTarget("skills/health-education/execute", "POST"), false);
 });
 
 test("CGA proxy permits only caller-owned descriptive comparison reads", () => {

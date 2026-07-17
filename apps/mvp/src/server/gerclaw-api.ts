@@ -117,3 +117,8 @@ export function isAllowedGerclawProxyTarget(path: string, method: string): boole
   if (!path || path.includes("..") || path.includes("//")) return false;
   return proxyRules.some((rule) => rule.pattern.test(path) && rule.methods.has(method));
 }
+
+/** Guests can use patient-facing care flows, but never inspect or manage Skills. */
+export function isGuestAllowedGerclawProxyTarget(path: string, method: string): boolean {
+  return isAllowedGerclawProxyTarget(path, method) && !/^skills(?:\/|$)/.test(path);
+}

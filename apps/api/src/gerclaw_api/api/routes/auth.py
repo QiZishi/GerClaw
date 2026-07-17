@@ -189,7 +189,12 @@ def _account_scopes(account_role: Literal["patient", "doctor", "admin"]) -> set[
 def _guest_scopes() -> set[str]:
     """Visitors receive the patient-service subset, never doctor/admin authority."""
 
-    return set(_ACCOUNT_SCOPES) - {"approval:write", "skill:write"}
+    return set(_ACCOUNT_SCOPES) - {
+        "approval:write",
+        "skill:read",
+        "skill:write",
+        "skill:execute",
+    }
 
 
 @router.get("/session", response_model=AccountIdentityRead)

@@ -36,6 +36,7 @@ export default function Home() {
   const mobileSidebarOpen = useAppStore((s) => s.mobileSidebarOpen);
   const setMobileSidebarOpen = useAppStore((s) => s.setMobileSidebarOpen);
   const setRole = useAppStore((s) => s.setRole);
+  const setGuestMode = useAppStore((s) => s.setGuestMode);
   const createSession = useChatStore((s) => s.createSession);
   const setCurrentSession = useAppStore((s) => s.setCurrentSession);
   const isSeniorPatient = role === "patient" && seniorMode;
@@ -47,8 +48,9 @@ export default function Home() {
     // Never render browser-local drafts from a prior person under a newly
     // verified account. Durable records remain owner-scoped in the API.
     useChatStore.getState().clearAllData();
+    setGuestMode(false);
     setRole(identity.role);
-  }, [identity, setRole]);
+  }, [identity, setGuestMode, setRole]);
   useEffect(() => {
     if (guestEntry) useChatStore.getState().clearAllData();
   }, [guestEntry]);
@@ -68,7 +70,7 @@ export default function Home() {
   }, [setMobileSidebarOpen]);
 
   if (identity === undefined) return <div className="grid min-h-screen place-items-center text-muted-foreground" role="status">正在准备登录…</div>;
-  if (!identity && !guestEntry) return <LoginPage onAuthenticated={(account) => { useChatStore.getState().clearAllData(); setIdentity(account); }} onGuest={() => { useChatStore.getState().clearAllData(); setRole("patient"); setGuestEntry(true); }} />;
+  if (!identity && !guestEntry) return <LoginPage onAuthenticated={(account) => { useChatStore.getState().clearAllData(); setGuestMode(false); setIdentity(account); }} onGuest={() => { useChatStore.getState().clearAllData(); setGuestMode(true); setRole("patient"); setGuestEntry(true); }} />;
 
   const handleQuickNew = () => {
     const id = createSession(role);
