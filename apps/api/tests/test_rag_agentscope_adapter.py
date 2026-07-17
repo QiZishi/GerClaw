@@ -96,5 +96,5 @@ async def test_agentic_middleware_exposes_real_search_knowledge_tool() -> None:
 async def test_adapter_rejects_untrusted_result_metadata() -> None:
     adapter = HybridKnowledgeBaseAdapter(InvalidMetadataModule())  # type: ignore[arg-type]
 
-    with pytest.raises(ValueError, match="metadata field"):
+    with pytest.raises(ValueError, match="local-rag-evidence-v1"):
         await adapter.search(["查询"])

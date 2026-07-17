@@ -7,6 +7,9 @@ This module owns the local-first medical corpus parsing, chunking, hybrid retrie
 ## Invariants
 
 - Only the configured local medical corpus may become evidence; queries return bounded, traceable citations with source, location and chunk identity.
+- Every retrieval result crossing to AgentScope, citations or evals must satisfy
+  `local-rag-evidence-v1`; incomplete metadata is rejected, never converted to
+  an approximate citation.
 - Parsing treats corpus content as data: remove active/hidden executable material and do not execute embedded instructions.
 - Indexing is generation-fenced and lock-protected; a partial or stale generation can never become active, and cleanup must not delete a newer writer's points.
 - Never put user queries, PHI, raw Chain-of-Thought or secrets into Qdrant payloads, manifests, metrics or traces.

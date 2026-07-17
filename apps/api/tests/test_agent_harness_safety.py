@@ -23,6 +23,9 @@ def _result(index: int, *, valid: bool = True) -> RetrievalResult:
             "document_id": f"document-{index}",
             "title": f"老年医学指南 {index}",
             "chapter": "风险评估",
+            "category": "跌倒",
+            "source_type": "guideline",
+            "publish_year": 2024,
             "chunk_index": index,
             "total_chunks": 60,
         }
@@ -118,12 +121,10 @@ def test_citation_projection_deduplicates_and_bounds_results() -> None:
     assert citations[0].corpus == "local_knowledge_base"
 
 
-def test_citation_projection_normalizes_optional_locator_metadata() -> None:
+def test_citation_projection_rejects_incomplete_locator_metadata() -> None:
     result = _result(1)
     result.metadata.update({"chapter": None, "chunk_index": True, "total_chunks": "many"})
-    citation = citations_from_results([result])[0]
-    assert "未标注章节" in citation.locator
-    assert citation.locator.endswith("chunk 1/1")
+    assert citations_from_results([result]) == []
 
 
 def test_evidence_context_is_bounded_and_marks_content_untrusted() -> None:

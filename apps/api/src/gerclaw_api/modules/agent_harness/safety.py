@@ -6,6 +6,10 @@ import re
 
 from gerclaw_api.modules.contracts import Citation, SafetyDecision
 from gerclaw_api.modules.rag.protocols import RetrievalResult
+from gerclaw_api.modules.validation import (
+    RAGEvidenceContractValidationError,
+    validate_local_rag_evidence_provenance,
+)
 
 MEDICAL_DISCLAIMER = "内容由 AI 生成，仅供参考。身体不适请及时就医。"
 _MODEL_DISCLAIMER_FRAGMENTS = (
@@ -173,33 +177,20 @@ def citations_from_results(results: list[RetrievalResult]) -> list[Citation]:
     citations: list[Citation] = []
     seen: set[str] = set()
     for result in results:
-        metadata = result.metadata
-        chunk_id = metadata.get("chunk_id")
-        document_id = metadata.get("document_id")
-        title = metadata.get("title")
-        chapter = metadata.get("chapter")
-        chunk_index = metadata.get("chunk_index")
-        total_chunks = metadata.get("total_chunks")
-        if not isinstance(chunk_id, str) or not chunk_id:
+        try:
+            provenance = validate_local_rag_evidence_provenance(result.metadata)
+        except RAGEvidenceContractValidationError:
             continue
-        if not isinstance(document_id, str) or not document_id:
-            continue
-        if not isinstance(title, str) or not title:
-            continue
+        chunk_id = provenance.chunk_id
         if chunk_id in seen:
             continue
-        if not isinstance(chapter, str) or not chapter:
-            chapter = "未标注章节"
-        if isinstance(chunk_index, bool) or not isinstance(chunk_index, int):
-            chunk_index = 0
-        if isinstance(total_chunks, bool) or not isinstance(total_chunks, int):
-            total_chunks = 1
         citations.append(
             Citation(
                 source_id=chunk_id,
-                title=title,
+                title=provenance.title,
                 locator=(
-                    f"{result.source} | {chapter} | chunk {chunk_index + 1}/{max(total_chunks, 1)}"
+                    f"{result.source} | {provenance.chapter} | chunk "
+                    f"{provenance.chunk_index + 1}/{provenance.total_chunks}"
                 ),
                 excerpt=result.content[:2_000],
                 score=result.score,

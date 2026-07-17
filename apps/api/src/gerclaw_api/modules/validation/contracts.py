@@ -12,7 +12,7 @@ from collections.abc import Mapping
 from datetime import datetime
 from typing import TYPE_CHECKING, Literal
 
-from pydantic import BaseModel, ConfigDict, Field, ValidationError
+from pydantic import BaseModel, ConfigDict, Field, ValidationError, model_validator
 
 from gerclaw_api.modules.contracts import Citation, SafetyDecision
 from gerclaw_api.security import JsonValue
@@ -22,10 +22,44 @@ if TYPE_CHECKING:
 
 STRICT = ConfigDict(extra="forbid")
 PUBLIC_CHAT_SSE_SCHEMA_VERSION = "public-chat-sse-v1"
+LOCAL_RAG_EVIDENCE_SCHEMA_VERSION = "local-rag-evidence-v1"
 
 
 class StreamContractValidationError(ValueError):
     """A bounded, non-sensitive error for a malformed cross-module SSE event."""
+
+
+class RAGEvidenceContractValidationError(ValueError):
+    """A bounded, non-sensitive error for malformed local RAG provenance."""
+
+
+class LocalRAGEvidenceProvenance(BaseModel):
+    """Complete provenance required before local RAG may become an AI citation.
+
+    This schema intentionally models metadata only: the RAG module owns result
+    content and the agent-safety layer owns public citation projection.  A
+    version bump is required when a new provenance field becomes public.
+    """
+
+    model_config = STRICT
+
+    document_id: str = Field(pattern=r"^[A-Za-z0-9][A-Za-z0-9_-]{0,127}$")
+    chunk_id: str = Field(pattern=r"^[A-Za-z0-9][A-Za-z0-9_-]{0,127}$")
+    title: str = Field(min_length=1, max_length=512)
+    chapter: str = Field(min_length=1, max_length=1_024)
+    category: str = Field(min_length=1, max_length=128)
+    source_type: Literal["guideline", "consensus", "textbook", "literature"]
+    publish_year: int | None = Field(default=None, ge=1900, le=2100)
+    chunk_index: int = Field(ge=0, le=1_000_000)
+    total_chunks: int = Field(ge=1, le=1_000_000)
+    hybrid_score: float | None = Field(default=None, ge=0, le=1_000_000)
+    rerank_score: float | None = Field(default=None, ge=0, le=1)
+
+    @model_validator(mode="after")
+    def validate_chunk_range(self) -> LocalRAGEvidenceProvenance:
+        if self.chunk_index >= self.total_chunks:
+            raise ValueError("RAG chunk index must be within total chunks")
+        return self
 
 
 class _AgentStartData(BaseModel):
@@ -146,3 +180,21 @@ def validate_public_chat_stream_event(event: StreamEvent) -> StreamEvent:
     """Validate an event immediately before it enters the browser SSE queue."""
 
     return _validate(event, _PUBLIC_DATA_MODELS)
+
+
+def validate_local_rag_evidence_provenance(
+    metadata: Mapping[str, JsonValue],
+) -> LocalRAGEvidenceProvenance:
+    """Validate one local retrieval result before it crosses into an Agent/citation.
+
+    The exception deliberately never includes metadata, content, a query, or a
+    provider response.  Callers can safely exclude invalid evidence and enter
+    their existing no-evidence path.
+    """
+
+    try:
+        return LocalRAGEvidenceProvenance.model_validate(metadata)
+    except ValidationError as error:
+        raise RAGEvidenceContractValidationError(
+            f"invalid {LOCAL_RAG_EVIDENCE_SCHEMA_VERSION} provenance"
+        ) from error

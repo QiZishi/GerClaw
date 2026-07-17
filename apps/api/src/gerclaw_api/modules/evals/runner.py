@@ -43,6 +43,10 @@ from gerclaw_api.modules.privacy_redaction.policy import (
     redact_external_tts_text,
 )
 from gerclaw_api.modules.rag.protocols import RAGModule
+from gerclaw_api.modules.validation import (
+    RAGEvidenceContractValidationError,
+    validate_local_rag_evidence_provenance,
+)
 from gerclaw_api.security import JsonValue
 
 _RAG_SOURCE_TYPES = frozenset({"guideline", "consensus", "textbook", "literature"})
@@ -51,39 +55,14 @@ _RAG_SOURCE_TYPES = frozenset({"guideline", "consensus", "textbook", "literature
 def _has_complete_rag_provenance(metadata: Mapping[str, JsonValue]) -> bool:
     """Accept only citation metadata that can locate a returned evidence chunk."""
 
-    document_id = metadata.get("document_id")
-    chunk_id = metadata.get("chunk_id")
-    required_text_fields = ("title", "chapter", "category")
-    source_type = metadata.get("source_type")
-    chunk_index = metadata.get("chunk_index")
-    total_chunks = metadata.get("total_chunks")
-    publish_year = metadata.get("publish_year")
-
-    if not (
-        isinstance(document_id, str)
-        and len(document_id) == 64
-        and all(character in "0123456789abcdefABCDEF" for character in document_id)
-        and isinstance(chunk_id, str)
-        and bool(chunk_id.strip())
-        and all(
-            isinstance(value := metadata.get(field), str) and value.strip()
-            for field in required_text_fields
-        )
-        and isinstance(source_type, str)
-        and source_type in _RAG_SOURCE_TYPES
-        and isinstance(chunk_index, int)
-        and not isinstance(chunk_index, bool)
-        and chunk_index >= 0
-        and isinstance(total_chunks, int)
-        and not isinstance(total_chunks, bool)
-        and total_chunks >= 1
-        and chunk_index < total_chunks
-    ):
+    try:
+        provenance = validate_local_rag_evidence_provenance(metadata)
+    except RAGEvidenceContractValidationError:
         return False
-    return publish_year is None or (
-        isinstance(publish_year, int)
-        and not isinstance(publish_year, bool)
-        and 1900 <= publish_year <= 2100
+    return (
+        len(provenance.document_id) == 64
+        and all(character in "0123456789abcdefABCDEF" for character in provenance.document_id)
+        and provenance.source_type in _RAG_SOURCE_TYPES
     )
 
 

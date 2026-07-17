@@ -19,6 +19,7 @@ from gerclaw_api.modules.rag.providers import (
     SiliconFlowReranker,
 )
 from gerclaw_api.modules.rag.store import QdrantHybridStore, RAGStoreError
+from gerclaw_api.modules.validation import validate_local_rag_evidence_provenance
 
 LOGGER = logging.getLogger(__name__)
 
@@ -85,19 +86,21 @@ class HybridRAGModule:
                 continue
             candidate = candidates[score.index]
             chunk = candidate.chunk
-            metadata = {
-                "document_id": chunk.document_id,
-                "chunk_id": chunk.chunk_id,
-                "title": chunk.title,
-                "chapter": chunk.chapter,
-                "category": chunk.category,
-                "source_type": chunk.source_type,
-                "publish_year": chunk.publish_year,
-                "chunk_index": chunk.chunk_index,
-                "total_chunks": chunk.total_chunks,
-                "hybrid_score": round(candidate.hybrid_score, 8),
-                "rerank_score": round(score.score, 8),
-            }
+            metadata = validate_local_rag_evidence_provenance(
+                {
+                    "document_id": chunk.document_id,
+                    "chunk_id": chunk.chunk_id,
+                    "title": chunk.title,
+                    "chapter": chunk.chapter,
+                    "category": chunk.category,
+                    "source_type": chunk.source_type,
+                    "publish_year": chunk.publish_year,
+                    "chunk_index": chunk.chunk_index,
+                    "total_chunks": chunk.total_chunks,
+                    "hybrid_score": round(candidate.hybrid_score, 8),
+                    "rerank_score": round(score.score, 8),
+                }
+            ).model_dump(mode="json")
             results.append(
                 RetrievalResult(
                     content=chunk.content,
