@@ -1,7 +1,7 @@
 # 006 — 为通用弹层补齐 reduced-motion 退化
 
-- **Status**: TODO
-- **Commit**: 36ef85b
+- **Status**: DONE
+- **Commit**: pending
 - **Severity**: MEDIUM
 - **Category**: Accessibility
 - **Estimated scope**: 3 files, focused utility-class changes
@@ -90,3 +90,15 @@ short opacity transition so state feedback is not lost. Use Tailwind
   without directional translation or scale, while remaining visibly announced.
 - **Done when**: every cited primitive has an explicit component-level reduced
   motion path and existing keyboard interaction continues to work.
+
+## Result
+
+- Implemented in `dropdown-menu.tsx`, `tooltip.tsx`, and `toast.tsx`.
+- Normal popup timing now uses the shared 180ms popover token and shared
+  ease-out curve; trigger-origin placement remains unchanged.
+- Reduced-motion rules neutralize every directional slide and zoom while
+  retaining the existing fade. The production CSS contains the corresponding
+  `prefers-reduced-motion: reduce` rules.
+- `npm run lint`, `npm run build`, and `npm test` passed. Browser review of the
+  mandatory login → guest patient → menu path under reduced motion completed
+  without console errors.

@@ -305,12 +305,12 @@
   input[type="button"],
   input[type="submit"],
   input[type="reset"] {
-    transition: background-color 220ms ease-out,
-                border-color 220ms ease-out,
-                color 220ms ease-out,
-                opacity 220ms ease-out,
-                box-shadow 220ms ease-out,
-                transform 220ms ease-out;
+    transition: background-color var(--motion-press) var(--motion-ease-out),
+                border-color var(--motion-press) var(--motion-ease-out),
+                color var(--motion-press) var(--motion-ease-out),
+                opacity var(--motion-press) var(--motion-ease-out),
+                box-shadow var(--motion-press) var(--motion-ease-out),
+                transform var(--motion-press) var(--motion-ease-out);
   }
 }
 

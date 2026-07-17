@@ -99,7 +99,7 @@ export function Toaster() {
           key={item.id}
           role="status"
           className={cn(
-            "pointer-events-auto flex w-full min-w-0 max-w-full items-center gap-3 rounded-lg bg-foreground px-4 py-3 text-base text-background shadow-lg animate-in fade-in slide-in-from-bottom-2 duration-200 sm:w-fit",
+            "pointer-events-auto flex w-full min-w-0 max-w-full items-center gap-3 rounded-lg bg-foreground px-4 py-3 text-base text-background shadow-lg animate-in fade-in slide-in-from-bottom-2 duration-[var(--motion-popover)] ease-[var(--motion-ease-out)] motion-reduce:slide-in-from-bottom-0 sm:w-fit",
             seniorMode && "text-lg"
           )}
         >

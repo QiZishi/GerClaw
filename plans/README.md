@@ -16,8 +16,9 @@ loader wall or fake progress.
 | 003 | Make sheets and dialogs enter from their spatial origin | MEDIUM | DONE |
 | 004 | Animate progress with transforms, not layout width | MEDIUM | DONE |
 | 005 | 将录音波形改为合成层动画 | HIGH | DONE |
-| 006 | 为通用弹层补齐 reduced-motion 退化 | MEDIUM | TODO |
+| 006 | 为通用弹层补齐 reduced-motion 退化 | MEDIUM | DONE |
 | 007 | 限定开关的过渡属性 | MEDIUM | DONE |
+| 008 | 降低抽屉与高频控件的无障碍运动负担 | MEDIUM | DONE |
 
 Executed in order 001 → 002 → 003 → 004. Plans 002 and 003 use the motion
 tokens and reduced-motion policy introduced by 001; plan 004 uses the shared
@@ -26,5 +27,10 @@ the CLI's media-emulation snippet is not supported by this runner, so
 reduced-motion behavior is additionally covered by the component branches and
 production build.
 
-Plan 005 and plan 007 are complete. Plan 006 remains next; it reuses existing
-motion tokens and does not change product behavior.
+Plan 005, plan 006, plan 007, and plan 008 are complete. They reuse existing
+motion tokens and do not change product behavior.
+
+Plan 008 records the follow-up browser review of the mandatory login and guest
+patient entry. It is intentionally separate from plan 006: Drawer gesture
+motion and high-frequency press feedback need different verification from
+anchored popovers and status notices.
