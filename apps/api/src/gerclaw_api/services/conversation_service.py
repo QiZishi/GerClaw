@@ -61,6 +61,15 @@ class ConversationService:
             raise ConversationNotFoundError(str(session_id))
         return conversation
 
+    async def list_sessions(
+        self, *, tenant_id: str, actor_id: str, limit: int
+    ) -> list[ConversationSession]:
+        """List only this verified account's active conversation records."""
+
+        return await self._repository.list_sessions(
+            tenant_id=tenant_id, actor_id=actor_id, limit=limit
+        )
+
     async def ensure_session(
         self, session_id: uuid.UUID, *, tenant_id: str, actor_id: str
     ) -> ConversationSession:
@@ -192,6 +201,7 @@ class ConversationService:
         self,
         *,
         tenant_id: str,
+        conversation: ConversationSession,
         session_id: uuid.UUID,
         trace_id: str,
         text: str,
@@ -204,6 +214,8 @@ class ConversationService:
             if existing.session_id != session_id or self._message_text(existing) != text:
                 raise ConversationConflictError("trace user message conflicts with stored data")
             return existing
+        if conversation.title is None:
+            conversation.title = " ".join(text.split())[:120] or "新对话"
         message = Message(
             id=uuid.uuid4(),
             tenant_id=tenant_id,

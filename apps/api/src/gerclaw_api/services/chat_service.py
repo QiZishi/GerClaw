@@ -440,6 +440,7 @@ class ChatService:
             profile_context, profile_version, memory_refs = await memory.core_profile_context()
         await self._conversation.store_user_message(
             tenant_id=identity.tenant_id,
+            conversation=conversation,
             session_id=payload.session_id,
             trace_id=trace_id,
             text=payload.message,

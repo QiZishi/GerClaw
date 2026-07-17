@@ -23,7 +23,7 @@ const proxyRules: Array<{ pattern: RegExp; methods: ReadonlySet<string> }> = [
     pattern: /^skills\/sessions\/[0-9a-f-]{36}\/selection$/,
     methods: new Set(["GET", "PUT"]),
   },
-  { pattern: /^sessions$/, methods: new Set(["POST"]) },
+  { pattern: /^sessions$/, methods: new Set(["GET", "POST"]) },
   {
     pattern: new RegExp(`^sessions/${uuidPattern}/messages$`, "i"),
     methods: new Set(["GET"]),

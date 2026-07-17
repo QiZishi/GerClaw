@@ -61,6 +61,21 @@ class _ConversationRepository:
             return None
         return stored[0]
 
+    async def list_sessions(
+        self, *, tenant_id: str, actor_id: str, limit: int
+    ) -> list[ConversationSession]:
+        owned_active_sessions = [
+            conversation
+            for conversation, owner_tenant, owner_actor in self.sessions.values()
+            if (owner_tenant, owner_actor) == (tenant_id, actor_id)
+            and conversation.status == "active"
+        ]
+        return sorted(
+            owned_active_sessions,
+            key=lambda conversation: (conversation.updated_at, str(conversation.id)),
+            reverse=True,
+        )[:limit]
+
     async def delete_session(
         self, session_id: uuid.UUID, *, tenant_id: str, actor_id: str
     ) -> bool:
@@ -232,6 +247,7 @@ async def test_conversation_lifecycle_history_and_replay() -> None:
 
     user = await service.store_user_message(
         tenant_id=TENANT,
+        conversation=conversation,
         session_id=session_id,
         trace_id="trace_conversation_unit001",
         text="老年高血压如何管理?",
@@ -246,12 +262,14 @@ async def test_conversation_lifecycle_history_and_replay() -> None:
     assert (
         await service.store_user_message(
             tenant_id=TENANT,
+            conversation=conversation,
             session_id=session_id,
             trace_id="trace_conversation_unit001",
             text="老年高血压如何管理?",
             channel="web",
         )
     ) is user
+    assert conversation.title == "老年高血压如何管理?"
     assert (
         await service.store_assistant_message(
             tenant_id=TENANT,
@@ -289,6 +307,7 @@ async def test_conversation_lifecycle_history_and_replay() -> None:
     with pytest.raises(ConversationConflictError):
         await service.store_user_message(
             tenant_id=TENANT,
+            conversation=conversation,
             session_id=session_id,
             trace_id="trace_conversation_unit001",
             text="different",
@@ -320,6 +339,24 @@ async def test_conversation_lifecycle_history_and_replay() -> None:
         )
     await service.rollback()
     assert repository.rollbacks == 1
+
+
+@pytest.mark.asyncio
+async def test_list_sessions_is_owned_active_and_newest_first() -> None:
+    repository = _ConversationRepository()
+    service = ConversationService(repository)
+    older_id = uuid.uuid4()
+    newer_id = uuid.uuid4()
+    other_id = uuid.uuid4()
+    older = await service.create_session(older_id, tenant_id=TENANT, actor_id=ACTOR)
+    newer = await service.create_session(newer_id, tenant_id=TENANT, actor_id=ACTOR)
+    other = await service.create_session(other_id, tenant_id=TENANT, actor_id="usr_other00000001")
+    older.updated_at = datetime(2026, 1, 1, tzinfo=UTC)
+    newer.updated_at = datetime(2026, 1, 2, tzinfo=UTC)
+    other.updated_at = datetime(2026, 1, 3, tzinfo=UTC)
+
+    assert await service.list_sessions(tenant_id=TENANT, actor_id=ACTOR, limit=50) == [newer, older]
+    assert await service.list_sessions(tenant_id=TENANT, actor_id=ACTOR, limit=1) == [newer]
 
 
 @pytest.mark.asyncio

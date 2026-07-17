@@ -31,6 +31,7 @@ import { useChatStore } from "@/stores/chatStore";
 import { cn } from "@/lib/utils";
 import { streamAgentChat } from "@/services/gerclaw/chat";
 import { readSessionSkills, replaceSessionSkills } from "@/services/gerclaw/skills";
+import { readConversationMessages, toFrontendMessages } from "@/services/gerclaw/conversation-history";
 import { registerParsedDocument } from "@/services/gerclaw/documents";
 import { fivePrescriptionDraftToMarkdown } from "@/services/gerclaw/prescription-report";
 import type { FivePrescriptionDraft } from "@/services/gerclaw/schemas";
@@ -63,6 +64,7 @@ export function ChatArea() {
   const setLoadedSkills = useAppStore((s) => s.setLoadedSkills);
   const isGenerating = useChatStore((s) => s.isGenerating);
   const setGenerating = useChatStore((s) => s.setGenerating);
+  const setMessages = useChatStore((s) => s.setMessages);
 
   const messagesBySession = useChatStore((s) => s.messagesBySession);
   const addMessage = useChatStore((s) => s.addMessage);
@@ -84,6 +86,7 @@ export function ChatArea() {
   const currentThinkingBlockIdRef = useRef<string | null>(null);
   const skillSelectionLoadRef = useRef(0);
   const pendingSkillSelectionRef = useRef(new Map<string, string[]>());
+  const loadedHistorySessionIdsRef = useRef(new Set<string>());
   const [skillSelectionReadySessionId, setSkillSelectionReadySessionId] = useState<string | null>(null);
   const skillSelectionReadySessionIdRef = useRef<string | null>(null);
 
@@ -169,6 +172,31 @@ export function ChatArea() {
         }
       });
   }, [currentSessionId, isGuest, setLoadedSkills]);
+
+  useEffect(() => {
+    if (
+      isGuest ||
+      !currentSessionId ||
+      skillSelectionReadySessionId !== currentSessionId ||
+      loadedHistorySessionIdsRef.current.has(currentSessionId)
+    ) {
+      return;
+    }
+    let live = true;
+    void readConversationMessages(currentSessionId)
+      .then((response) => {
+        if (!live) return;
+        loadedHistorySessionIdsRef.current.add(currentSessionId);
+        setMessages(currentSessionId, toFrontendMessages(response));
+      })
+      .catch(() => {
+        // Keep an empty new session usable; never substitute another session's history.
+        if (!live) return;
+        loadedHistorySessionIdsRef.current.add(currentSessionId);
+        setMessages(currentSessionId, []);
+      });
+    return () => { live = false; };
+  }, [currentSessionId, isGuest, setMessages, skillSelectionReadySessionId]);
 
   // 仅健康画像由右侧面板承载；其余入口均由各自的真实后端流程承载。
   useEffect(() => {

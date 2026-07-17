@@ -19,6 +19,7 @@ import { cn } from "@/lib/utils";
 import { AdminDashboard } from "@/components/account/AdminDashboard";
 import { getAccountIdentity, type AccountIdentity } from "@/services/account";
 import { LoginPage } from "@/components/account/LoginPage";
+import { listConversationHistory, toFrontendSessions } from "@/services/gerclaw/conversation-history";
 
 /**
  * 角色路由分发
@@ -44,13 +45,29 @@ export default function Home() {
   const [guestEntry, setGuestEntry] = useState(false);
   useEffect(() => { void getAccountIdentity().then(setIdentity); }, []);
   useEffect(() => {
-    if (!identity) return;
+    if (!identity) {
+      if (identity === null && !guestEntry) useChatStore.getState().clearAllData();
+      return;
+    }
     // Never render browser-local drafts from a prior person under a newly
     // verified account. Durable records remain owner-scoped in the API.
     useChatStore.getState().clearAllData();
     setGuestMode(false);
     setRole(identity.role);
-  }, [identity, setGuestMode, setRole]);
+    let live = true;
+    void listConversationHistory()
+      .then((items) => {
+        if (!live) return;
+        const sessions = toFrontendSessions(items, identity.role);
+        useChatStore.getState().setSessions(sessions);
+        if (sessions[0]) setCurrentSession(sessions[0].id);
+      })
+      .catch(() => {
+        // A history failure must not retain an earlier browser user's records.
+        if (live) useChatStore.getState().clearAllData();
+      });
+    return () => { live = false; };
+  }, [guestEntry, identity, setCurrentSession, setGuestMode, setRole]);
   useEffect(() => {
     if (guestEntry) useChatStore.getState().clearAllData();
   }, [guestEntry]);

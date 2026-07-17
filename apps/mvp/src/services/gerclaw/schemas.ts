@@ -57,10 +57,47 @@ export const sessionSchema = z
     id: z.string().uuid(),
     agent_id: z.string(),
     status: z.enum(["active", "archived", "deleted"]),
+    title: z.string().min(1).max(120).nullable(),
     created_at: z.string(),
     updated_at: z.string(),
   })
-  .passthrough();
+  .strict();
+
+export const sessionListSchema = z
+  .object({ sessions: z.array(sessionSchema).max(50) })
+  .strict();
+
+const storedCitationSchema = z
+  .object({
+    source_id: z.string().min(1).max(256),
+    title: z.string().min(1).max(512),
+    locator: z.string().min(1).max(1_024),
+    excerpt: z.string().min(1).max(2_000),
+    score: z.number().min(0).nullable(),
+    corpus: z.enum(["local_knowledge_base", "web", "uploaded_document", "uploaded_image"]),
+  })
+  .strict();
+
+export const sessionMessagesSchema = z
+  .object({
+    session_id: z.string().uuid(),
+    messages: z.array(
+      z
+        .object({
+          id: z.string().uuid(),
+          trace_id: z.string().nullable(),
+          role: z.enum(["user", "assistant"]),
+          text: z.string().min(1).max(50_000),
+          citations: z.array(storedCitationSchema).max(50),
+          created_at: z.string(),
+        })
+        .strict()
+    ).max(100),
+  })
+  .strict();
+
+export type BackendSession = z.infer<typeof sessionSchema>;
+export type BackendSessionMessages = z.infer<typeof sessionMessagesSchema>;
 
 export type SkillInfo = z.infer<typeof skillInfoSchema>;
 export type SkillDefinition = z.infer<typeof skillDefinitionSchema>;

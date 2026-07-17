@@ -68,13 +68,22 @@ class SessionCreateRequest(BaseModel):
 class SessionRead(BaseModel):
     """Public session metadata without encrypted internal context."""
 
-    model_config = ConfigDict(from_attributes=True)
+    model_config = ConfigDict(from_attributes=True, extra="forbid")
 
     id: uuid.UUID
     agent_id: str
     status: Literal["active", "archived", "deleted"]
+    title: str | None = Field(default=None, max_length=120)
     created_at: datetime
     updated_at: datetime
+
+
+class SessionListRead(BaseModel):
+    """Bounded newest-first session metadata for one persistent account."""
+
+    model_config = STRICT
+
+    sessions: list[SessionRead] = Field(default_factory=list, max_length=50)
 
 
 class SessionDeleted(BaseModel):

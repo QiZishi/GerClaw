@@ -30,6 +30,11 @@ class ConversationRepository(Protocol):
     ) -> ConversationSession | None:
         """Return a session only when both tenant and actor own it."""
 
+    async def list_sessions(
+        self, *, tenant_id: str, actor_id: str, limit: int
+    ) -> list[ConversationSession]:
+        """Return only active sessions owned by one account principal."""
+
     async def delete_session(
         self, session_id: uuid.UUID, *, tenant_id: str, actor_id: str
     ) -> bool:
@@ -153,6 +158,24 @@ class SqlAlchemyConversationRepository:
             .execution_options(populate_existing=True)
         )
         return cast(ConversationSession | None, await self._session.scalar(statement))
+
+    async def list_sessions(
+        self, *, tenant_id: str, actor_id: str, limit: int
+    ) -> list[ConversationSession]:
+        statement = (
+            select(ConversationSession)
+            .join(User, User.id == ConversationSession.user_id)
+            .where(
+                ConversationSession.tenant_id == tenant_id,
+                ConversationSession.status == "active",
+                User.tenant_id == tenant_id,
+                User.external_id == actor_id,
+                User.is_active.is_(True),
+            )
+            .order_by(ConversationSession.updated_at.desc(), ConversationSession.id.desc())
+            .limit(limit)
+        )
+        return list((await self._session.scalars(statement)).all())
 
     async def list_messages(
         self, session_id: uuid.UUID, *, tenant_id: str, limit: int

@@ -10,9 +10,10 @@ const intakeId = "8c711e7e-7ddd-47df-8863-1a0f3d183509";
 
 test("session proxy permits only the declared session lifecycle operations", () => {
   assert.equal(isAllowedGerclawProxyTarget("sessions", "POST"), true);
+  assert.equal(isAllowedGerclawProxyTarget("sessions", "GET"), true);
   assert.equal(isAllowedGerclawProxyTarget(`sessions/${sessionId}/messages`, "GET"), true);
   assert.equal(isAllowedGerclawProxyTarget(`sessions/${sessionId}`, "DELETE"), true);
-  assert.equal(isAllowedGerclawProxyTarget("sessions", "GET"), false);
+  assert.equal(isAllowedGerclawProxyTarget("sessions", "PATCH"), false);
   assert.equal(isAllowedGerclawProxyTarget(`sessions/${sessionId}/messages`, "POST"), false);
   assert.equal(isAllowedGerclawProxyTarget(`sessions/${sessionId}`, "PATCH"), false);
   assert.equal(isAllowedGerclawProxyTarget("sessions/not-a-uuid", "DELETE"), false);

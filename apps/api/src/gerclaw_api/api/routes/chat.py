@@ -28,6 +28,7 @@ from gerclaw_api.domain.chat_schemas import (
     ChatRequest,
     SessionCreateRequest,
     SessionDeleted,
+    SessionListRead,
     SessionMessagesRead,
     SessionRead,
 )
@@ -159,6 +160,27 @@ async def create_session(
     return SessionRead.model_validate(conversation)
 
 
+@router.get("/sessions", response_model=SessionListRead)
+async def list_sessions(
+    request: Request,
+    session: SessionDependency,
+    identity: ChatReadIdentity,
+    limit: Annotated[int, Query(ge=1, le=50)] = 20,
+) -> SessionListRead:
+    """Restore durable conversation metadata for an authenticated account only."""
+
+    await _enforce_rate_limit(request, identity)
+    if identity.account_role == "guest":
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail={"code": "GUEST_SESSION_HISTORY_DISABLED"},
+        )
+    conversations = await _conversation_service(session).list_sessions(
+        tenant_id=identity.tenant_id, actor_id=identity.actor_id, limit=limit
+    )
+    return SessionListRead(sessions=[SessionRead.model_validate(item) for item in conversations])
+
+
 @router.delete("/sessions/{session_id}", response_model=SessionDeleted)
 async def delete_session(
     session_id: uuid.UUID,
@@ -197,6 +219,11 @@ async def get_session_messages(
     """Return bounded decrypted history only to its actor and tenant."""
 
     await _enforce_rate_limit(request, identity)
+    if identity.account_role == "guest":
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail={"code": "GUEST_SESSION_HISTORY_DISABLED"},
+        )
     service = _conversation_service(session)
     try:
         messages = await service.list_messages(
