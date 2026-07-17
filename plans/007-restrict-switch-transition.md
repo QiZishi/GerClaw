@@ -1,6 +1,6 @@
 # 007 — 限定开关的过渡属性
 
-- **Status**: TODO
+- **Status**: DONE
 - **Commit**: 36ef85b
 - **Severity**: MEDIUM
 - **Category**: Performance / cohesion
@@ -71,3 +71,12 @@ same timing, and retain static state changes under reduced motion.
   changes remain understandable while thumb movement is not animated.
 - **Done when**: `switch.tsx` contains no `transition-all`; no visual or
   keyboard regression appears in the account/settings menu.
+
+## Execution record
+
+- Implemented at commit pending: the switch track now transitions only
+  background/border/color/opacity at the shared press duration; its thumb has
+  an explicit transform transition and a reduced-motion static fallback.
+- `npm run lint` and `npm run build` passed. In a real guest patient browser
+  session, the labelled senior-mode switch moved from checked to unchecked and
+  back to checked, with no browser-console error.

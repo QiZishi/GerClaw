@@ -96,16 +96,17 @@ function WaveformBars({ audioLevel }: { audioLevel: number }) {
         const baseHeight = 4 + (1 - centerDist) * 8;
         const levelMultiplier = 0.4 + audioLevel * 1.8;
         const height = Math.min(baseHeight * levelMultiplier, 28);
+        const scaleY = Math.max(height / 28, 0.06);
         const isActive = audioLevel > 0.05;
         return (
           <div
             key={i}
             className={cn(
-              "w-[3px] rounded-full transition-all duration-100",
+              "h-7 w-[3px] origin-center rounded-full transition-[transform,background-color] duration-100 ease-[var(--motion-ease-out)] motion-reduce:transition-none",
               isActive ? "bg-gray-800 dark:bg-gray-200" : "bg-gray-300 dark:bg-gray-600"
             )}
             style={{
-              height: `${height}px`,
+              transform: `scaleY(${scaleY})`,
             }}
           />
         );

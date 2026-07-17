@@ -1,6 +1,6 @@
 # 005 — 将录音波形改为合成层动画
 
-- **Status**: TODO
+- **Status**: DONE
 - **Commit**: 36ef85b
 - **Severity**: HIGH
 - **Category**: Performance
@@ -87,3 +87,13 @@ style={{ transform: `scaleY(${scaleY})` }}
   color must remain understandable but must not glide between values.
 - **Done when**: `WaveformBars` has no `transition-all` and no per-update
   `height` style, while recording remains visibly responsive.
+
+## Execution record
+
+- Implemented at commit pending: each bar now has a stable `h-7` layout box and
+  its existing calculated amplitude is represented as `scaleY`; the only
+  transitions are transform/background color, and reduced motion is static.
+- `npm run lint` and `npm run build` passed. A real guest patient browser
+  session entered through the login page and toggled senior mode twice without
+  console errors; microphone permission/real audio input was intentionally not
+  requested during this UI-only regression.
