@@ -33,6 +33,7 @@ const proxyRules: Array<{ pattern: RegExp; methods: ReadonlySet<string> }> = [
     methods: new Set(["DELETE"]),
   },
   { pattern: /^chat$/, methods: new Set(["POST"]) },
+  { pattern: /^rag\/retrieve$/, methods: new Set(["POST"]) },
   { pattern: /^voice\/(?:asr|tts)$/, methods: new Set(["POST"]) },
   { pattern: /^documents$/, methods: new Set(["POST"]) },
   {
@@ -74,6 +75,10 @@ const proxyRules: Array<{ pattern: RegExp; methods: ReadonlySet<string> }> = [
   },
   {
     pattern: new RegExp(`^clinical-intakes/${uuidPattern}/prescription-draft$`, "i"),
+    methods: new Set(["POST"]),
+  },
+  {
+    pattern: new RegExp(`^clinical-intakes/${uuidPattern}/conversation-turn$`, "i"),
     methods: new Set(["POST"]),
   },
   { pattern: /^memory\/profile$/, methods: new Set(["GET"]) },
