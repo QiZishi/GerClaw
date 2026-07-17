@@ -177,10 +177,6 @@ class FivePrescriptionDraft(BaseModel):
             raise ValueError("prescription evidence references must resolve to evidence_sources")
         if not set(self.uploaded_image_evidence_ids).issubset(available):
             raise ValueError("uploaded image evidence must resolve to evidence_sources")
-        if self.status == "needs_medical_governance" and self.uploaded_document_ids:
-            # Documents are input/provenance only; their ownership must be resolved
-            # by the future workflow before any reviewable draft can be emitted.
-            raise ValueError("governance-pending drafts cannot claim uploaded-document provenance")
         return self
 
 
