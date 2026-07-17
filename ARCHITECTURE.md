@@ -139,7 +139,7 @@ CGA 题干和选项按 `scale_id + definition_version` 映射至 `apps/mvp/publi
 
 应用服务以无状态请求处理为目标；持久化状态位于 PostgreSQL，短暂 ownership/限流/取消位于 Redis，向量数据位于 Qdrant，索引由独立 one-shot job 执行。会话 fencing、owner lease、有界 SSE queue、超时、预算与幂等键是横向扩展的基础，不是已经完成千级验证的证明。
 
-当前只有 Docker Compose 中 **10 并发确定性高风险短路 SSE** 的真实证据；结果不能外推到模型、RAG、临床 workflow 或千级并发。最终发布前仍需补齐容量规划、完整 ≤10 并发场景和空卷 Docker smoke。
+当前只有 Docker Compose 中 **10 并发确定性高风险短路 SSE** 的真实证据；结果不能外推到模型、RAG、临床 workflow 或千级并发。面向 1,000 活跃连接的拓扑、背压、分阶段压测和放量门槛见[容量与扩展计划](docs/design-docs/容量与扩展计划.md)：它是设计基线，不是压测结论。最终发布前仍需补齐完整 ≤10 并发场景和空卷 Docker smoke。
 
 ## 11. 验证与变更
 
