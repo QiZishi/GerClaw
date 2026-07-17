@@ -69,7 +69,7 @@ def test_rule_review_emits_source_traceable_ddi_and_dose_findings() -> None:
         medication_list="瑞舒伐他汀 40mg 每日一次\n环孢素\n阿托伐他汀\n地高辛",
     )
 
-    assert result.ruleset_version == "medication-rules-v1"
+    assert result.ruleset_version == "medication-rules-v2"
     assert result.coverage.beers == "limited_source_traceable"
     assert result.sources[0].content_sha256 == (
         "940965391565b0de32f3aba51c5a323542f5af9b18162c5075130ba63437feeb"
@@ -107,6 +107,42 @@ def test_rule_review_emits_limited_beers_signal_only_for_age_qualified_input() -
     ]
     assert result.findings[0].source_ids == ("insomnia_bz_older_adults",)
     assert "不能确定该药的实际适应证" in result.findings[0].conclusion
+
+
+def test_rule_review_v2_emits_evidence_bound_new_high_risk_pairs() -> None:
+    result = review_medication_list(
+        intake_id=uuid.uuid4(),
+        patient_age=78,
+        medication_list=(
+            "硝酸甘油 0.5mg 必要时使用\n"
+            "西地那非 50mg\n"
+            "氯吡格雷 75mg 每日一次\n"
+            "奥美拉唑 20mg 每日一次\n"
+            "地高辛 0.125mg 每日一次\n"
+            "胺碘酮 200mg 每日一次\n"
+            "瑞格列奈 1mg 每日三次\n"
+            "吉非罗齐 600mg 每日两次"
+        ),
+    )
+
+    findings = {finding.finding_id: finding for finding in result.findings}
+    assert result.ruleset_version == "medication-rules-v2"
+    assert set(findings) == {
+        "ddi_nitroglycerin_sildenafil",
+        "ddi_clopidogrel_omeprazole",
+        "ddi_digoxin_amiodarone",
+        "ddi_repaglinide_gemfibrozil",
+        "polypharmacy_5_to_9",
+    }
+    assert findings["ddi_nitroglycerin_sildenafil"].severity == "contraindicated"
+    assert findings["ddi_digoxin_amiodarone"].source_ids == (
+        "frailty_polypharmacy_2022",
+    )
+    assert findings["ddi_clopidogrel_omeprazole"].source_ids == (
+        "stable_cad_primary_care",
+        "frailty_polypharmacy_2022",
+    )
+    assert "患者不要自行" not in findings["ddi_clopidogrel_omeprazole"].clinician_action
 
 
 def test_rule_review_does_not_infer_beers_signal_without_age_context() -> None:

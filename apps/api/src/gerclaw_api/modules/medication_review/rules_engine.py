@@ -15,7 +15,7 @@ import uuid
 from functools import lru_cache
 from pathlib import Path
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 from gerclaw_api.modules.medication_review.models import (
     MedicationListEntry,
@@ -93,6 +93,23 @@ class _RuleSet(BaseModel):
     ddi_rules: tuple[_DdiRule, ...] = Field(max_length=2_000)
     dose_rules: tuple[_DoseRule, ...] = Field(max_length=2_000)
     beers_rules: tuple[_BeersRule, ...] = Field(max_length=2_000)
+
+    @model_validator(mode="after")
+    def validate_references(self) -> _RuleSet:
+        """Reject an artifact with a dangling source or unmatchable drug name."""
+
+        source_ids = {source.source_id for source in self.sources}
+        references = (
+            *((rule.id, rule.source_ids, rule.drugs) for rule in self.ddi_rules),
+            *((rule.id, rule.source_ids, (rule.drug,)) for rule in self.dose_rules),
+            *((rule.id, rule.source_ids, rule.drugs) for rule in self.beers_rules),
+        )
+        for rule_id, rule_source_ids, drugs in references:
+            if missing_sources := set(rule_source_ids) - source_ids:
+                raise ValueError(f"rule {rule_id} references unknown sources: {missing_sources}")
+            if missing_aliases := set(drugs) - set(self.aliases):
+                raise ValueError(f"rule {rule_id} references unknown aliases: {missing_aliases}")
+        return self
 
 
 @lru_cache(maxsize=1)
@@ -193,7 +210,7 @@ def _ddi_findings(
                 title=f"{rule.drugs[0]} + {rule.drugs[1]}：{_severity_label(severity)}风险",
                 involved_generic_names=rule.drugs,
                 conclusion=rule.conclusion,
-                clinician_action=rule.clinician_action,
+                clinician_action=_review_action(rule.clinician_action),
                 elderly_note=rule.elderly_note,
                 source_ids=rule.source_ids,
                 age_escalated=age_escalated,
@@ -228,7 +245,7 @@ def _dose_findings(
                     title=f"{rule.drug}：录入日剂量 {daily_mg:g} mg 超出规则阈值",
                     involved_generic_names=(rule.drug,),
                     conclusion=rule.conclusion,
-                    clinician_action=rule.clinician_action,
+                    clinician_action=_review_action(rule.clinician_action),
                     elderly_note=rule.elderly_note,
                     source_ids=rule.source_ids,
                     age_escalated=age_escalated,
@@ -255,7 +272,7 @@ def _duplicate_findings(
                 f"{generic}在第{'、'.join(map(str, positions))}条中均被识别，"
                 "需要核对是否为重复记录或重复用药。"
             ),
-            clinician_action="请由医师或药师核对每条药物的实际名称、剂型、用法和开方来源；患者不要自行删减药物。",
+            clinician_action="请由医师或药师核对每条药物的实际名称、剂型、用法和开方来源。",
             elderly_note="老年人多重用药时，应进行完整的药物核对。",
         )
         for index, (generic, positions) in enumerate(positions_by_generic.items(), start=1)
@@ -291,7 +308,7 @@ def _beers_findings(
                 title=f"≥{rule.minimum_age} 岁：{ '、'.join(matched) } 老年用药核对提示",
                 involved_generic_names=matched,
                 conclusion=rule.conclusion,
-                clinician_action=rule.clinician_action,
+                clinician_action=_review_action(rule.clinician_action),
                 elderly_note=rule.elderly_note,
                 source_ids=rule.source_ids,
             )
@@ -315,7 +332,7 @@ def _polypharmacy_findings(entry_count: int) -> list[MedicationReviewFinding]:
                 if entry_count >= 10
                 else "已达到5种及以上药物的多重用药提醒阈值。"
             ),
-            clinician_action="请由医师或药师进行完整的药物核对、适应证和不良反应评估；患者不要自行停药。",
+            clinician_action="请由医师或药师进行完整的药物核对、适应证和不良反应评估。",
             elderly_note="老年人多重用药时，药物相互作用和不良反应风险可能增加。",
         )
     ]
@@ -346,6 +363,12 @@ def _severity_label(severity: MedicationRiskLevel) -> str:
         "moderate": "中等",
         "minor": "轻微",
     }[severity]
+
+
+def _review_action(action: str) -> str:
+    """Keep operational advice factual; the single final disclaimer carries patient risk."""
+
+    return re.sub(r"[；，]患者不要自行[^。]*。?", "。", action)
 
 
 def _conclusion(findings: list[MedicationReviewFinding]) -> str:
