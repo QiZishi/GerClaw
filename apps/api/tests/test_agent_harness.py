@@ -25,7 +25,6 @@ from gerclaw_api.modules.agent_harness.harness import (
 from gerclaw_api.modules.agent_harness.protocols import ConversationHistoryMessage, StreamEvent
 from gerclaw_api.modules.agent_harness.safety import (
     MEDICAL_DISCLAIMER,
-    EvidenceUnavailableError,
 )
 from gerclaw_api.modules.contracts import ExecutionContext
 from gerclaw_api.modules.document import UploadedDocumentContext
@@ -879,10 +878,11 @@ async def test_high_risk_notice_is_first_public_text(unit_settings: Settings) ->
 
 
 @pytest.mark.asyncio
-async def test_medical_request_without_evidence_fails_closed(
+async def test_medical_request_without_evidence_returns_a_safe_clarification(
     unit_settings: Settings,
 ) -> None:
-    harness = _harness(unit_settings, model=_HarnessModel(), rag=_HarnessRAG([]))
+    model = _HarnessModel(text="不应调用模型。")
+    harness = _harness(unit_settings, model=model, rag=_HarnessRAG([]))
     context = await harness.assemble_context(
         "108815d7-05bf-4c2a-a977-cd034f390fab",
         "usr_patient00000001",
@@ -890,13 +890,19 @@ async def test_medical_request_without_evidence_fails_closed(
         [],
     )
     events: list[StreamEvent] = []
-    with pytest.raises(EvidenceUnavailableError):
-        await harness.process_message(
-            "这个药安全吗？",
-            "108815d7-05bf-4c2a-a977-cd034f390fab",
-            context,
-            events.append,
-        )
+    response = await harness.process_message(
+        "这个药安全吗？",
+        "108815d7-05bf-4c2a-a977-cd034f390fab",
+        context,
+        events.append,
+    )
+    assert model.calls == 0
+    assert response.medical_content is True
+    assert response.citations == []
+    assert response.structured["evidence_state"] == "unavailable"
+    assert "evidence_unavailable_clarification" in response.safety.notices
+    assert "请补充" in response.text
+    assert events[-1].event_type == "done"
     assert [event.data.get("status") for event in events if event.event_type == "tool_result"] == [
         "success"
     ]
@@ -906,7 +912,7 @@ async def test_medical_request_without_evidence_fails_closed(
 
 
 @pytest.mark.asyncio
-async def test_non_projectable_evidence_fails_before_model_or_medical_text(
+async def test_non_projectable_evidence_returns_safe_clarification_before_model_text(
     unit_settings: Settings,
 ) -> None:
     invalid = RetrievalResult(
@@ -924,17 +930,19 @@ async def test_non_projectable_evidence_fails_before_model_or_medical_text(
         [],
     )
     events: list[StreamEvent] = []
-    with pytest.raises(EvidenceUnavailableError):
-        await harness.process_message(
-            "请判断老人是不是冠心病",
-            "108815d7-05bf-4c2a-a977-cd034f390fab",
-            context,
-            events.append,
-        )
+    response = await harness.process_message(
+        "请判断老人是不是冠心病",
+        "108815d7-05bf-4c2a-a977-cd034f390fab",
+        context,
+        events.append,
+    )
 
     assert model.calls == 0
-    assert all(event.event_type != "text_delta" for event in events)
-    assert all(event.event_type != "done" for event in events)
+    assert response.citations == []
+    assert response.structured["evidence_state"] == "unavailable"
+    assert "您患有冠心病" not in response.text
+    assert any(event.event_type == "text_delta" for event in events)
+    assert events[-1].event_type == "done"
 
 
 @pytest.mark.asyncio

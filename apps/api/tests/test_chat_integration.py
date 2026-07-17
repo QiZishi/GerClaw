@@ -364,7 +364,7 @@ async def test_successor_fencing_token_rejects_stale_database_writer(
 
 @pytest.mark.integration
 @pytest.mark.asyncio
-async def test_chat_missing_evidence_fails_trace_without_assistant_message(
+async def test_chat_missing_evidence_persists_safe_clarification_without_bad_case(
     integration_client: tuple[AsyncClient, object],
 ) -> None:
     client, app = integration_client
@@ -375,7 +375,10 @@ async def test_chat_missing_evidence_fails_trace_without_assistant_message(
     ).status_code == 201
     runtime = app.state.rag_runtime
     working_module = runtime.module
+    search_runtime = app.state.search_runtime
+    working_search_module = search_runtime.module
     runtime.module = _EmptyRAG()
+    search_runtime.module = None
     try:
         response = await client.post(
             "/api/v1/chat",
@@ -388,15 +391,16 @@ async def test_chat_missing_evidence_fails_trace_without_assistant_message(
         )
     finally:
         runtime.module = working_module
+        search_runtime.module = working_search_module
 
     assert response.status_code == 200
-    assert "event: error" in response.text
-    assert "CHAT_EVIDENCE_UNAVAILABLE" in response.text
-    assert "event: done" not in response.text
+    assert "event: error" not in response.text
+    assert "event: done" in response.text
+    assert "请补充" in response.text
     trace = await client.get(f"/api/v1/traces/{trace_id}")
     assert trace.status_code == 200
-    assert trace.json()["status"] == "failed"
-    assert trace.json()["error_code"] == "chat_evidence_unavailable"
+    assert trace.json()["status"] == "completed"
+    assert trace.json()["error_code"] is None
 
     async with app.state.database.session() as session:
         assistant_count = await session.scalar(
@@ -407,8 +411,8 @@ async def test_chat_missing_evidence_fails_trace_without_assistant_message(
         bad_case_count = await session.scalar(
             select(func.count()).select_from(BadCase).where(BadCase.trace_id == trace_id)
         )
-    assert assistant_count == 0
-    assert bad_case_count == 1
+    assert assistant_count == 1
+    assert bad_case_count == 0
 
 
 @pytest.mark.integration

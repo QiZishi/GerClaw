@@ -233,7 +233,10 @@ def build_evidence_context(citations: list[Citation]) -> str:
 
 
 def safety_decision(
-    high_risk_codes: list[str], *, deterministic_diagnosis_blocked: bool = False
+    high_risk_codes: list[str],
+    *,
+    deterministic_diagnosis_blocked: bool = False,
+    evidence_unavailable: bool = False,
 ) -> SafetyDecision:
     """Return the mandatory explicit safety decision persisted with every reply."""
 
@@ -249,6 +252,8 @@ def safety_decision(
         notices.append("high_risk_escalation_applied")
     else:
         notices.append("high_risk_escalation_checked")
+    if evidence_unavailable:
+        notices.append("evidence_unavailable_clarification")
     return SafetyDecision(
         reviewed=True,
         disclaimer_applied=True,

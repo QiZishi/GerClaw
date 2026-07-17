@@ -51,7 +51,6 @@ from gerclaw_api.modules.agent_harness.protocols import (
 from gerclaw_api.modules.agent_harness.safety import (
     HIGH_RISK_NOTICE,
     MEDICAL_DISCLAIMER,
-    EvidenceUnavailableError,
     build_evidence_context,
     citations_from_results,
     detect_high_risk,
@@ -110,6 +109,10 @@ from gerclaw_api.services.model_router import FailoverChatModel, capture_model_a
 StreamCallback = Callable[[StreamEvent], Awaitable[None] | None]
 ApprovalCallback = Callable[[ApprovalCreate], Awaitable[ApprovalRead]]
 _SENTENCE_END = re.compile(r"[。！？!?\n]")
+_EVIDENCE_UNAVAILABLE_CLARIFICATION = (
+    "目前缺少可核验的资料，暂不适合据此作个体化判断。"
+    "请补充症状出现和变化、近期检查或完整用药信息，我可以结合这些资料继续说明。"
+)
 _DOCUMENT_REFERENCE = re.compile(
     r"(?:上传(?:的)?|这份|此份|该份|这个|该|上述|以上).{0,12}(?:文档|资料|报告|附件|文件)"
     r"|(?:文档|资料|报告|附件|文件).{0,12}(?:内容|主题|摘要|概括|总结|解释|提取|阅读)",
@@ -489,13 +492,6 @@ class ProductionAgentHarness:
                     "result_count": len(evidence_results),
                 },
             )
-            # User-uploaded documents/images and governed online search results
-            # are traceable evidence too.  Local retrieval remains preferred,
-            # but its absence must not prevent a visual report from reaching a
-            # vision-capable model or prevent an evidence search fallback.
-            if not evidence_results and not has_uploaded_evidence and not can_search_for_evidence:
-                raise EvidenceUnavailableError("no traceable evidence source is available")
-
         initial_citations = citations_from_results(evidence_results)
         if (
             should_prefetch_local_evidence
@@ -503,8 +499,11 @@ class ProductionAgentHarness:
             and not has_uploaded_evidence
             and not can_search_for_evidence
         ):
-            raise EvidenceUnavailableError(
-                "retrieval results did not contain traceable evidence"
+            return await self._emit_evidence_unavailable_clarification(
+                context=context,
+                high_risk_codes=high_risk_codes,
+                stream_callback=stream_callback,
+                budget=budget,
             )
         state_context = [
             UserMsg(name="user", content=item.text)
@@ -981,6 +980,56 @@ class ProductionAgentHarness:
             {
                 "full_text": response.text,
                 "references": [item.model_dump(mode="json") for item in response.citations],
+                "safety": response.safety.model_dump(mode="json"),
+            },
+        )
+        return response
+
+    async def _emit_evidence_unavailable_clarification(
+        self,
+        *,
+        context: AgentContext,
+        high_risk_codes: list[str],
+        stream_callback: StreamCallback,
+        budget: RuntimeBudgetTracker,
+    ) -> AgentResponse:
+        """Finish a medical turn usefully when no evidence source is available.
+
+        This is deliberately a deterministic clarification, not a model fallback:
+        it avoids inventing a diagnosis, medicine change, or citation while still
+        leaving the user with a concrete next action and a completed chat turn.
+        """
+
+        text = f"{_EVIDENCE_UNAVAILABLE_CLARIFICATION}\n\n{MEDICAL_DISCLAIMER}"
+        budget.check_wall_clock()
+        budget.add_output(text)
+        await self._emit(stream_callback, "text_delta", {"content": text})
+        response = AgentResponse(
+            text=text,
+            citations=[],
+            safety=safety_decision(high_risk_codes, evidence_unavailable=True),
+            medical_content=True,
+            structured={
+                "model_invoked": False,
+                "model_preference": None,
+                "model_attempt_count": 0,
+                "model_failures": 0,
+                "input_tokens": 0,
+                "output_tokens": 0,
+                "tool_names": [],
+                "high_risk_codes": list(high_risk_codes),
+                "search_attempts": [],
+                "loaded_skill_ids": list(context.loaded_skills),
+                "document_focused": False,
+                "evidence_state": "unavailable",
+            },
+        )
+        await self._emit(
+            stream_callback,
+            "done",
+            {
+                "full_text": response.text,
+                "references": [],
                 "safety": response.safety.model_dump(mode="json"),
             },
         )

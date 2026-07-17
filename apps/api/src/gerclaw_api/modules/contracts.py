@@ -19,6 +19,7 @@ _UNSAFE_DIAGNOSIS = re.compile(
     r"|这是(?!辅助|一条|建议|提示|参考|说明|可能|需要|为了|对)"
     r"|就是(?!说|建议|提示|参考|说明|可能|需要)"
 )
+_EVIDENCE_UNAVAILABLE_NOTICE = "evidence_unavailable_clarification"
 
 
 class ExecutionContext(BaseModel):
@@ -105,7 +106,20 @@ class AgentResponse(BaseModel):
                 raise ValueError("emergency short circuit requires an applied escalation")
             if "120" not in self.text and "急诊" not in self.text:
                 raise ValueError("emergency short circuit requires an urgent action instruction")
-        if self.medical_content and not self.citations and not self.emergency_short_circuit:
+        evidence_unavailable = self.structured.get("evidence_state") == "unavailable"
+        if evidence_unavailable:
+            if self.citations:
+                raise ValueError("evidence-unavailable clarification must not claim citations")
+            if _EVIDENCE_UNAVAILABLE_NOTICE not in self.safety.notices:
+                raise ValueError("evidence-unavailable clarification requires an explicit notice")
+            if self.structured.get("model_invoked") is not False:
+                raise ValueError("evidence-unavailable clarification must not use model output")
+        if (
+            self.medical_content
+            and not self.citations
+            and not self.emergency_short_circuit
+            and not evidence_unavailable
+        ):
             raise ValueError("medical output requires at least one traceable citation")
         return self
 

@@ -16,7 +16,7 @@
 | RUN-05 | workflow 与多智能体复核 | harness、workflows | standard/CGA；全科→老年专科复核 | 🚧 `modules/workflows` 已以版本、owner、允许上下文和 workflow 风险档案注册标准咨询/CGA/陪伴，并实际在 Chat 前 fail closed、写入 Trace；仍缺生产多智能体复核、临床副作用恢复/补偿与批准后执行 |
 | RUN-06 | 长任务 checkpoint/replay | runtime、repositories | 重启恢复且副作用不重复 | 🚧 加密 checkpoint、状态指纹和版本 fail-closed 已实现；副作用 replay executor 待临床模块接入 |
 | RUN-07 | 执行预算 | harness、config | token/tool/time/call/output 超限稳定失败 | ✅ 统一 RuntimeBudgetTracker 已在 Agent Harness 计量 model/tool/step/token/output/wall-clock |
-| AI-01 | 本地 RAG | `modules/rag` | 436 文档、39,837 chunks、混合检索/重排/引用、显式 opt-in 合成评测 | 🚧 当前生产镜像 readiness 已核验语料/索引一致，2026-07-17 的真实 embedding/rerank/Qdrant 回归同时通过“命中文档”和“无本地证据返回空结果”两例；仍需扩大人工审核的医学正例/反例集并完成临床有效性评测 |
+| AI-01 | 本地 RAG | `modules/rag` | 436 文档、39,837 chunks、混合检索/重排/引用、显式 opt-in 合成评测 | 🚧 当前生产镜像 readiness 已核验语料/索引一致，2026-07-17 的真实 embedding/rerank/Qdrant 回归同时通过“命中文档”和“无本地证据返回空结果”两例；Chat 在本地、上传和联网证据均不可用时不会伪造引用或直接报错，而会保存一条不调用模型的补充信息提示。仍需扩大人工审核的医学正例/反例集并完成临床有效性评测 |
 | AI-02 | Memory/健康画像引擎 | `modules/memory` | 加密、跨会话、冲突、无 PHI vector | ✅ 2026-07-17 隔离 external/integration 用例实测模型抽取、跨会话召回、数据库密文与 Qdrant PHI-free payload；医生授权和生命周期属于后续 IAM/DATA 闭环 |
 | AI-03 | Skill 生命周期 | `modules/skill`、Skill UI | 注册/版本/隔离/viewer/自然语言生成与受控迭代/安全/真实模型 | ✅ 2026-07-17 隔离 external/integration 用例实测模型草稿、复核注册、会话加载、AgentScope 查看器、本地证据事件与 Trace；另有 BFF 接通的“生成待审阅修订”：仅自定义 Skill、revision 匹配、同 ID 且更高版本，结果不会自动保存或启用。医疗业务发布审核和持续质量评测仍属临床闭环 |
 | AI-04 | AnySearch→Tavily | `modules/search` | provider failover、网页隔离、引用 | ✅ 0018 独立 PASS |
