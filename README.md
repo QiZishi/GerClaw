@@ -16,6 +16,9 @@ GerClaw 是面向老年患者与老年科医生的 Web 端 AI 双向诊疗平台
 - 访客短期 JWT/BFF、以及患者/医生本地账号的注册、登录、refresh 轮换、登出与改密；均由 scope、tenant/actor 隔离、限流、PHI-free 安全审计、readiness 与 metrics 保护
 - PHQ-9、SAS、PSQI 的版本化 FastAPI 状态机、确定性计分、加密持久化、患者端断点恢复、报告 Markdown 导出与本人历史；量表题目使用版本绑定预录制 WAV，并保留受控实时 TTS 兜底
 - MinerU 签名上传、轮询和 Markdown 下载的 Next.js BFF；FastAPI 将会话资料加密登记并按 tenant/actor/session 绑定
+- 受限 BFF→FastAPI Voice Runtime：WAV/MP3 ASR、24kHz PCM16 TTS 和浏览器 WAV 播放封装；真实 TTS→ASR 回环已验证
+- `input_output` 生产边界：Chat 输入在 Trace/存储/Harness 前规范化，SSE 终态只投影已审核的公开文本、引用与安全信息
+- Chat/CGA 风险告警的本人范围账本与确认、慢病自述/测量账本，以及隔离的安全情感陪伴 workflow；均明确不替代临床审批或医生服务
 - 五大处方与用药审查的最小信息收集：真实 API、加密持久化、乐观 revision 与 PHI-free Trace；页面明确不会产生处方、诊断、停药、加药或剂量结论
 - 用户反馈、加密 Bad Case 与合成确定性安全 golden case 基线；golden case 不回放用户原文，也不调用模型或 RAG
 - 版本化 `privacy_redaction`：外部搜索 query 与 FastAPI TTS 正文/style 在 Provider 调用前最小化并脱敏，审计摘要只保留类别计数
@@ -24,13 +27,14 @@ GerClaw 是面向老年患者与老年科医生的 Web 端 AI 双向诊疗平台
 已部分实现、但尚不能视为完整生产交付的能力：
 
 - Runtime PermissionEngine 的 ALLOW/DENY/ASK、持久化 HITL、预算与 checkpoint 已有；临床副作用的恢复 executor、多智能体临床复核尚未接入
-- Voice 与 MinerU 均有 server-only Next.js BFF 真实调用及降级；缺 FastAPI Runtime adapter、PCM16 流、统一版本/审计和全故障评测
+- Voice 已经由受限 BFF 接入 FastAPI Runtime、PCM16 流和 provider egress audit；缺真实人声质量、取消、浏览器播放完整 E2E 与 adapter version 协商
+- MinerU 已以用户指定病例 PDF 实测解析并登记为会话输入；缺私有长文档检索、跨会话保留、授权与独立病毒扫描
 - CGA 仅覆盖 PHQ-9、SAS、PSQI；Mini-Cog/MMSE 人工确认、医生授权查看及跨时间比较未实现
 - 五大处方和用药审查只有受限信息收集；缺经医学审核的模板、规则集、证据校验、报告生成、医生批准与患者授权
-- 风险预警、慢病管理、情感陪伴的真实前后端 workflow 与安全边界
-- 患者授权、医生资质/RBAC、跨患者访问与账号登录/注册页面
+- 风险预警、慢病管理、情感陪伴均只具当前最小的本人范围 workflow；缺通知升级、医学审核规则、人工升级、患者授权与医生队列
+- 患者授权、医生资质/RBAC 与跨患者访问；本地账号登录/注册入口已接入侧边栏，但没有账号验证、找回、MFA、停用与风控
 - Bad Case 的授权脱敏晋升、模型/RAG/医疗评测、趋势指标与安全回放闭环
-- 隐私策略目前只真实覆盖外部搜索 query 与 FastAPI TTS；模型、MinerU、ASR、遗留 BFF、导出、生命周期与用户数据用途透明度尚未统一接入
+- 隐私策略已覆盖外部搜索、模型 prompt、FastAPI TTS/ASR 和 MinerU egress audit；字段级分类、同意、导出、生命周期、透明度及剩余出口尚未统一接入
 - 全站响应式/适老化 E2E 和最终 Docker 空卷验收
 
 `apps/mvp` 是当前唯一功能性 Web 客户端，`apps/web` 仍是二阶段预留目录。任何 mock、占位内容或仅本地 UI 状态均不得作为生产能力使用；逐项完成状态以[需求矩阵](docs/REQUIREMENTS_MATRIX.md)为准。
@@ -191,7 +195,7 @@ docker compose --profile test up --build --abort-on-container-exit \
 
 ## 测试与性能状态
 
-历史全量门禁数字、独立审阅与完整命令见 [Development Harness](docs/DEVELOPMENT_HARNESS.md) 和各 active exec-plan，不能因后续变更自动继承。本次近期可复现实证包括：`apps/mvp` 的 `npm run lint`、`npm run test:audio`（8 passed）、`npm run test:cga-audio`、`npm run build`；`apps/api` 的 Eval 定向 Ruff/Mypy、27 项 pytest 和 `uv run gerclaw-eval-safety`（6/6）。Docker Compose 的确定性安全短路报告见 [`docs/evidence/`](docs/evidence/)。全量门禁、全站 E2E、临床 workflow 压测与最终 Docker 验收仍需在交付前重新执行。
+历史全量门禁数字、独立审阅与完整命令见 [Development Harness](docs/DEVELOPMENT_HARNESS.md) 和各 active exec-plan，不能因后续变更自动继承。本次近期可复现实证包括：`apps/mvp` 的 `npm run lint`、`npm run test:audio`（5 passed）、`npm run test:gerclaw-proxy`（5 passed）与 `npm run build`；`apps/api` 的 Input/Output 与 Chat 定向 pytest（20 passed）、Ruff、Mypy，以及核心 Memory/Skill/RAG 定向 pytest（170 passed）。Docker Compose 的确定性安全短路报告见 [`docs/evidence/`](docs/evidence/)。全量门禁、全站 E2E、临床 workflow 压测与最终 Docker 验收仍需在交付前重新执行。
 
 当前没有千级吞吐能力结论。Compose 已实际验证 10 个并发的确定性高风险安全短路 SSE（10/10 done、失败率 0、p50 153ms、p95 154ms、Trace/消息/跨访客隔离均通过）；这不能替代模型、RAG、临床 workflow、取消/限流/幂等的统一性能报告，后者仍归属 `OPS-04/OPS-08`。
 
@@ -203,7 +207,7 @@ docker compose --profile test up --build --abort-on-container-exit \
 | Runtime 临床副作用恢复/复核尚未接线 | Permission/HITL/预算/checkpoint 基础已存在，但临床 executor 仍 fail closed | 0021 与各临床 workflow 接入 |
 | IAM 仍未完整 | 本地账号会话及 BFF HttpOnly Cookie/CSRF 已落地；医生资质、授权、跨患者访问和账号 UI 尚未完成 | 0025、0032 |
 | 全出口 PHI/密钥泄露面未统一验证 | 核心日志/Trace/vector 有局部测试；文档、导出和临床流程尚未完整覆盖 | 0022 Privacy 与 0026 Eval/Bad Case |
-| 风险预警/慢病管理/情感陪伴尚无真实闭环 | Chat 仅有红旗/自伤安全后处理，不等于业务功能 | 0023 临床 workflow 与安全陪伴 |
+| 风险预警/慢病管理/情感陪伴尚未形成完整临床闭环 | 当前仅有本人范围告警确认、非临床测量趋势与隔离陪伴；不宣称通知、干预或医生服务 | 0023、0030、0031 后续 workflow |
 | 容量与容器恢复证据不足 | 只声明已真实验证的范围 | 0026 并发、0028 空卷 Docker 验收 |
 
 ## 医疗安全
