@@ -72,3 +72,14 @@ export async function logoutAccount(): Promise<void> {
   });
   if (!response.ok && response.status !== 401) throw new Error("ACCOUNT_REQUEST_FAILED");
 }
+
+export async function deactivateAccount(currentPassword: string): Promise<void> {
+  const csrf = csrfToken();
+  if (!csrf) throw new Error("ACCOUNT_SESSION_INVALID");
+  const response = await fetch("/api/account/deactivate", {
+    method: "POST",
+    headers: { "Content-Type": "application/json", "x-gerclaw-csrf": csrf },
+    body: JSON.stringify({ current_password: currentPassword }),
+  });
+  if (!response.ok) throw new Error(response.status === 401 ? "ACCOUNT_PASSWORD_INVALID" : "ACCOUNT_REQUEST_FAILED");
+}

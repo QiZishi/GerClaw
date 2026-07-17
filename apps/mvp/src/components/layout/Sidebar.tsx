@@ -58,6 +58,7 @@ import { formatRelativeTime, groupByTime, type SessionGroup } from "@/lib/format
 import type { Session } from "@/types";
 import { toast } from "@/components/ui/toast";
 import { AccountDialog } from "@/components/account/AccountDialog";
+import { AccountDeactivationDialog } from "@/components/account/AccountDeactivationDialog";
 import { getAccountIdentity, logoutAccount, type AccountIdentity } from "@/services/account";
 import { deleteBackendSession } from "@/services/gerclaw/skills";
 
@@ -103,6 +104,7 @@ export function Sidebar({ onNavigate }: SidebarProps) {
   const [pendingRole, setPendingRole] = useState<"visitor" | "patient" | "doctor" | null>(null);
   const [account, setAccount] = useState<AccountIdentity | null>(null);
   const [accountDialogOpen, setAccountDialogOpen] = useState(false);
+  const [accountDeactivationOpen, setAccountDeactivationOpen] = useState(false);
 
   useEffect(() => {
     const frame = requestAnimationFrame(() => setMounted(true));
@@ -543,6 +545,13 @@ export function Sidebar({ onNavigate }: SidebarProps) {
               </DropdownMenuItem>
             </DropdownMenuGroup>
             <DropdownMenuSeparator />
+            {account && <>
+              <DropdownMenuItem className={cn("cursor-pointer text-destructive focus:text-destructive", seniorMode && "min-h-12 text-base")} onClick={() => setAccountDeactivationOpen(true)}>
+                <Trash2 className="size-4" />
+                停用账户
+              </DropdownMenuItem>
+              <DropdownMenuSeparator />
+            </>}
             <DropdownMenuItem className={cn("cursor-pointer", seniorMode && "min-h-12 text-base")} onClick={() => void handleExit()}>
               <LogOut className="size-4" />
               {account ? "退出账户" : "退出"}
@@ -649,6 +658,19 @@ export function Sidebar({ onNavigate }: SidebarProps) {
           setAccount(identity);
           setRole(identity.role);
           toast.show(identity.role === "doctor" ? "已登录医生账户。临床权限仍需患者授权。" : "已登录患者账户");
+        }}
+      />
+      <AccountDeactivationDialog
+        open={accountDeactivationOpen}
+        onOpenChange={setAccountDeactivationOpen}
+        seniorMode={seniorMode}
+        onDeactivated={() => {
+          setAccount(null);
+          setRole("visitor");
+          setCurrentSession(null);
+          closeRightPanel();
+          toast.show("账户已停用，您已返回访客模式。");
+          onNavigate?.();
         }}
       />
     </aside>

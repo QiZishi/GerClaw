@@ -1,6 +1,7 @@
 import { randomBytes } from "node:crypto";
 import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
+import { accountSessionSchema } from "@/server/account-contract";
 import { getGerclawApiBaseUrl } from "@/server/gerclaw-api";
 
 export const runtime = "nodejs";
@@ -15,13 +16,6 @@ const accountStatusSchema = z.object({
   role: z.enum(["patient", "doctor"]),
 }).strict();
 const accountName = z.string().regex(/^[A-Za-z0-9][A-Za-z0-9_.-]{2,47}$/);
-const sessionSchema = z.object({
-  access_token: z.string().min(32),
-  refresh_token: z.string().min(32),
-  expires_in: z.number().int().min(300).max(86_400),
-  actor_id: z.string().regex(/^usr_account_[a-f0-9]{32}$/),
-  role: z.enum(["patient", "doctor"]),
-}).strict();
 
 const registerSchema = z.object({
   username: accountName,
@@ -53,7 +47,7 @@ function csrfIsValid(request: NextRequest): boolean {
   return Boolean(expected && received && expected === received);
 }
 
-function sessionResponse(session: z.infer<typeof sessionSchema>): NextResponse {
+function sessionResponse(session: z.infer<typeof accountSessionSchema>): NextResponse {
   const response = NextResponse.json({
     actor_id: session.actor_id,
     role: session.role,
@@ -104,7 +98,7 @@ export async function POST(request: NextRequest, context: { params: Promise<{ ac
   if (action.data === "logout" && upstream.status === 204) { const response = new NextResponse(null, { status: 204 }); clearSession(response); return response; }
   if (!upstream.ok) return NextResponse.json({ error: { code: "ACCOUNT_REQUEST_FAILED" } }, { status: upstream.status });
   if (["password", "deactivate"].includes(action.data)) { const response = new NextResponse(null, { status: 204 }); clearSession(response); return response; }
-  const session = sessionSchema.safeParse(await upstream.json().catch(() => null));
+  const session = accountSessionSchema.safeParse(await upstream.json().catch(() => null));
   if (!session.success) return NextResponse.json({ error: { code: "ACCOUNT_RESPONSE_INVALID" } }, { status: 502 });
   return sessionResponse(session.data);
 }
