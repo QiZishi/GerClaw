@@ -13,7 +13,6 @@ import pytest
 from gerclaw_api.modules.document.models import UploadedDocumentContext
 from gerclaw_api.modules.prescription.generator import (
     EvidenceBoundPrescriptionGenerator,
-    PrescriptionGenerationError,
     PrescriptionRedFlagError,
 )
 from gerclaw_api.modules.prescription.models import (
@@ -318,7 +317,7 @@ async def test_generator_allows_evidence_bound_clinician_medication_candidate() 
 
 
 @pytest.mark.asyncio
-async def test_generator_rejects_uncited_medication_change_candidate() -> None:
+async def test_generator_degrades_to_review_baseline_for_uncited_medication_change() -> None:
     unsupported = _content().model_copy(
         update={
             "medication": _content().medication.model_copy(
@@ -326,10 +325,49 @@ async def test_generator_rejects_uncited_medication_change_candidate() -> None:
             )
         }
     )
-    with pytest.raises(PrescriptionGenerationError, match="no attributable evidence"):
-        await EvidenceBoundPrescriptionGenerator(
-            model=_Model(unsupported), rag_module=_RAG([_result()])
-        ).generate(_prepared())  # type: ignore[arg-type]
+    draft = await EvidenceBoundPrescriptionGenerator(
+        model=_Model(unsupported), rag_module=_RAG([_result()])
+    ).generate(_prepared())  # type: ignore[arg-type]
+
+    assert "基础待审核草案" in draft.health_assessment.summary
+    assert "开始服用某药" not in draft.model_dump_json()
+
+
+@pytest.mark.asyncio
+async def test_generator_keeps_negative_medication_safety_precaution() -> None:
+    content = _content().model_copy(
+        update={
+            "medication": _content().medication.model_copy(
+                update={"precautions": ("请勿自行停用或减量任何药物。",)}
+            )
+        }
+    )
+
+    draft = await EvidenceBoundPrescriptionGenerator(
+        model=_Model(content), rag_module=_RAG([_result()])
+    ).generate(_prepared())  # type: ignore[arg-type]
+
+    assert draft.health_assessment.summary == content.health_assessment.summary
+    assert draft.medication.precautions == ("请勿自行停用或减量任何药物。",)
+
+
+@pytest.mark.asyncio
+async def test_generator_degrades_to_review_baseline_for_unknown_evidence_id() -> None:
+    unknown_evidence = "ev_" + "b" * 24
+    payload = _content().model_dump(mode="json")
+    for section_name in ("medication", "exercise", "nutrition", "psychological", "rehabilitation"):
+        payload[section_name]["evidence_ids"] = [unknown_evidence]
+        for recommendation in payload[section_name]["recommendations"]:
+            recommendation["evidence_ids"] = [unknown_evidence]
+    content = GeneratedPrescriptionContent.model_validate(payload)
+
+    draft = await EvidenceBoundPrescriptionGenerator(
+        model=_Model(content), rag_module=_RAG([_result()])
+    ).generate(_prepared(medications="阿托伐他汀 20mg 每日一次\n地高辛 0.125mg 每日一次"))  # type: ignore[arg-type]
+
+    assert "基础待审核草案" in draft.health_assessment.summary
+    assert draft.medication_review is not None
+    assert draft.medication_review.findings[0].finding_id == "ddi_atorvastatin_digoxin"
 
 
 @pytest.mark.asyncio

@@ -93,6 +93,10 @@ class PrescriptionGenerationError(RuntimeError):
     """Stable failure that never exposes patient input or provider details."""
 
 
+class UnattributableMedicationDirectiveError(PrescriptionGenerationError):
+    """A model placed a medication action outside a cited recommendation slot."""
+
+
 class PrescriptionRedFlagError(PrescriptionGenerationError):
     """Generation must not proceed when the submitted input contains an emergency signal."""
 
@@ -168,30 +172,50 @@ class EvidenceBoundPrescriptionGenerator:
                 # a useful prescription.  It never infers diagnoses, doses or
                 # medication changes and keeps server-owned citations intact.
                 content = self._safe_baseline_content(prepared, evidence_sources)
+        medication_review = self._medication_review(prepared)
         try:
-            medication_review = self._medication_review(prepared)
-            draft = FivePrescriptionDraft(
-                status="needs_clinician_review",
+            draft = self._build_draft(
+                content=content,
+                prepared=prepared,
                 evidence_sources=evidence_sources,
                 medication_review=medication_review,
-                uploaded_document_ids=tuple(
-                    item.document_id for item in prepared.uploaded_documents
-                ),
-                uploaded_image_evidence_ids=tuple(
-                    item.evidence_id for item in prepared.uploaded_images
-                ),
-                **content.model_dump(),
             )
-        except ValidationError as error:
-            raise PrescriptionGenerationError(
-                "prescription model returned an invalid schema"
-            ) from error
-        except PrescriptionGenerationError:
-            raise
-        except Exception as error:
-            raise PrescriptionGenerationError("prescription draft generation failed") from error
-        self._reject_unsupported_medication_directives(draft)
-        return draft
+            self._reject_unsupported_medication_directives(draft)
+            return draft
+        except (ValidationError, UnattributableMedicationDirectiveError):
+            # A provider can satisfy the model-owned schema while still cite an
+            # unknown ID or put an actionable medication instruction in an
+            # uncited free-text field.  Do not make the person wait for a full
+            # generation only to receive a 503.  Discard that untrustworthy
+            # model projection and return the explicit, evidence-bound review
+            # baseline; deterministic medication findings remain attached.
+            return self._build_draft(
+                content=self._safe_baseline_content(prepared, evidence_sources),
+                prepared=prepared,
+                evidence_sources=evidence_sources,
+                medication_review=medication_review,
+            )
+
+    @staticmethod
+    def _build_draft(
+        *,
+        content: GeneratedPrescriptionContent,
+        prepared: PreparedPrescriptionInput,
+        evidence_sources: tuple[EvidenceSource, ...],
+        medication_review: MedicationReviewDraft | None,
+    ) -> FivePrescriptionDraft:
+        """Combine model fields with server-owned provenance and rule output."""
+
+        return FivePrescriptionDraft(
+            status="needs_clinician_review",
+            evidence_sources=evidence_sources,
+            medication_review=medication_review,
+            uploaded_document_ids=tuple(item.document_id for item in prepared.uploaded_documents),
+            uploaded_image_evidence_ids=tuple(
+                item.evidence_id for item in prepared.uploaded_images
+            ),
+            **content.model_dump(),
+        )
 
     @staticmethod
     def _medication_review(
@@ -512,15 +536,23 @@ class EvidenceBoundPrescriptionGenerator:
         fields therefore has no attributable evidence and must fail closed.
         """
 
-        directive_terms = ("开始", "停用", "加用", "减量", "增量", "替换", "调剂量")
-        uncited_text = "\n".join(
-            (
-                *draft.medication.medication_items,
-                *draft.medication.monitoring_requirements,
-                *draft.medication.precautions,
-            )
+        directive_terms = ("开始", "停用", "加用", "减量", "增量", "替换", "调剂量", "调整剂量")
+        negation_markers = ("不", "勿", "禁", "避免", "未")
+        uncited_fields = (
+            *draft.medication.medication_items,
+            *draft.medication.monitoring_requirements,
+            *draft.medication.precautions,
         )
-        if any(term in uncited_text for term in directive_terms):
-            raise PrescriptionGenerationError(
-                "medication change candidate has no attributable evidence"
-            )
+        for field in uncited_fields:
+            for clause in re.split(r"[。；;\n]", field):
+                for term in directive_terms:
+                    for match in re.finditer(re.escape(term), clause):
+                        # "请勿自行停用" and similar safety precautions are not
+                        # medication proposals.  They must stay visible rather
+                        # than triggering a false safety failure.
+                        prefix = clause[max(0, match.start() - 12) : match.start()]
+                        if any(marker in prefix for marker in negation_markers):
+                            continue
+                        raise UnattributableMedicationDirectiveError(
+                            "medication change candidate has no attributable evidence"
+                        )
