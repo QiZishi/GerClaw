@@ -32,12 +32,12 @@
 | CLN-06 | 统一风险预警闭环 | alert rules/workflow/API/患者医生 UI | 红旗/CGA/慢病/用药事件分级、通知确认、升级和紧急就医 | 🚧 Chat 红旗、CGA 即时安全与高风险随访、以及确定性用药审查的禁忌/严重命中可真实、原子地创建加密且本人范围的告警，并支持版本围栏、幂等确认；active critical 会优先展示。患者端“我的安全提醒”已经受限 BFF 读取本人告警并可记录“已了解”（不解除风险）；2026-07-17 Compose 浏览器实测用药审查→患者提醒。尚缺慢病来源、通知升级、医生队列，以及正式授权后的跨主体闭环 |
 | CLN-07 | 慢病管理闭环 | chronic-care workflow/API/患者医生 UI | 疾病/目标/测量/用药/生活计划、趋势、依从性、提醒、异常升级 | 🚧 已有真实、加密且 tenant/actor 隔离的自述病情与测量账本，以及不含临床含义的数值方向；患者端“我的慢病记录”已通过受控 BFF 读写和展示。没有医学审核的目标/阈值、用药或生活计划、提醒、异常升级、患者/医生授权 |
 | CLN-08 | 安全情感陪伴 | companion agent/privacy/safety/UI | 支持性对话、痛苦识别、禁依赖/禁冒充、危机和人工升级、可关闭记忆 | 🚧 `workflow=companion` 已接入真实 Chat Harness，禁用长期健康 Memory、RAG、联网、Skill 与上传资料，只保留加密的同会话短期上下文；红旗仍在模型前短路。患者端已有“暖心陪伴”入口，进入时新建会话并隐藏资料/Skill 控件；浏览器实测请求带 `workflow=companion` 且 Skill/资料数组为空。当前模型 provider 未就绪，只能验证安全失败态；仍缺用户可配置记忆偏好、人工升级与医生授权 |
-| IAM-01 | 账号注册登录 | auth/account | 患者/医生注册登录、密码哈希、刷新/退出 | 🚧 已有本地患者/医生注册、登录、scrypt 密码哈希、refresh 轮换、登出、改密、服务端会话身份读取与 BFF HttpOnly cookie/CSRF；患者/医生登录注册入口已接入侧边栏，仍缺账号标识验证、找回、MFA、停用和风控策略 |
+| IAM-01 | 账号注册登录 | auth/account | 患者/医生注册登录、密码哈希、刷新/退出 | 🚧 已有本地患者/医生注册、登录、scrypt 密码哈希、refresh 轮换、登出、改密、本人停用与服务端会话身份读取，并通过 BFF HttpOnly cookie/CSRF 接入。无账号访问先进入登录页，可选择匿名进入患者端；匿名会话不恢复历史，数据仍由服务端保留用于 Bad Case。仍缺账号标识验证、找回、MFA 与风控策略 |
 | IAM-02 | 租户/主体/角色隔离 | auth/repositories | 越权 403/404、跨租户不可见 | 🚧 核心资源隔离；服务端 JWT 账号角色已进入 Runtime，医生未获 patient proof；缺医生资质、患者授权和完整 RBAC |
 | IAM-03 | 临床数据持久化加密 | DB/repositories | 文件、CGA、处方、审批、反馈、Bad Case | 🚧 会话/Memory/Skill/Trace 已有，其余缺表 |
 | IAM-04 | 环境配置安全 | config、env templates | 生产拒绝 placeholder/缺 Key/不安全 URL | ✅ FastAPI 核心配置已验证 |
 | IAM-05 | 患者授权生命周期 | consent/RBAC/cache | 授予/到期/撤回，缓存与链接失效 | ❌ 缺账号和授权模型 |
-| IAM-06 | 管理/审计职责分离 | auth/RBAC | 无万能 scope；服务端角色校验 | ❌ 缺生产角色/RBAC |
+| IAM-06 | 管理/审计职责分离 | auth/RBAC | 无万能 scope；服务端角色校验 | 🚧 管理员账号可经服务端 `account:admin` scope 管理同 tenant 的患者/医生账号状态与角色，并可切换患者/医生工作区；患者和医生账号不能自行切换角色，游客固定为患者端。仍缺医生资质、患者授权、细粒度临床 RBAC 和完整审计保留策略 |
 | UI-01 | 三栏响应式布局 | MVP layout | 四断点浏览器证据 | 🚧 desktop 已有，完整断点 E2E 待补 |
 | UI-02 | 多模态输入框 | ChatInput | 文本/语音/图片/10文件/Skill/处方/CGA/停止 | 🚧 文本、Skill、受限临床收集、CGA、FastAPI Voice Runtime BFF、MinerU BFF 与图片多模态链路已接入。2026-07-18 Compose 浏览器实测上传 PNG 后，模型识读图中 CGA 量表内容，SSE `done` 返回上传图片 evidence_id；图片 base64 作为私有 Trace 输入保存。Document Runtime adapter 与语音异常/取消的完整 E2E 待补 |
 | UI-03 | Runtime 状态映射 | ChatArea/MessageBubble | 全 SSE 终态、错误恢复、HITL | 🚧 Chat/取消完成；2026-07-18 已修复 Next.js BFF 反向代理会使上游误判断流、返回空 200 SSE 的问题，并以真实图片流验证 `agent_start`、`text_delta`、`done`、执行时长和终态引用。仍缺 HITL/临床流程 |
