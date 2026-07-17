@@ -10,8 +10,8 @@ Accept only already parsed Markdown from the same-origin BFF, encrypt it, bind i
 - Every lookup includes `tenant_id + actor_id + session_id`; an unavailable UUID must not disclose whether another principal owns it.
 - Filename and Markdown use encrypted columns. Raw Markdown, filenames and injection matches never enter logs, Trace, metrics, Qdrant or the public medical corpus.
 - Revoke wipes Markdown before the record can be reused. A revoked or other-session UUID is rejected fail-closed by Chat.
-- Upload content is data, never instructions: remove active HTML and recognized instruction-like lines, then use explicit `BEGIN/END UPLOADED DOCUMENT` boundaries in Harness context.
-- Uploaded documents are not medical evidence. Medical responses still require the local medical evidence workflow and disclaimer.
+- Upload content is patient data, not commands: remove executable HTML only; preserve clinical wording even when it resembles an instruction. The Harness uses JSON context and ignores only text attempting to change the task, permissions or tool execution.
+- Uploaded documents are same-session evidence. Medical responses may cite them alongside local knowledge and governed web evidence; they retain the medical disclaimer and must not be mislabelled as local knowledge-base citations.
 
 ## Dependency Direction
 

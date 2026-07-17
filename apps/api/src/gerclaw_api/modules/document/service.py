@@ -24,14 +24,6 @@ _HTML_ACTIVE_CONTENT = re.compile(
 _HTML_ACTIVE_SINGLE = re.compile(
     r"<(?:script|style|iframe|object|embed|svg|meta)[^>]*?/?>", re.IGNORECASE
 )
-_INJECTION_LINE = re.compile(
-    r"(?:ignore|disregard|override).{0,40}(?:previous|above|system|instruction)"
-    r"|(?:系统提示|忽略.{0,20}(?:指令|规则)|执行(?:以下|工具|命令))"
-    r"|(?:tool[_ -]?call|developer message|system message)",
-    re.IGNORECASE,
-)
-
-
 class DocumentContextError(RuntimeError):
     """A document cannot safely be used as the requested chat context."""
 
@@ -166,15 +158,17 @@ class DocumentService:
 
     @staticmethod
     def _sanitize_markdown(markdown: str) -> str:
+        """Remove executable markup without deleting patient-record text.
+
+        Clinical documents can legitimately quote an order, an instruction, or
+        text that happens to resemble a prompt. Their contents remain user
+        evidence; the Harness, not ingestion, distinguishes factual material
+        from text that tries to alter the agent's task or invoke an operation.
+        """
+
         without_active_html = _HTML_ACTIVE_CONTENT.sub("", markdown)
         without_active_html = _HTML_ACTIVE_SINGLE.sub("", without_active_html)
-        lines = []
-        for line in without_active_html.splitlines():
-            if _INJECTION_LINE.search(line):
-                lines.append("[已移除疑似指令性文本]")
-            else:
-                lines.append(line)
-        return "\n".join(lines).strip()
+        return without_active_html.strip()
 
     @staticmethod
     def _read(record: UploadedDocument) -> UploadedDocumentRead:
