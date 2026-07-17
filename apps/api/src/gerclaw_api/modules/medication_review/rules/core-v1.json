@@ -1,5 +1,5 @@
 {
-  "version": "medication-rules-v2",
+  "version": "medication-rules-v3",
   "sources": [
     {
       "source_id": "cad_rehab_primary_care",
@@ -74,7 +74,10 @@
     "别嘌醇": ["别嘌醇", "allopurinol"],
     "硫唑嘌呤": ["硫唑嘌呤", "azathioprine"],
     "格列苯脲": ["格列苯脲", "glibenclamide", "glyburide"],
-    "阿司匹林": ["阿司匹林", "aspirin", "acetylsalicylic acid"]
+    "阿司匹林": ["阿司匹林", "aspirin", "acetylsalicylic acid"],
+    "比索洛尔": ["比索洛尔", "bisoprolol"],
+    "硝苯地平": ["硝苯地平", "nifedipine"],
+    "左旋氨氯地平": ["左旋氨氯地平", "levamlodipine"]
   },
   "ddi_rules": [
     {
@@ -358,6 +361,36 @@
       "clinician_action": "请由医师或药师核对适应证、实际服用频次、肾功能和原始处方；患者不要自行调整剂量。",
       "elderly_note": "来源指出65岁及以上患者调整剂量时应慎重。",
       "source_ids": ["cad_rehab_primary_care"]
+    },
+    {
+      "id": "dose_bisoprolol_max_daily_10mg",
+      "drug": "比索洛尔",
+      "max_daily_mg": 10,
+      "severity": "major",
+      "conclusion": "录入的比索洛尔日剂量超过本地指南所列的一日最大剂量 10 mg。",
+      "clinician_action": "核对实际服用频次、心率、血压、适应证及原始处方。",
+      "elderly_note": "老年人需结合心动过缓、低血压、传导阻滞和肾肝功能进行个体化复核。",
+      "source_ids": ["stable_cad_primary_care"]
+    },
+    {
+      "id": "dose_nifedipine_max_daily_120mg",
+      "drug": "硝苯地平",
+      "max_daily_mg": 120,
+      "severity": "major",
+      "conclusion": "录入的硝苯地平日剂量超过本地指南所列的不宜超过 120 mg/d 阈值。",
+      "clinician_action": "核对剂型、实际服用频次、血压、心率、适应证及原始处方。",
+      "elderly_note": "老年人应结合低血压、头晕和跌倒等风险进行个体化复核。",
+      "source_ids": ["stable_cad_primary_care"]
+    },
+    {
+      "id": "dose_levamlodipine_max_daily_5mg",
+      "drug": "左旋氨氯地平",
+      "max_daily_mg": 5,
+      "severity": "moderate",
+      "conclusion": "录入的左旋氨氯地平日剂量超过本地指南所列的最大 5 mg、每日一次剂量。",
+      "clinician_action": "核对剂型、实际服用频次、血压、适应证及原始处方。",
+      "elderly_note": "老年人应结合低血压、头晕和跌倒等风险进行个体化复核。",
+      "source_ids": ["stable_cad_primary_care"]
     }
   ],
   "beers_rules": [

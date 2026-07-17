@@ -47,7 +47,7 @@ only as owner-visible uploaded-document provenance. It never becomes a local
 knowledge-base citation. If RAG has no evidence, the endpoint fails closed.
 
 When the caller provides a current medication list, the server attaches the
-separate, deterministic `medication-rules-v2` result after model generation.
+separate, deterministic `medication-rules-v3` result after model generation.
 It has limited source-traceable DDI/dose/duplicate/polypharmacy coverage and a
 narrowly qualified Beers-related signal; it remains pending clinical governance
 and cannot be presented as a complete medication review. The model may record

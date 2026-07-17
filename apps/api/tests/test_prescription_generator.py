@@ -263,7 +263,7 @@ async def test_generator_embeds_deterministic_medication_review_outside_model_co
     ).generate(_prepared(medications="阿托伐他汀 20mg 每日一次\n地高辛 0.125mg 每日一次"))  # type: ignore[arg-type]
 
     assert draft.medication_review is not None
-    assert draft.medication_review.ruleset_version == "medication-rules-v2"
+    assert draft.medication_review.ruleset_version == "medication-rules-v3"
     assert [finding.kind for finding in draft.medication_review.findings] == ["ddi"]
     assert draft.medication_review.findings[0].finding_id == "ddi_atorvastatin_digoxin"
 

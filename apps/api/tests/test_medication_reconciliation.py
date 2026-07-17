@@ -69,7 +69,7 @@ def test_rule_review_emits_source_traceable_ddi_and_dose_findings() -> None:
         medication_list="瑞舒伐他汀 40mg 每日一次\n环孢素\n阿托伐他汀\n地高辛",
     )
 
-    assert result.ruleset_version == "medication-rules-v2"
+    assert result.ruleset_version == "medication-rules-v3"
     assert result.coverage.beers == "limited_source_traceable"
     assert result.sources[0].content_sha256 == (
         "940965391565b0de32f3aba51c5a323542f5af9b18162c5075130ba63437feeb"
@@ -109,7 +109,7 @@ def test_rule_review_emits_limited_beers_signal_only_for_age_qualified_input() -
     assert "不能确定该药的实际适应证" in result.findings[0].conclusion
 
 
-def test_rule_review_v2_emits_evidence_bound_new_high_risk_pairs() -> None:
+def test_rule_review_v3_emits_evidence_bound_new_high_risk_pairs() -> None:
     result = review_medication_list(
         intake_id=uuid.uuid4(),
         patient_age=78,
@@ -126,7 +126,7 @@ def test_rule_review_v2_emits_evidence_bound_new_high_risk_pairs() -> None:
     )
 
     findings = {finding.finding_id: finding for finding in result.findings}
-    assert result.ruleset_version == "medication-rules-v2"
+    assert result.ruleset_version == "medication-rules-v3"
     assert set(findings) == {
         "ddi_nitroglycerin_sildenafil",
         "ddi_clopidogrel_omeprazole",
@@ -143,6 +143,27 @@ def test_rule_review_v2_emits_evidence_bound_new_high_risk_pairs() -> None:
         "frailty_polypharmacy_2022",
     )
     assert "患者不要自行" not in findings["ddi_clopidogrel_omeprazole"].clinician_action
+
+
+def test_rule_review_v3_covers_exact_local_daily_dose_limits() -> None:
+    result = review_medication_list(
+        intake_id=uuid.uuid4(),
+        patient_age=75,
+        medication_list=(
+            "比索洛尔 12mg 每日一次\n"
+            "硝苯地平 130mg 每日一次\n"
+            "左旋氨氯地平 6mg 每日一次"
+        ),
+    )
+
+    assert result.ruleset_version == "medication-rules-v3"
+    assert [finding.finding_id for finding in result.findings] == [
+        "dose_bisoprolol_max_daily_10mg_1",
+        "dose_levamlodipine_max_daily_5mg_3",
+        "dose_nifedipine_max_daily_120mg_2",
+    ]
+    assert all(finding.source_ids == ("stable_cad_primary_care",) for finding in result.findings)
+    assert result.findings[1].age_escalated is True
 
 
 def test_rule_review_does_not_infer_beers_signal_without_age_context() -> None:

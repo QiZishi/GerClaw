@@ -107,7 +107,7 @@ def test_privacy_redaction_golden_cases_pass_without_echoing_synthetic_text() ->
 def test_medication_rule_golden_cases_are_version_bound_and_do_not_echo_inputs() -> None:
     results = run_medication_rule_golden_cases()
 
-    assert len(results) == 5
+    assert len(results) == 6
     assert all(result.passed for result in results)
     assert results[0].actual_finding_ids == ("ddi_nitroglycerin_sildenafil",)
     assert results[1].actual_source_ids == (

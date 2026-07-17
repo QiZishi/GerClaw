@@ -35,6 +35,13 @@ MEDICATION_RULE_GOLDEN_CASES: tuple[MedicationRuleEvalCase, ...] = (
         expected_source_ids=("insomnia_bz_older_adults",),
     ),
     MedicationRuleEvalCase(
+        case_id="medication-rule.bisoprolol_daily_dose",
+        title="比索洛尔日剂量上限必须命中本地来源规则",
+        synthetic_medication_list="比索洛尔 12mg 每日一次",
+        expected_finding_ids=("dose_bisoprolol_max_daily_10mg_1",),
+        expected_source_ids=("stable_cad_primary_care",),
+    ),
+    MedicationRuleEvalCase(
         case_id="medication-rule.unknown_drugs_not_safe",
         title="未知药物不得伪造审查命中或安全结论",
         synthetic_medication_list="合成药甲 10mg 每日一次\n合成药乙 20mg 每日一次",
