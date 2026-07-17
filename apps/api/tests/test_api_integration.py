@@ -440,6 +440,36 @@ async def test_real_trace_feedback_bad_case_encryption_and_readiness_flow(
     assert len(detail.json()["events"]) == 1
     assert detail.headers["x-trace-id"] == TRACE_ID
 
+    other_account_token = create_access_token(
+        app.state.settings,
+        actor_id="usr_account_0123456789abcdef0123456789abcdef",
+        tenant_id="tenant_public0001",
+        scopes={"trace:read"},
+        role="patient",
+        account_role="patient",
+    )
+    other_account = await client.get(
+        f"/api/v1/traces/{TRACE_ID}",
+        headers={"Authorization": f"Bearer {other_account_token}"},
+    )
+    assert other_account.status_code == 404
+    assert other_account.json()["error"]["code"] == "TRACE_NOT_FOUND"
+
+    administrator_token = create_access_token(
+        app.state.settings,
+        actor_id="usr_account_fedcba9876543210fedcba9876543210",
+        tenant_id="tenant_public0001",
+        scopes={"trace:read", "account:admin"},
+        role="admin",
+        account_role="admin",
+    )
+    administrator = await client.get(
+        f"/api/v1/traces/{TRACE_ID}",
+        headers={"Authorization": f"Bearer {administrator_token}"},
+    )
+    assert administrator.status_code == 200
+    assert administrator.json()["trace_id"] == TRACE_ID
+
     async with app.state.database.session() as session:
         assert await session.scalar(select(func.count()).select_from(ExecutionTrace)) == 1
         assert await session.scalar(select(func.count()).select_from(TraceEvent)) == 1

@@ -33,7 +33,7 @@
 | CLN-07 | 慢病管理闭环 | chronic-care workflow/API/患者医生 UI | 疾病/目标/测量/用药/生活计划、趋势、依从性、提醒、异常升级 | 🚧 已有真实、加密且 tenant/actor 隔离的自述病情与测量账本，以及不含临床含义的数值方向；患者端“我的慢病记录”已通过受控 BFF 读写和展示。没有医学审核的目标/阈值、用药或生活计划、提醒、异常升级、患者/医生授权 |
 | CLN-08 | 安全情感陪伴 | companion agent/privacy/safety/UI | 支持性对话、痛苦识别、禁依赖/禁冒充、危机和人工升级、可关闭记忆 | 🚧 `workflow=companion` 已接入真实 Chat Harness，禁用长期健康 Memory、RAG、联网、Skill 与上传资料，只保留加密的同会话短期上下文；红旗仍在模型前短路。患者端已有“暖心陪伴”入口，进入时新建会话并隐藏资料/Skill 控件；浏览器实测请求带 `workflow=companion` 且 Skill/资料数组为空。当前模型 provider 未就绪，只能验证安全失败态；仍缺用户可配置记忆偏好、人工升级与医生授权 |
 | IAM-01 | 账号注册登录 | auth/account | 患者/医生注册登录、密码哈希、刷新/退出 | 🚧 已有本地患者/医生注册、登录、scrypt 密码哈希、refresh 轮换、登出、改密、本人停用与服务端会话身份读取，并通过 BFF HttpOnly cookie/CSRF 接入。无账号访问先进入登录页，可选择匿名进入患者端；匿名会话不恢复历史，数据仍由服务端保留用于 Bad Case。仍缺账号标识验证、找回、MFA 与风控策略 |
-| IAM-02 | 租户/主体/角色隔离 | auth/repositories | 越权 403/404、跨租户不可见 | 🚧 核心资源隔离；服务端 JWT 账号角色已进入 Runtime，医生未获 patient proof；缺医生资质、患者授权和完整 RBAC |
+| IAM-02 | 租户/主体/角色隔离 | auth/repositories | 越权 403/404、跨租户不可见 | 🚧 核心资源隔离；2026-07-18 Trace 读取已从仅 tenant 范围收敛为本人范围，患者/医生/游客读取他人 Trace 一律得到 404，只有持有服务端 `account:admin` 的管理员可作 tenant 内运营审阅。医生未获 patient proof；仍缺医生资质、患者授权和完整 RBAC |
 | IAM-03 | 临床数据持久化加密 | DB/repositories | 文件、CGA、处方、审批、反馈、Bad Case | 🚧 会话/Memory/Skill/Trace 已有，其余缺表 |
 | IAM-04 | 环境配置安全 | config、env templates | 生产拒绝 placeholder/缺 Key/不安全 URL | ✅ FastAPI 核心配置已验证 |
 | IAM-05 | 患者授权生命周期 | consent/RBAC/cache | 授予/到期/撤回，缓存与链接失效 | ❌ 缺账号和授权模型 |

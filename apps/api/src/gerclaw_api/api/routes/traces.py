@@ -27,7 +27,7 @@ from gerclaw_api.domain.trace_schemas import (
 )
 from gerclaw_api.middleware import set_active_trace
 from gerclaw_api.services.rate_limit import RateLimiter
-from gerclaw_api.services.trace_service import TraceService
+from gerclaw_api.services.trace_service import TraceNotFoundError, TraceService
 
 router = APIRouter(tags=["observability"])
 SessionDependency = Annotated[AsyncSession, Depends(get_database_session)]
@@ -45,6 +45,19 @@ def _trace_service(request: Request, session: SessionDependency) -> TraceService
 
 TraceServiceDependency = Annotated[TraceService, Depends(_trace_service)]
 TraceIdPath = Annotated[str, Path(pattern=TRACE_ID_PATTERN)]
+
+
+def _ensure_trace_read_access(identity: AuthContext, trace_actor_id: str, trace_id: str) -> None:
+    """Keep ordinary Trace reads owner-scoped without revealing existence."""
+
+    # Trace events can contain operational metadata about a person's session.
+    # A tenant match and generic ``trace:read`` scope alone must never expose
+    # one account's execution history to another account.  Administrators keep
+    # their explicit server-issued review authority; doctor/patient/guest
+    # identities remain owner-scoped until a separate patient-consent workflow
+    # exists.
+    if trace_actor_id != identity.actor_id and identity.account_role != "admin":
+        raise TraceNotFoundError(trace_id)
 
 
 async def _enforce_rate_limit(request: Request, identity: AuthContext) -> None:
@@ -83,11 +96,12 @@ async def get_trace(
     after_sequence: Annotated[int, Query(ge=0)] = 0,
     limit: Annotated[int, Query(ge=1, le=100)] = 50,
 ) -> TraceDetail:
-    """Return a Trace and one bounded cursor page of ordered events."""
+    """Return an owner Trace, or an administrator's tenant-scoped audit Trace."""
 
     set_active_trace(request.scope, trace_id)
     await _enforce_rate_limit(request, identity)
     trace = await service.get_trace(identity.tenant_id, trace_id)
+    _ensure_trace_read_access(identity, trace.actor_id, trace_id)
     events, next_cursor = await service.list_events(
         identity.tenant_id,
         trace_id,
