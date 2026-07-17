@@ -10,6 +10,7 @@ const validSession = {
   expires_in: 900,
   actor_id: "usr_account_0123456789abcdef0123456789abcdef",
   role: "patient",
+  account_role: "patient",
 };
 
 test("accepts the backend bearer session payload before writing account cookies", () => {

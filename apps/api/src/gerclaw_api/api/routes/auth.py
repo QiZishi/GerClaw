@@ -1,4 +1,4 @@
-"""Pseudonymous visitor bootstrap for login-free product access."""
+"""Authenticated local accounts, administrative account operations and sessions."""
 
 from __future__ import annotations
 
@@ -9,8 +9,8 @@ import uuid
 from datetime import UTC, datetime, timedelta
 from typing import Annotated, Literal, cast
 
-from fastapi import APIRouter, Depends, HTTPException, Request, status
-from pydantic import BaseModel, ConfigDict, Field
+from fastapi import APIRouter, Depends, HTTPException, Query, Request, status
+from pydantic import BaseModel, ConfigDict, Field, model_validator
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from gerclaw_api.auth import (
@@ -18,6 +18,7 @@ from gerclaw_api.auth import (
     account_access_revocation_key,
     authenticate,
     create_access_token,
+    require_account_admin,
 )
 from gerclaw_api.dependencies import get_database_session
 from gerclaw_api.modules.identity.passwords import hash_password, verify_password
@@ -31,7 +32,7 @@ from gerclaw_api.services.rate_limit import RateLimiter
 
 router = APIRouter(prefix="/auth", tags=["auth"])
 
-_GUEST_SCOPES = {
+_ACCOUNT_SCOPES = {
     "approval:read",
     "approval:write",
     "chat:read",
@@ -66,12 +67,12 @@ AccountSessionDependency = Annotated[AsyncSession, Depends(get_database_session)
 
 
 class GuestTokenRead(BaseModel):
-    """Short-lived bearer credential returned only to the trusted BFF."""
+    """Ephemeral patient-only visitor credential, issued only to the BFF."""
 
     model_config = ConfigDict(extra="forbid")
 
     access_token: str = Field(min_length=32)
-    token_type: str = "bearer"
+    token_type: Literal["bearer"] = "bearer"
     expires_in: int = Field(ge=300, le=86_400)
     actor_id: str = Field(pattern=r"^usr_guest_[a-f0-9]{32}$")
 
@@ -122,7 +123,8 @@ class AccountSessionRead(BaseModel):
     token_type: Literal["bearer"] = "bearer"
     expires_in: int = Field(ge=300, le=86_400)
     actor_id: str = Field(pattern=r"^usr_account_[a-f0-9]{32}$")
-    role: Literal["patient", "doctor"]
+    role: Literal["patient", "doctor", "admin"]
+    account_role: Literal["patient", "doctor", "admin"]
 
 
 class AccountIdentityRead(BaseModel):
@@ -131,13 +133,63 @@ class AccountIdentityRead(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     actor_id: str = Field(pattern=r"^usr_account_[a-f0-9]{32}$")
+    role: Literal["patient", "doctor", "admin"]
+    account_role: Literal["patient", "doctor", "admin"]
+
+
+class AccountAdminRead(BaseModel):
+    """Identity data exposed only to an authenticated administrator."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    actor_id: str = Field(pattern=r"^usr_account_[a-f0-9]{32}$")
+    username: str = Field(min_length=3, max_length=48)
+    role: Literal["patient", "doctor", "admin"]
+    is_active: bool
+    created_at: datetime
+
+
+class AccountAdminListRead(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    accounts: list[AccountAdminRead]
+    next_after_actor_id: str | None = None
+
+
+class AccountAdminUpdateRequest(BaseModel):
+    """Administrators may manage application accounts but cannot mint administrators."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    role: Literal["patient", "doctor"] | None = None
+    is_active: bool | None = None
+
+    @model_validator(mode="after")
+    def has_change(self) -> AccountAdminUpdateRequest:
+        if self.role is None and self.is_active is None:
+            raise ValueError("one account change is required")
+        return self
+
+
+class AccountViewRoleRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
     role: Literal["patient", "doctor"]
 
 
-def _account_scopes() -> set[str]:
+def _account_scopes(account_role: Literal["patient", "doctor", "admin"]) -> set[str]:
     """Account role is not a substitute for patient or clinical authorisation."""
 
-    return set(_GUEST_SCOPES)
+    scopes = set(_ACCOUNT_SCOPES)
+    if account_role == "admin":
+        scopes.add("account:admin")
+    return scopes
+
+
+def _guest_scopes() -> set[str]:
+    """Visitors receive the patient-service subset, never doctor/admin authority."""
+
+    return set(_ACCOUNT_SCOPES) - {"approval:write", "skill:write"}
 
 
 @router.get("/session", response_model=AccountIdentityRead)
@@ -146,11 +198,14 @@ async def read_account_session(
 ) -> AccountIdentityRead:
     """Return only the verified account role needed to render the authenticated UI."""
 
-    if identity.role not in {"patient", "doctor"} or not identity.actor_id.startswith(
-        "usr_account_"
-    ):
+    is_account = identity.actor_id.startswith("usr_account_")
+    if identity.account_role not in {"patient", "doctor", "admin"} or not is_account:
         raise HTTPException(status_code=403, detail={"code": "ACCOUNT_REQUIRED"})
-    return AccountIdentityRead(actor_id=identity.actor_id, role=identity.role)
+    return AccountIdentityRead(
+        actor_id=identity.actor_id,
+        role=identity.role,
+        account_role=identity.account_role,
+    )
 
 
 def _username_fingerprint(request: Request, username: str) -> str:
@@ -176,7 +231,8 @@ async def _issue_account_session(
     *,
     user_id: uuid.UUID,
     actor_id: str,
-    role: Literal["patient", "doctor"],
+    account_role: Literal["patient", "doctor", "admin"],
+    active_role: Literal["patient", "doctor", "admin"] | None = None,
 ) -> AccountSessionRead:
     settings = request.app.state.settings
     refresh_token = uuid.uuid4().hex + uuid.uuid4().hex
@@ -194,14 +250,16 @@ async def _issue_account_session(
             settings,
             actor_id=actor_id,
             tenant_id=_ACCOUNT_TENANT,
-            scopes=_account_scopes(),
-            role=role,
+            scopes=_account_scopes(account_role),
+            role=active_role or account_role,
+            account_role=account_role,
             lifetime_seconds=900,
         ),
         refresh_token=refresh_token,
         expires_in=900,
         actor_id=actor_id,
-        role=role,
+        role=active_role or account_role,
+        account_role=account_role,
     )
 
 
@@ -237,7 +295,7 @@ async def register_account(
         await session.commit()
         raise HTTPException(status_code=409, detail={"code": "ACCOUNT_UNAVAILABLE"}) from error
     result = await _issue_account_session(
-        request, repository, user_id=user.id, actor_id=actor_id, role=payload.role
+        request, repository, user_id=user.id, actor_id=actor_id, account_role=payload.role
     )
     await repository.record_security_event(
         tenant_id=_ACCOUNT_TENANT,
@@ -283,13 +341,13 @@ async def login_account(
             event_type="login",
             outcome="rejected",
             actor_id=user.external_id,
-            role=cast(Literal["patient", "doctor"], user.role),
+            role=cast(Literal["patient", "doctor", "admin"], user.role),
         )
         await session.commit()
         raise HTTPException(status_code=401, detail={"code": "ACCOUNT_LOGIN_INVALID"})
-    role = cast(Literal["patient", "doctor"], user.role)
+    role = cast(Literal["patient", "doctor", "admin"], user.role)
     result = await _issue_account_session(
-        request, repository, user_id=user.id, actor_id=user.external_id, role=role
+        request, repository, user_id=user.id, actor_id=user.external_id, account_role=role
     )
     await repository.record_security_event(
         tenant_id=_ACCOUNT_TENANT,
@@ -329,9 +387,9 @@ async def refresh_account_session(
         )
         await session.commit()
         raise HTTPException(status_code=401, detail={"code": "ACCOUNT_REFRESH_INVALID"}) from error
-    role = cast(Literal["patient", "doctor"], user.role)
+    role = cast(Literal["patient", "doctor", "admin"], user.role)
     result = await _issue_account_session(
-        request, repository, user_id=user.id, actor_id=user.external_id, role=role
+        request, repository, user_id=user.id, actor_id=user.external_id, account_role=role
     )
     await repository.revoke_refresh_session(previous)
     await repository.record_security_event(
@@ -344,6 +402,126 @@ async def refresh_account_session(
     )
     await session.commit()
     return result
+
+
+@router.post("/switch-view", response_model=AccountSessionRead)
+async def switch_administrator_view(
+    payload: AccountViewRoleRequest,
+    request: Request,
+    session: AccountSessionDependency,
+    identity: Annotated[AuthContext, Depends(require_account_admin)],
+) -> AccountSessionRead:
+    """Issue a fresh administrator session for a patient or doctor workspace.
+
+    The account remains `admin`; only the server-issued runtime/presentation role
+    changes.  No patient or doctor data is adopted by this operation.
+    """
+
+    repository = SqlAlchemyAccountRepository(session)
+    try:
+        user, _credential = await repository.lock_account_by_actor(
+            tenant_id=identity.tenant_id, actor_id=identity.actor_id
+        )
+    except AccountNotFoundError as error:
+        raise HTTPException(status_code=403, detail={"code": "ACCOUNT_ADMIN_REQUIRED"}) from error
+    if user.role != "admin" or not user.is_active:
+        raise HTTPException(status_code=403, detail={"code": "ACCOUNT_ADMIN_REQUIRED"})
+    result = await _issue_account_session(
+        request,
+        repository,
+        user_id=user.id,
+        actor_id=user.external_id,
+        account_role="admin",
+        active_role=payload.role,
+    )
+    await repository.record_security_event(
+        tenant_id=identity.tenant_id,
+        subject_fingerprint=_opaque_subject_fingerprint(
+            request, namespace="actor", value=identity.actor_id
+        ),
+        event_type="admin_update",
+        outcome="succeeded",
+        actor_id=identity.actor_id,
+        role="admin",
+    )
+    await session.commit()
+    return result
+
+
+@router.get("/admin/accounts", response_model=AccountAdminListRead)
+async def list_accounts_for_administrator(
+    request: Request,
+    session: AccountSessionDependency,
+    identity: Annotated[AuthContext, Depends(require_account_admin)],
+    limit: int = Query(default=50, ge=1, le=100),
+    after_actor_id: str | None = Query(default=None, pattern=r"^usr_account_[a-f0-9]{32}$"),
+) -> AccountAdminListRead:
+    """List only this tenant's account directory for the verified administrator."""
+
+    del request
+    entries = await SqlAlchemyAccountRepository(session).list_accounts(
+        tenant_id=identity.tenant_id, limit=limit + 1, after_actor_id=after_actor_id
+    )
+    has_more = len(entries) > limit
+    visible = entries[:limit]
+    return AccountAdminListRead(
+        accounts=[
+            AccountAdminRead(
+                actor_id=user.external_id,
+                username=credential.username,
+                role=cast(Literal["patient", "doctor", "admin"], user.role),
+                is_active=user.is_active,
+                created_at=user.created_at,
+            )
+            for user, credential in visible
+        ],
+        next_after_actor_id=visible[-1][0].external_id if has_more and visible else None,
+    )
+
+
+@router.patch("/admin/accounts/{actor_id}", response_model=AccountAdminRead)
+async def update_account_for_administrator(
+    actor_id: str,
+    payload: AccountAdminUpdateRequest,
+    request: Request,
+    session: AccountSessionDependency,
+    identity: Annotated[AuthContext, Depends(require_account_admin)],
+) -> AccountAdminRead:
+    """Change patient/doctor role or active status and immediately revoke sessions."""
+
+    repository = SqlAlchemyAccountRepository(session)
+    if actor_id == identity.actor_id:
+        raise HTTPException(status_code=409, detail={"code": "ACCOUNT_SELF_MANAGEMENT_FORBIDDEN"})
+    try:
+        user, credential = await repository.lock_account_by_actor(
+            tenant_id=identity.tenant_id, actor_id=actor_id
+        )
+    except AccountNotFoundError as error:
+        raise HTTPException(status_code=404, detail={"code": "ACCOUNT_NOT_FOUND"}) from error
+    if user.role == "admin":
+        raise HTTPException(status_code=403, detail={"code": "ACCOUNT_ADMIN_TARGET_FORBIDDEN"})
+    if payload.role is not None:
+        user.role = payload.role
+    if payload.is_active is not None:
+        user.is_active = payload.is_active
+    await repository.revoke_all_refresh_sessions(user_id=user.id)
+    await repository.record_security_event(
+        tenant_id=identity.tenant_id,
+        subject_fingerprint=_opaque_subject_fingerprint(request, namespace="actor", value=actor_id),
+        event_type="admin_update",
+        outcome="succeeded",
+        actor_id=identity.actor_id,
+        role="admin",
+    )
+    await request.app.state.redis.set(account_access_revocation_key(actor_id), "1", ex=900)
+    await session.commit()
+    return AccountAdminRead(
+        actor_id=user.external_id,
+        username=credential.username,
+        role=cast(Literal["patient", "doctor", "admin"], user.role),
+        is_active=user.is_active,
+        created_at=user.created_at,
+    )
 
 
 @router.post("/logout", status_code=status.HTTP_204_NO_CONTENT)
@@ -379,7 +557,7 @@ async def logout_account_session(
         event_type="logout",
         outcome="succeeded",
         actor_id=user.external_id,
-        role=cast(Literal["patient", "doctor"], user.role),
+        role=cast(Literal["patient", "doctor", "admin"], user.role),
     )
     await session.commit()
 
@@ -393,7 +571,7 @@ async def change_account_password(
 ) -> None:
     """Change one authenticated account password and revoke all refresh sessions."""
 
-    if identity.role not in {"patient", "doctor"}:
+    if identity.account_role not in {"patient", "doctor", "admin"}:
         raise HTTPException(status_code=403, detail={"code": "ACCOUNT_REQUIRED"})
     limiter: RateLimiter = request.app.state.rate_limiter
     await limiter.check(tenant_id=identity.tenant_id, actor_id=identity.actor_id)
@@ -423,7 +601,7 @@ async def change_account_password(
             event_type="password_change",
             outcome="rejected",
             actor_id=identity.actor_id,
-            role=cast(Literal["patient", "doctor"], user.role),
+            role=cast(Literal["patient", "doctor", "admin"], user.role),
         )
         await session.commit()
         raise HTTPException(status_code=401, detail={"code": "ACCOUNT_PASSWORD_INVALID"})
@@ -438,7 +616,7 @@ async def change_account_password(
         event_type="password_change",
         outcome="succeeded",
         actor_id=identity.actor_id,
-        role=cast(Literal["patient", "doctor"], user.role),
+        role=cast(Literal["patient", "doctor", "admin"], user.role),
     )
     await session.commit()
 
@@ -457,9 +635,8 @@ async def deactivate_account(
     request after the current short-lived access token expires.
     """
 
-    if identity.role not in {"patient", "doctor"} or not identity.actor_id.startswith(
-        "usr_account_"
-    ):
+    is_account = identity.actor_id.startswith("usr_account_")
+    if identity.account_role not in {"patient", "doctor", "admin"} or not is_account:
         raise HTTPException(status_code=403, detail={"code": "ACCOUNT_REQUIRED"})
     limiter: RateLimiter = request.app.state.rate_limiter
     await limiter.check(tenant_id=identity.tenant_id, actor_id=identity.actor_id)
@@ -488,7 +665,7 @@ async def deactivate_account(
             event_type="deactivate",
             outcome="rejected",
             actor_id=identity.actor_id,
-            role=cast(Literal["patient", "doctor"], user.role),
+            role=cast(Literal["patient", "doctor", "admin"], user.role),
         )
         await session.commit()
         raise HTTPException(status_code=401, detail={"code": "ACCOUNT_PASSWORD_INVALID"})
@@ -500,7 +677,7 @@ async def deactivate_account(
         event_type="deactivate",
         outcome="succeeded",
         actor_id=identity.actor_id,
-        role=cast(Literal["patient", "doctor"], user.role),
+        role=cast(Literal["patient", "doctor", "admin"], user.role),
     )
     # Account access tokens have a fixed 15-minute lifetime. Marking the
     # caller revoked before committing the relational state makes any stale
@@ -513,47 +690,40 @@ async def deactivate_account(
 
 @router.post("/guest", response_model=GuestTokenRead)
 async def issue_guest_token(request: Request) -> GuestTokenRead:
-    """Issue an opaque, least-privilege visitor identity after rate limiting."""
+    """Issue a session-local, pseudonymous patient credential for Trace/bad-case evidence."""
 
     settings = request.app.state.settings
-    peer = request.client.host if request.client is not None else "unknown"
     visitor_id = request.headers.get("X-GerClaw-Visitor-ID", "")
     visitor_signature = request.headers.get("X-GerClaw-Visitor-Signature", "")
-    signature_payload = f"gerclaw-guest-bootstrap:v1:{visitor_id}"
-    identity_secret = settings.guest_identity_secret.get_secret_value().encode()
-    expected_signature = hmac.new(
-        identity_secret,
-        signature_payload.encode(),
+    expected = hmac.new(
+        settings.guest_identity_secret.get_secret_value().encode(),
+        f"gerclaw-guest-bootstrap:v1:{visitor_id}".encode(),
         hashlib.sha256,
     ).hexdigest()
-    has_valid_bff_identity = (
+    valid_identity = (
         _VISITOR_ID.fullmatch(visitor_id) is not None
         and _VISITOR_SIGNATURE.fullmatch(visitor_signature) is not None
-        and hmac.compare_digest(visitor_signature, expected_signature)
+        and hmac.compare_digest(visitor_signature, expected)
     )
-    rate_material = f"visitor:{visitor_id}" if has_valid_bff_identity else f"peer:{peer}"
-    rate_identity = hmac.new(
-        identity_secret,
-        rate_material.encode(),
+    if not valid_identity:
+        raise HTTPException(status_code=403, detail={"code": "GUEST_IDENTITY_INVALID"})
+    limiter: RateLimiter = request.app.state.rate_limiter
+    secret = settings.guest_identity_secret.get_secret_value().encode()
+    digest = hmac.new(secret, visitor_id.encode(), hashlib.sha256).hexdigest()
+    await limiter.check(tenant_id=_ACCOUNT_TENANT, actor_id=f"guest_{digest[:24]}")
+    actor_suffix = hmac.new(
+        settings.guest_identity_secret.get_secret_value().encode(),
+        f"gerclaw-guest-actor:v2:{visitor_id}".encode(),
         hashlib.sha256,
     ).hexdigest()[:32]
-    limiter: RateLimiter = request.app.state.rate_limiter
-    await limiter.check(tenant_id="tenant_public0001", actor_id=f"auth_{rate_identity}")
-    if has_valid_bff_identity:
-        actor_material = f"gerclaw-guest-actor:v1:{visitor_id}"
-        actor_suffix = hmac.new(
-            identity_secret,
-            actor_material.encode(),
-            hashlib.sha256,
-        ).hexdigest()[:32]
-    else:
-        actor_suffix = uuid.uuid4().hex
     actor_id = f"usr_guest_{actor_suffix}"
     token = create_access_token(
         settings,
         actor_id=actor_id,
-        tenant_id="tenant_public0001",
-        scopes=_GUEST_SCOPES,
+        tenant_id=_ACCOUNT_TENANT,
+        scopes=_guest_scopes(),
+        role="guest",
+        account_role="guest",
         lifetime_seconds=settings.guest_token_ttl_seconds,
     )
     return GuestTokenRead(

@@ -20,7 +20,7 @@ interface WelcomePageProps {
   /** 点击功能快捷入口：触发对应功能模式（在聊天区对话式收集信息）*/
   onStartAction?: (action: ChatActionType) => void;
   /** 当前角色 */
-  role?: "patient" | "doctor" | "visitor";
+  role?: Role;
   /** 老年模式 */
   seniorMode?: boolean;
 }
@@ -46,12 +46,12 @@ export function WelcomePage({
     setMounted(true);
   }, []);
 
-  const role = mounted ? (propRole ?? storeRole) : "visitor";
+  const role = mounted ? (propRole ?? storeRole) : "patient";
   const seniorMode = mounted ? (propSeniorMode ?? storeSeniorMode) : false;
   
   const isPatient = role === "patient";
   const isDoctor = role === "doctor";
-  const isVisitor = role === "visitor";
+  const isVisitor = false;
 
   const greeting = isVisitor
     ? "欢迎使用 GerClaw 老年科AI诊疗平台"
@@ -69,14 +69,14 @@ export function WelcomePage({
   const patientCards = [
     {
       icon: Pill,
-      label: "五大处方信息收集",
-      desc: "保存健康信息；当前不生成医疗建议",
+      label: "五大处方计划",
+      desc: "告诉我您的目标和近况",
       action: "prescription" as const,
     },
     {
       icon: ClipboardCheck,
-      label: "综合评估（CGA）",
-      desc: "CGA 多维度健康评估",
+      label: "健康综合评估",
+      desc: "了解身心与日常生活情况",
       action: "cga" as const,
     },
     {
@@ -109,27 +109,21 @@ export function WelcomePage({
   const doctorCards = [
     {
       icon: Pill,
-      label: "五大处方信息收集",
-      desc: "记录处方所需信息；当前不生成处方建议",
+      label: "五大处方草案",
+      desc: "围绕患者资料补齐关键信息",
       action: "prescription" as const,
     },
     {
       icon: ClipboardCheck,
       label: "老年综合评估",
-      desc: "CGA 多维度评估",
+      desc: "完成患者 CGA 评估与结果整理",
       action: "cga" as const,
     },
     {
       icon: FileSearch,
-      label: "用药信息收集",
-      desc: "按有限可追溯规则核对用药风险",
+      label: "用药审查",
+      desc: "整理患者用药并核对风险",
       action: "drug-review" as const,
-    },
-    {
-      icon: UserRound,
-      label: "我的健康记录",
-      desc: "查看本人已确认的健康信息",
-      action: "health-profile" as const,
     },
   ];
 

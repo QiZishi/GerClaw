@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect } from "react";
+import { useEffect, useState } from "react";
 import { Menu, PanelLeftClose, Plus } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Sheet, SheetContent, SheetTrigger } from "@/components/ui/sheet";
@@ -16,6 +16,9 @@ import { RightPanel } from "@/components/layout/RightPanel";
 import { useAppStore } from "@/stores/appStore";
 import { useChatStore } from "@/stores/chatStore";
 import { cn } from "@/lib/utils";
+import { AdminDashboard } from "@/components/account/AdminDashboard";
+import { getAccountIdentity, type AccountIdentity } from "@/services/account";
+import { LoginPage } from "@/components/account/LoginPage";
 
 /**
  * 角色路由分发
@@ -32,9 +35,23 @@ export default function Home() {
   const toggleSidebar = useAppStore((s) => s.toggleSidebar);
   const mobileSidebarOpen = useAppStore((s) => s.mobileSidebarOpen);
   const setMobileSidebarOpen = useAppStore((s) => s.setMobileSidebarOpen);
+  const setRole = useAppStore((s) => s.setRole);
   const createSession = useChatStore((s) => s.createSession);
   const setCurrentSession = useAppStore((s) => s.setCurrentSession);
   const isSeniorPatient = role === "patient" && seniorMode;
+  const [identity, setIdentity] = useState<AccountIdentity | null | undefined>(undefined);
+  const [guestEntry, setGuestEntry] = useState(false);
+  useEffect(() => { void getAccountIdentity().then(setIdentity); }, []);
+  useEffect(() => {
+    if (!identity) return;
+    // Never render browser-local drafts from a prior person under a newly
+    // verified account. Durable records remain owner-scoped in the API.
+    useChatStore.getState().clearAllData();
+    setRole(identity.role);
+  }, [identity, setRole]);
+  useEffect(() => {
+    if (guestEntry) useChatStore.getState().clearAllData();
+  }, [guestEntry]);
 
   // Sheet 内容通过 Portal 渲染；跨过宽桌面断点时必须主动关闭，
   // 否则旧的遮罩会停留在页面上并遮挡桌面布局。
@@ -50,10 +67,15 @@ export default function Home() {
     return () => window.removeEventListener("resize", closeDrawerOnWideViewport);
   }, [setMobileSidebarOpen]);
 
+  if (identity === undefined) return <div className="grid min-h-screen place-items-center text-muted-foreground" role="status">正在准备登录…</div>;
+  if (!identity && !guestEntry) return <LoginPage onAuthenticated={(account) => { useChatStore.getState().clearAllData(); setIdentity(account); }} onGuest={() => { useChatStore.getState().clearAllData(); setRole("patient"); setGuestEntry(true); }} />;
+
   const handleQuickNew = () => {
     const id = createSession(role);
     setCurrentSession(id);
   };
+
+  if (role === "admin") return <AdminDashboard />;
 
   return (
     <div className="flex h-screen w-full overflow-hidden bg-background relative">

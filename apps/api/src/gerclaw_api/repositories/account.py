@@ -38,7 +38,7 @@ class SqlAlchemyAccountRepository:
         *,
         tenant_id: str,
         actor_id: str,
-        role: Literal["patient", "doctor"],
+        role: Literal["patient", "doctor", "admin"],
         username_fingerprint: str,
         username: str,
         password_hash: str,
@@ -80,6 +80,41 @@ class SqlAlchemyAccountRepository:
                 AccountCredential.tenant_id == tenant_id,
                 AccountCredential.username_fingerprint == username_fingerprint,
             )
+        )
+        row = (await self._session.execute(statement)).one_or_none()
+        if row is None:
+            raise AccountNotFoundError("account is unavailable")
+        return cast(User, row[0]), cast(AccountCredential, row[1])
+
+    async def list_accounts(
+        self, *, tenant_id: str, limit: int, after_actor_id: str | None
+    ) -> list[tuple[User, AccountCredential]]:
+        statement = (
+            select(User, AccountCredential)
+            .join(AccountCredential, AccountCredential.user_id == User.id)
+            .where(User.tenant_id == tenant_id, AccountCredential.tenant_id == tenant_id)
+            .order_by(User.external_id.asc())
+            .limit(limit)
+        )
+        if after_actor_id is not None:
+            statement = statement.where(User.external_id > after_actor_id)
+        return [
+            (cast(User, row[0]), cast(AccountCredential, row[1]))
+            for row in (await self._session.execute(statement)).all()
+        ]
+
+    async def lock_account_by_actor(
+        self, *, tenant_id: str, actor_id: str
+    ) -> tuple[User, AccountCredential]:
+        statement = (
+            select(User, AccountCredential)
+            .join(AccountCredential, AccountCredential.user_id == User.id)
+            .where(
+                User.tenant_id == tenant_id,
+                User.external_id == actor_id,
+                AccountCredential.tenant_id == tenant_id,
+            )
+            .with_for_update()
         )
         row = (await self._session.execute(statement)).one_or_none()
         if row is None:
@@ -162,11 +197,12 @@ class SqlAlchemyAccountRepository:
         tenant_id: str,
         subject_fingerprint: str,
         event_type: Literal[
-            "register", "login", "refresh", "logout", "password_change", "deactivate"
+            "register", "login", "refresh", "logout", "password_change", "deactivate",
+            "admin_update", "bootstrap",
         ],
         outcome: Literal["succeeded", "rejected", "ignored"],
         actor_id: str | None = None,
-        role: Literal["patient", "doctor"] | None = None,
+        role: Literal["patient", "doctor", "admin"] | None = None,
     ) -> None:
         """Stage a bounded audit fact; callers commit it with the auth operation."""
 

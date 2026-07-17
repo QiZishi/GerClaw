@@ -2,7 +2,8 @@ import { z } from "zod";
 
 const identitySchema = z.object({
   actor_id: z.string().regex(/^usr_account_[a-f0-9]{32}$/),
-  role: z.enum(["patient", "doctor"]),
+  role: z.enum(["patient", "doctor", "admin"]),
+  account_role: z.enum(["patient", "doctor", "admin"]),
 }).strict();
 const statusSchema = z.discriminatedUnion("authenticated", [
   z.object({ authenticated: z.literal(false) }).strict(),
@@ -29,7 +30,11 @@ export async function getAccountIdentity(): Promise<AccountIdentity | null> {
     const response = await fetch("/api/account/status", { cache: "no-store" });
     const parsed = statusSchema.safeParse(await readJson(response));
     if (!response.ok || !parsed.success || !parsed.data.authenticated) return null;
-    return { actor_id: parsed.data.actor_id, role: parsed.data.role };
+    return {
+      actor_id: parsed.data.actor_id,
+      role: parsed.data.role,
+      account_role: parsed.data.account_role,
+    };
   } catch {
     // Session discovery must never turn a usable visitor page into an unhandled
     // client error if the local BFF is restarting.
@@ -38,8 +43,8 @@ export async function getAccountIdentity(): Promise<AccountIdentity | null> {
 }
 
 async function startAccountSession(
-  action: "login" | "register",
-  payload: { username: string; password: string; role?: AccountRole },
+  action: "login" | "register" | "switch-view",
+  payload: { username?: string; password?: string; role?: AccountRole },
 ): Promise<AccountIdentity> {
   const response = await fetch(`/api/account/${action}`, {
     method: "POST",
@@ -48,7 +53,11 @@ async function startAccountSession(
   });
   const parsed = sessionSchema.safeParse(await readJson(response));
   if (!response.ok || !parsed.success) throw new Error("ACCOUNT_REQUEST_FAILED");
-  return { actor_id: parsed.data.actor_id, role: parsed.data.role };
+  return {
+    actor_id: parsed.data.actor_id,
+    role: parsed.data.role,
+    account_role: parsed.data.account_role,
+  };
 }
 
 export function loginAccount(username: string, password: string): Promise<AccountIdentity> {
@@ -61,6 +70,20 @@ export function registerAccount(
   role: AccountRole,
 ): Promise<AccountIdentity> {
   return startAccountSession("register", { username, password, role });
+}
+
+export function switchAdministratorView(role: "patient" | "doctor"): Promise<AccountIdentity> {
+  const csrf = csrfToken();
+  if (!csrf) return Promise.reject(new Error("ACCOUNT_SESSION_INVALID"));
+  return fetch("/api/account/switch-view", {
+    method: "POST",
+    headers: { "Content-Type": "application/json", "x-gerclaw-csrf": csrf },
+    body: JSON.stringify({ role }),
+  }).then(async (response) => {
+    const parsed = sessionSchema.safeParse(await readJson(response));
+    if (!response.ok || !parsed.success) throw new Error("ACCOUNT_REQUEST_FAILED");
+    return { actor_id: parsed.data.actor_id, role: parsed.data.role, account_role: parsed.data.account_role };
+  });
 }
 
 export async function logoutAccount(): Promise<void> {

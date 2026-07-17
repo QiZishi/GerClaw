@@ -743,7 +743,7 @@ export function ChatArea() {
         <WelcomePage
           onExampleClick={() => {}}
           onStartAction={() => {}}
-          role="visitor"
+          role="patient"
           seniorMode={false}
         />
       </main>

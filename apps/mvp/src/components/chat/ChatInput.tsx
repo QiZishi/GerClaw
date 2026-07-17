@@ -44,7 +44,7 @@ import {
   DialogFooter,
   DialogClose,
 } from "@/components/ui/dialog";
-import type { FileTag as UploadFileTag, ImageAttachment } from "@/types";
+import type { FileTag as UploadFileTag, ImageAttachment, Role } from "@/types";
 
 interface PendingImage {
   id: string;
@@ -149,7 +149,7 @@ function FunctionButtonGroup({
   prescriptionConversation,
 }: {
   disabled: boolean;
-  role: "patient" | "doctor" | "visitor";
+  role: Role;
   mounted: boolean;
   seniorMode: boolean;
   onSetChatAction: (action: "prescription" | "cga" | "drug-review" | "health-profile") => void;

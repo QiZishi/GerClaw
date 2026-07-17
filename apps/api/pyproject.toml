@@ -38,6 +38,7 @@ gerclaw-api = "gerclaw_api.main:run"
 gerclaw-rag-index = "gerclaw_api.modules.rag.cli:main"
 gerclaw-eval-safety = "gerclaw_api.modules.evals.cli:main"
 gerclaw-eval-rag = "gerclaw_api.modules.evals.rag_cli:main"
+gerclaw-bootstrap-admin = "gerclaw_api.admin_bootstrap:main"
 
 [build-system]
 requires = ["hatchling>=1.27"]

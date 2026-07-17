@@ -4,7 +4,7 @@ import {
   getGerclawApiBaseUrl,
   isAllowedGerclawProxyTarget,
 } from "@/server/gerclaw-api";
-import { hasGerclawAccountAccess, resolveGerclawAccess } from "@/server/gerclaw-access";
+import { resolveGerclawAccess } from "@/server/gerclaw-access";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -126,8 +126,7 @@ async function proxy(request: NextRequest, context: RouteContext): Promise<Respo
     );
   }
   try {
-    let access = await resolveGerclawAccess(request);
-    let accessToken = access.accessToken;
+    const access = await resolveGerclawAccess(request);
 
     const callUpstream = (token: string) => {
       const headers = new Headers({
@@ -145,19 +144,20 @@ async function proxy(request: NextRequest, context: RouteContext): Promise<Respo
       });
     };
 
-    let upstream = await callUpstream(accessToken);
-    if (upstream.status === 401 && !hasGerclawAccountAccess(request)) {
-      access = await resolveGerclawAccess(request, { refreshGuest: true });
-      accessToken = access.accessToken;
-      upstream = await callUpstream(accessToken);
-    }
+    const upstream = await callUpstream(access.accessToken);
     const response = new NextResponse(upstream.body, {
       status: upstream.status,
       headers: responseHeaders(upstream),
     });
     access.applyCookies(response);
     return response;
-  } catch {
+  } catch (error) {
+    if (error instanceof Error && error.message === "ACCOUNT_SESSION_REQUIRED") {
+      return NextResponse.json(
+        { error: { code: "AUTH_REQUIRED", message: "请先登录后继续" } },
+        { status: 401 },
+      );
+    }
     return NextResponse.json(
       { error: { code: "API_UNAVAILABLE", message: "后端服务暂时不可用，请稍后重试" } },
       { status: 503 }

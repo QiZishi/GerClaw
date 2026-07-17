@@ -10,10 +10,11 @@ export const dynamic = "force-dynamic";
 const ACCESS_COOKIE = "gerclaw_account_access";
 const REFRESH_COOKIE = "gerclaw_account_refresh";
 const CSRF_COOKIE = "gerclaw_account_csrf";
-const actionSchema = z.enum(["register", "login", "refresh", "logout", "password", "deactivate"]);
+const actionSchema = z.enum(["register", "login", "refresh", "logout", "password", "deactivate", "switch-view"]);
 const accountStatusSchema = z.object({
   actor_id: z.string().regex(/^usr_account_[a-f0-9]{32}$/),
-  role: z.enum(["patient", "doctor"]),
+  role: z.enum(["patient", "doctor", "admin"]),
+  account_role: z.enum(["patient", "doctor", "admin"]),
 }).strict();
 const accountName = z.string().regex(/^[A-Za-z0-9][A-Za-z0-9_.-]{2,47}$/);
 
@@ -30,6 +31,7 @@ const passwordSchema = z.object({
 const deactivationSchema = z.object({
   current_password: z.string().min(1).max(128),
 }).strict();
+const switchViewSchema = z.object({ role: z.enum(["patient", "doctor"]) }).strict();
 
 function cookieOptions(maxAge: number, httpOnly: boolean) {
   return {
@@ -51,6 +53,7 @@ function sessionResponse(session: z.infer<typeof accountSessionSchema>): NextRes
   const response = NextResponse.json({
     actor_id: session.actor_id,
     role: session.role,
+    account_role: session.account_role,
     expires_in: session.expires_in,
   });
   response.cookies.set(ACCESS_COOKIE, session.access_token, cookieOptions(session.expires_in, true));
@@ -68,7 +71,7 @@ function clearSession(response: NextResponse) {
 export async function POST(request: NextRequest, context: { params: Promise<{ action: string }> }) {
   const action = actionSchema.safeParse((await context.params).action);
   if (!action.success) return NextResponse.json({ error: { code: "ACCOUNT_ACTION_INVALID" } }, { status: 404 });
-  if (["refresh", "logout", "password", "deactivate"].includes(action.data) && !csrfIsValid(request)) {
+  if (["refresh", "logout", "password", "deactivate", "switch-view"].includes(action.data) && !csrfIsValid(request)) {
     return NextResponse.json({ error: { code: "CSRF_INVALID" } }, { status: 403 });
   }
 
@@ -86,6 +89,8 @@ export async function POST(request: NextRequest, context: { params: Promise<{ ac
     const parsed = passwordSchema.safeParse(raw); if (!parsed.success) return NextResponse.json({ error: { code: "ACCOUNT_INPUT_INVALID" } }, { status: 422 }); body = parsed.data;
   } else if (action.data === "deactivate") {
     const parsed = deactivationSchema.safeParse(raw); if (!parsed.success) return NextResponse.json({ error: { code: "ACCOUNT_INPUT_INVALID" } }, { status: 422 }); body = parsed.data;
+  } else if (action.data === "switch-view") {
+    const parsed = switchViewSchema.safeParse(raw); if (!parsed.success) return NextResponse.json({ error: { code: "ACCOUNT_INPUT_INVALID" } }, { status: 422 }); body = parsed.data;
   } else {
     const refresh = request.cookies.get(REFRESH_COOKIE)?.value;
     if (!refresh) return NextResponse.json({ error: { code: "ACCOUNT_SESSION_REQUIRED" } }, { status: 401 });
@@ -93,7 +98,7 @@ export async function POST(request: NextRequest, context: { params: Promise<{ ac
   }
   const headers: Record<string, string> = { "Content-Type": "application/json", Accept: "application/json" };
   const access = request.cookies.get(ACCESS_COOKIE)?.value;
-  if (["password", "deactivate"].includes(action.data) && access) headers.Authorization = `Bearer ${access}`;
+  if (["password", "deactivate", "switch-view"].includes(action.data) && access) headers.Authorization = `Bearer ${access}`;
   const upstream = await fetch(`${apiBase}/api/v1/auth/${action.data}`, { method: "POST", headers, body: JSON.stringify(body), cache: "no-store" });
   if (action.data === "logout" && upstream.status === 204) { const response = new NextResponse(null, { status: 204 }); clearSession(response); return response; }
   if (!upstream.ok) return NextResponse.json({ error: { code: "ACCOUNT_REQUEST_FAILED" } }, { status: upstream.status });

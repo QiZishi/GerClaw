@@ -9,7 +9,7 @@ import jwt
 from fastapi import Depends, HTTPException, Request, status
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from jwt import InvalidTokenError
-from pydantic import BaseModel, ConfigDict, Field, ValidationError, field_validator
+from pydantic import BaseModel, ConfigDict, Field, ValidationError, field_validator, model_validator
 
 from gerclaw_api.config import Settings
 from gerclaw_api.domain.trace_schemas import SAFE_IDENTIFIER_PATTERN
@@ -32,7 +32,15 @@ class AuthContext(BaseModel):
     actor_id: str = Field(pattern=SAFE_IDENTIFIER_PATTERN)
     tenant_id: str = Field(pattern=SAFE_IDENTIFIER_PATTERN)
     role: Literal["guest", "patient", "doctor", "admin"] = "guest"
+    account_role: Literal["guest", "patient", "doctor", "admin"] = "guest"
     scopes: frozenset[str]
+
+    @model_validator(mode="before")
+    @classmethod
+    def default_account_role_to_runtime_role(cls, value: object) -> object:
+        if isinstance(value, dict) and "account_role" not in value:
+            return {**value, "account_role": value.get("role", "guest")}
+        return value
 
     @field_validator("actor_id", "tenant_id")
     @classmethod
@@ -49,6 +57,7 @@ def create_access_token(
     tenant_id: str,
     scopes: set[str],
     role: Literal["guest", "patient", "doctor", "admin"] = "guest",
+    account_role: Literal["guest", "patient", "doctor", "admin"] | None = None,
     lifetime_seconds: int = 300,
 ) -> str:
     """Issue a short-lived HS256 token for a trusted identity provider or test harness."""
@@ -59,6 +68,7 @@ def create_access_token(
         "tenant_id": tenant_id,
         "scope": " ".join(sorted(scopes)),
         "role": role,
+        "account_role": account_role or role,
         "iss": settings.auth_jwt_issuer,
         "aud": settings.auth_jwt_audience,
         "iat": now,
@@ -101,6 +111,7 @@ async def authenticate(
             tenant_id=claims["tenant_id"],
             scopes=frozenset(scope_value.split()),
             role=claims.get("role", "guest"),
+            account_role=claims.get("account_role", claims.get("role", "guest")),
         )
         if identity.actor_id.startswith("usr_account_"):
             redis = getattr(request.app.state, "redis", None)
@@ -125,6 +136,19 @@ def authorize_scope(identity: AuthContext, required_scope: str) -> AuthContext:
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
             detail={"code": "AUTH_SCOPE_REQUIRED", "message": f"missing {required_scope} scope"},
+        )
+    return identity
+
+
+async def require_account_admin(
+    identity: Annotated[AuthContext, Depends(authenticate)],
+) -> AuthContext:
+    """Require the persistent administrator account, never a client-selected view."""
+
+    if identity.account_role != "admin" or "account:admin" not in identity.scopes:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail={"code": "ACCOUNT_ADMIN_REQUIRED", "message": "administrator account required"},
         )
     return identity
 

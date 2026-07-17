@@ -35,8 +35,8 @@ export interface SimpleStepData {
 /** 文件上传/解析状态 */
 export type FileStatus = "uploading" | "parsing" | "done" | "failed";
 
-/** 角色（医生/患者/访客） */
-export type Role = "patient" | "doctor" | "visitor";
+/** 服务端认证后才可进入的工作区角色。 */
+export type Role = "patient" | "doctor" | "admin";
 
 /** 主题 */
 export type Theme = "light" | "dark" | "system";

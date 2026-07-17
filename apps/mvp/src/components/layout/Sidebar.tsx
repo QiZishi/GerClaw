@@ -3,8 +3,8 @@
 import { useEffect, useMemo, useState } from "react";
 import {
   Zap,
-  Check,
   HelpCircle,
+  History,
   LogOut,
   Menu,
   Moon,
@@ -17,7 +17,6 @@ import {
   Sun,
   Trash2,
   User,
-  Users,
 } from "lucide-react";
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
 import { Badge } from "@/components/ui/badge";
@@ -95,13 +94,15 @@ export function Sidebar({ onNavigate }: SidebarProps) {
   const renameSession = useChatStore((s) => s.renameSession);
   const removeSession = useChatStore((s) => s.removeSession);
   const togglePinSession = useChatStore((s) => s.togglePinSession);
+  const clearAllData = useChatStore((s) => s.clearAllData);
 
   const [searchQuery, setSearchQuery] = useState("");
+  const [patientHistoryOpen, setPatientHistoryOpen] = useState(false);
   const [renameTarget, setRenameTarget] = useState<Session | null>(null);
   const [renameTitle, setRenameTitle] = useState("");
   const [deleteTarget, setDeleteTarget] = useState<Session | null>(null);
   const [deletingSession, setDeletingSession] = useState(false);
-  const [pendingRole, setPendingRole] = useState<"visitor" | "patient" | "doctor" | null>(null);
+  const [pendingRole, setPendingRole] = useState<"patient" | "doctor" | null>(null);
   const [account, setAccount] = useState<AccountIdentity | null>(null);
   const [accountDialogOpen, setAccountDialogOpen] = useState(false);
   const [accountDeactivationOpen, setAccountDeactivationOpen] = useState(false);
@@ -122,7 +123,6 @@ export function Sidebar({ onNavigate }: SidebarProps) {
 
   const isPatient = role === "patient";
   const isDoctor = role === "doctor";
-  const isVisitor = role === "visitor";
 
   function getRoleBadgeLabel() {
     switch (role) {
@@ -130,9 +130,8 @@ export function Sidebar({ onNavigate }: SidebarProps) {
         return "医生端";
       case "patient":
         return "患者端";
-      case "visitor":
       default:
-        return "访客端";
+        return "患者端";
     }
   }
 
@@ -142,9 +141,8 @@ export function Sidebar({ onNavigate }: SidebarProps) {
         return "bg-blue-100 text-blue-700 dark:bg-blue-950/40 dark:text-blue-300";
       case "patient":
         return "";
-      case "visitor":
       default:
-        return "bg-gray-100 text-gray-600 dark:bg-gray-800 dark:text-gray-400";
+        return "";
     }
   }
 
@@ -154,9 +152,8 @@ export function Sidebar({ onNavigate }: SidebarProps) {
         return "医生模式";
       case "patient":
         return "患者模式";
-      case "visitor":
       default:
-        return "访客模式";
+        return "患者模式";
     }
   }
 
@@ -227,11 +224,6 @@ export function Sidebar({ onNavigate }: SidebarProps) {
     toggleSidebar();
   };
 
-  const requestRoleChange = (nextRole: "visitor" | "patient" | "doctor") => {
-    if (nextRole === role) return;
-    setPendingRole(nextRole);
-  };
-
   const confirmRoleChange = () => {
     if (!pendingRole) return;
     setRole(pendingRole);
@@ -249,7 +241,7 @@ export function Sidebar({ onNavigate }: SidebarProps) {
     if (!renameTarget || !title) return;
     renameSession(renameTarget.id, title);
     setRenameTarget(null);
-    toast.show("对话名称已更新");
+    toast.show(isDoctor ? "病例会话名称已更新" : "对话名称已更新");
   };
 
   const confirmDelete = async () => {
@@ -266,10 +258,14 @@ export function Sidebar({ onNavigate }: SidebarProps) {
         closeRightPanel();
       }
       setDeleteTarget(null);
-      toast.show("对话已删除");
+      toast.show(isDoctor ? "病例会话已删除" : "对话已删除");
       onNavigate?.();
     } catch {
-      toast.show("暂时无法删除对话，请稍后重试。对话内容仍被保留。");
+      toast.show(
+        isDoctor
+          ? "暂时无法删除病例会话，请稍后重试。"
+          : "暂时无法删除对话，请稍后重试。",
+      );
     } finally {
       setDeletingSession(false);
     }
@@ -278,7 +274,7 @@ export function Sidebar({ onNavigate }: SidebarProps) {
   const roleLabel = (value: "visitor" | "patient" | "doctor") => {
     if (value === "patient") return "患者模式";
     if (value === "doctor") return "医生模式";
-    return "访客模式";
+    return "患者模式";
   };
 
   const handleOpenSettings = () => {
@@ -301,7 +297,8 @@ export function Sidebar({ onNavigate }: SidebarProps) {
       }
       setAccount(null);
     }
-    setRole("visitor");
+    clearAllData();
+    window.location.assign("/");
     setCurrentSession(null);
     closeRightPanel();
     toast.show(account ? "已退出账户并返回访客模式" : "已返回访客模式");
@@ -343,7 +340,7 @@ export function Sidebar({ onNavigate }: SidebarProps) {
         </Tooltip>
       </div>
 
-      {/* 第1行：新建对话 */}
+      {/* The two roles share the same visual hierarchy; only their task language differs. */}
       <div className="px-3 pb-2">
         <Button
           variant="default"
@@ -351,7 +348,7 @@ export function Sidebar({ onNavigate }: SidebarProps) {
           onClick={handleNewSession}
         >
           <Plus className="size-4" />
-          <span>新建对话</span>
+          <span>{isDoctor ? "新建病例会话" : "开始咨询"}</span>
         </Button>
       </div>
 
@@ -368,21 +365,20 @@ export function Sidebar({ onNavigate }: SidebarProps) {
         </Button>
       </div>
 
-      {/* 第3行：搜索框 */}
-      <div className="px-3 pb-2">
+      {/* History stays available without occupying the patient's primary action area. */}
+      {(!isPatient || patientHistoryOpen) && <div className="px-3 pb-2">
         <div className="relative">
           <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 size-3.5 text-muted-foreground pointer-events-none" />
           <Input
-            placeholder="搜索历史对话"
+            placeholder={isDoctor ? "搜索病例会话" : "搜索对话记录"}
             value={searchQuery}
             onChange={(e) => setSearchQuery(e.target.value)}
             className={cn("pl-8 h-8", seniorMode && "h-12 pl-10 text-lg")}
           />
         </div>
-      </div>
+      </div>}
 
-      {/* 历史对话列表 */}
-      <ScrollArea className="flex-1 min-h-0">
+      {(!isPatient || patientHistoryOpen) && <ScrollArea className="flex-1 min-h-0">
         <div className="px-2 py-1">
           {!mounted ? (
             <div className={cn("px-2 py-4 text-center text-sm text-muted-foreground", seniorMode && "text-lg")}>
@@ -390,8 +386,7 @@ export function Sidebar({ onNavigate }: SidebarProps) {
             </div>
           ) : effectiveSessions.length === 0 ? (
             <div className="px-3 py-7 text-center">
-              <p className={cn("text-sm font-medium", seniorMode && "text-lg")}>还没有对话</p>
-              <p className={cn("mt-1 text-xs leading-relaxed text-muted-foreground", seniorMode && "text-base")}>点击“新建对话”，用语音或文字开始健康咨询。</p>
+              <p className={cn("text-sm font-medium", seniorMode && "text-lg")}>{isDoctor ? "还没有病例会话" : "还没有对话记录"}</p>
             </div>
           ) : (
             (Object.keys(groupedSessions) as SessionGroup[]).map((group) => {
@@ -419,7 +414,8 @@ export function Sidebar({ onNavigate }: SidebarProps) {
             })
           )}
         </div>
-      </ScrollArea>
+      </ScrollArea>}
+      {isPatient && !patientHistoryOpen && <div className="flex-1" />}
 
       <Separator className="bg-sidebar-border" />
 
@@ -444,13 +440,11 @@ export function Sidebar({ onNavigate }: SidebarProps) {
                   <Stethoscope className="size-4" />
                 ) : isPatient ? (
                   <User className="size-4" />
-                ) : (
-                  <Users className="size-4" />
-                )}
+                ) : <User className="size-4" />}
               </AvatarFallback>
             </Avatar>
             <div className="flex-1 min-w-0 text-left">
-              <div className={cn("text-sm font-medium truncate", seniorMode && "text-lg")}>{account ? "已登录账户" : "访客用户"}</div>
+              <div className={cn("text-sm font-medium truncate", seniorMode && "text-lg")}>{account ? "已登录账户" : "账户"}</div>
               <div className={cn("text-xs text-muted-foreground truncate", seniorMode && "text-base")}>
                 {getModeLabel()}
               </div>
@@ -458,50 +452,17 @@ export function Sidebar({ onNavigate }: SidebarProps) {
           </DropdownMenuTrigger>
           <DropdownMenuContent align="end" className={cn("w-60", seniorMode && "w-72 text-base")}>
             <DropdownMenuGroup>
-              <DropdownMenuLabel>{account ? "账户身份由服务端验证" : "访客用户"}</DropdownMenuLabel>
+              <DropdownMenuLabel>账户身份由服务端验证</DropdownMenuLabel>
             </DropdownMenuGroup>
             <DropdownMenuSeparator />
 
-            {!account && (
-              <>
-                <DropdownMenuItem className={cn("cursor-pointer", seniorMode && "min-h-12 text-base")} onClick={() => setAccountDialogOpen(true)}>
-                  <User className="size-4" />
-                  登录或注册账户
-                </DropdownMenuItem>
-                <DropdownMenuSeparator />
-              </>
-            )}
-
-            {/* 角色选择 */}
-            {!account && <DropdownMenuGroup>
-              <DropdownMenuLabel className="text-xs font-normal text-muted-foreground">选择模式</DropdownMenuLabel>
-              <DropdownMenuItem
-                className={cn("cursor-pointer gap-2", seniorMode && "min-h-12 text-base", isVisitor && "bg-accent")}
-                onClick={() => requestRoleChange("visitor")}
-              >
-                <Users className="size-4 text-gray-500" />
-                <span>访客模式</span>
-                {isVisitor && <Check className="size-4 ml-auto" />}
+            {!account && <>
+              <DropdownMenuItem className={cn("cursor-pointer", seniorMode && "min-h-12 text-base")} onClick={() => setAccountDialogOpen(true)}>
+                <User className="size-4" />
+                登录或创建账户
               </DropdownMenuItem>
-              <DropdownMenuItem
-                className={cn("cursor-pointer gap-2", seniorMode && "min-h-12 text-base", isPatient && "bg-accent")}
-                onClick={() => requestRoleChange("patient")}
-              >
-                <User className="size-4 text-primary" />
-                <span>患者模式</span>
-                {isPatient && <Check className="size-4 ml-auto" />}
-              </DropdownMenuItem>
-              <DropdownMenuItem
-                className={cn("cursor-pointer gap-2", seniorMode && "min-h-12 text-base", isDoctor && "bg-accent")}
-                onClick={() => requestRoleChange("doctor")}
-              >
-                <Stethoscope className="size-4 text-blue-600" />
-                <span>医生模式</span>
-                {isDoctor && <Check className="size-4 ml-auto" />}
-              </DropdownMenuItem>
-            </DropdownMenuGroup>}
-
-            {!account && <DropdownMenuSeparator />}
+              <DropdownMenuSeparator />
+            </>}
 
             {/* 老年模式（仅患者端）*/}
             {isPatient && (
@@ -535,6 +496,15 @@ export function Sidebar({ onNavigate }: SidebarProps) {
 
             <DropdownMenuSeparator />
             <DropdownMenuGroup>
+              {isPatient && effectiveSessions.length > 0 && (
+                <DropdownMenuItem
+                  className={cn("cursor-pointer", seniorMode && "min-h-12 text-base")}
+                  onClick={() => setPatientHistoryOpen(true)}
+                >
+                  <History className="size-4" />
+                  对话记录
+                </DropdownMenuItem>
+              )}
               <DropdownMenuItem className={cn("cursor-pointer", seniorMode && "min-h-12 text-base")} onClick={handleOpenSettings}>
                 <Settings className="size-4" />
                 设置
@@ -574,13 +544,13 @@ export function Sidebar({ onNavigate }: SidebarProps) {
             }}
           >
             <DialogHeader>
-              <DialogTitle className={cn(seniorMode && "text-2xl")}>重命名对话</DialogTitle>
+              <DialogTitle className={cn(seniorMode && "text-2xl")}>{isDoctor ? "重命名病例会话" : "重命名对话"}</DialogTitle>
               <DialogDescription className={cn(seniorMode && "text-lg leading-8")}>
-                用一个容易识别的名称，方便您下次继续这次咨询。
+                {isDoctor ? "使用便于识别的名称，方便后续继续病例工作。" : "使用容易识别的名称，方便下次继续咨询。"}
               </DialogDescription>
             </DialogHeader>
             <div className="mt-5">
-              <Label htmlFor="session-title" className={cn(seniorMode && "text-lg")}>对话名称</Label>
+              <Label htmlFor="session-title" className={cn(seniorMode && "text-lg")}>{isDoctor ? "病例会话名称" : "对话名称"}</Label>
               <Input
                 id="session-title"
                 autoFocus
@@ -610,7 +580,7 @@ export function Sidebar({ onNavigate }: SidebarProps) {
       >
         <DialogContent showCloseButton={!seniorMode} className={cn("sm:max-w-md", seniorMode && "p-5")}>
           <DialogHeader>
-            <DialogTitle className={cn("text-destructive", seniorMode && "text-2xl")}>确认删除对话</DialogTitle>
+            <DialogTitle className={cn("text-destructive", seniorMode && "text-2xl")}>{isDoctor ? "确认删除病例会话" : "确认删除对话"}</DialogTitle>
             <DialogDescription className={cn(seniorMode && "text-lg leading-8")}>
               删除“{deleteTarget?.title}”后，其中的所有内容将无法恢复。
             </DialogDescription>
@@ -636,7 +606,7 @@ export function Sidebar({ onNavigate }: SidebarProps) {
           <DialogHeader>
             <DialogTitle className={cn(seniorMode && "text-2xl")}>切换到{pendingRole ? roleLabel(pendingRole) : ""}</DialogTitle>
             <DialogDescription className={cn(seniorMode && "text-lg leading-8")}>
-              切换后会显示适合该身份的功能。当前对话会保留在本机，您可以稍后从历史对话继续查看。
+              切换后会显示适合该身份的功能。
             </DialogDescription>
           </DialogHeader>
           <DialogFooter className={cn("mt-5", seniorMode && "flex-row justify-end gap-3 p-5")}>
@@ -655,6 +625,7 @@ export function Sidebar({ onNavigate }: SidebarProps) {
         onOpenChange={setAccountDialogOpen}
         seniorMode={seniorMode}
         onAuthenticated={(identity) => {
+          clearAllData();
           setAccount(identity);
           setRole(identity.role);
           toast.show(identity.role === "doctor" ? "已登录医生账户。临床权限仍需患者授权。" : "已登录患者账户");
@@ -666,10 +637,10 @@ export function Sidebar({ onNavigate }: SidebarProps) {
         seniorMode={seniorMode}
         onDeactivated={() => {
           setAccount(null);
-          setRole("visitor");
+          window.location.assign("/");
           setCurrentSession(null);
           closeRightPanel();
-          toast.show("账户已停用，您已返回访客模式。");
+          toast.show("账户已停用，请使用其他账户登录。");
           onNavigate?.();
         }}
       />

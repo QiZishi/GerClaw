@@ -7,5 +7,6 @@ export const accountSessionSchema = z.object({
   token_type: z.literal("bearer"),
   expires_in: z.number().int().min(300).max(86_400),
   actor_id: z.string().regex(/^usr_account_[a-f0-9]{32}$/),
-  role: z.enum(["patient", "doctor"]),
+  role: z.enum(["patient", "doctor", "admin"]),
+  account_role: z.enum(["patient", "doctor", "admin"]),
 }).strict();

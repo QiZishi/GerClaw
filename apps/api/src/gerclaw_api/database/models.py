@@ -108,7 +108,7 @@ class IdentitySecurityEvent(Base):
     __tablename__ = "identity_security_events"
     __table_args__ = (
         CheckConstraint(
-            "event_type IN ('register','login','refresh','logout','password_change','deactivate')",
+            "event_type IN ('register','login','refresh','logout','password_change','deactivate','admin_update','bootstrap')",
             name="valid_identity_security_event_type",
         ),
         CheckConstraint(
@@ -116,7 +116,7 @@ class IdentitySecurityEvent(Base):
             name="valid_identity_security_event_outcome",
         ),
         CheckConstraint(
-            "role IS NULL OR role IN ('patient','doctor')",
+            "role IS NULL OR role IN ('patient','doctor','admin')",
             name="valid_identity_security_event_role",
         ),
         Index(

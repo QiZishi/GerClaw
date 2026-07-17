@@ -105,7 +105,7 @@ export const useAppStore = create<AppState>()(
       setTheme: (theme) => set({ theme }),
 
       // === 角色 ===
-      role: "visitor",
+      role: "patient",
       setRole: (role) =>
         set({
           role,
