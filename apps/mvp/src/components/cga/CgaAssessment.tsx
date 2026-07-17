@@ -1,15 +1,21 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { AlertTriangle, ArrowLeft, CheckCircle2, ClipboardList, Download, Pause, RefreshCw, Square, Volume2 } from "lucide-react";
+import { AlertTriangle, ArrowLeft, CheckCircle2, ClipboardList, Download, FileText, FileType, Pause, RefreshCw, Square, Volume2 } from "lucide-react";
 import { z } from "zod";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
-import { exportToMarkdown } from "@/lib/export";
+import { exportToDocx, exportToMarkdown, exportToPdf } from "@/lib/export";
 import { recordedCgaQuestionAudio } from "@/lib/cga-audio";
 import { useAudioPlayer } from "@/hooks/useAudioPlayer";
 import { useAppStore } from "@/stores/appStore";
 import { toast } from "@/components/ui/toast";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
 import {
   completeCgaAssessment,
   getCgaAssessment,
@@ -85,7 +91,23 @@ function buildReportExportContent(report: CgaReport): string {
     lines.push("", "## 安全提示", "", ...report.safety_messages.map((message) => `- ${message}`));
   }
   lines.push("", "## 筛查说明", "", report.disclaimer);
+  lines.push(
+    "",
+    "## 医疗免责声明",
+    "",
+    "本筛查信息仅供参考，不能替代专业医生的诊断和治疗建议。如有不适请及时就医。"
+  );
   return lines.join("\n");
+}
+
+function buildCgaExportTitle(scaleName: string): string {
+  const now = new Date();
+  const date = [
+    now.getFullYear(),
+    String(now.getMonth() + 1).padStart(2, "0"),
+    String(now.getDate()).padStart(2, "0"),
+  ].join("-");
+  return `GerClaw_${scaleName}筛查报告_${date}`;
 }
 
 export function CgaAssessment({ onExit }: CgaAssessmentProps) {
@@ -107,7 +129,9 @@ export function CgaAssessment({ onExit }: CgaAssessmentProps) {
   const [manualInput, setManualInput] = useState("");
   const [selectedOrdinalScore, setSelectedOrdinalScore] = useState<number | null>(null);
   const [supplementalDetail, setSupplementalDetail] = useState("");
+  const [exportingFormat, setExportingFormat] = useState<"markdown" | "docx" | "pdf" | null>(null);
   const autoReadQuestionKeyRef = useRef<string | null>(null);
+  const reportExportRef = useRef<HTMLDivElement | null>(null);
   const {
     isPlaying: isQuestionPlaying,
     isPaused: isQuestionPaused,
@@ -360,14 +384,26 @@ export function CgaAssessment({ onExit }: CgaAssessmentProps) {
     void begin(selectedScale);
   };
 
-  const exportReport = () => {
+  const exportReport = async (format: "markdown" | "docx" | "pdf") => {
     if (!report || !selectedScale) return;
-    exportToMarkdown({
-      title: `${selectedScale.name}筛查报告`,
-      subtitle: "结果由服务端确定性规则生成",
-      content: buildReportExportContent(report),
-    });
-    setNotice("筛查报告已导出为 Markdown 文件。报告仅供筛查参考，不能替代医生诊断。");
+    setExportingFormat(format);
+    const title = buildCgaExportTitle(selectedScale.name);
+    const content = buildReportExportContent(report);
+    try {
+      if (format === "markdown") {
+        exportToMarkdown({ title, subtitle: "结果由服务端确定性规则生成", content });
+      } else if (format === "docx") {
+        await exportToDocx(title, content, "结果由服务端确定性规则生成");
+      } else {
+        if (!reportExportRef.current) throw new Error("CGA report is not ready for PDF export");
+        await exportToPdf(reportExportRef.current, title);
+      }
+      setNotice(`筛查报告已导出为${format === "markdown" ? " Markdown" : format === "docx" ? " Word" : " PDF"} 文件。报告仅供筛查参考，不能替代医生诊断。`);
+    } catch {
+      toast.show("导出暂时失败，请重试或改用其他格式。");
+    } finally {
+      setExportingFormat(null);
+    }
   };
 
   const backToDirectory = () => {
@@ -649,7 +685,7 @@ export function CgaAssessment({ onExit }: CgaAssessmentProps) {
           )}
 
           {report && (
-            <div className="rounded-xl border bg-card p-5">
+            <div ref={reportExportRef} className="rounded-xl border bg-card p-5">
               <h4 className={cn("font-semibold", seniorMode ? "text-2xl" : "text-xl")}>筛查结果</h4>
               <p className={cn("mt-4", textClass)}>得分：<strong>{report.total_score} / {report.score_max}</strong></p>
               {report.raw_score !== null && report.standard_score !== null && <p className={cn("mt-2", textClass)}>粗分：{report.raw_score}；标准分：{report.standard_score}</p>}
@@ -683,10 +719,28 @@ export function CgaAssessment({ onExit }: CgaAssessmentProps) {
               )}
               {report.safety_messages.map((message) => <p className={cn("mt-3", textClass)} key={message}>{message}</p>)}
               <p className={cn("mt-5 rounded-md bg-muted p-3 text-muted-foreground", textClass)}>{report.disclaimer}</p>
-              <div className="mt-4 flex flex-wrap gap-3">
-                <Button className={actionClass} variant="outline" onClick={exportReport}>
-                  <Download className="mr-2 size-4" />导出筛查报告
-                </Button>
+              <div className="mt-4 flex flex-wrap gap-3" data-html2canvas-ignore>
+                <DropdownMenu>
+                  <DropdownMenuTrigger
+                    render={
+                      <Button className={actionClass} variant="outline" disabled={exportingFormat !== null}>
+                        <Download className="mr-2 size-4" />
+                        {exportingFormat ? "正在导出…" : "导出报告"}
+                      </Button>
+                    }
+                  />
+                  <DropdownMenuContent align="start" className={cn(seniorMode && "min-w-56 text-base")}>
+                    <DropdownMenuItem className={cn(seniorMode && "min-h-12")} onClick={() => void exportReport("pdf")}>
+                      <FileText className="size-4" />PDF（便于打印）
+                    </DropdownMenuItem>
+                    <DropdownMenuItem className={cn(seniorMode && "min-h-12")} onClick={() => void exportReport("docx")}>
+                      <FileType className="size-4" />Word（便于编辑）
+                    </DropdownMenuItem>
+                    <DropdownMenuItem className={cn(seniorMode && "min-h-12")} onClick={() => void exportReport("markdown")}>
+                      <FileText className="size-4" />Markdown（便于保存）
+                    </DropdownMenuItem>
+                  </DropdownMenuContent>
+                </DropdownMenu>
                 <Button className={actionClass} variant="outline" onClick={reset}>重新开始此量表</Button>
               </div>
             </div>
