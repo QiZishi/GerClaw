@@ -62,6 +62,7 @@ import { AccountDialog } from "@/components/account/AccountDialog";
 import { AccountDeactivationDialog } from "@/components/account/AccountDeactivationDialog";
 import {
   getAccountIdentity,
+  exitGuestSession,
   logoutAccount,
   switchAdministratorView,
   type AccountIdentity,
@@ -304,6 +305,13 @@ export function Sidebar({ onNavigate }: SidebarProps) {
         return;
       }
       setAccount(null);
+    } else {
+      try {
+        await exitGuestSession();
+      } catch {
+        toast.show("暂时无法结束本次游客会话，请稍后重试。");
+        return;
+      }
     }
     clearAllData();
     window.location.assign("/");

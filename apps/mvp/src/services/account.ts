@@ -96,6 +96,11 @@ export async function logoutAccount(): Promise<void> {
   if (!response.ok && response.status !== 401) throw new Error("ACCOUNT_REQUEST_FAILED");
 }
 
+export async function exitGuestSession(): Promise<void> {
+  const response = await fetch("/api/guest/exit", { method: "POST" });
+  if (!response.ok) throw new Error("GUEST_SESSION_EXIT_FAILED");
+}
+
 export async function deactivateAccount(currentPassword: string): Promise<void> {
   const csrf = csrfToken();
   if (!csrf) throw new Error("ACCOUNT_SESSION_INVALID");

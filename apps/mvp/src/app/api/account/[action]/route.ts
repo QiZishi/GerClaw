@@ -10,6 +10,7 @@ export const dynamic = "force-dynamic";
 const ACCESS_COOKIE = "gerclaw_account_access";
 const REFRESH_COOKIE = "gerclaw_account_refresh";
 const CSRF_COOKIE = "gerclaw_account_csrf";
+const GUEST_ACCESS_COOKIE = "gerclaw_guest_token";
 const actionSchema = z.enum(["register", "login", "refresh", "logout", "password", "deactivate", "switch-view"]);
 const accountStatusSchema = z.object({
   actor_id: z.string().regex(/^usr_account_[a-f0-9]{32}$/),
@@ -59,6 +60,9 @@ function sessionResponse(session: z.infer<typeof accountSessionSchema>): NextRes
   response.cookies.set(ACCESS_COOKIE, session.access_token, cookieOptions(session.expires_in, true));
   response.cookies.set(REFRESH_COOKIE, session.refresh_token, cookieOptions(2_592_000, true));
   response.cookies.set(CSRF_COOKIE, randomBytes(32).toString("hex"), cookieOptions(2_592_000, false));
+  // An explicit account login starts an account-owned workspace. Never retain a
+  // guest identity that could later make an old anonymous session reappear.
+  response.cookies.set(GUEST_ACCESS_COOKIE, "", { ...cookieOptions(0, true), maxAge: 0 });
   return response;
 }
 
