@@ -269,8 +269,8 @@ function PanelContent({
     case "skills":
       return (
         <div className="flex-1 min-h-0 overflow-y-auto p-4 flex flex-col items-center justify-center gap-2 text-center text-sm text-muted-foreground">
-          <p className="font-medium text-foreground">在对话主区管理临床技能</p>
-          <p className="leading-6">请关闭此面板后，点击左侧的“技能”继续选择、审阅或创建工作流。</p>
+          <p className="font-medium text-foreground">技能在对话区管理</p>
+          <p className="leading-6">关闭此面板后继续。</p>
         </div>
       );
 
@@ -288,7 +288,7 @@ function PanelContent({
       return (
         <UnavailablePanel
           title="还没有处方报告"
-          description="请先在对话区完成“五大处方信息收集”并生成待临床复核草案。草案生成后会显示在这里，可在复核前导出留存；不会用示例内容代替真实结果。"
+          description="在对话中完成信息收集后生成草案。"
         />
       );
 
@@ -297,7 +297,7 @@ function PanelContent({
         return (
           <UnavailablePanel
             title="还没有 CGA 评估报告"
-            description="完成真实的综合老年评估后，报告才会显示在这里；当前不会用示例内容代替评估结果。"
+            description="完成评估后可在这里查看报告。"
           />
         );
       }
@@ -346,7 +346,7 @@ function PanelContent({
       return (
         <UnavailablePanel
           title="还没有用药审查报告"
-          description="请先在对话区启动“用药信息收集”并保存所需信息。医学规则、医生审核和患者授权齐备后，结果才会显示在这里；不会使用示例结果代替。"
+          description={role === "doctor" ? "在对话中录入药物后开始审查。" : "在对话中录入药物后查看审查结果。"}
         />
       );
 
