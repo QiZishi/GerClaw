@@ -17,8 +17,8 @@
 | RUN-06 | 长任务 checkpoint/replay | runtime、repositories | 重启恢复且副作用不重复 | 🚧 加密 checkpoint、状态指纹和版本 fail-closed 已实现；副作用 replay executor 待临床模块接入 |
 | RUN-07 | 执行预算 | harness、config | token/tool/time/call/output 超限稳定失败 | ✅ 统一 RuntimeBudgetTracker 已在 Agent Harness 计量 model/tool/step/token/output/wall-clock |
 | AI-01 | 本地 RAG | `modules/rag` | 436 文档、39,837 chunks、混合检索/重排/引用、显式 opt-in 合成评测 | 🚧 当前生产镜像 readiness 已核验语料/索引一致，2026-07-17 的真实 embedding/rerank/Qdrant 回归同时通过“命中文档”和“无本地证据返回空结果”两例；仍需扩大人工审核的医学正例/反例集并完成临床有效性评测 |
-| AI-02 | Memory/健康画像引擎 | `modules/memory` | 加密、跨会话、冲突、无 PHI vector | ✅ 0017 独立 PASS |
-| AI-03 | Skill 生命周期 | `modules/skill`、Skill UI | 注册/版本/隔离/viewer/安全/真实模型 | ✅ 0019 独立 PASS |
+| AI-02 | Memory/健康画像引擎 | `modules/memory` | 加密、跨会话、冲突、无 PHI vector | ✅ 2026-07-17 隔离 external/integration 用例实测模型抽取、跨会话召回、数据库密文与 Qdrant PHI-free payload；医生授权和生命周期属于后续 IAM/DATA 闭环 |
+| AI-03 | Skill 生命周期 | `modules/skill`、Skill UI | 注册/版本/隔离/viewer/安全/真实模型 | ✅ 2026-07-17 隔离 external/integration 用例实测模型草稿、复核注册、会话加载、AgentScope 查看器、本地证据事件与 Trace；医疗业务发布审核和持续质量评测仍属临床闭环 |
 | AI-04 | AnySearch→Tavily | `modules/search` | provider failover、网页隔离、引用 | ✅ 0018 独立 PASS |
 | AI-05 | Voice 后端 | `modules/input_output` 或 voice | ASR/TTS schema、PCM16 流、取消、故障 | 🚧 Next.js 服务端 BFF 已以非公开环境变量调用真实 MiMo ASR/TTS，并有 Zod/大小格式/音色约束、超时取消、安全阀和稳定错误；FastAPI 已有受限 ASR、24kHz 单声道 PCM16 TTS、文本/style 脱敏与 PHI-free TTS egress ledger。ASR 现以无文本分类的 `audio-egress-v1` 记录调用前后状态，绝不声称音频已去标识化或已获同意。缺 BFF→FastAPI 流迁移、统一 adapter 版本与完整故障评测 |
 | AI-06 | Privacy | security、harness safety | PHI/凭证、注入、诊断、红旗、自伤、免责声明 | 🚧 核心规则分散，缺独立完整模块 |
