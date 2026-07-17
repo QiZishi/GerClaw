@@ -14,13 +14,13 @@ GerClaw 是面向老年患者与老年科医生的 Web 端 AI 双向诊疗平台
 - AnySearch→Tavily 联网证据、SSRF 防护与不可信网页隔离
 - 声明式 Skill 注册、版本、会话加载、AgentScope viewer 和安全策略；自定义 Skill 支持自然语言生成下一版待审阅草稿，且必须保持 ID、递增版本并由用户显式保存
 - 访客短期 JWT/BFF、以及患者/医生本地账号的注册、登录、refresh 轮换、登出与改密；均由 scope、tenant/actor 隔离、限流、PHI-free 安全审计、readiness 与 metrics 保护
-- PHQ-9、SAS、PSQI 的版本化 FastAPI 状态机、确定性计分、加密持久化、患者端断点恢复、报告 Markdown 导出与本人历史；量表题目使用版本绑定预录制 WAV，并保留受控实时 TTS 兜底
+- PHQ-9、SAS、PSQI、Mini-Cog、MMSE 的版本化 FastAPI 状态机、确定性计分、加密持久化、本人历史、同版本数值对照与 Markdown/PDF/Word 导出；量表题目和选项使用版本绑定预录制 WAV，并保留受控实时 TTS 兜底
 - MinerU 签名上传、轮询和 Markdown 下载的 Next.js BFF；FastAPI 将会话资料加密登记并按 tenant/actor/session 绑定
 - 受限 BFF→FastAPI Voice Runtime：WAV/MP3 ASR、24kHz PCM16 TTS 和浏览器 WAV 播放封装；真实 TTS→ASR 回环已验证
 - `input_output` 生产边界：Chat 输入在 Trace/存储/Harness 前规范化，SSE 终态只投影已审核的公开文本、引用与安全信息
 - Chat/CGA 风险告警的本人范围账本与确认、慢病自述/测量账本，以及隔离的安全情感陪伴 workflow；均明确不替代临床审批或医生服务
-- 五大处方与用药审查的最小信息收集：真实 API、加密持久化、乐观 revision 与 PHI-free Trace；用药审查还会在本人范围内提示完全相同的录入项，页面明确不会产生处方、诊断、停药、加药、剂量或相互作用结论
-- 用户反馈、加密 Bad Case 与 13 个合成确定性安全/输出安全/隐私 policy case 基线；golden case 不回放用户原文，也不调用模型或 RAG
+- 五大处方对话式收集、证据绑定结构化草案、Markdown/PDF/Word 导出，以及用药审查：真实 API、加密持久化、乐观 revision 与 PHI-free Trace；审查依据 `medication-rules-v3` 返回 30 条可追溯 DDI、4 条日剂量、重复/多重用药和限定 Beers 信号，均不等同于可执行处方
+- 用户反馈、加密 Bad Case 与 19 个合成确定性安全/输出安全/隐私/用药规则 case 基线；golden case 不回放用户原文，也不调用模型或 RAG
 - `security_evaluation` Runtime 门禁：Chat 实际启用的本地知识检索、本人记忆检索、外网搜索均有版本绑定风险档案；未匹配的风险/网络/数据类别、缺基础控制或外网缺服务端脱敏证明会拒绝加入 Toolkit
 - 版本化 `privacy_redaction`：外部搜索 query 与 FastAPI TTS 正文/style 在 Provider 调用前最小化并脱敏，审计摘要只保留类别计数
 - Docker Compose API 的 10 并发高风险安全短路 SSE 证据（仅该确定性工作负载，非模型/RAG/临床 workflow 吞吐结论）
@@ -30,10 +30,10 @@ GerClaw 是面向老年患者与老年科医生的 Web 端 AI 双向诊疗平台
 - Runtime PermissionEngine 的 ALLOW/DENY/ASK、持久化 HITL、预算与 checkpoint 已有；临床副作用的恢复 executor、多智能体临床复核尚未接入
 - Voice 已经由受限 BFF 接入 FastAPI Runtime、PCM16 流和 provider egress audit；缺真实人声质量、取消、浏览器播放完整 E2E 与 adapter version 协商
 - MinerU 已以用户指定病例 PDF 实测解析并登记为会话输入；缺私有长文档检索、跨会话保留、授权与独立病毒扫描
-- CGA 仅覆盖 PHQ-9、SAS、PSQI；Mini-Cog/MMSE 人工确认、医生授权查看及跨时间比较未实现
-- 五大处方只有受限信息收集；用药审查另有完全相同文本的录入核对，但两者均缺经医学审核的模板、规则集、证据校验、报告生成、医生批准与患者授权
+- CGA 的 Mini-Cog/MMSE 动作、书写、阅读和时钟绘制仍仅记录本人作答，不能冒充专业人员观察；医生授权查看仍未实现
+- 五大处方可生成基于本地/联网/上传资料证据的 `needs_clinician_review` 草案，用药审查可输出有限规则结论；两者均缺经临床治理批准的完整规则库、医生批准与患者授权发布闭环
 - 风险预警、慢病管理、情感陪伴均只具当前最小的本人范围 workflow；缺通知升级、医学审核规则、人工升级、患者授权与医生队列
-- 患者授权、医生资质/RBAC 与跨患者访问；本地账号登录/注册入口已接入侧边栏，但没有账号验证、找回、MFA、停用与风控
+- 医生资质、患者授权与跨患者访问；账号已支持注册、登录、刷新轮换、登出、改密、账户停用与管理端基础后台，但没有账号验证、找回、MFA 和临床授权
 - Bad Case 的授权脱敏晋升、模型/RAG/医疗评测、趋势指标与安全回放闭环
 - Skill 的自然语言修订不会自动发布、启用或执行；医疗业务 Skill 的审核发布和持续质量评测仍未完成
 - 安全风险档案当前仅接入上述三种 Chat 工具；Agent、Skill、workflow、Memory 和 RAG 数据源的上线档案、统一 red-team 语料及发布门禁仍未完成
@@ -208,9 +208,9 @@ docker compose --profile test up --build --abort-on-container-exit \
 
 | 风险 | 当前控制 | 下一交付点 |
 |---|---|---|
-| 未审核临床规则/模板可能被误当成建议 | 处方与用药页面仅允许信息收集，明确禁用处方、诊断及药物调整结论 | 0029 医学内容、规则、审批与授权 |
+| 有限临床规则/草案可能被误当成正式建议 | 处方与用药均显示来源、范围与待临床复核状态；患者风险提示只在内容末尾统一出现 | 0029 医学规则治理、审批与授权 |
 | Runtime 临床副作用恢复/复核尚未接线 | Permission/HITL/预算/checkpoint 基础已存在，但临床 executor 仍 fail closed | 0021 与各临床 workflow 接入 |
-| IAM 仍未完整 | 本地账号会话及 BFF HttpOnly Cookie/CSRF 已落地；医生资质、授权、跨患者访问和账号 UI 尚未完成 | 0025、0032 |
+| IAM 仍未完整 | 本地账号会话、账户后台和 BFF HttpOnly Cookie/CSRF 已落地；医生资质、授权和跨患者访问尚未完成 | 0025、0032 |
 | 全出口 PHI/密钥泄露面未统一验证 | 核心日志/Trace/vector 有局部测试；文档、导出和临床流程尚未完整覆盖 | 0022 Privacy 与 0026 Eval/Bad Case |
 | 风险预警/慢病管理/情感陪伴尚未形成完整临床闭环 | 当前仅有本人范围告警确认、非临床测量趋势与隔离陪伴；不宣称通知、干预或医生服务 | 0023、0030、0031 后续 workflow |
 | 容量与容器恢复证据不足 | 只声明已真实验证的范围 | 0026 并发、0028 空卷 Docker 验收 |

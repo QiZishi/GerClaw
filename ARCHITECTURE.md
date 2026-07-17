@@ -15,7 +15,7 @@ GerClaw 是面向老年患者与老年科医生的 Web 端 AI 辅助诊疗与康
   │  HTTPS；只发送浏览器安全的请求体
   ▼
 apps/mvp (Next.js 页面 + BFF)
-  │  server-only 短期访客 JWT；Zod 校验
+  │  server-only 短期账号或访客 JWT；Zod 校验
   ▼
 apps/api (FastAPI)
   ├─ 认证、限流、Pydantic 校验与统一错误边界
@@ -45,7 +45,7 @@ apps/api (FastAPI)
 
 ### 2.1 通用对话
 
-`POST /api/v1/chat` 经过 BFF 访客身份、FastAPI scope/tenant/actor 校验、Redis 主体限流、PostgreSQL fencing token 和 Redis 会话 owner lease。服务端按 turn 隔离 AgentScope 状态，执行红旗症状短路、RAG/Memory/Skill/Search 的受限调用、模型 failover、医疗安全后处理和 PHI-free Trace。完成、失败与取消终态必须写入一致的数据库事务；SSE `done` 只会在提交后发送。
+`POST /api/v1/chat` 经过 BFF 账号或当前浏览器会话访客身份、FastAPI scope/tenant/actor 校验、Redis 主体限流、PostgreSQL fencing token 和 Redis 会话 owner lease。服务端按 turn 隔离 AgentScope 状态，执行红旗症状短路、RAG/Memory/Skill/Search 的受限调用、模型 failover、医疗安全后处理和 PHI-free Trace。完成、失败与取消终态必须写入一致的数据库事务；SSE `done` 只会在提交后发送。
 
 红旗症状在模型和 RAG 前使用确定性安全回应结束；这不是模型或临床诊断结论。普通聊天产生医疗内容时，需要可验证的本地证据与引用；证据不可用则 fail closed。
 
@@ -61,14 +61,14 @@ apps/api (FastAPI)
 
 | 边界 | 当前强制控制 | 事实来源 / 未完成边界 |
 |---|---|---|
-| 身份与会话 | BFF 签名访客 cookie、短期 JWT、scope、tenant/actor 所有权、限流 | 当前只有访客身份；患者/医生账号、RBAC、患者授权未实现 |
+| 身份与会话 | BFF 的账号/访客 HttpOnly cookie、短期 JWT、scope、tenant/actor 所有权、限流 | 患者、医生、管理员账号和基础 RBAC 已有；医生资质、患者授权和跨患者临床权限仍未实现 |
 | 对话与 Trace | Pydantic/Zod、会话 lease、加密消息、PHI-free Trace | 反馈/Bad Case 的完整授权晋升、回放治理尚未完成 |
 | RAG | 本地 Markdown 白名单、内容净化、不可信证据隔离、Qdrant public payload | 当前知识库已真实进入 Chat；RAG 专项评测仍不完整 |
 | Memory | PostgreSQL 加密事实与 revision 审计；Qdrant 仅无 PHI reference vector | 生命周期删除、受控再识别与完整分类注册表未实现 |
 | 文档 | Next.js server-only MinerU BFF；FastAPI 加密会话资料登记与租户绑定 | 私有向量检索、病毒扫描、真实账号授权和 FastAPI Provider adapter 未完成 |
 | 语音 | 受限 `/api/gerclaw/voice/*` BFF 唯一代理 FastAPI Voice Runtime；有请求大小/格式约束、24kHz PCM16 与浏览器 WAV 封装播放 | 真实人声的质量、取消和浏览器播放端到端评测，以及 adapter version 协商未完成 |
-| CGA | PHQ-9、SAS、PSQI 的版本化状态机、确定性计分、加密持久化与报告导出 | Mini-Cog/MMSE 人工确认、医生授权和跨时间比较未完成 |
-| 临床收集 | 五大处方/用药审查的加密、版本化最小信息收集与 MinerU 资料绑定 | 没有经医学审核的模板/规则/报告/审批；不能输出处方、药物调整或诊断结论 |
+| CGA | PHQ-9、SAS、PSQI、Mini-Cog、MMSE 的版本化状态机、确定性计分、加密持久化、本人历史/同版本对照与报告导出 | Mini-Cog/MMSE 的绘图/动作/书写/阅读不作专业人员确认；医生授权仍未完成 |
+| 临床收集 | 五大处方的加密、版本化对话收集、MinerU 资料绑定、证据草案与导出；`medication-rules-v3` 的有限 DDI/剂量/Beers 审查 | 缺完整经临床治理批准的规则库、医生审批和患者授权发布；不能视为正式处方或诊断 |
 
 ## 5. 分层依赖
 
@@ -126,9 +126,9 @@ apps/api
 | `search` | AnySearch 优先、Tavily 兜底、SSRF 与不可信内容隔离 | 不应替代本地循证证据 |
 | `skill` | 声明式注册、版本、会话选择与 AgentScope viewer | 只允许受控 Markdown/ZIP；不执行上传代码 |
 | `input_output` / `document` | BFF 的 ASR/TTS 与 MinerU 真调用；文档会话登记 | FastAPI adapter 和完整受控文件生命周期未完成 |
-| `cga` | PHQ-9/SAS/PSQI 确定性评估；版本绑定题干/选项音频 | 不等于完整 CGA 或医生临床结论 |
-| `prescription` | 受限临床信息收集 | 不是处方生成或用药审查；等待医学审核内容与授权 |
-| `evals` | 合成、人工审阅的确定性安全 golden case | 不回放真实输入；模型/RAG/医疗评测尚缺 |
+| `cga` | PHQ-9/SAS/PSQI/Mini-Cog/MMSE 确定性评估；版本绑定题干/选项音频与本人历史导出 | 不等于专业人员观察或医生临床结论 |
+| `prescription` | 证据绑定五大处方草案、报告导出和有限用药审查 | 草案不是正式处方；等待完整规则治理、医生审核和患者授权 |
+| `evals` | 19 条合成、人工审阅的安全/输出/隐私/用药规则 canary | 不回放真实输入；模型/RAG/医疗评测尚缺 |
 
 ## 9. 前端与适老化架构约束
 
