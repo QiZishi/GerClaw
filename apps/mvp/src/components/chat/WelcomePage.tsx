@@ -4,6 +4,7 @@ import { useState, useEffect } from "react";
 import {
   ClipboardCheck,
   FileSearch,
+  HeartPulse,
   Pill,
   Stethoscope,
   UserRound,
@@ -81,6 +82,12 @@ export function WelcomePage({
       label: "我的健康记录",
       desc: "查看已确认的个人健康信息",
       action: "health-profile" as const,
+    },
+    {
+      icon: HeartPulse,
+      label: "我的慢病记录",
+      desc: "记录测量值，只显示数值变化",
+      action: "chronic-care" as const,
     },
   ];
 

@@ -225,6 +225,61 @@ export const memoryFactDecisionSchema = z
 export type HealthProfile = z.infer<typeof healthProfileSchema>;
 export type MemoryFact = z.infer<typeof memoryFactSchema>;
 
+const chronicDateTimeSchema = z.string().datetime();
+
+export const chronicConditionSchema = z
+  .object({
+    condition_id: z.string().uuid(),
+    label: z.string().min(1).max(80),
+    confirmation_status: z.literal("self_reported"),
+    revision: z.number().int().positive(),
+    created_at: chronicDateTimeSchema,
+    updated_at: chronicDateTimeSchema,
+  })
+  .strict();
+
+export const chronicConditionListSchema = z
+  .object({ items: z.array(chronicConditionSchema).max(100) })
+  .strict();
+
+export const chronicMeasurementSchema = z
+  .object({
+    measurement_id: z.string().uuid(),
+    condition_id: z.string().uuid(),
+    metric_label: z.string().min(1).max(80),
+    value: z.number().finite().min(0).max(10_000_000),
+    unit: z.string().min(1).max(32),
+    measured_at: chronicDateTimeSchema,
+    created_at: chronicDateTimeSchema,
+  })
+  .strict();
+
+export const chronicMeasurementListSchema = z
+  .object({ items: z.array(chronicMeasurementSchema).max(200) })
+  .strict();
+
+export const chronicTrendSchema = z
+  .object({
+    metric_label: z.string().min(1).max(80),
+    unit: z.string().min(1).max(32),
+    direction: z.enum(["rising", "falling", "unchanged", "insufficient_data"]),
+    latest_measurement_id: z.string().uuid(),
+    latest_value: z.number().finite().min(0).max(10_000_000),
+    latest_measured_at: chronicDateTimeSchema,
+    previous_measurement_id: z.string().uuid().nullable(),
+    previous_value: z.number().finite().min(0).max(10_000_000).nullable(),
+    previous_measured_at: chronicDateTimeSchema.nullable(),
+  })
+  .strict();
+
+export const chronicTrendListSchema = z
+  .object({ items: z.array(chronicTrendSchema).max(100) })
+  .strict();
+
+export type ChronicCondition = z.infer<typeof chronicConditionSchema>;
+export type ChronicMeasurement = z.infer<typeof chronicMeasurementSchema>;
+export type ChronicTrend = z.infer<typeof chronicTrendSchema>;
+
 export const uploadedDocumentSchema = z
   .object({
     document_id: z.string().uuid(),

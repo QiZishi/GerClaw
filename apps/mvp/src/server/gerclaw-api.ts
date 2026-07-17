@@ -58,6 +58,15 @@ const proxyRules: Array<{ pattern: RegExp; methods: ReadonlySet<string> }> = [
     pattern: new RegExp(`^memory/facts/${uuidPattern}/decision$`, "i"),
     methods: new Set(["POST"]),
   },
+  { pattern: /^chronic-care\/conditions$/, methods: new Set(["GET", "POST"]) },
+  {
+    pattern: new RegExp(`^chronic-care/conditions/${uuidPattern}/measurements$`, "i"),
+    methods: new Set(["GET", "POST"]),
+  },
+  {
+    pattern: new RegExp(`^chronic-care/conditions/${uuidPattern}/trends$`, "i"),
+    methods: new Set(["GET"]),
+  },
 ];
 
 export function getGerclawApiBaseUrl(): string {

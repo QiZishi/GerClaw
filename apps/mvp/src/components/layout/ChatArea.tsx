@@ -22,6 +22,7 @@ import { WelcomePage } from "@/components/chat/WelcomePage";
 import { SkillManager } from "@/components/skills/SkillManager";
 import { CgaAssessment } from "@/components/cga/CgaAssessment";
 import { ClinicalIntakeForm } from "@/components/prescription/ClinicalIntakeForm";
+import { ChronicCareLedger } from "@/components/chronic/ChronicCareLedger";
 import { useAppStore } from "@/stores/appStore";
 import { useChatStore } from "@/stores/chatStore";
 import { cn } from "@/lib/utils";
@@ -159,7 +160,7 @@ export function ChatArea() {
 
   // 仅健康画像由右侧面板承载；其余入口均由各自的真实后端流程承载。
   useEffect(() => {
-    if (chatAction === "none" || chatAction === "cga" || chatAction === "prescription" || chatAction === "drug-review") return;
+    if (chatAction === "none" || chatAction === "cga" || chatAction === "prescription" || chatAction === "drug-review" || chatAction === "chronic-care") return;
     setChatAction("none");
   }, [chatAction, setChatAction]);
 
@@ -632,6 +633,10 @@ const handleExampleClick = (text: string) => {
       setChatAction("cga");
       return;
     }
+    if (action === "chronic-care") {
+      setChatAction("chronic-care");
+      return;
+    }
     if (action === "prescription" || action === "drug-review") {
       let sessionId = currentSessionId;
       if (!sessionId) {
@@ -675,6 +680,7 @@ const handleExampleClick = (text: string) => {
     prescription: "五大处方信息收集",
     cga: "老年综合评估",
     "drug-review": "用药信息收集",
+    "chronic-care": "我的慢病记录",
     "health-profile": "查看健康画像",
   };
 
@@ -780,6 +786,10 @@ const handleExampleClick = (text: string) => {
             onExit={handleExitAction}
           />
         ) : null
+      ) : chatAction === "chronic-care" ? (
+        <div className="flex-1 min-h-0 overflow-y-auto">
+          <ChronicCareLedger seniorMode={seniorMode} />
+        </div>
       ) : (
         <div className="flex-1 min-h-0 overflow-hidden flex flex-col">
           {messages.length > 0 && <MessageList messages={messages} onRegenerate={handleRegenerate} onShare={(messageId) => setExportMessageId(messageId)} onDelete={handleDeleteRequest} />}

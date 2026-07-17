@@ -288,6 +288,7 @@ export type ChatActionType =
   | "prescription"
   | "cga"
   | "drug-review"
+  | "chronic-care"
   | "health-profile";
 
 /** 右侧面板类型 */
