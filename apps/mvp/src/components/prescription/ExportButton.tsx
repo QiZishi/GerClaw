@@ -184,8 +184,7 @@ export function ExportButton({
       }
       setExported(true);
       setTimeout(() => setExported(false), 2000);
-    } catch (err) {
-      console.error("Export failed:", err);
+    } catch {
       const formatLabels: Record<ExportFormat, string> = {
         markdown: "Markdown",
         png: "PNG",
@@ -206,14 +205,17 @@ export function ExportButton({
     return (
       <div className={cn("relative", className)}>
         <DropdownMenu>
-          <DropdownMenuTrigger>
-            <Button
-              variant="outline"
-              size="sm"
-              className="gap-1.5"
-              aria-label="导出"
-              disabled={exportingFormat !== null}
-            >
+          <DropdownMenuTrigger
+            render={
+              <Button
+                variant="outline"
+                size="sm"
+                className="gap-1.5"
+                aria-label="导出"
+                disabled={exportingFormat !== null}
+              />
+            }
+          >
               {exported ? (
                 <Check className="size-3.5 text-green-600" />
               ) : exportingFormat ? (
@@ -228,7 +230,6 @@ export function ExportButton({
                   ? "导出中..."
                   : "导出"}
               </span>
-            </Button>
           </DropdownMenuTrigger>
           <DropdownMenuContent align="end" sideOffset={4}>
             {FORMAT_OPTIONS.map((opt) => (
