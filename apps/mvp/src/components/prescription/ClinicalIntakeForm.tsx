@@ -1,7 +1,16 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
-import { AlertTriangle, CheckCircle2, FileText, Paperclip, Save, SearchCheck, X } from "lucide-react";
+import {
+  AlertTriangle,
+  CheckCircle2,
+  ClipboardCheck,
+  FileText,
+  Paperclip,
+  Save,
+  SearchCheck,
+  X,
+} from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 import { toast } from "@/components/ui/toast";
@@ -9,11 +18,16 @@ import { GerclawApiError } from "@/services/gerclaw/client";
 import {
   getClinicalIntake,
   getMedicationReconciliation,
+  generatePrescriptionDraft,
   startClinicalIntake,
   updateClinicalIntake,
   type ClinicalIntakeKind,
 } from "@/services/gerclaw/clinical-intakes";
-import type { ClinicalIntake, MedicationReconciliation } from "@/services/gerclaw/schemas";
+import type {
+  ClinicalIntake,
+  FivePrescriptionDraft,
+  MedicationReconciliation,
+} from "@/services/gerclaw/schemas";
 import { parseFile } from "@/services/document/mineru";
 import { registerParsedDocument, revokeParsedDocument } from "@/services/gerclaw/documents";
 
@@ -78,6 +92,7 @@ interface ClinicalIntakeFormProps {
   kind: ClinicalIntakeKind;
   seniorMode: boolean;
   onExit: () => void;
+  onPrescriptionDraftGenerated?: (draft: FivePrescriptionDraft) => void;
 }
 
 export function ClinicalIntakeForm({
@@ -85,6 +100,7 @@ export function ClinicalIntakeForm({
   kind,
   seniorMode,
   onExit,
+  onPrescriptionDraftGenerated,
 }: ClinicalIntakeFormProps) {
   const [intake, setIntake] = useState<ClinicalIntake | null>(null);
   const [answers, setAnswers] = useState<Record<string, string>>({});
@@ -92,6 +108,9 @@ export function ClinicalIntakeForm({
   const [saving, setSaving] = useState(false);
   const [documentState, setDocumentState] = useState<"idle" | "parsing" | "saving">("idle");
   const [documentElapsedSeconds, setDocumentElapsedSeconds] = useState(0);
+  const [draft, setDraft] = useState<FivePrescriptionDraft | null>(null);
+  const [draftState, setDraftState] = useState<"idle" | "generating">("idle");
+  const [draftElapsedSeconds, setDraftElapsedSeconds] = useState(0);
   const [documentNames, setDocumentNames] = useState<Record<string, string>>({});
   const [reloadNonce, setReloadNonce] = useState(0);
   const [showValidation, setShowValidation] = useState(false);
@@ -112,6 +131,15 @@ export function ClinicalIntakeForm({
     );
     return () => window.clearInterval(timer);
   }, [documentState]);
+
+  useEffect(() => {
+    if (draftState !== "generating") return;
+    const timer = window.setInterval(
+      () => setDraftElapsedSeconds((elapsed) => elapsed + 1),
+      1_000
+    );
+    return () => window.clearInterval(timer);
+  }, [draftState]);
 
   useEffect(() => {
     let live = true;
@@ -160,6 +188,7 @@ export function ClinicalIntakeForm({
         if (!live) return;
         storeIntakeId(localSessionId, kind, next.intake_id);
         setMedicationReconciliation(null);
+        setDraft(null);
         setIntake(next);
         setAnswers(next.answers);
         setDocumentNames((previous) => {
@@ -220,9 +249,10 @@ export function ClinicalIntakeForm({
       });
       setIntake(next);
       setAnswers(next.answers);
+      setDraft(null);
       toast.show(
         next.status === "information_complete_pending_governance"
-          ? "信息已安全保存；当前不会生成医疗建议"
+          ? "信息已保存；现在可以生成待临床复核的五大处方草案"
           : "信息已保存，您可以继续补充"
       );
     } catch (error) {
@@ -244,6 +274,7 @@ export function ClinicalIntakeForm({
         documentIds,
       });
       setIntake(next);
+      setDraft(null);
     } catch (error) {
       toast.show(error instanceof Error ? error.message : "资料关联暂未保存，请重试");
     } finally {
@@ -283,6 +314,7 @@ export function ClinicalIntakeForm({
         documentIds,
       });
       setIntake(next);
+      setDraft(null);
       setDocumentNames((previous) => ({ ...previous, [registered.document_id]: file.name }));
       toast.show("资料已通过 MinerU 提取文本，并作为本次信息收集的输入保存");
     } catch (error) {
@@ -298,6 +330,33 @@ export function ClinicalIntakeForm({
     } finally {
       setDocumentState("idle");
       setDocumentElapsedSeconds(0);
+    }
+  };
+
+  const generateDraft = async () => {
+    if (!intake || intake.kind !== "prescription" || draftState === "generating") return;
+    setDraftElapsedSeconds(0);
+    setDraftState("generating");
+    try {
+      const next = await generatePrescriptionDraft(intake.intake_id);
+      setDraft(next);
+      onPrescriptionDraftGenerated?.(next);
+      toast.show("五大处方待临床复核草案已生成，请先查看证据和注意事项");
+    } catch (error) {
+      if (error instanceof GerclawApiError) {
+        const messages: Record<string, string> = {
+          PRESCRIPTION_EVIDENCE_UNAVAILABLE: "本地医学证据暂未就绪，系统不会在没有证据时生成草案。",
+          PRESCRIPTION_DRAFT_UNAVAILABLE: "生成服务暂时不可用；您的信息已安全保存，可稍后重试。",
+          PRESCRIPTION_EMERGENCY_BLOCKED: "检测到可能需要紧急就医的情况，已停止生成草案，请优先寻求线下医疗帮助。",
+          PRESCRIPTION_INPUT_NOT_READY: "请确认必填信息和上传资料仍有效后，再生成草案。",
+        };
+        toast.show(messages[error.code] ?? "草案暂时无法生成；您的信息已安全保存，可稍后重试。");
+      } else {
+        toast.show("草案暂时无法生成；您的信息已安全保存，可稍后重试。");
+      }
+    } finally {
+      setDraftState("idle");
+      setDraftElapsedSeconds(0);
     }
   };
 
@@ -329,6 +388,9 @@ export function ClinicalIntakeForm({
   }
 
   const complete = intake.status === "information_complete_pending_governance";
+  const hasUnsavedChanges = intake.fields.some(
+    (field) => (answers[field.id] ?? "") !== (intake.answers[field.id] ?? "")
+  );
   const missingRequiredFieldIds = new Set(
     intake.fields
       .filter((field) => field.required && !(answers[field.id] ?? "").trim())
@@ -406,7 +468,7 @@ export function ClinicalIntakeForm({
                   补充资料（可选）
                 </h2>
                 <p className={cn("leading-relaxed text-muted-foreground", seniorMode ? "text-lg" : "text-sm")}>
-                  PDF、Word、Markdown 或文本会先由 MinerU 提取文本，作为本次五大处方信息收集的输入。未来经审核的报告会将其标为“上传资料依据”，不会把它当作本地医学知识库证据。
+                  PDF、Word、Markdown 或文本会先由 MinerU 提取文本，作为本次草案的患者输入与“上传资料依据”。它不会被当作本地医学知识库证据。
                 </p>
               </div>
             </div>
@@ -530,9 +592,127 @@ export function ClinicalIntakeForm({
         <div className="flex items-start gap-2 rounded-xl border border-primary/30 bg-primary/5 p-4">
           <CheckCircle2 className="mt-0.5 size-5 shrink-0 text-primary" />
           <p className={cn("leading-relaxed text-foreground", seniorMode ? "text-lg" : "text-sm")}>
-            信息已保存。医学规则、医生审核和患者授权尚未启用，因此不会提供处方、停药、加药或剂量调整建议。
+            信息已保存。您可以生成带本地证据的待临床复核草案；它不是正式处方或诊断，且不会给出停药、加药或剂量调整指令。
           </p>
         </div>
+      )}
+
+      {kind === "prescription" && (
+        <section className="space-y-3 rounded-xl border border-primary/30 bg-primary/5 p-4" aria-labelledby="prescription-draft-title">
+          <div className="flex items-start gap-3">
+            <ClipboardCheck className="mt-0.5 size-5 shrink-0 text-primary" aria-hidden="true" />
+            <div className="min-w-0 space-y-1">
+              <h2 id="prescription-draft-title" className={cn("font-medium text-foreground", seniorMode ? "text-lg" : "text-base")}>
+                五大处方待临床复核草案
+              </h2>
+              <p className={cn("leading-relaxed text-muted-foreground", seniorMode ? "text-lg" : "text-sm")}>
+                系统会检索本地医学知识库并结合您已保存的信息生成草案。每条建议都标有证据编号，药物部分只做核对和监测提示。
+              </p>
+            </div>
+          </div>
+          {!complete && (
+            <p className={cn("rounded-lg border border-border bg-background p-3 text-muted-foreground", seniorMode ? "text-lg" : "text-sm")}>
+              请先填写必填内容并保存，才能生成草案。
+            </p>
+          )}
+          {complete && hasUnsavedChanges && (
+            <p className={cn("rounded-lg border border-amber-500/40 bg-amber-50/70 p-3 text-amber-950 dark:bg-amber-950/20 dark:text-amber-100", seniorMode ? "text-lg" : "text-sm")}>
+              您修改了信息但尚未保存。请先保存，避免草案遗漏最新内容。
+            </p>
+          )}
+          <Button
+            type="button"
+            className={actionClass}
+            onClick={() => void generateDraft()}
+            disabled={!complete || hasUnsavedChanges || saving || documentState !== "idle" || draftState === "generating"}
+          >
+            {draftState === "generating" ? (
+              <span className="codex-activity-dots" aria-hidden="true">
+                <span className="codex-activity-dot" />
+                <span className="codex-activity-dot" />
+                <span className="codex-activity-dot" />
+              </span>
+            ) : (
+              <ClipboardCheck className="size-4" aria-hidden="true" />
+            )}
+            {draftState === "generating"
+              ? `正在检索证据并生成草案 · 已执行 ${formatElapsed(draftElapsedSeconds)}`
+              : draft
+                ? "重新生成待审核草案"
+                : "生成待审核草案"}
+          </Button>
+        </section>
+      )}
+
+      {draft && (
+        <section className="space-y-5 rounded-xl border border-primary/35 bg-card p-4 shadow-sm" aria-labelledby="generated-draft-title" aria-live="polite">
+          <header className="space-y-2 border-b border-border pb-4">
+            <div className="flex flex-wrap items-center gap-2">
+              <h2 id="generated-draft-title" className={cn("font-semibold text-foreground", seniorMode ? "text-xl" : "text-lg")}>
+                五大处方草案
+              </h2>
+              <span className={cn("rounded-full bg-amber-100 px-2.5 py-1 font-medium text-amber-950 dark:bg-amber-950/40 dark:text-amber-100", seniorMode ? "text-base" : "text-xs")}>
+                待临床复核 · 不可自行执行
+              </span>
+            </div>
+            <p className={cn("leading-relaxed text-muted-foreground", seniorMode ? "text-lg" : "text-sm")}>
+              {draft.health_assessment.summary}
+            </p>
+            <ul className={cn("list-disc space-y-1 pl-5 text-muted-foreground", seniorMode ? "text-lg" : "text-sm")}>
+              {draft.health_assessment.key_issues.map((issue) => <li key={issue}>{issue}</li>)}
+            </ul>
+          </header>
+
+          <DraftSection section={draft.medication} seniorMode={seniorMode} />
+          {draft.medication.medication_items.length > 0 && (
+            <DraftList title="已记录的用药信息（需核对）" items={draft.medication.medication_items} seniorMode={seniorMode} />
+          )}
+          <DraftList title="药物核对与监测重点" items={draft.medication.monitoring_requirements} seniorMode={seniorMode} />
+          <DraftSection section={draft.exercise} seniorMode={seniorMode} />
+          <DraftList title="不适合运动或需先确认的情况" items={draft.exercise.contraindications} seniorMode={seniorMode} />
+          <div className="space-y-2">
+            <h3 className={cn("font-medium text-foreground", seniorMode ? "text-lg" : "text-base")}>运动阶段</h3>
+            {draft.exercise.phases.map((phase) => (
+              <div key={phase.name} className="rounded-lg border border-border bg-muted/20 p-3">
+                <p className={cn("font-medium text-foreground", seniorMode ? "text-lg" : "text-sm")}>{phase.name} · {phase.duration}</p>
+                <p className={cn("mt-1 text-muted-foreground", seniorMode ? "text-lg" : "text-sm")}>{phase.intensity}</p>
+                <p className={cn("mt-1 leading-relaxed text-muted-foreground", seniorMode ? "text-lg" : "text-sm")}>{phase.instructions}</p>
+              </div>
+            ))}
+          </div>
+          <DraftSection section={draft.nutrition} seniorMode={seniorMode} />
+          <p className={cn("rounded-lg border border-border bg-muted/20 p-3 leading-relaxed text-muted-foreground", seniorMode ? "text-lg" : "text-sm")}>
+            {draft.nutrition.assessment_summary}
+            {(draft.nutrition.target_energy_kcal || draft.nutrition.target_protein_g) && " 以下数值仅供医生或营养师核对："}
+            {draft.nutrition.target_energy_kcal ? ` 能量 ${draft.nutrition.target_energy_kcal} kcal；` : ""}
+            {draft.nutrition.target_protein_g ? ` 蛋白质 ${draft.nutrition.target_protein_g} g。` : ""}
+          </p>
+          <DraftList title="营养监测重点" items={draft.nutrition.monitoring} seniorMode={seniorMode} />
+          <DraftSection section={draft.psychological} seniorMode={seniorMode} />
+          <p className={cn("rounded-lg border border-border bg-muted/20 p-3 leading-relaxed text-muted-foreground", seniorMode ? "text-lg" : "text-sm")}>{draft.psychological.assessment_summary}</p>
+          <DraftList title="后续复核" items={[draft.psychological.follow_up]} seniorMode={seniorMode} />
+          <DraftSection section={draft.rehabilitation} seniorMode={seniorMode} />
+          <DraftList title="训练计划" items={draft.rehabilitation.training_plan} seniorMode={seniorMode} />
+          <DraftList title="安全注意事项" items={draft.rehabilitation.safety_precautions} seniorMode={seniorMode} />
+          {draft.rehabilitation.assistive_devices.length > 0 && <DraftList title="辅助用具核对" items={draft.rehabilitation.assistive_devices} seniorMode={seniorMode} />}
+
+          <div className="space-y-2 border-t border-border pt-4">
+            <h3 className={cn("font-medium text-foreground", seniorMode ? "text-lg" : "text-base")}>本地医学知识库证据</h3>
+            <ul className="space-y-2">
+              {draft.evidence_sources.map((source) => (
+                <li key={source.evidence_id} className={cn("rounded-lg border border-border bg-muted/20 p-3 text-muted-foreground", seniorMode ? "text-lg" : "text-sm")}>
+                  <span className="font-medium text-foreground">{source.evidence_id}</span> · {source.title}（{source.locator}）
+                </li>
+              ))}
+            </ul>
+            {draft.uploaded_document_ids.length > 0 && (
+              <p className={cn("leading-relaxed text-muted-foreground", seniorMode ? "text-lg" : "text-sm")}>
+                已在本次草案中使用 {draft.uploaded_document_ids.length} 份上传资料作为患者输入；这些资料不是医学知识库证据。
+              </p>
+            )}
+          </div>
+          <p className={cn("rounded-lg border border-amber-500/40 bg-amber-50/70 p-3 leading-relaxed text-amber-950 dark:bg-amber-950/20 dark:text-amber-100", seniorMode ? "text-lg" : "text-sm")}>{draft.disclaimer}</p>
+        </section>
       )}
 
       <footer className="flex flex-wrap justify-end gap-3 border-t border-border pt-4">
@@ -544,5 +724,41 @@ export function ClinicalIntakeForm({
         </Button>
       </footer>
     </section>
+  );
+}
+
+function DraftSection({
+  section,
+  seniorMode,
+}: {
+  section: FivePrescriptionDraft["medication"] | FivePrescriptionDraft["exercise"] | FivePrescriptionDraft["nutrition"] | FivePrescriptionDraft["psychological"] | FivePrescriptionDraft["rehabilitation"];
+  seniorMode: boolean;
+}) {
+  return (
+    <section className="space-y-2">
+      <h3 className={cn("font-semibold text-foreground", seniorMode ? "text-xl" : "text-lg")}>{section.title}</h3>
+      <p className={cn("leading-relaxed text-muted-foreground", seniorMode ? "text-lg" : "text-sm")}>{section.goal}</p>
+      <ul className={cn("space-y-2", seniorMode ? "text-lg" : "text-sm")}>
+        {section.recommendations.map((recommendation) => (
+          <li key={`${recommendation.content}-${recommendation.evidence_ids.join("-")}`} className="rounded-lg border border-border bg-muted/20 p-3 leading-relaxed text-foreground">
+            {recommendation.content}
+            <span className="mt-1 block text-muted-foreground">依据：{recommendation.evidence_ids.join("、")}</span>
+          </li>
+        ))}
+      </ul>
+      <DraftList title="注意事项" items={section.precautions} seniorMode={seniorMode} />
+    </section>
+  );
+}
+
+function DraftList({ title, items, seniorMode }: { title: string; items: string[]; seniorMode: boolean }) {
+  if (items.length === 0) return null;
+  return (
+    <div className="space-y-1">
+      <h4 className={cn("font-medium text-foreground", seniorMode ? "text-lg" : "text-sm")}>{title}</h4>
+      <ul className={cn("list-disc space-y-1 pl-5 leading-relaxed text-muted-foreground", seniorMode ? "text-lg" : "text-sm")}>
+        {items.map((item) => <li key={item}>{item}</li>)}
+      </ul>
+    </div>
   );
 }

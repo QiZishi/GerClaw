@@ -258,7 +258,13 @@ class PreparedPrescriptionInput(BaseModel):
 
 
 class PrescriptionInputReadiness(BaseModel):
-    """Owner-visible preparation state that exposes no intake or document text."""
+    """Owner-visible preparation state that exposes no intake or document text.
+
+    ``clinical_output_enabled`` deliberately remains false: a reviewed draft is
+    available, but executable clinical output is not.  Keeping these two states
+    explicit prevents callers from mistaking draft generation for prescription
+    authorization.
+    """
 
     model_config = ConfigDict(extra="forbid", frozen=True)
 
@@ -269,5 +275,6 @@ class PrescriptionInputReadiness(BaseModel):
     definition_version: str = Field(min_length=1, max_length=32)
     answer_field_count: int = Field(ge=2, le=3)
     uploaded_document_count: int = Field(ge=0, le=5)
+    review_draft_enabled: Literal[True] = True
     clinical_output_enabled: Literal[False] = False
     governance_notice: str = Field(min_length=1, max_length=500)

@@ -24,8 +24,8 @@ from gerclaw_api.modules.prescription.models import (
 from gerclaw_api.repositories.clinical_intake import SqlAlchemyClinicalIntakeRepository
 
 GOVERNANCE_NOTICE = (
-    "当前仅完成信息收集。医学规则、医生审核和患者授权尚未启用，"
-    "系统不会生成处方、用药调整或诊断结论。"
+    "信息完整后可生成带本地医学证据的五大处方待临床复核草案；它不是正式处方或诊断。"
+    "DDI、Beers 和剂量规则尚未配置，任何药物调整必须由医生或药师核对。"
 )
 INTAKE_DEFINITIONS: dict[ClinicalIntakeKind, ClinicalIntakeDefinition] = {
     "prescription": PRESCRIPTION_INTAKE_DEFINITION,

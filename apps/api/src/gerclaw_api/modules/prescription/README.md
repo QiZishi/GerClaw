@@ -2,7 +2,7 @@
 
 This module stores caller-provided minimum discussion context in an encrypted record and can generate one evidence-bound, clinician-review-only five-prescription draft. Medication-review collection is independently owned by `modules/medication_review/`.
 
-For the five-prescription intake, the caller may attach up to five already parsed, active documents from the same conversation. The intake stores only encrypted document IDs; the MinerU-extracted text remains in the private document store. A later medically governed report may resolve those IDs into its input template and display them as “上传资料依据” for traceability. They are never indexed into the public/local knowledge base and never satisfy the medical-evidence requirement on their own.
+For the five-prescription intake, the caller may attach up to five already parsed, active documents from the same conversation. The intake stores only encrypted document IDs; the MinerU-extracted text remains in the private document store. The review-draft workflow resolves those IDs into its input template and displays their count as “上传资料依据” for traceability. They are never indexed into the public/local knowledge base and never satisfy the medical-evidence requirement on their own.
 
 `ClinicalIntakeService.prepare_prescription_input` is the shared, private
 `five-prescription-input-v1` assembly boundary. It resolves a completed
@@ -37,7 +37,7 @@ It cannot start, stop, replace, change or dose medication.
 ## State
 
 - `collecting`: required server-defined fields are still absent.
-- `information_complete_pending_governance`: required fields are present, but medical rules, patient authorization and physician-review workflow are not enabled. No clinical output exists in this state.
+- `information_complete_pending_governance`: required fields are present. A source-bound `needs_clinician_review` draft can be generated, but it is not a physician-approved or executable clinical output.
 
 ## Boundaries
 

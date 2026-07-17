@@ -4,8 +4,10 @@ import { gerclawRequest } from "./client";
 import { ensureBackendSession } from "./skills";
 import {
   clinicalIntakeSchema,
+  fivePrescriptionDraftSchema,
   medicationReconciliationSchema,
   type ClinicalIntake,
+  type FivePrescriptionDraft,
   type MedicationReconciliation,
 } from "./schemas";
 
@@ -32,6 +34,15 @@ export async function getMedicationReconciliation(
   return gerclawRequest(
     `clinical-intakes/${encodeURIComponent(intakeId)}/medication-reconciliation`,
     medicationReconciliationSchema
+  );
+}
+
+/** Generate a source-bound draft; it remains unavailable as a formal prescription. */
+export async function generatePrescriptionDraft(intakeId: string): Promise<FivePrescriptionDraft> {
+  return gerclawRequest(
+    `clinical-intakes/${encodeURIComponent(intakeId)}/prescription-draft`,
+    fivePrescriptionDraftSchema,
+    { method: "POST" }
   );
 }
 

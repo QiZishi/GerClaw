@@ -31,6 +31,8 @@ import { cn } from "@/lib/utils";
 import { streamAgentChat } from "@/services/gerclaw/chat";
 import { readSessionSkills, replaceSessionSkills } from "@/services/gerclaw/skills";
 import { registerParsedDocument } from "@/services/gerclaw/documents";
+import { fivePrescriptionDraftToMarkdown } from "@/services/gerclaw/prescription-report";
+import type { FivePrescriptionDraft } from "@/services/gerclaw/schemas";
 import { generateId } from "@/lib/format";
 import { toast } from "@/components/ui/toast";
 import { stopActiveAudioPlayer } from "@/lib/audioPlaybackCoordinator";
@@ -52,6 +54,7 @@ export function ChatArea() {
   const chatAction = useAppStore((s) => s.chatAction);
   const setChatAction = useAppStore((s) => s.setChatAction);
   const setRightPanel = useAppStore((s) => s.setRightPanel);
+  const setPanelContent = useAppStore((s) => s.setPanelContent);
   const sidebarCollapsed = useAppStore((s) => s.sidebarCollapsed);
   const seniorMode = useAppStore((s) => s.seniorMode);
   const loadedSkillIds = useAppStore((s) => s.loadedSkillIds);
@@ -636,9 +639,17 @@ export function ChatArea() {
     );
 };
 
-const handleExampleClick = (text: string) => {
+  const handleExampleClick = (text: string) => {
     handleSend(text);
   };
+
+  const handlePrescriptionDraftGenerated = useCallback(
+    (draft: FivePrescriptionDraft) => {
+      setPanelContent(fivePrescriptionDraftToMarkdown(draft));
+      setRightPanel("prescription");
+    },
+    [setPanelContent, setRightPanel]
+  );
 
   const handleStartAction = (action: ChatActionType) => {
     if (action === "none") return;
@@ -815,6 +826,9 @@ const handleExampleClick = (text: string) => {
             kind={chatAction === "prescription" ? "prescription" : "medication_review"}
             seniorMode={seniorMode}
             onExit={handleExitAction}
+            onPrescriptionDraftGenerated={
+              chatAction === "prescription" ? handlePrescriptionDraftGenerated : undefined
+            }
           />
         ) : null
       ) : chatAction === "chronic-care" ? (

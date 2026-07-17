@@ -90,7 +90,7 @@ class _PreparationDocumentService(_DocumentService):
 
 
 @pytest.mark.asyncio
-async def test_prescription_intake_is_server_defined_and_never_returns_clinical_advice() -> None:
+async def test_prescription_intake_is_server_defined_and_states_draft_governance() -> None:
     service = ClinicalIntakeService(_Repository())  # type: ignore[arg-type]
     started = await service.start(
         tenant_id="tenant_public0001",
@@ -101,8 +101,8 @@ async def test_prescription_intake_is_server_defined_and_never_returns_clinical_
 
     assert started.status == "collecting"
     assert started.missing_required_fields == ["health_goal", "current_concerns"]
-    assert "不会生成处方" in started.governance_notice
-    assert "剂量" not in started.governance_notice
+    assert "待临床复核草案" in started.governance_notice
+    assert "DDI、Beers 和剂量规则尚未配置" in started.governance_notice
     assert {field.id for field in started.fields} == {
         "health_goal",
         "current_concerns",

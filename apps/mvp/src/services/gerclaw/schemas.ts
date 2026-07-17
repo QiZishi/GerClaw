@@ -441,6 +441,123 @@ export const medicationReconciliationSchema = z
 
 export type MedicationReconciliation = z.infer<typeof medicationReconciliationSchema>;
 
+const prescriptionEvidenceSourceSchema = z
+  .object({
+    evidence_id: z.string().regex(/^ev_[a-z0-9]{8,64}$/),
+    title: z.string().min(1).max(300),
+    source: z.string().min(1).max(200),
+    locator: z.string().min(1).max(500),
+    url: z.string().url().max(2_000).nullable(),
+  })
+  .strict();
+
+const prescriptionRecommendationSchema = z
+  .object({
+    content: z.string().min(1).max(2_000),
+    evidence_ids: z.array(z.string().regex(/^ev_[a-z0-9]{8,64}$/)).min(1).max(8),
+  })
+  .strict();
+
+const prescriptionSectionSchema = z
+  .object({
+    kind: z.enum(["medication", "exercise", "nutrition", "psychological", "rehabilitation"]),
+    title: z.string().min(1).max(100),
+    goal: z.string().min(1).max(1_000),
+    recommendations: z.array(prescriptionRecommendationSchema).min(1).max(20),
+    precautions: z.array(z.string().min(1).max(1_000)).min(1).max(20),
+    evidence_ids: z.array(z.string().regex(/^ev_[a-z0-9]{8,64}$/)).min(1).max(20),
+  })
+  .strict();
+
+const medicationDraftSchema = prescriptionSectionSchema
+  .extend({
+    kind: z.literal("medication"),
+    medication_items: z.array(z.string().min(1).max(2_000)).max(30),
+    monitoring_requirements: z.array(z.string().min(1).max(1_000)).max(20),
+    review_required: z.literal(true),
+  })
+  .strict();
+
+const exercisePhaseSchema = z
+  .object({
+    name: z.string().min(1).max(100),
+    duration: z.string().min(1).max(200),
+    intensity: z.string().min(1).max(500),
+    instructions: z.string().min(1).max(2_000),
+  })
+  .strict();
+
+const exerciseDraftSchema = prescriptionSectionSchema
+  .extend({
+    kind: z.literal("exercise"),
+    contraindications: z.array(z.string().min(1).max(1_000)).min(1).max(20),
+    phases: z.array(exercisePhaseSchema).min(1).max(6),
+  })
+  .strict();
+
+const nutritionDraftSchema = prescriptionSectionSchema
+  .extend({
+    kind: z.literal("nutrition"),
+    assessment_summary: z.string().min(1).max(2_000),
+    target_energy_kcal: z.number().int().min(1).max(10_000).nullable(),
+    target_protein_g: z.number().int().min(1).max(1_000).nullable(),
+    monitoring: z.array(z.string().min(1).max(1_000)).min(1).max(20),
+  })
+  .strict();
+
+const psychologicalDraftSchema = prescriptionSectionSchema
+  .extend({
+    kind: z.literal("psychological"),
+    assessment_summary: z.string().min(1).max(2_000),
+    follow_up: z.string().min(1).max(1_000),
+    review_required: z.literal(true),
+  })
+  .strict();
+
+const rehabilitationDraftSchema = prescriptionSectionSchema
+  .extend({
+    kind: z.literal("rehabilitation"),
+    rehabilitation_type: z.string().min(1).max(200),
+    functional_assessment: z.string().min(1).max(2_000),
+    training_plan: z.array(z.string().min(1).max(1_000)).min(1).max(20),
+    assistive_devices: z.array(z.string().min(1).max(1_000)).max(20),
+    safety_precautions: z.array(z.string().min(1).max(1_000)).min(1).max(20),
+  })
+  .strict();
+
+export const fivePrescriptionDraftSchema = z
+  .object({
+    template_version: z.literal("five-prescription-report-v1"),
+    status: z.literal("needs_clinician_review"),
+    patient_summary: z
+      .object({
+        age: z.number().int().min(0).max(130).nullable(),
+        sex: z.enum(["female", "male", "other", "unknown"]),
+        health_goals: z.array(z.string().min(1).max(1_000)).min(1).max(20),
+        current_concerns: z.array(z.string().min(1).max(1_000)).min(1).max(20),
+      })
+      .strict(),
+    health_assessment: z
+      .object({
+        summary: z.string().min(1).max(3_000),
+        key_issues: z.array(z.string().min(1).max(1_000)).min(1).max(20),
+        risk_factors: z.array(z.string().min(1).max(1_000)).max(20),
+        clinician_review_required: z.literal(true),
+      })
+      .strict(),
+    medication: medicationDraftSchema,
+    exercise: exerciseDraftSchema,
+    nutrition: nutritionDraftSchema,
+    psychological: psychologicalDraftSchema,
+    rehabilitation: rehabilitationDraftSchema,
+    evidence_sources: z.array(prescriptionEvidenceSourceSchema).min(1).max(100),
+    uploaded_document_ids: z.array(z.string().uuid()).max(5),
+    disclaimer: z.literal("AI生成建议仅供参考，不能替代专业医生诊断、治疗建议或处方；如有不适请及时就医。"),
+  })
+  .strict();
+
+export type FivePrescriptionDraft = z.infer<typeof fivePrescriptionDraftSchema>;
+
 export { feedbackSubmitSchema } from "./feedback-contract";
 
 export const feedbackReadSchema = z

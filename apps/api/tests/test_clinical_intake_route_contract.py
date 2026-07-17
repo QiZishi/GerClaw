@@ -11,6 +11,8 @@ from gerclaw_api.api.routes.clinical_intakes import (
     get_medication_reconciliation,
     get_prescription_input_readiness,
 )
+from gerclaw_api.domain.enums import TraceEventStatus, TraceEventType
+from gerclaw_api.domain.trace_schemas import TraceEventCreate, TraceStartRequest
 from gerclaw_api.modules.prescription.models import (
     ClinicalIntakeFieldRead,
     ClinicalIntakeRead,
@@ -21,6 +23,40 @@ from gerclaw_api.modules.prescription.models import (
 def test_clinical_intake_trace_uses_the_actual_domain_owner() -> None:
     assert _module_name("prescription") == "prescription"
     assert _module_name("medication_review") == "medication_review"
+
+
+def test_prescription_draft_trace_metadata_obeys_the_audit_allowlist() -> None:
+    """The live generation route must never turn a telemetry typo into HTTP 500."""
+
+    start = TraceStartRequest(
+        session_id=uuid.uuid4(),
+        execution_type="prescription.generate",
+        attributes={
+            "feature": "five_prescription",
+            "module": "prescription",
+            "operation": "generate_draft",
+            "version": "five-prescription-input-v1",
+            "request_fingerprint": "a" * 52,
+        },
+    )
+    event = TraceEventCreate(
+        event_id="event_" + "a" * 32 + "_generate_draft",
+        event_type=TraceEventType.CLINICAL_INTAKE,
+        status=TraceEventStatus.SUCCEEDED,
+        payload={
+            "feature": "prescription",
+            "operation": "generate_draft",
+            "version": "five-prescription-report-v1",
+            "document_count": 1,
+            "event_count": 2,
+            "outcome": "needs_clinician_review",
+            "success": True,
+        },
+        duration_ms=1,
+    )
+
+    assert start.attributes["version"] == "five-prescription-input-v1"
+    assert event.payload["event_count"] == 2
 
 
 class _Request:
@@ -111,6 +147,7 @@ async def test_prescription_input_readiness_projects_counts_without_private_mate
 
     payload = result.model_dump_json()
     assert result.uploaded_document_count == 1
+    assert result.review_draft_enabled is True
     assert result.clinical_output_enabled is False
     assert "MinerU extracted report text" not in payload
     assert "health_goal" not in payload

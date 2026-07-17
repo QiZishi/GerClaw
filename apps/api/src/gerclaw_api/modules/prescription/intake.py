@@ -1,4 +1,4 @@
-"""Versioned, non-clinical five-prescription intake definition."""
+"""Versioned five-prescription intake definition for a clinician-review draft."""
 # ruff: noqa: RUF001
 
 from __future__ import annotations
@@ -13,7 +13,7 @@ PRESCRIPTION_INTAKE_DEFINITION = ClinicalIntakeDefinition(
     kind="prescription",
     version=CLINICAL_INTAKE_VERSION,
     title="五大处方信息收集",
-    description="仅收集您希望与医生讨论的情况；当前不会生成处方或生活方式建议。",
+    description="填写后可生成带本地医学证据的待临床复核草案；它不是正式处方或诊断。",
     fields=(
         ClinicalIntakeField(
             id="health_goal",

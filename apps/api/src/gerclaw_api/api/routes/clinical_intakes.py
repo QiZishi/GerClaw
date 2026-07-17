@@ -1,4 +1,4 @@
-"""Authenticated, non-clinical collection endpoints for future governed workflows."""
+"""Authenticated intake and evidence-bound draft endpoints for governed workflows."""
 
 from __future__ import annotations
 
@@ -215,7 +215,7 @@ async def start_intake(
     identity: WriteIdentity,
     traces: TraceServiceDependency,
 ) -> ClinicalIntakeRead:
-    """Create an encrypted collection record; never generate clinical output."""
+    """Create an encrypted collection record; it contains no clinical output."""
 
     await _enforce_rate_limit(request, identity)
     await _require_session(session, payload.session_id, identity)
@@ -301,7 +301,7 @@ async def get_prescription_input_readiness(
 
     This is a material-readiness check, not report generation. It ensures that
     selected MinerU/local documents still belong to this caller and session and
-    fit in the governed input budget before a future reviewed workflow may use
+    fit in the governed input budget before the reviewed-draft workflow uses
     them as uploaded input/provenance.
     """
 
@@ -349,7 +349,7 @@ async def generate_prescription_draft(
                     "feature": "five_prescription",
                     "module": "prescription",
                     "operation": "generate_draft",
-                    "input_template_version": prepared.input_template_version,
+                    "version": prepared.input_template_version,
                     "request_fingerprint": audit_hmac_digest(
                         request.app.state.settings.auth_jwt_secret.get_secret_value().encode(),
                         str(intake_id).encode(),
@@ -387,7 +387,7 @@ async def generate_prescription_draft(
                     "operation": "generate_draft",
                     "version": draft.template_version,
                     "document_count": len(prepared.uploaded_documents),
-                    "evidence_count": len(draft.evidence_sources),
+                    "event_count": len(draft.evidence_sources),
                     "outcome": draft.status,
                     "success": True,
                 },
