@@ -27,8 +27,9 @@ from gerclaw_api.modules.agent_harness import (
     UnsupportedAgentContextError,
 )
 from gerclaw_api.modules.companion.policy import is_companion_workflow
-from gerclaw_api.modules.contracts import AgentResponse, ExecutionContext
+from gerclaw_api.modules.contracts import AgentRequest, AgentResponse, ExecutionContext
 from gerclaw_api.modules.document import DocumentService
+from gerclaw_api.modules.input_output import ProductionInputOutputModule
 from gerclaw_api.modules.memory.memory_module import ProductionMemoryModule
 from gerclaw_api.modules.memory.models import MemoryUpdateResult
 from gerclaw_api.modules.rag import HybridRAGModule
@@ -136,6 +137,7 @@ class ChatService:
         approval_repository: SqlAlchemyApprovalRepository | None = None,
         document_service: DocumentService | None = None,
         risk_alert_service: RiskAlertService | None = None,
+        input_output: ProductionInputOutputModule | None = None,
     ) -> None:
         self._settings = settings
         self._conversation = conversation
@@ -149,6 +151,7 @@ class ChatService:
         self._approval_repository = approval_repository
         self._document_service = document_service
         self._risk_alert_service = risk_alert_service
+        self._input_output = input_output or ProductionInputOutputModule()
 
     async def process(
         self,
@@ -160,6 +163,20 @@ class ChatService:
         callback: StreamCallback,
         cancellation_requested: CancellationProbe | None = None,
     ) -> AgentResponse:
+        normalized = await self._input_output.normalize(
+            AgentRequest(
+                context=ExecutionContext(
+                    request_id=request_id,
+                    trace_id=trace_id,
+                    tenant_id=identity.tenant_id,
+                    actor_id=identity.actor_id,
+                    session_id=payload.session_id,
+                ),
+                text=payload.message,
+                channel=payload.channel,
+            )
+        )
+        payload = payload.model_copy(update={"message": normalized.text})
         started = time.monotonic()
         request_fingerprint = _fingerprint(payload, self._settings)
         trace_start = await self._traces.start_trace_with_status(
@@ -689,10 +706,11 @@ class ChatService:
             raise
         if not companion:
             memory.mark_vectors_committed()
+        rendered = await self._input_output.render(response, "web")
         done = ChatDoneData(
-            full_text=response.text,
-            references=response.citations,
-            safety=response.safety,
+            full_text=rendered["text"],
+            references=rendered["citations"],
+            safety=rendered["safety"],
             trace_id=trace_id,
             session_id=payload.session_id,
         )
@@ -1005,10 +1023,11 @@ class ChatService:
                     timestamp=datetime.now(UTC),
                 )
             )
+        rendered = await self._input_output.render(response, "web")
         done = ChatDoneData(
-            full_text=response.text,
-            references=response.citations,
-            safety=response.safety,
+            full_text=rendered["text"],
+            references=rendered["citations"],
+            safety=rendered["safety"],
             trace_id=trace_id,
             session_id=session_id,
             replayed=True,
