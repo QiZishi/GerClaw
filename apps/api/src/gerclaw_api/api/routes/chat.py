@@ -390,9 +390,13 @@ async def chat(
     async def event_stream() -> AsyncIterator[str]:
         try:
             while True:
-                if await request.is_disconnected():
-                    task.cancel()
-                    break
+                # Do not preflight ``request.is_disconnected()`` here.  A
+                # streaming reverse proxy can report its upstream request as
+                # disconnected before it starts consuming the SSE body, which
+                # would discard a completed turn and return an empty 200
+                # stream.  Starlette cancels this generator when the actual
+                # downstream stream closes; ``finally`` below then cancels the
+                # owned task if it is still running.
                 try:
                     item = await asyncio.wait_for(queue.get(), timeout=10.0)
                 except TimeoutError:

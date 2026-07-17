@@ -39,8 +39,8 @@
 | IAM-05 | 患者授权生命周期 | consent/RBAC/cache | 授予/到期/撤回，缓存与链接失效 | ❌ 缺账号和授权模型 |
 | IAM-06 | 管理/审计职责分离 | auth/RBAC | 无万能 scope；服务端角色校验 | ❌ 缺生产角色/RBAC |
 | UI-01 | 三栏响应式布局 | MVP layout | 四断点浏览器证据 | 🚧 desktop 已有，完整断点 E2E 待补 |
-| UI-02 | 多模态输入框 | ChatInput | 文本/语音/图片/10文件/Skill/处方/CGA/停止 | 🚧 文本、Skill、受限临床收集、CGA、FastAPI Voice Runtime BFF 与 MinerU BFF 已接入；图片多模态、Document Runtime adapter 与语音完整异常 E2E 待补 |
-| UI-03 | Runtime 状态映射 | ChatArea/MessageBubble | 全 SSE 终态、错误恢复、HITL | 🚧 Chat/取消完成，缺 HITL/临床流程 |
+| UI-02 | 多模态输入框 | ChatInput | 文本/语音/图片/10文件/Skill/处方/CGA/停止 | 🚧 文本、Skill、受限临床收集、CGA、FastAPI Voice Runtime BFF、MinerU BFF 与图片多模态链路已接入。2026-07-18 Compose 浏览器实测上传 PNG 后，模型识读图中 CGA 量表内容，SSE `done` 返回上传图片 evidence_id；图片 base64 作为私有 Trace 输入保存。Document Runtime adapter 与语音异常/取消的完整 E2E 待补 |
+| UI-03 | Runtime 状态映射 | ChatArea/MessageBubble | 全 SSE 终态、错误恢复、HITL | 🚧 Chat/取消完成；2026-07-18 已修复 Next.js BFF 反向代理会使上游误判断流、返回空 200 SSE 的问题，并以真实图片流验证 `agent_start`、`text_delta`、`done`、执行时长和终态引用。仍缺 HITL/临床流程 |
 | UI-04 | 适老化与无障碍 | globals/components | ≥18px/≥48px/AAA/ARIA/键盘/reduced-motion | 🚧 关键 Skill/免责声明通过，需全站审计 |
 | UI-05 | 医疗安全呈现 | Message/clinical panels | 免责声明、引用、红旗、自伤、审批优先 | 🚧 Chat 已有，临床 mock 页面待统一 |
 | UI-06 | 多格式导出 | export libs | PDF/Word/MD/TXT 内容与布局回归 | 🚧 CGA 已从真实服务端报告导出 Markdown/PDF/Word；2026-07-17 浏览器实际下载 DOCX 并通过 Office 包完整性及免责声明内容检查。对话、五大处方和 TXT 的统一内容/布局回归仍缺 |
