@@ -146,9 +146,11 @@ export function RightPanel() {
 
   const title = PANEL_TITLES[rightPanelType] ?? "面板";
   const isMobile = isNarrowViewport;
-  const mobileTransition = reducedMotion ? "" : "transition-transform duration-250 ease-out";
-  const desktopTransition = reducedMotion ? "" : "transition-all duration-250 ease-out";
-  const opacityTransitionClass = reducedMotion ? "" : "transition-opacity duration-250 ease-out";
+  const mobileTransition = reducedMotion
+    ? "transition-opacity duration-200 ease"
+    : "transition-transform duration-[var(--motion-panel)] ease-[var(--motion-ease-drawer)]";
+  const desktopTransition = "transition-opacity duration-[var(--motion-popover)] ease-[var(--motion-ease-out)]";
+  const opacityTransitionClass = "transition-opacity duration-[var(--motion-popover)] ease-[var(--motion-ease-out)]";
 
   return (
     <>
@@ -168,7 +170,10 @@ export function RightPanel() {
           "xl:relative xl:z-auto",
           isMobile ? "w-full" : "shrink-0",
           isMobile
-            ? cn(mobileTransition, visible ? "translate-x-0" : "translate-x-full")
+            ? cn(
+                mobileTransition,
+                visible ? "translate-x-0 opacity-100" : cn("opacity-0", !reducedMotion && "translate-x-full")
+              )
             : cn(desktopTransition, visible ? "opacity-100" : "opacity-0")
         )}
         style={{

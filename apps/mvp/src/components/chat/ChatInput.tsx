@@ -990,7 +990,7 @@ export function ChatInput({
           </>
         )}
 
-        <div className="rounded-xl border border-border bg-muted/50 focus-within:border-primary/50 focus-within:ring-2 focus-within:ring-ring/40 transition-all duration-200">
+        <div className="rounded-xl border border-border bg-muted/50 transition-[border-color,box-shadow,background-color] duration-[var(--motion-popover)] ease-[var(--motion-ease-out)] focus-within:border-primary/50 focus-within:ring-2 focus-within:ring-ring/40">
           <textarea
             ref={textareaRef}
             value={text}

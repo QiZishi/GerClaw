@@ -709,7 +709,7 @@ function SessionItem({
       {/* 选中态左侧指示条 */}
       <div
         className={cn(
-          "absolute left-0 top-1/2 -translate-y-1/2 w-1 h-5 rounded-full bg-primary transition-all duration-200 ease-out",
+          "absolute left-0 top-1/2 -translate-y-1/2 w-1 h-5 rounded-full bg-primary transition-opacity duration-[var(--motion-popover)] ease-[var(--motion-ease-out)]",
           active ? "opacity-100" : "opacity-0"
         )}
       />

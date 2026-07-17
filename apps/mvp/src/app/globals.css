@@ -101,6 +101,13 @@
     "Helvetica Neue", Arial, sans-serif;
   --font-mono: "SF Mono", Monaco, "Cascadia Code", "Roboto Mono", Consolas,
     monospace;
+  /* Motion stays calm, direct and shared across the interaction surface. */
+  --motion-ease-out: cubic-bezier(0.23, 1, 0.32, 1);
+  --motion-ease-in-out: cubic-bezier(0.77, 0, 0.175, 1);
+  --motion-ease-drawer: cubic-bezier(0.32, 0.72, 0, 1);
+  --motion-press: 160ms;
+  --motion-popover: 180ms;
+  --motion-panel: 250ms;
   /* 老年模式缩放因子 */
   --senior-scale: 1;
   --font-base: 18px;
@@ -271,14 +278,6 @@
   padding: 1rem 1.125rem;
 }
 
-/* 老年模式：减小动画速度（避免眩晕）*/
-.senior-mode *,
-.senior-mode *::before,
-.senior-mode *::after {
-  animation-duration: calc(var(--animation-duration, 200ms) * 0.7) !important;
-  transition-duration: calc(var(--animation-duration, 200ms) * 0.7) !important;
-}
-
 /* ====== 基础层 ====== */
 @layer base {
   * {
@@ -349,13 +348,17 @@
 
 /* ====== 尊重 reduced-motion 偏好 ====== */
 @media (prefers-reduced-motion: reduce) {
-  *,
-  *::before,
-  *::after {
+  html {
+    scroll-behavior: auto;
+  }
+
+  /* Stop decorative loops without removing useful color/opacity feedback. */
+  .animate-spin,
+  .animate-pulse,
+  .animate-bounce,
+  .animate-ping {
     animation-duration: 0.01ms !important;
     animation-iteration-count: 1 !important;
-    transition-duration: 0.01ms !important;
-    scroll-behavior: auto !important;
   }
 }
 

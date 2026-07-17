@@ -206,7 +206,7 @@ export function WelcomePage({
                 key={card.role}
                 type="button"
                 onClick={() => handleSelectRole(card.role)}
-                className="flex flex-col items-start gap-3 rounded-xl border-2 border-border bg-card p-6 text-left hover:border-primary/40 hover:bg-muted/30 transition-all"
+                className="flex flex-col items-start gap-3 rounded-xl border-2 border-border bg-card p-6 text-left transition-[background-color,border-color,color,transform] duration-[var(--motion-press)] ease-[var(--motion-ease-out)] hover:border-primary/40 hover:bg-muted/30 active:scale-[0.97] motion-reduce:transform-none motion-reduce:transition-[background-color,border-color,color,opacity]"
               >
                 <div className={cn("flex items-center justify-center size-12 rounded-xl", card.color)}>
                   <card.icon className="size-6" />

@@ -589,7 +589,10 @@ export function CgaAssessment({ onExit }: CgaAssessmentProps) {
                       aria-valuemax={100}
                       aria-valuenow={Math.round(questionAudioProgress * 100)}
                     >
-                      <div className="h-full rounded-full bg-primary transition-[width] duration-150 motion-reduce:transition-none" style={{ width: `${Math.round(questionAudioProgress * 100)}%` }} />
+                      <div
+                        className="h-full origin-left rounded-full bg-primary transition-transform duration-150 ease-[var(--motion-ease-out)] motion-reduce:transition-none"
+                        style={{ transform: `scaleX(${Math.min(1, Math.max(0, questionAudioProgress))})` }}
+                      />
                     </div>
                   </>
                 ) : (

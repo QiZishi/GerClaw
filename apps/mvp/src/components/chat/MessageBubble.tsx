@@ -232,8 +232,8 @@ function VoiceReadButton({
           aria-valuenow={Math.round(progress * 100)}
         >
           <div
-            className="h-full rounded-full bg-primary motion-reduce:transition-none transition-[width] duration-150"
-            style={{ width: `${Math.round(progress * 100)}%` }}
+            className="h-full origin-left rounded-full bg-primary transition-transform duration-150 ease-[var(--motion-ease-out)] motion-reduce:transition-none"
+            style={{ transform: `scaleX(${Math.min(1, Math.max(0, progress))})` }}
           />
         </div>
       </div>
@@ -452,8 +452,11 @@ export function MessageBubble({
     (block) => block.kind === "emergency_alert"
   );
   const messageAnimation = cn(
-    "transition-all duration-200 ease-out",
-    appeared ? "opacity-100 translate-y-0" : "opacity-0 translate-y-2"
+    "transition-[transform,opacity] duration-200 ease-[var(--motion-ease-out)]",
+    appeared
+      ? "opacity-100 translate-y-0"
+      : "opacity-0 translate-y-2 motion-reduce:translate-y-0",
+    "motion-reduce:transition-opacity"
   );
   const iconSize = seniorMode ? "size-5" : "size-3.5";
   const btnSize = seniorMode ? "default" : "icon-sm";
