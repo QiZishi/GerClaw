@@ -19,6 +19,11 @@ WORKDIR /app
 COPY pyproject.toml uv.lock README.md alembic.ini ./
 COPY migrations ./migrations
 COPY src ./src
+# The reviewed RAG regression case is a small, synthetic runtime artifact.
+# Keep it in the production image so the explicit, operator-run Eval CLI is
+# usable against the same graph that serves requests; test source stays in the
+# separate test stage below.
+COPY evals/rag-retrieval-reviewed-v1.json ./evals/rag-retrieval-reviewed-v1.json
 RUN --mount=type=cache,target=/root/.cache/uv \
     uv sync --frozen --no-dev
 
