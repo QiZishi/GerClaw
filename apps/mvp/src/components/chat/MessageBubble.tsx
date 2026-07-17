@@ -548,14 +548,14 @@ export function MessageBubble({
                   );
                 case "image":
                   return (
-                    <div key={block.id} className="mt-1 first:mt-0">
+                    <div key={block.id} className="relative mt-1 size-60 max-w-full first:mt-0">
                       <Image
                         src={`data:${block.data.mimeType};base64,${block.data.base64}`}
                         alt={block.data.alt ?? "用户上传的图片"}
-                        width={240}
-                        height={320}
+                        fill
+                        sizes="240px"
                         unoptimized
-                        className="max-w-[240px] max-h-[320px] w-auto h-auto rounded-lg object-cover cursor-pointer hover:opacity-90 transition-opacity"
+                        className="rounded-lg object-cover cursor-pointer hover:opacity-90 transition-opacity"
                         onClick={() => window.open(`data:${block.data.mimeType};base64,${block.data.base64}`, "_blank")}
                       />
                     </div>

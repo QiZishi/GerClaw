@@ -930,14 +930,14 @@ export function ChatInput({
               </div>
             ))}
             {pendingImages.map((img) => (
-              <div key={img.id} className="relative group">
+              <div key={img.id} className="relative size-16 group">
                 <Image
                   src={img.previewUrl}
                   alt={img.alt ?? "上传图片"}
-                  width={64}
-                  height={64}
+                  fill
+                  sizes="64px"
                   unoptimized
-                  className="w-16 h-16 object-cover rounded-md border border-border"
+                  className="rounded-md border border-border object-cover"
                 />
                 <button
                   type="button"
