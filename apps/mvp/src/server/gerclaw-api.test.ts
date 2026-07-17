@@ -78,3 +78,10 @@ test("CGA proxy permits only caller-owned descriptive comparison reads", () => {
   assert.equal(isAllowedGerclawProxyTarget(`cga/assessments/${sessionId}/comparison`, "POST"), false);
   assert.equal(isAllowedGerclawProxyTarget("cga/assessments/not-a-uuid/comparison", "GET"), false);
 });
+
+test("memory proxy permits only caller-owned immutable history reads", () => {
+  const factId = "e7f234c4-50cb-4c6f-b556-05cc840912c0";
+  assert.equal(isAllowedGerclawProxyTarget(`memory/facts/${factId}/history`, "GET"), true);
+  assert.equal(isAllowedGerclawProxyTarget(`memory/facts/${factId}/history`, "POST"), false);
+  assert.equal(isAllowedGerclawProxyTarget("memory/facts/not-a-uuid/history", "GET"), false);
+});

@@ -1,12 +1,12 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
-import { Check, RefreshCw, X } from "lucide-react";
+import { Check, History, RefreshCw, X } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { toast } from "@/components/ui/toast";
 import { cn } from "@/lib/utils";
-import { decideMemoryFact, readHealthProfile } from "@/services/gerclaw/memory";
-import type { HealthProfile, MemoryFact } from "@/services/gerclaw/schemas";
+import { decideMemoryFact, readHealthProfile, readMemoryFactHistory } from "@/services/gerclaw/memory";
+import type { HealthProfile, MemoryFact, MemoryFactHistory } from "@/services/gerclaw/schemas";
 import { useAppStore } from "@/stores/appStore";
 
 const CATEGORY_LABELS: Record<MemoryFact["category"], string> = {
@@ -32,7 +32,12 @@ export function HealthProfilePanel() {
   const [loadState, setLoadState] = useState<LoadState>("loading");
   const [error, setError] = useState<string | null>(null);
   const [decidingFactId, setDecidingFactId] = useState<string | null>(null);
+  const [historyFactId, setHistoryFactId] = useState<string | null>(null);
+  const [factHistory, setFactHistory] = useState<MemoryFactHistory | null>(null);
+  const [historyError, setHistoryError] = useState<string | null>(null);
+  const [historyLoading, setHistoryLoading] = useState(false);
   const requestIdRef = useRef(0);
+  const historyRequestIdRef = useRef(0);
 
   const refresh = useCallback(async () => {
     const requestId = ++requestIdRef.current;
@@ -76,6 +81,10 @@ export function HealthProfilePanel() {
       setDecidingFactId(fact.id);
       try {
         await decideMemoryFact(fact.id, fact.revision, decision);
+        historyRequestIdRef.current += 1;
+        setHistoryFactId(null);
+        setFactHistory(null);
+        setHistoryError(null);
         toast.show(decision === "confirm" ? "已确认并更新健康记录" : "已忽略这条待确认信息");
         await refresh();
       } catch (decisionError) {
@@ -87,6 +96,43 @@ export function HealthProfilePanel() {
       }
     },
     [refresh]
+  );
+
+  const loadFactHistory = useCallback(async (fact: MemoryFact) => {
+      const requestId = ++historyRequestIdRef.current;
+      setHistoryFactId(fact.id);
+      setFactHistory(null);
+      setHistoryError(null);
+      setHistoryLoading(true);
+      try {
+        const history = await readMemoryFactHistory(fact.id);
+        if (requestId !== historyRequestIdRef.current) return;
+        setFactHistory(history);
+      } catch (historyRequestError) {
+        if (requestId !== historyRequestIdRef.current) return;
+        setHistoryError(
+          historyRequestError instanceof Error
+            ? historyRequestError.message
+            : "变更历史暂时无法读取，请稍后重试。"
+        );
+      } finally {
+        if (requestId === historyRequestIdRef.current) setHistoryLoading(false);
+      }
+    }, []);
+
+  const toggleFactHistory = useCallback(
+    (fact: MemoryFact) => {
+      if (historyFactId === fact.id) {
+        historyRequestIdRef.current += 1;
+        setHistoryFactId(null);
+        setFactHistory(null);
+        setHistoryError(null);
+        setHistoryLoading(false);
+        return;
+      }
+      void loadFactHistory(fact);
+    },
+    [historyFactId, loadFactHistory]
   );
 
   const bodyClassName = cn("text-sm leading-6", isSeniorPatient && "text-lg leading-8");
@@ -165,11 +211,36 @@ export function HealthProfilePanel() {
                 {CATEGORY_LABELS[category]}
               </h3>
               <ul className="space-y-2">
-                {facts.map((fact) => (
-                  <li key={fact.id} className={cn("rounded-lg border border-border bg-card p-3", bodyClassName)}>
-                    {fact.statement}
-                  </li>
-                ))}
+                {facts.map((fact) => {
+                  const isHistoryOpen = historyFactId === fact.id;
+                  return (
+                    <li key={fact.id} className={cn("rounded-lg border border-border bg-card p-3", bodyClassName)}>
+                      <p>{fact.statement}</p>
+                      <Button
+                        type="button"
+                        variant="ghost"
+                        size={isSeniorPatient ? "default" : "sm"}
+                        className={cn("mt-2", actionClassName)}
+                        disabled={decidingFactId !== null}
+                        aria-expanded={isHistoryOpen}
+                        onClick={() => void toggleFactHistory(fact)}
+                      >
+                        <History className="size-4" />
+                        {isHistoryOpen ? "收起变更历史" : "查看变更历史"}
+                      </Button>
+                      {isHistoryOpen && (
+                        <FactHistory
+                          history={factHistory}
+                          loading={historyLoading}
+                          error={historyError}
+                          className={bodyClassName}
+                          actionClassName={actionClassName}
+                          onRetry={() => void loadFactHistory(fact)}
+                        />
+                      )}
+                    </li>
+                  );
+                })}
               </ul>
             </section>
           ))}
@@ -219,6 +290,56 @@ export function HealthProfilePanel() {
           )}
         </div>
       )}
+    </div>
+  );
+}
+
+function FactHistory({
+  history,
+  loading,
+  error,
+  className,
+  actionClassName,
+  onRetry,
+}: {
+  history: MemoryFactHistory | null;
+  loading: boolean;
+  error: string | null;
+  className: string;
+  actionClassName: string;
+  onRetry: () => void;
+}) {
+  if (loading) {
+    return (
+      <p className={cn("mt-3 text-muted-foreground", className)} role="status" aria-live="polite">
+        正在读取这条记录的变更历史…
+      </p>
+    );
+  }
+  if (error) {
+    return (
+      <div className={cn("mt-3 rounded-md bg-destructive/10 p-3", className)} role="status">
+        <p>{error}</p>
+        <Button type="button" variant="outline" size="sm" className={cn("mt-2", actionClassName)} onClick={onRetry}>
+          重新读取历史
+        </Button>
+      </div>
+    );
+  }
+  if (!history || history.items.length === 0) {
+    return <p className={cn("mt-3 text-muted-foreground", className)}>这条记录尚无历史版本。</p>;
+  }
+  return (
+    <div className={cn("mt-3 border-t border-border pt-3", className)}>
+      <p className="text-muted-foreground">仅显示您本人这条记录此前保存的版本。</p>
+      <ol className="mt-2 space-y-2">
+        {history.items.map((item) => (
+          <li key={`${item.revision}-${item.recorded_at}`} className="rounded-md bg-muted/50 p-2">
+            <p className="font-medium">版本 {item.revision}</p>
+            <p className="mt-1">{item.statement}</p>
+          </li>
+        ))}
+      </ol>
     </div>
   );
 }

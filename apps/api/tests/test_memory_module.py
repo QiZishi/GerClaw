@@ -1224,6 +1224,10 @@ class _Repository:
         fact_id = cast(uuid.UUID, kwargs["fact_id"])
         return next((fact for fact in self.facts if fact.id == fact_id), None)
 
+    async def get_fact(self, **kwargs: object) -> MemoryFact | None:
+        fact_id = cast(uuid.UUID, kwargs["fact_id"])
+        return next((fact for fact in self.facts if fact.id == fact_id), None)
+
     async def list_facts(
         self,
         *,
@@ -1247,6 +1251,15 @@ class _Repository:
     async def add_fact_revision(self, revision: MemoryFactRevision) -> None:
         revision.created_at = _now()
         self.revisions.append(revision)
+
+    async def list_fact_revisions(self, **kwargs: object) -> list[MemoryFactRevision]:
+        fact_id = cast(uuid.UUID, kwargs["fact_id"])
+        limit = cast(int, kwargs["limit"])
+        return sorted(
+            (revision for revision in self.revisions if revision.fact_id == fact_id),
+            key=lambda revision: (revision.revision, revision.id),
+            reverse=True,
+        )[:limit]
 
     async def flush(self) -> None:
         now = _now()
@@ -1471,6 +1484,16 @@ async def test_fact_mutation_preserves_encrypted_revision_audit_projection() -> 
     assert history.snapshot["status"] == "confirmed"
     assert history.snapshot["source_trace_id"] == "trace_medication_active"
     assert cast(dict[str, object], history.snapshot["details"])["dose"] == "100mg"
+
+    response = await second.read_fact_history(fact.id, limit=10)
+    assert response.fact_id == fact.id
+    assert len(response.items) == 1
+    assert response.items[0].revision == 1
+    assert response.items[0].status == "confirmed"
+    assert response.items[0].statement == "用户自述: 我每日服用阿司匹林100mg"
+    assert response.items[0].details["dose"] == "100mg"
+    with pytest.raises(ValueError, match="history limit"):
+        await second.read_fact_history(fact.id, limit=0)
 
 
 @pytest.mark.asyncio

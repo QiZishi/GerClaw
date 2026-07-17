@@ -18,6 +18,8 @@ from gerclaw_api.modules.memory.models import (
     HealthProfileRead,
     MemoryFactDecisionRead,
     MemoryFactDecisionRequest,
+    MemoryFactHistoryRead,
+    MemoryFactRevisionRead,
     MemoryUpdateResult,
     MemoryVectorRecord,
 )
@@ -124,6 +126,29 @@ def _fact_view(fact: MemoryFact, *, relevance_score: float | None = None) -> Mem
         )
     except ValidationError as error:
         raise MemoryDataError("stored memory fact is invalid") from error
+
+
+def _revision_view(revision: MemoryFactRevision) -> MemoryFactRevisionRead:
+    """Validate a decrypted pre-mutation snapshot before returning it to its owner."""
+
+    try:
+        snapshot = _PROFILE.validate_python(revision.snapshot)
+        return MemoryFactRevisionRead(
+            revision=revision.revision,
+            category=snapshot["category"],
+            memory_type=snapshot["memory_type"],
+            status=snapshot["status"],
+            statement=snapshot["statement"],
+            details=snapshot["details"],
+            confidence=snapshot["confidence"],
+            source_trace_id=snapshot.get("source_trace_id"),
+            occurred_at=snapshot.get("occurred_at"),
+            confirmed_at=snapshot.get("confirmed_at"),
+            updated_at=snapshot.get("updated_at"),
+            recorded_at=revision.created_at,
+        )
+    except (KeyError, TypeError, ValidationError) as error:
+        raise MemoryDataError("stored memory fact revision is invalid") from error
 
 
 class ProductionMemoryModule:
@@ -518,6 +543,29 @@ class ProductionMemoryModule:
             version=profile.version,
             profile=profile.profile,
             facts=[_fact_view(fact) for fact in facts],
+        )
+
+    async def read_fact_history(
+        self, fact_id: uuid.UUID, *, limit: int
+    ) -> MemoryFactHistoryRead:
+        """Return only the caller's encrypted, immutable previous fact versions."""
+
+        if not 1 <= limit <= 50:
+            raise ValueError("memory fact history limit must be between 1 and 50")
+        fact = await self._repository.get_fact(
+            tenant_id=self._tenant_id, user_id=self._user_id, fact_id=fact_id
+        )
+        if fact is None:
+            raise MemoryNotFoundError("memory fact not found")
+        revisions = await self._repository.list_fact_revisions(
+            tenant_id=self._tenant_id,
+            user_id=self._user_id,
+            fact_id=fact.id,
+            limit=limit,
+        )
+        return MemoryFactHistoryRead(
+            fact_id=fact.id,
+            items=[_revision_view(revision) for revision in revisions],
         )
 
     async def decide_fact(

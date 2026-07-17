@@ -61,6 +61,10 @@ class MemoryRepository(Protocol):
         self, *, tenant_id: str, user_id: uuid.UUID, fact_id: uuid.UUID
     ) -> MemoryFact | None: ...
 
+    async def get_fact(
+        self, *, tenant_id: str, user_id: uuid.UUID, fact_id: uuid.UUID
+    ) -> MemoryFact | None: ...
+
     async def list_facts(
         self,
         *,
@@ -74,6 +78,10 @@ class MemoryRepository(Protocol):
     async def add_fact(self, fact: MemoryFact) -> None: ...
 
     async def add_fact_revision(self, revision: MemoryFactRevision) -> None: ...
+
+    async def list_fact_revisions(
+        self, *, tenant_id: str, user_id: uuid.UUID, fact_id: uuid.UUID, limit: int
+    ) -> list[MemoryFactRevision]: ...
 
     async def flush(self) -> None: ...
 
@@ -202,6 +210,16 @@ class SqlAlchemyMemoryRepository:
         )
         return cast(MemoryFact | None, await self._session.scalar(statement))
 
+    async def get_fact(
+        self, *, tenant_id: str, user_id: uuid.UUID, fact_id: uuid.UUID
+    ) -> MemoryFact | None:
+        statement = select(MemoryFact).where(
+            MemoryFact.id == fact_id,
+            MemoryFact.tenant_id == tenant_id,
+            MemoryFact.user_id == user_id,
+        )
+        return cast(MemoryFact | None, await self._session.scalar(statement))
+
     async def list_facts(
         self,
         *,
@@ -230,6 +248,21 @@ class SqlAlchemyMemoryRepository:
 
     async def add_fact_revision(self, revision: MemoryFactRevision) -> None:
         self._session.add(revision)
+
+    async def list_fact_revisions(
+        self, *, tenant_id: str, user_id: uuid.UUID, fact_id: uuid.UUID, limit: int
+    ) -> list[MemoryFactRevision]:
+        statement = (
+            select(MemoryFactRevision)
+            .where(
+                MemoryFactRevision.tenant_id == tenant_id,
+                MemoryFactRevision.user_id == user_id,
+                MemoryFactRevision.fact_id == fact_id,
+            )
+            .order_by(MemoryFactRevision.revision.desc(), MemoryFactRevision.id.desc())
+            .limit(limit)
+        )
+        return list((await self._session.scalars(statement)).all())
 
     async def flush(self) -> None:
         await self._session.flush()

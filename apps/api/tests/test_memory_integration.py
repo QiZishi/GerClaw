@@ -156,6 +156,29 @@ async def test_memory_profile_is_encrypted_actor_scoped_and_phi_free_in_qdrant(
     assert raw_revision.snapshot.startswith("enc:v1:")
     assert "青霉素" not in raw_revision.snapshot
 
+    history = await client.get(f"/api/v1/memory/facts/{fact_id}/history")
+    assert history.status_code == 200, history.text
+    history_payload = history.json()
+    assert history_payload["fact_id"] == str(fact_id)
+    assert len(history_payload["items"]) == 1
+    history_item = history_payload["items"][0]
+    assert history_item["revision"] == 1
+    assert history_item["category"] == "allergy"
+    assert history_item["memory_type"] == "stable"
+    assert history_item["status"] == "confirmed"
+    assert history_item["statement"] == "用户自述: 对青霉素过敏"
+    assert history_item["details"] == {
+        "evidence_span": "对青霉素过敏",
+        "reaction": "皮疹",
+        "source_status": "unknown",
+    }
+    assert history_item["confidence"] == 0.99
+    assert history_item["source_trace_id"] == "trace_memory_integration0001"
+    assert history_item["occurred_at"] is None
+    assert history_item["confirmed_at"] is not None
+    assert history_item["updated_at"] is not None
+    assert history_item["recorded_at"] is not None
+
     other_token = create_access_token(
         app.state.settings,
         actor_id="usr_patient_integration0002",
@@ -175,3 +198,8 @@ async def test_memory_profile_is_encrypted_actor_scoped_and_phi_free_in_qdrant(
         json={"expected_revision": 2, "decision": "confirm"},
     )
     assert forbidden_decision.status_code == 404
+    forbidden_history = await client.get(
+        f"/api/v1/memory/facts/{fact_id}/history",
+        headers={"Authorization": f"Bearer {other_token}"},
+    )
+    assert forbidden_history.status_code == 404

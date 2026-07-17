@@ -1,8 +1,11 @@
+import { z } from "zod";
 import { gerclawRequest } from "./client";
 import {
   healthProfileSchema,
   memoryFactDecisionSchema,
+  memoryFactHistorySchema,
   type HealthProfile,
+  type MemoryFactHistory,
 } from "./schemas";
 
 export function readHealthProfile(): Promise<HealthProfile> {
@@ -21,5 +24,13 @@ export function decideMemoryFact(
       method: "POST",
       body: JSON.stringify({ expected_revision: expectedRevision, decision }),
     }
+  );
+}
+
+export function readMemoryFactHistory(factId: string): Promise<MemoryFactHistory> {
+  const parsedFactId = z.string().uuid().parse(factId);
+  return gerclawRequest(
+    `memory/facts/${encodeURIComponent(parsedFactId)}/history`,
+    memoryFactHistorySchema
   );
 }

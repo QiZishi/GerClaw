@@ -244,8 +244,33 @@ export const memoryFactDecisionSchema = z
   })
   .strict();
 
+export const memoryFactRevisionSchema = z
+  .object({
+    revision: z.number().int().positive(),
+    category: memoryCategorySchema,
+    memory_type: z.enum(["stable", "evolving", "event"]),
+    status: z.enum(["confirmed", "pending", "inactive"]),
+    statement: z.string().min(1).max(1_000),
+    details: z.record(z.string(), z.unknown()),
+    confidence: z.number().min(0).max(1),
+    source_trace_id: z.string().min(1).max(64).nullable(),
+    occurred_at: z.string().datetime().nullable(),
+    confirmed_at: z.string().datetime().nullable(),
+    updated_at: z.string().datetime().nullable(),
+    recorded_at: z.string().datetime(),
+  })
+  .strict();
+
+export const memoryFactHistorySchema = z
+  .object({
+    fact_id: z.string().uuid(),
+    items: z.array(memoryFactRevisionSchema).max(50),
+  })
+  .strict();
+
 export type HealthProfile = z.infer<typeof healthProfileSchema>;
 export type MemoryFact = z.infer<typeof memoryFactSchema>;
+export type MemoryFactHistory = z.infer<typeof memoryFactHistorySchema>;
 
 const chronicDateTimeSchema = z.string().datetime();
 

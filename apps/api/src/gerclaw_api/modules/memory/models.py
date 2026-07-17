@@ -134,3 +134,31 @@ class MemoryFactDecisionRead(BaseModel):
 
     fact: MemoryFactView
     profile_version: int = Field(ge=1)
+
+
+class MemoryFactRevisionRead(BaseModel):
+    """A caller-owned, immutable fact version saved before a later mutation."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    revision: int = Field(ge=1)
+    category: MemoryCategory
+    memory_type: MemoryType
+    status: MemoryStatus
+    statement: str = Field(min_length=1, max_length=1_000)
+    details: dict[str, object]
+    confidence: float = Field(ge=0, le=1)
+    source_trace_id: str | None = Field(default=None, max_length=64)
+    occurred_at: datetime | None = None
+    confirmed_at: datetime | None = None
+    updated_at: datetime | None = None
+    recorded_at: datetime
+
+
+class MemoryFactHistoryRead(BaseModel):
+    """Newest-first previous versions of one fact; current state remains in profile."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    fact_id: uuid.UUID
+    items: list[MemoryFactRevisionRead] = Field(default_factory=list, max_length=50)

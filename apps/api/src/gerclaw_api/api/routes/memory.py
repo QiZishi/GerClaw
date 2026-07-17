@@ -5,7 +5,7 @@ from __future__ import annotations
 import uuid
 from typing import Annotated
 
-from fastapi import APIRouter, Depends, HTTPException, Request
+from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from gerclaw_api.auth import AuthContext, require_memory_read, require_memory_write
@@ -14,6 +14,7 @@ from gerclaw_api.modules.memory.models import (
     HealthProfileRead,
     MemoryFactDecisionRead,
     MemoryFactDecisionRequest,
+    MemoryFactHistoryRead,
 )
 from gerclaw_api.modules.memory.profile import empty_profile
 from gerclaw_api.modules.memory.runtime import create_memory_module
@@ -127,3 +128,42 @@ async def decide_fact(
         # for provider, flush, response projection, and cancellation failures.
         await module.rollback()
         raise
+
+
+@router.get("/facts/{fact_id}/history", response_model=MemoryFactHistoryRead)
+async def get_fact_history(
+    fact_id: uuid.UUID,
+    request: Request,
+    session: SessionDependency,
+    identity: MemoryReadIdentity,
+    limit: int = Query(default=10, ge=1, le=50),
+) -> MemoryFactHistoryRead:
+    """Return caller-owned immutable fact versions without exposing another principal's data."""
+
+    await _enforce_rate_limit(request, identity)
+    repository = SqlAlchemyMemoryRepository(session)
+    user = await repository.get_user(tenant_id=identity.tenant_id, actor_id=identity.actor_id)
+    if user is None:
+        raise HTTPException(
+            status_code=404,
+            detail={"code": "MEMORY_FACT_NOT_FOUND", "message": "记忆事实不存在。"},
+        )
+    module = create_memory_module(
+        settings=request.app.state.settings,
+        repository=repository,
+        model=_required_model(request),
+        embedding_model=request.app.state.rag_runtime.embedding_model,
+        vector_store=request.app.state.memory_store,
+        tenant_id=identity.tenant_id,
+        actor_id=identity.actor_id,
+        user_id=user.id,
+        session_id=_NO_SESSION,
+        trace_id=str(request.state.trace_id),
+    )
+    try:
+        return await module.read_fact_history(fact_id, limit=limit)
+    except MemoryNotFoundError as error:
+        raise HTTPException(
+            status_code=404,
+            detail={"code": "MEMORY_FACT_NOT_FOUND", "message": "记忆事实不存在。"},
+        ) from error
