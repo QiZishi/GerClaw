@@ -142,7 +142,7 @@ async def test_medication_review_intake_discloses_limited_rule_coverage() -> Non
     )
 
     assert "有限规则审查结果" in started.governance_notice
-    assert "Beers 规则尚未安装" in started.governance_notice
+    assert "Beers 相关核对目前只覆盖少量本地来源情境" in started.governance_notice
     assert "未命中不代表用药安全" in started.governance_notice
 
 @pytest.mark.asyncio
