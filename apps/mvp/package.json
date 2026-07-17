@@ -11,6 +11,7 @@
     "test:cga-audio": "node scripts/verify-cga-audio-assets.mjs",
     "test:markdown": "node --test src/lib/markdown-gfm.test.ts",
     "test:account": "node --test src/server/account-contract.test.ts",
+    "test:guest-access": "node --test src/server/gerclaw-access.test.ts",
     "test:document": "node --test src/server/mineru-contract.test.ts",
     "test:gerclaw-proxy": "node --test src/server/gerclaw-api.test.ts",
     "test:feedback": "node --test src/services/gerclaw/feedback.test.ts",
