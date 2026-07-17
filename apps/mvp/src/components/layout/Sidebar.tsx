@@ -2,6 +2,7 @@
 
 import { useEffect, useMemo, useState } from "react";
 import {
+  ArrowLeftRight,
   Zap,
   HelpCircle,
   History,
@@ -13,6 +14,7 @@ import {
   Plus,
   Search,
   Settings,
+  ShieldCheck,
   Stethoscope,
   Sun,
   Trash2,
@@ -58,7 +60,12 @@ import type { Session } from "@/types";
 import { toast } from "@/components/ui/toast";
 import { AccountDialog } from "@/components/account/AccountDialog";
 import { AccountDeactivationDialog } from "@/components/account/AccountDeactivationDialog";
-import { getAccountIdentity, logoutAccount, type AccountIdentity } from "@/services/account";
+import {
+  getAccountIdentity,
+  logoutAccount,
+  switchAdministratorView,
+  type AccountIdentity,
+} from "@/services/account";
 import { deleteBackendSession } from "@/services/gerclaw/skills";
 
 interface SidebarProps {
@@ -306,6 +313,22 @@ export function Sidebar({ onNavigate }: SidebarProps) {
     onNavigate?.();
   };
 
+  const handleAdminWorkspace = async (targetRole: "patient" | "doctor") => {
+    try {
+      await switchAdministratorView(targetRole);
+      clearAllData();
+      window.location.assign("/");
+    } catch {
+      toast.show("工作区切换未完成，请稍后重试。");
+    }
+  };
+
+  const openAdminConsole = () => {
+    window.location.assign("/?workspace=admin");
+  };
+
+  const isAdministrator = account?.account_role === "admin";
+
   return (
     <aside
       className="flex h-full flex-col bg-sidebar text-sidebar-foreground border-r border-sidebar-border"
@@ -515,6 +538,23 @@ export function Sidebar({ onNavigate }: SidebarProps) {
                 帮助
               </DropdownMenuItem>
             </DropdownMenuGroup>
+            {isAdministrator && <>
+              <DropdownMenuSeparator />
+              <DropdownMenuGroup>
+                <DropdownMenuItem className={cn("cursor-pointer", seniorMode && "min-h-12 text-base")} onClick={openAdminConsole}>
+                  <ShieldCheck className="size-4" />
+                  管理控制台
+                </DropdownMenuItem>
+                {role !== "patient" && <DropdownMenuItem className={cn("cursor-pointer", seniorMode && "min-h-12 text-base")} onClick={() => void handleAdminWorkspace("patient")}>
+                  <ArrowLeftRight className="size-4" />
+                  切换到患者端
+                </DropdownMenuItem>}
+                {role !== "doctor" && <DropdownMenuItem className={cn("cursor-pointer", seniorMode && "min-h-12 text-base")} onClick={() => void handleAdminWorkspace("doctor")}>
+                  <ArrowLeftRight className="size-4" />
+                  切换到医生端
+                </DropdownMenuItem>}
+              </DropdownMenuGroup>
+            </>}
             <DropdownMenuSeparator />
             {account && <>
               <DropdownMenuItem className={cn("cursor-pointer text-destructive focus:text-destructive", seniorMode && "min-h-12 text-base")} onClick={() => setAccountDeactivationOpen(true)}>

@@ -43,7 +43,16 @@ export default function Home() {
   const isSeniorPatient = role === "patient" && seniorMode;
   const [identity, setIdentity] = useState<AccountIdentity | null | undefined>(undefined);
   const [guestEntry, setGuestEntry] = useState(false);
+  const [adminConsoleRequested, setAdminConsoleRequested] = useState(false);
   useEffect(() => { void getAccountIdentity().then(setIdentity); }, []);
+  useEffect(() => {
+    const frame = requestAnimationFrame(() => {
+      setAdminConsoleRequested(
+        new URLSearchParams(window.location.search).get("workspace") === "admin",
+      );
+    });
+    return () => cancelAnimationFrame(frame);
+  }, []);
   useEffect(() => {
     if (!identity) {
       if (identity === null && !guestEntry) useChatStore.getState().clearAllData();
@@ -94,7 +103,12 @@ export default function Home() {
     setCurrentSession(id);
   };
 
-  if (role === "admin") return <AdminDashboard />;
+  // An administrator's account authority is retained by the server while they
+  // enter a patient or doctor workspace.  The query controls presentation only;
+  // all management BFF calls still require the server-signed account_role.
+  if (identity?.account_role === "admin" && (role === "admin" || adminConsoleRequested)) {
+    return <AdminDashboard />;
+  }
 
   return (
     <div className="flex h-screen w-full overflow-hidden bg-background relative">
