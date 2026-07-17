@@ -56,22 +56,22 @@ const MODE_CONTENT: Record<
 > = {
   create: {
     title: "创建临床技能",
-    description: "AI 只生成待审阅草稿。保存前，后端会再次校验工具权限、参数边界和医疗安全策略。",
-    saveLabel: "审阅完成并保存",
+    description: "创建或生成技能草稿。",
+    saveLabel: "保存技能",
   },
   upload: {
     title: "审阅导入的技能",
-    description: "技能包已通过结构校验，但尚未注册。请完整检查并按需修改 SKILL.md，确认后再保存。",
-    saveLabel: "确认并注册技能",
+    description: "查看并编辑导入内容。",
+    saveLabel: "保存技能",
   },
   edit: {
     title: "编辑临床技能",
-    description: "修改会创建新的修订版本，并使用当前修订号防止覆盖其他窗口中的更新。",
-    saveLabel: "保存新修订",
+    description: "编辑后保存为新修订。",
+    saveLabel: "保存修订",
   },
   view: {
     title: "查看临床技能",
-    description: "在同一内容区实时编辑并渲染完整 SKILL.md；系统内置技能为只读。",
+    description: "查看完整 SKILL.md。",
   },
 };
 
@@ -187,11 +187,8 @@ export function SkillEditorDialog({
           <section className="space-y-3 rounded-xl border border-border bg-muted/20 p-4" aria-labelledby="skill-ai-draft-title">
             <div>
               <Label id="skill-ai-draft-title" htmlFor="skill-description" className={cn(seniorMode && "text-lg")}>
-                让真实模型生成起始草稿（可选）
+                生成草稿（可选）
               </Label>
-              <p className={cn("mt-1 text-xs text-muted-foreground", seniorMode && "text-lg leading-8")}>
-                生成后仍可逐字修改；模型草稿不会自动注册。
-              </p>
             </div>
             <textarea
               id="skill-description"
@@ -255,7 +252,7 @@ export function SkillEditorDialog({
                 生成优化修订草稿（可选）
               </Label>
               <p className={cn("mt-1 text-xs text-muted-foreground", seniorMode && "text-lg leading-8")}>
-                保持技能编号不变，只生成更高版本的待审阅草稿；不会自动保存或启用。
+                根据你的要求生成修订草稿。
               </p>
             </div>
             <textarea

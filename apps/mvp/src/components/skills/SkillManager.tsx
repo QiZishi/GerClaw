@@ -181,7 +181,7 @@ export function SkillManager() {
                 临床技能工作台
               </h1>
               <p className={cn("mt-1.5 max-w-2xl text-sm leading-6 text-muted-foreground", seniorMode && "text-lg leading-8")}>
-                选择经过策略校验的工作流，让当前对话按固定步骤检索证据、追问并整理结果。
+                为当前对话选择技能。
               </p>
             </div>
             <div className="flex shrink-0 flex-wrap gap-2">
@@ -241,11 +241,11 @@ export function SkillManager() {
           {status !== "loading" && filtered.length === 0 && status !== "error" && (
             <div className="rounded-xl border border-dashed border-border px-6 py-14 text-center">
               <p className={cn("font-medium", seniorMode && "text-xl")}>没有匹配的技能</p>
-              <p className={cn("mt-1 text-sm text-muted-foreground", seniorMode && "text-lg leading-8")}>换一个关键词，或创建新的临床工作流。</p>
+              <p className={cn("mt-1 text-sm text-muted-foreground", seniorMode && "text-lg leading-8")}>换个关键词试试。</p>
             </div>
           )}
           {builtinSkills.length > 0 && (
-            <SkillSection title="系统技能" description="随系统发布，只读并经过统一安全策略校验。" seniorMode={seniorMode}>
+            <SkillSection title="系统技能" description="系统提供，只读。" seniorMode={seniorMode}>
               {builtinSkills.map((skill) => (
                 <SkillCard
                   key={skill.skill_id}
@@ -260,7 +260,7 @@ export function SkillManager() {
             </SkillSection>
           )}
           {customSkills.length > 0 && (
-            <SkillSection title="我的技能" description="由您上传或通过真实模型生成，保存前可完整审阅。" seniorMode={seniorMode}>
+            <SkillSection title="我的技能" description="上传或创建的技能。" seniorMode={seniorMode}>
               {customSkills.map((skill) => (
                 <SkillCard
                   key={skill.skill_id}
@@ -349,9 +349,6 @@ function SkillSkeleton() {
     >
       <Bot className="mb-3 size-6 text-primary" aria-hidden="true" />
       <p className="font-medium">正在读取可用技能</p>
-      <p className="mt-1 text-sm text-muted-foreground">
-        请稍候。技能列表准备完成后会显示在这里。
-      </p>
     </div>
   );
 }
