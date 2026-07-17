@@ -8,6 +8,10 @@ from gerclaw_api.modules.contracts import Citation, SafetyDecision
 from gerclaw_api.modules.rag.protocols import RetrievalResult
 
 MEDICAL_DISCLAIMER = "内容由 AI 生成，仅供参考。身体不适请及时就医。"
+_MODEL_DISCLAIMER_FRAGMENTS = (
+    "内容由 AI 生成，仅供参考。",
+    "身体不适请及时就医。",
+)
 HIGH_RISK_NOTICE = (
     "⚠️ 您描述的情况可能涉及紧急风险。请立即拨打 120 或尽快前往急诊，"
     "不要等待在线回复；如身边有人，请请其陪同并携带当前用药清单。"
@@ -137,7 +141,12 @@ def detect_high_risk(text: str) -> list[str]:
 
 
 def sanitize_medical_text(text: str) -> str:
-    """Remove deterministic diagnosis assertions before any public emission."""
+    """Normalize model text before public emission.
+
+    The Harness owns the single, final disclaimer.  Removing a model-invented
+    copy here prevents a duplicate footer in streamed UI without changing the
+    substantive answer.
+    """
 
     def rewrite_malformed_limitation(match: re.Match[str]) -> str:
         prefix = re.sub(r"最终的?$", "", match.group("prefix").strip())
@@ -147,7 +156,10 @@ def sanitize_medical_text(text: str) -> str:
         condition = match.group("condition").strip()
         return f"提示{condition}的可能性，建议由医生进一步评估"
 
-    sanitized = _MALFORMED_LIMITATION_DIAGNOSIS.sub(rewrite_malformed_limitation, text)
+    sanitized = text.replace(MEDICAL_DISCLAIMER, "")
+    for fragment in _MODEL_DISCLAIMER_FRAGMENTS:
+        sanitized = sanitized.replace(fragment, "")
+    sanitized = _MALFORMED_LIMITATION_DIAGNOSIS.sub(rewrite_malformed_limitation, sanitized)
     for pattern in _DETERMINISTIC_DIAGNOSIS_ASSERTIONS:
         sanitized = pattern.sub(rewrite_assertion, sanitized)
     for pattern, replacement in _DETERMINISTIC_DIAGNOSIS_REWRITES:

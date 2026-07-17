@@ -141,6 +141,12 @@ def test_evidence_context_is_bounded_and_marks_content_untrusted() -> None:
     assert "只使用本段标题的 [E1]" in context
 
 
+def test_sanitize_medical_text_removes_model_duplicate_disclaimer() -> None:
+    assert sanitize_medical_text(f"建议继续观察。\n\n{MEDICAL_DISCLAIMER}") == "建议继续观察。\n\n"
+    assert sanitize_medical_text("内容由 AI 生成，仅供参考。") == ""
+    assert sanitize_medical_text("身体不适请及时就医。") == ""
+
+
 def test_safety_decision_always_applies_disclaimer_and_red_flag_check() -> None:
     routine = safety_decision([])
     urgent = safety_decision(["chest_pain"], deterministic_diagnosis_blocked=True)

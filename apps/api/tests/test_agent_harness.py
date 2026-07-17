@@ -315,6 +315,29 @@ async def test_medical_harness_streams_sanitized_cited_response(
 
 
 @pytest.mark.asyncio
+async def test_harness_appends_disclaimer_once_when_model_repeats_it(
+    unit_settings: Settings,
+) -> None:
+    model = _HarnessModel(text=f"请继续由医生评估。\n\n{MEDICAL_DISCLAIMER}")
+    harness = _harness(unit_settings, model=model, rag=_HarnessRAG([_evidence()]))
+    context = await harness.assemble_context(
+        "108815d7-05bf-4c2a-a977-cd034f390fab",
+        "usr_patient00000001",
+        [],
+        [],
+    )
+
+    response = await harness.process_message(
+        "老人头晕怎么办？",
+        "108815d7-05bf-4c2a-a977-cd034f390fab",
+        context,
+        lambda _event: None,
+    )
+
+    assert response.text.count(MEDICAL_DISCLAIMER) == 1
+
+
+@pytest.mark.asyncio
 async def test_companion_harness_has_no_tools_or_long_term_memory_context(
     unit_settings: Settings,
 ) -> None:
