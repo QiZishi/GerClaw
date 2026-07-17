@@ -45,6 +45,12 @@ const SEVERITY_LABEL: Record<CgaReport["severity"], string> = {
   fair: "睡眠质量较好",
   average: "睡眠质量一般",
   poor: "睡眠质量差",
+  screen_negative: "本次筛查未提示明显问题",
+  possible_impairment: "建议进一步核验",
+  normal: "本次筛查未提示明显问题",
+  mild_impairment: "建议进一步核验",
+  moderate_impairment: "建议尽快进一步评估",
+  severe_impairment: "建议尽快进一步评估",
 };
 
 const COMPONENT_LABEL: Record<string, string> = {
@@ -55,6 +61,23 @@ const COMPONENT_LABEL: Record<string, string> = {
   sleep_disturbance: "睡眠障碍",
   hypnotic_medication: "催眠药物",
   daytime_dysfunction: "日间功能障碍",
+  word_recall: "三词回忆",
+  clock_task_self_report: "时钟任务(本人作答)",
+  orientation: "定向力",
+  immediate_memory: "即时记忆",
+  attention_calculation: "注意力和计算",
+  recall: "回忆能力",
+  language_and_tasks: "语言和任务",
+};
+
+const COMPONENT_MAX: Record<string, number> = {
+  word_recall: 3,
+  clock_task_self_report: 2,
+  orientation: 10,
+  immediate_memory: 3,
+  attention_calculation: 5,
+  recall: 3,
+  language_and_tasks: 9,
 };
 
 function assessmentKey(scaleId: CgaScaleId) {
@@ -84,7 +107,7 @@ function buildReportExportContent(report: CgaReport): string {
   if (Object.keys(report.component_scores).length > 0) {
     lines.push("", "## 各项得分", "");
     for (const [key, score] of Object.entries(report.component_scores)) {
-      lines.push(`- ${COMPONENT_LABEL[key] ?? key}：${score} / 3`);
+      lines.push(`- ${COMPONENT_LABEL[key] ?? key}：${score} / ${COMPONENT_MAX[key] ?? 3}`);
     }
   }
   if (report.safety_messages.length > 0) {
@@ -746,6 +769,12 @@ export function CgaAssessment({ onExit }: CgaAssessmentProps) {
               <p className={cn("mt-4", textClass)}>得分：<strong>{report.total_score} / {report.score_max}</strong></p>
               {report.raw_score !== null && report.standard_score !== null && <p className={cn("mt-2", textClass)}>粗分：{report.raw_score}；标准分：{report.standard_score}</p>}
               <p className={cn("mt-2", textClass)}>分级：{SEVERITY_LABEL[report.severity]}</p>
+              {report.education_level !== null && report.education_threshold !== null && (
+                <p className={cn("mt-2", textClass)}>
+                  本次使用的教育程度分界值：{report.education_threshold} 分
+                  {report.education_adjusted_screen_positive ? "；建议进一步评估。" : "。"}
+                </p>
+              )}
               {comparison && (
                 <div className={cn("mt-4 rounded-md border bg-muted/50 p-3", textClass)}>
                   <p className="font-medium">与上一次同量表筛查的对照</p>
@@ -767,7 +796,7 @@ export function CgaAssessment({ onExit }: CgaAssessmentProps) {
                     {Object.entries(report.component_scores).map(([key, score]) => (
                       <div className="flex justify-between gap-3" key={key}>
                         <dt>{COMPONENT_LABEL[key] ?? key}</dt>
-                        <dd>{score} / 3</dd>
+                        <dd>{score} / {COMPONENT_MAX[key] ?? 3}</dd>
                       </div>
                     ))}
                   </dl>

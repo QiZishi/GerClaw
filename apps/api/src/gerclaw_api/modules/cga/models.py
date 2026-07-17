@@ -13,7 +13,7 @@ class CgaQuestionRead(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     id: str
-    position: int = Field(ge=1, le=30)
+    position: int = Field(ge=1, le=31)
     text: str
     sensitive_prefix: str | None = None
     input_kind: Literal["ordinal", "clock_minutes", "duration_minutes"] = "ordinal"
@@ -23,11 +23,11 @@ class CgaQuestionRead(BaseModel):
 class CgaScaleRead(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
-    id: Literal["phq9", "sas", "psqi"]
+    id: Literal["phq9", "sas", "psqi", "minicog", "mmse"]
     version: str
     name: str
     description: str
-    question_count: int = Field(ge=1, le=30)
+    question_count: int = Field(ge=1, le=31)
     questions: list[CgaQuestionRead]
 
 
@@ -40,7 +40,7 @@ class CgaScalesRead(BaseModel):
 class CgaStartRequest(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
-    scale_id: Literal["phq9", "sas", "psqi"]
+    scale_id: Literal["phq9", "sas", "psqi", "minicog", "mmse"]
 
 
 class CgaAnswerRequest(BaseModel):
@@ -48,7 +48,10 @@ class CgaAnswerRequest(BaseModel):
 
     expected_revision: int = Field(ge=1)
     question_id: str = Field(
-        pattern=r"^(?:phq9_[1-9]|sas_(?:[1-9]|1[0-9]|20)|psqi_(?:[1-9]|10|5[a-j]))$"
+        pattern=(
+            r"^(?:phq9_[1-9]|sas_(?:[1-9]|1[0-9]|20)|psqi_(?:[1-9]|10|5[a-j])|"
+            r"minicog_(?:prepare|clock|recall)|mmse_(?:education|[1-9]|[12][0-9]|30))$"
+        )
     )
     score: int = Field(ge=0, le=1_439)
     supplemental_detail: str | None = Field(default=None, max_length=500)
@@ -72,11 +75,11 @@ class CgaAssessmentRead(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     assessment_id: uuid.UUID
-    scale_id: Literal["phq9", "sas", "psqi"]
+    scale_id: Literal["phq9", "sas", "psqi", "minicog", "mmse"]
     definition_version: str
     status: Literal["active", "completed", "abandoned"]
     revision: int
-    answered_count: int = Field(ge=0, le=30)
+    answered_count: int = Field(ge=0, le=31)
     next_question: CgaQuestionRead | None
     risk: CgaRiskRead
 
@@ -91,6 +94,9 @@ class CgaReportRead(BaseModel):
     score_max: int = Field(default=27, ge=1, le=100)
     raw_score: int | None = Field(default=None, ge=0, le=100)
     standard_score: int | None = Field(default=None, ge=0, le=100)
+    education_level: Literal["none", "primary_or_less", "secondary_or_more"] | None = None
+    education_threshold: int | None = Field(default=None, ge=0, le=30)
+    education_adjusted_screen_positive: bool | None = None
     severity: Literal[
         "none",
         "minimal",
@@ -102,6 +108,12 @@ class CgaReportRead(BaseModel):
         "fair",
         "average",
         "poor",
+        "screen_negative",
+        "possible_impairment",
+        "normal",
+        "mild_impairment",
+        "moderate_impairment",
+        "severe_impairment",
     ]
     self_harm_signal: bool = False
     requires_immediate_safety_assessment: bool = False
@@ -117,7 +129,7 @@ class CgaHistoryItemRead(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     assessment_id: uuid.UUID
-    scale_id: Literal["phq9", "sas", "psqi"]
+    scale_id: Literal["phq9", "sas", "psqi", "minicog", "mmse"]
     definition_version: str
     completed_at: datetime
     report: CgaReportRead
@@ -148,4 +160,4 @@ class CgaActiveAssessmentsRead(BaseModel):
 
     model_config = ConfigDict(extra="forbid")
 
-    items: list[CgaAssessmentRead] = Field(default_factory=list, max_length=3)
+    items: list[CgaAssessmentRead] = Field(default_factory=list, max_length=5)

@@ -1,10 +1,10 @@
 # ruff: noqa: RUF001
-"""Versioned MMSE scoring core with an explicit reviewed-item boundary.
+"""Versioned MMSE self-report screening definition and deterministic scoring.
 
-Source: ``问卷量表/05-MMSE简易智能精神状态检查量表.md``.  Several MMSE
-items require observation, drawing, reading or task execution.  This module
-therefore accepts only a future authorised, auditable set of item results; it
-does not assess free text, images, audio or actions itself.
+Source: ``问卷量表/05-MMSE简易智能精神状态检查量表.md``.  The browser records
+whether the participant reports completing each standard item.  It does not
+pretend to observe an action, read handwriting, or assess an uploaded drawing;
+the resulting score is a self-report screening result and not a diagnosis.
 """
 
 from __future__ import annotations
@@ -23,6 +23,64 @@ MmseSeverity = Literal["normal", "mild_impairment", "moderate_impairment", "seve
 
 
 @dataclass(frozen=True)
+class MmseQuestion:
+    id: str
+    position: int
+    text: str
+
+
+MMSE_EDUCATION_ID = "mmse_education"
+MMSE_EDUCATION_OPTIONS: tuple[tuple[int, str], ...] = (
+    (0, "未受过学校教育"),
+    (1, "小学或受教育年限不超过6年"),
+    (2, "中学或以上"),
+)
+MMSE_OPTIONS: tuple[tuple[int, str], ...] = (
+    (0, "未完成、答错或不确定"),
+    (1, "已完成或答对"),
+)
+_MMSE_ITEM_TEXTS = (
+    "今天是星期几？",
+    "今天是几号？",
+    "现在是几月份？",
+    "现在是什么季节？",
+    "今年是哪一年？",
+    "现在我们在哪里（省、市）？",
+    "现在我们在什么地方（区、县）？",
+    "现在我们在什么街道（乡、村）？",
+    "这里是什么地方（地址名称）？",
+    "现在在第几层楼？",
+    "请复述“皮球”。",
+    "请复述“国旗”。",
+    "请复述“树木”。",
+    "请计算100减7。",
+    "请继续从上一个答案减7。",
+    "请继续从上一个答案减7。",
+    "请继续从上一个答案减7。",
+    "请继续从上一个答案减7。",
+    "请回忆“皮球”。",
+    "请回忆“国旗”。",
+    "请回忆“树木”。",
+    "请辨认手表。",
+    "请辨认钢笔。",
+    "请复述“四十四只石狮子”。",
+    "请阅读“闭上你的眼睛”并按意思完成动作。",
+    "请用右手拿纸。",
+    "请将纸对折。",
+    "请将纸放在自己大腿上。",
+    "请写一句完整的句子。",
+    "请照样画出图形。",
+)
+MMSE_QUESTIONS: tuple[MmseQuestion, ...] = (
+    MmseQuestion(MMSE_EDUCATION_ID, 1, "请先选择您的受教育情况，用于解释本次筛查分界值。"),
+    *tuple(
+        MmseQuestion(f"mmse_{position}", position + 1, text)
+        for position, text in enumerate(_MMSE_ITEM_TEXTS, start=1)
+    ),
+)
+
+
+@dataclass(frozen=True)
 class MmseScore:
     total_score: int
     severity: MmseSeverity
@@ -35,23 +93,23 @@ class MmseScore:
 
 
 def score_mmse(
-    *, reviewed_item_scores: Mapping[str, int], education_level: EducationLevel
+    *, reported_item_scores: Mapping[str, int], education_level: EducationLevel
 ) -> MmseScore:
-    """Score thirty pre-reviewed binary MMSE items and report source thresholds."""
+    """Score thirty bounded participant-reported MMSE item results."""
 
-    unexpected = set(reviewed_item_scores) - MMSE_ITEM_IDS
-    missing = MMSE_ITEM_IDS - set(reviewed_item_scores)
+    unexpected = set(reported_item_scores) - MMSE_ITEM_IDS
+    missing = MMSE_ITEM_IDS - set(reported_item_scores)
     if unexpected or missing:
         raise ValueError(
-            "MMSE requires exactly the thirty server-defined reviewed item identifiers"
+            "MMSE requires exactly the thirty server-defined item identifiers"
         )
-    for item_id, value in reviewed_item_scores.items():
+    for item_id, value in reported_item_scores.items():
         if isinstance(value, bool) or not isinstance(value, int) or value not in (0, 1):
-            raise ValueError(f"{item_id} must be a reviewed binary score")
+            raise ValueError(f"{item_id} must be a binary score")
     if education_level not in {"none", "primary_or_less", "secondary_or_more"}:
         raise ValueError("education_level is invalid")
 
-    total_score = sum(reviewed_item_scores.values())
+    total_score = sum(reported_item_scores.values())
     severity = _severity(total_score)
     threshold = {"none": 17, "primary_or_less": 20, "secondary_or_more": 24}[education_level]
     screen_positive = total_score <= threshold

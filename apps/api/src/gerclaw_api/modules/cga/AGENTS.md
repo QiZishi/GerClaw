@@ -2,7 +2,7 @@
 
 ## Responsibility
 
-This module owns versioned, deterministic screening-scale definitions and scoring only. PHQ-9, SAS and the score-bearing PSQI self-report items have server workflows. PSQI item 5J may additionally retain an optional, encrypted free-text note; it never changes scoring and is not included in public reports, history or export. Mini-Cog and MMSE have scoring cores only: their drawing, action and observation scores require a future authorised human-review workflow and must not be exposed as patient self-scoring. The service layer owns the authenticated, persisted state machine; routes own HTTP concerns.
+This module owns versioned, deterministic screening-scale definitions and scoring only. PHQ-9, SAS, score-bearing PSQI, Mini-Cog and MMSE have server workflows. Mini-Cog and MMSE accept only the participant's bounded self-report values: the system must never claim that a drawing, movement, writing, reading, or spoken answer was machine- or clinician-verified. PSQI item 5J may additionally retain an optional, encrypted free-text note; it never changes scoring and is not included in public reports, history or export. The service layer owns the authenticated, persisted state machine; routes own HTTP concerns.
 
 ## Invariants
 

@@ -6,6 +6,24 @@ import uuid
 from typing import Any, Literal, cast
 
 from gerclaw_api.database.models import CgaAssessment
+from gerclaw_api.modules.cga.minicog import (
+    MINICOG_FOLLOW_UP_MESSAGE,
+    MINICOG_OPTIONS,
+    MINICOG_QUESTIONS,
+    MINICOG_SCALE_ID,
+    MINICOG_VERSION,
+    score_minicog,
+)
+from gerclaw_api.modules.cga.mmse import (
+    MMSE_EDUCATION_ID,
+    MMSE_EDUCATION_OPTIONS,
+    MMSE_FOLLOW_UP_MESSAGE,
+    MMSE_OPTIONS,
+    MMSE_QUESTIONS,
+    MMSE_SCALE_ID,
+    MMSE_VERSION,
+    score_mmse,
+)
 from gerclaw_api.modules.cga.models import (
     CgaActiveAssessmentsRead,
     CgaAssessmentRead,
@@ -59,12 +77,14 @@ class CgaService:
         *,
         tenant_id: str,
         actor_id: str,
-        scale_id: Literal["phq9", "sas", "psqi"] = "phq9",
+        scale_id: Literal["phq9", "sas", "psqi", "minicog", "mmse"] = "phq9",
     ) -> CgaAssessmentRead:
         version = {
             PHQ9_SCALE_ID: PHQ9_VERSION,
             SAS_SCALE_ID: SAS_VERSION,
             PSQI_SCALE_ID: PSQI_VERSION,
+            MINICOG_SCALE_ID: MINICOG_VERSION,
+            MMSE_SCALE_ID: MMSE_VERSION,
         }[scale_id]
         record = await self._repository.create(
             tenant_id=tenant_id,
@@ -238,7 +258,7 @@ class CgaService:
                 continue
             seen_scales.add(record.scale_id)
             newest_by_scale.append(self._read(record))
-            if len(newest_by_scale) == 3:
+            if len(newest_by_scale) == 5:
                 break
         return CgaActiveAssessmentsRead(items=newest_by_scale)
 
@@ -255,6 +275,8 @@ class CgaService:
             PHQ9_SCALE_ID: HIGH_SCORE_SAFETY_MESSAGE,
             SAS_SCALE_ID: SAS_HIGH_SCORE_MESSAGE,
             PSQI_SCALE_ID: PSQI_HIGH_SCORE_MESSAGE,
+            MINICOG_SCALE_ID: MINICOG_FOLLOW_UP_MESSAGE,
+            MMSE_SCALE_ID: MMSE_FOLLOW_UP_MESSAGE,
         }.get(record.scale_id)
         if high_score_message is None:
             raise CgaAssessmentConflictError("assessment uses an unsupported scale")
@@ -265,7 +287,7 @@ class CgaService:
             next_question = self._question(record.scale_id, record.current_position)
         return CgaAssessmentRead(
             assessment_id=record.id,
-            scale_id=cast(Literal["phq9", "sas", "psqi"], record.scale_id),
+            scale_id=cast(Literal["phq9", "sas", "psqi", "minicog", "mmse"], record.scale_id),
             definition_version=record.definition_version,
             status=cast(Literal["active", "completed", "abandoned"], record.status),
             revision=record.revision,
@@ -290,7 +312,7 @@ class CgaService:
             raise CgaAssessmentConflictError("completed assessment report is invalid") from error
         return CgaHistoryItemRead(
             assessment_id=record.id,
-            scale_id=cast(Literal["phq9", "sas", "psqi"], record.scale_id),
+            scale_id=cast(Literal["phq9", "sas", "psqi", "minicog", "mmse"], record.scale_id),
             definition_version=record.definition_version,
             completed_at=record.updated_at,
             report=report,
@@ -316,6 +338,10 @@ class CgaService:
             return SAS_QUESTIONS
         if scale_id == PSQI_SCALE_ID:
             return PSQI_QUESTIONS
+        if scale_id == MINICOG_SCALE_ID:
+            return MINICOG_QUESTIONS
+        if scale_id == MMSE_SCALE_ID:
+            return MMSE_QUESTIONS
         raise CgaAssessmentConflictError("assessment uses an unsupported scale")
 
     @staticmethod
@@ -331,6 +357,10 @@ class CgaService:
                 raise CgaAssessmentConflictError(
                     "assessment uses an unsupported question"
                 ) from error
+        if scale_id == MINICOG_SCALE_ID:
+            return MINICOG_OPTIONS[question_id]
+        if scale_id == MMSE_SCALE_ID:
+            return MMSE_EDUCATION_OPTIONS if question_id == MMSE_EDUCATION_ID else MMSE_OPTIONS
         raise CgaAssessmentConflictError("assessment uses an unsupported scale")
 
     @classmethod
@@ -342,6 +372,13 @@ class CgaService:
                 raise CgaAssessmentConflictError(
                     "answer score is invalid for this server-defined question"
                 ) from error
+            return
+        if scale_id == MMSE_SCALE_ID and question_id == MMSE_EDUCATION_ID:
+            education_scores = {value for value, _ in MMSE_EDUCATION_OPTIONS}
+            if isinstance(score, bool) or score not in education_scores:
+                raise CgaAssessmentConflictError(
+                    "answer score is invalid for this server-defined question"
+                )
             return
         valid_scores = {value for value, _label in cls._options(scale_id, question_id)}
         if isinstance(score, bool) or score not in valid_scores:
@@ -395,6 +432,71 @@ class CgaService:
                 safety_messages=list(psqi_result.safety_messages),
                 component_scores=psqi_result.component_scores,
                 disclaimer=psqi_result.disclaimer,
+            )
+        if record.scale_id == MINICOG_SCALE_ID:
+            answers = self._answers(record)
+            minicog_result = score_minicog(
+                recalled_word_count=answers["minicog_recall"],
+                reported_clock_score=answers["minicog_clock"],
+            )
+            return CgaReportRead(
+                total_score=minicog_result.total_score,
+                score_max=5,
+                severity=minicog_result.severity,
+                high_severity_follow_up=minicog_result.high_severity_follow_up,
+                safety_messages=list(minicog_result.safety_messages),
+                component_scores={
+                    "word_recall": minicog_result.recalled_word_count,
+                    "clock_task_self_report": minicog_result.reported_clock_score,
+                },
+                disclaimer=minicog_result.disclaimer,
+            )
+        if record.scale_id == MMSE_SCALE_ID:
+            answers = self._answers(record)
+            education_level = {
+                0: "none",
+                1: "primary_or_less",
+                2: "secondary_or_more",
+            }[answers[MMSE_EDUCATION_ID]]
+            mmse_result = score_mmse(
+                reported_item_scores={
+                    item_id: answers[item_id]
+                    for item_id in answers
+                    if item_id != MMSE_EDUCATION_ID
+                },
+                education_level=cast(
+                    Literal["none", "primary_or_less", "secondary_or_more"], education_level
+                ),
+            )
+            return CgaReportRead(
+                total_score=mmse_result.total_score,
+                score_max=30,
+                severity=mmse_result.severity,
+                education_level=mmse_result.education_level,
+                education_threshold=mmse_result.education_threshold,
+                education_adjusted_screen_positive=mmse_result.education_adjusted_screen_positive,
+                high_severity_follow_up=mmse_result.high_severity_follow_up,
+                safety_messages=list(mmse_result.safety_messages),
+                component_scores={
+                    "orientation": sum(
+                        answers[f"mmse_{position}"] for position in range(1, 11)
+                    ),
+                    "immediate_memory": sum(
+                        answers[f"mmse_{position}"] for position in range(11, 14)
+                    ),
+                    "attention_calculation": sum(
+                        answers[f"mmse_{position}"] for position in range(14, 19)
+                    ),
+                    "recall": sum(
+                        answers[f"mmse_{position}"] for position in range(19, 22)
+                    ),
+                    "language_and_tasks": sum(
+                        answers[f"mmse_{position}"] for position in range(22, 31)
+                    ),
+                },
+                disclaimer=(
+                    "本结果基于本人作答的认知筛查, 不能替代医生的临床诊断。"
+                ),
             )
         raise CgaAssessmentConflictError("assessment uses an unsupported scale")
 

@@ -15,6 +15,18 @@ from gerclaw_api.dependencies import get_database_session, get_trace_service
 from gerclaw_api.domain.enums import TraceEventStatus, TraceEventType, TraceStatus
 from gerclaw_api.domain.trace_schemas import TraceEventCreate, TraceFinishRequest, TraceStartRequest
 from gerclaw_api.middleware import set_active_trace
+from gerclaw_api.modules.cga.minicog import (
+    MINICOG_OPTIONS,
+    MINICOG_QUESTIONS,
+    MINICOG_VERSION,
+)
+from gerclaw_api.modules.cga.mmse import (
+    MMSE_EDUCATION_ID,
+    MMSE_EDUCATION_OPTIONS,
+    MMSE_OPTIONS,
+    MMSE_QUESTIONS,
+    MMSE_VERSION,
+)
 from gerclaw_api.modules.cga.models import (
     CgaActiveAssessmentsRead,
     CgaAnswerRequest,
@@ -224,6 +236,24 @@ async def list_scales(identity: ReadIdentity) -> CgaScalesRead:
         )
         for item in PSQI_QUESTIONS
     ]
+    minicog_questions = [
+        CgaQuestionRead(
+            id=item.id,
+            position=item.position,
+            text=item.text,
+            options=list(MINICOG_OPTIONS[item.id]),
+        )
+        for item in MINICOG_QUESTIONS
+    ]
+    mmse_questions = [
+        CgaQuestionRead(
+            id=item.id,
+            position=item.position,
+            text=item.text,
+            options=list(MMSE_EDUCATION_OPTIONS if item.id == MMSE_EDUCATION_ID else MMSE_OPTIONS),
+        )
+        for item in MMSE_QUESTIONS
+    ]
     return CgaScalesRead(
         scales=[
             CgaScaleRead(
@@ -249,6 +279,22 @@ async def list_scales(identity: ReadIdentity) -> CgaScalesRead:
                 description="过去一个月睡眠质量筛查量表",
                 question_count=len(psqi_questions),
                 questions=psqi_questions,
+            ),
+            CgaScaleRead(
+                id="minicog",
+                version=MINICOG_VERSION,
+                name="Mini-Cog",
+                description="三词回忆和时钟任务的认知筛查(基于本人作答)",
+                question_count=len(minicog_questions),
+                questions=minicog_questions,
+            ),
+            CgaScaleRead(
+                id="mmse",
+                version=MMSE_VERSION,
+                name="MMSE",
+                description="定向、记忆、计算和语言任务的认知筛查(基于本人作答)",
+                question_count=len(mmse_questions),
+                questions=mmse_questions,
             ),
         ]
     )

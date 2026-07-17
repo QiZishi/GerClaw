@@ -7,11 +7,83 @@ import pytest
 from pydantic import ValidationError
 
 from gerclaw_api.database.models import CgaAssessment
+from gerclaw_api.modules.cga.minicog import MINICOG_QUESTIONS
+from gerclaw_api.modules.cga.mmse import MMSE_QUESTIONS
 from gerclaw_api.modules.cga.models import CgaAnswerRequest
 from gerclaw_api.modules.cga.phq9 import PHQ9_QUESTIONS
 from gerclaw_api.modules.cga.psqi import PSQI_QUESTIONS
 from gerclaw_api.modules.cga.sas import SAS_QUESTIONS
 from gerclaw_api.services.cga_service import CgaAssessmentConflictError, CgaService
+
+
+@pytest.mark.asyncio
+async def test_minicog_self_report_workflow_scores_and_marks_follow_up() -> None:
+    service = CgaService(_Repository())  # type: ignore[arg-type]
+    state = await service.start(
+        tenant_id="tenant_public0001", actor_id="usr_patient_test0001", scale_id="minicog"
+    )
+
+    assert state.next_question is not None and state.next_question.id == "minicog_prepare"
+    for question, score in zip(MINICOG_QUESTIONS, (0, 0, 2), strict=True):
+        state = await service.answer(
+            state.assessment_id,
+            tenant_id="tenant_public0001",
+            actor_id="usr_patient_test0001",
+            expected_revision=state.revision,
+            question_id=question.id,
+            score=score,
+        )
+    completed = await service.complete(
+        state.assessment_id,
+        tenant_id="tenant_public0001",
+        actor_id="usr_patient_test0001",
+        expected_revision=state.revision,
+    )
+    report = await service.report(
+        completed.assessment_id, tenant_id="tenant_public0001", actor_id="usr_patient_test0001"
+    )
+
+    assert report.total_score == 2
+    assert report.score_max == 5
+    assert report.severity == "possible_impairment"
+    assert report.high_severity_follow_up is True
+    assert "clock_task_self_report" in report.component_scores
+
+
+@pytest.mark.asyncio
+async def test_mmse_self_report_workflow_uses_education_adjusted_threshold() -> None:
+    service = CgaService(_Repository())  # type: ignore[arg-type]
+    state = await service.start(
+        tenant_id="tenant_public0001", actor_id="usr_patient_test0001", scale_id="mmse"
+    )
+
+    assert len(MMSE_QUESTIONS) == 31
+    for question in MMSE_QUESTIONS:
+        score = 2 if question.id == "mmse_education" else 1
+        state = await service.answer(
+            state.assessment_id,
+            tenant_id="tenant_public0001",
+            actor_id="usr_patient_test0001",
+            expected_revision=state.revision,
+            question_id=question.id,
+            score=score,
+        )
+    completed = await service.complete(
+        state.assessment_id,
+        tenant_id="tenant_public0001",
+        actor_id="usr_patient_test0001",
+        expected_revision=state.revision,
+    )
+    report = await service.report(
+        completed.assessment_id, tenant_id="tenant_public0001", actor_id="usr_patient_test0001"
+    )
+
+    assert report.total_score == 30
+    assert report.score_max == 30
+    assert report.severity == "normal"
+    assert report.education_level == "secondary_or_more"
+    assert report.education_threshold == 24
+    assert report.education_adjusted_screen_positive is False
 
 
 class _Repository:

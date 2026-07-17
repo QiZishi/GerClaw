@@ -7,9 +7,9 @@ reads the immutable Python scale definitions, writes WAV files below
 ``public/audio/cga`` and emits a manifest with source/version/text hashes.
 No patient data is read, sent to the provider, or written to the manifest.
 
-Run from the repository root:
+Run from the repository root with the API dependency environment:
 
-    python3 apps/mvp/scripts/generate_cga_audio_assets.py --confirm-live-provider
+    cd apps/api && uv run python ../mvp/scripts/generate_cga_audio_assets.py --confirm-live-provider
 
 The command deliberately refuses to contact the provider unless the explicit
 confirmation flag is supplied, because generation has a provider cost.
@@ -45,6 +45,20 @@ from gerclaw_api.modules.cga.phq9 import (
     PHQ9_QUESTIONS,
     PHQ9_SCALE_ID,
     PHQ9_VERSION,
+)
+from gerclaw_api.modules.cga.minicog import (
+    MINICOG_OPTIONS,
+    MINICOG_QUESTIONS,
+    MINICOG_SCALE_ID,
+    MINICOG_VERSION,
+)
+from gerclaw_api.modules.cga.mmse import (
+    MMSE_EDUCATION_ID,
+    MMSE_EDUCATION_OPTIONS,
+    MMSE_OPTIONS,
+    MMSE_QUESTIONS,
+    MMSE_SCALE_ID,
+    MMSE_VERSION,
 )
 from gerclaw_api.modules.cga.psqi import (
     PSQI_QUESTIONS,
@@ -128,6 +142,30 @@ def scale_questions() -> tuple[QuestionDefinition, ...]:
             psqi_options_for(question.id),
         )
         for question in PSQI_QUESTIONS
+    )
+    definitions.extend(
+        QuestionDefinition(
+            MINICOG_SCALE_ID,
+            MINICOG_VERSION,
+            question.id,
+            question.text,
+            None,
+            "ordinal",
+            MINICOG_OPTIONS[question.id],
+        )
+        for question in MINICOG_QUESTIONS
+    )
+    definitions.extend(
+        QuestionDefinition(
+            MMSE_SCALE_ID,
+            MMSE_VERSION,
+            question.id,
+            question.text,
+            None,
+            "ordinal",
+            MMSE_EDUCATION_OPTIONS if question.id == MMSE_EDUCATION_ID else MMSE_OPTIONS,
+        )
+        for question in MMSE_QUESTIONS
     )
     return tuple(definitions)
 

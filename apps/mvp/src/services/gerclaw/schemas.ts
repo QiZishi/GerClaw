@@ -134,12 +134,12 @@ export const approvalSchema = z
 
 export type RuntimeApproval = z.infer<typeof approvalSchema>;
 
-export const cgaScaleIdSchema = z.enum(["phq9", "sas", "psqi"]);
+export const cgaScaleIdSchema = z.enum(["phq9", "sas", "psqi", "minicog", "mmse"]);
 const cgaOptionSchema = z.tuple([z.number().int().min(0).max(1439), z.string().min(1).max(80)]);
 export const cgaQuestionSchema = z
   .object({
-    id: z.string().regex(/^(?:phq9_[1-9]|sas_(?:[1-9]|1[0-9]|20)|psqi_(?:[1-9]|10|5[a-j]))$/),
-    position: z.number().int().min(1).max(30),
+    id: z.string().regex(/^(?:phq9_[1-9]|sas_(?:[1-9]|1[0-9]|20)|psqi_(?:[1-9]|10|5[a-j])|minicog_(?:prepare|clock|recall)|mmse_(?:education|[1-9]|[12][0-9]|30))$/),
+    position: z.number().int().min(1).max(31),
     text: z.string().min(1).max(500),
     sensitive_prefix: z.string().min(1).max(200).nullable(),
     input_kind: z.enum(["ordinal", "clock_minutes", "duration_minutes"]),
@@ -160,7 +160,7 @@ export const cgaAssessmentSchema = z
     definition_version: z.string().min(1).max(32),
     status: z.enum(["active", "completed", "abandoned"]),
     revision: z.number().int().positive(),
-    answered_count: z.number().int().min(0).max(30),
+    answered_count: z.number().int().min(0).max(31),
     next_question: cgaQuestionSchema.nullable(),
     risk: cgaRiskSchema,
   })
@@ -172,13 +172,13 @@ export const cgaScalesSchema = z
         .object({
           id: cgaScaleIdSchema,
           version: z.string().min(1).max(32),
-          name: z.enum(["PHQ-9", "SAS", "PSQI"]),
+          name: z.enum(["PHQ-9", "SAS", "PSQI", "Mini-Cog", "MMSE"]),
           description: z.string().min(1).max(200),
-          question_count: z.number().int().min(1).max(30),
-          questions: z.array(cgaQuestionSchema).min(1).max(30),
+          question_count: z.number().int().min(1).max(31),
+          questions: z.array(cgaQuestionSchema).min(1).max(31),
         })
         .strict()
-    ).min(1).max(3),
+    ).min(1).max(5),
   })
   .strict();
 export const cgaReportSchema = z
@@ -187,12 +187,15 @@ export const cgaReportSchema = z
     score_max: z.number().int().min(1).max(100),
     raw_score: z.number().int().min(0).max(100).nullable(),
     standard_score: z.number().int().min(0).max(100).nullable(),
-    severity: z.enum(["none", "minimal", "mild", "moderate", "moderately_severe", "severe", "good", "fair", "average", "poor"]),
+    severity: z.enum(["none", "minimal", "mild", "moderate", "moderately_severe", "severe", "good", "fair", "average", "poor", "screen_negative", "possible_impairment", "normal", "mild_impairment", "moderate_impairment", "severe_impairment"]),
+    education_level: z.enum(["none", "primary_or_less", "secondary_or_more"]).nullable(),
+    education_threshold: z.number().int().min(0).max(30).nullable(),
+    education_adjusted_screen_positive: z.boolean().nullable(),
     self_harm_signal: z.boolean(),
     requires_immediate_safety_assessment: z.boolean(),
     high_severity_follow_up: z.boolean(),
     safety_messages: z.array(z.string().min(1).max(500)).max(2),
-    component_scores: z.record(z.string().min(1).max(64), z.number().int().min(0).max(3)),
+    component_scores: z.record(z.string().min(1).max(64), z.number().int().min(0).max(10)),
     disclaimer: z.string().min(1).max(200),
   })
   .strict();
@@ -232,7 +235,7 @@ export const cgaComparisonSchema = z
   .strict();
 export const cgaActiveAssessmentsSchema = z
   .object({
-    items: z.array(cgaAssessmentSchema).max(3),
+    items: z.array(cgaAssessmentSchema).max(5),
   })
   .strict();
 

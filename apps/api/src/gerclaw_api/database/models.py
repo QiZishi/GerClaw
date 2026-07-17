@@ -278,7 +278,7 @@ class CgaAssessment(TimestampMixin, Base):
     __tablename__ = "cga_assessments"
     __table_args__ = (
         CheckConstraint("status IN ('active','completed','abandoned')", name="valid_status"),
-        CheckConstraint("current_position >= 1 AND current_position <= 30", name="valid_position"),
+        CheckConstraint("current_position >= 1 AND current_position <= 31", name="valid_position"),
         CheckConstraint("revision > 0", name="positive_revision"),
         Index("ix_cga_assessments_owner_updated", "tenant_id", "actor_id", "updated_at"),
     )

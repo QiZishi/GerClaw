@@ -1,4 +1,4 @@
-"""MMSE scores are deterministic only after auditable item-level review."""
+"""MMSE score calculation accepts only complete, bounded item responses."""
 
 import pytest
 
@@ -24,7 +24,7 @@ def _scores(total: int) -> dict[str, int]:
 def test_mmse_uses_source_severity_and_education_thresholds(
     total: int, education: str, severity: str, positive: bool
 ) -> None:
-    result = score_mmse(reviewed_item_scores=_scores(total), education_level=education)  # type: ignore[arg-type]
+    result = score_mmse(reported_item_scores=_scores(total), education_level=education)  # type: ignore[arg-type]
 
     assert result.total_score == total
     assert result.severity == severity
@@ -44,4 +44,4 @@ def test_mmse_uses_source_severity_and_education_thresholds(
 )
 def test_mmse_rejects_unreviewed_or_invalid_input(scores: dict[str, int], education: str) -> None:
     with pytest.raises(ValueError):
-        score_mmse(reviewed_item_scores=scores, education_level=education)  # type: ignore[arg-type]
+        score_mmse(reported_item_scores=scores, education_level=education)  # type: ignore[arg-type]

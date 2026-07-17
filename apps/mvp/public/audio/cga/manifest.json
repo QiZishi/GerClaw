@@ -1,6 +1,6 @@
 {
   "schema_version": 1,
-  "generated_at": "2026-07-16T15:23:20.354766+00:00",
+  "generated_at": "2026-07-17T18:43:48.696850+00:00",
   "generator": {
     "kind": "live_tts_release_asset",
     "model": "mimo-v2.5-tts",
@@ -2425,6 +2425,1158 @@
             "sha256": "f32e45df7d454fff53070fadfd617fdb6db3f4f369dbb11c2831f2d422f93c3b",
             "bytes": 69164,
             "spoken_text_sha256": "2b61abc6da80e883b2f2e15e869bada536cf2e87a8d5d4bf8f8bbfd9bc6d45d3"
+          }
+        }
+      ]
+    },
+    {
+      "scale_id": "minicog",
+      "definition_version": "2026-07-16",
+      "question_id": "minicog_prepare",
+      "question": {
+        "path": "/audio/cga/minicog/2026-07-16/questions/minicog_prepare.wav",
+        "sha256": "e4f5d49c217dedfd5646ec3a5607180a382421b356dd87af5d181b4c0e38c487",
+        "bytes": 675884,
+        "spoken_text_sha256": "75c7e6718229188b5e8d41f4459729991c0fc9a2e8f1d0e1e2365536273ef3ae"
+      },
+      "options": [
+        {
+          "ordinal": 0,
+          "label_sha256": "9d701bf56dbcebd28261100da8492f0685ddb63c653262ae5722edc9f7411353",
+          "audio": {
+            "path": "/audio/cga/minicog/2026-07-16/options/9d701bf56dbcebd28261.wav",
+            "sha256": "4b70ff4a4889146ee995d02916d9993767a8260a37beda794b74fea231c88e46",
+            "bytes": 76844,
+            "spoken_text_sha256": "9d701bf56dbcebd28261100da8492f0685ddb63c653262ae5722edc9f7411353"
+          }
+        }
+      ]
+    },
+    {
+      "scale_id": "minicog",
+      "definition_version": "2026-07-16",
+      "question_id": "minicog_clock",
+      "question": {
+        "path": "/audio/cga/minicog/2026-07-16/questions/minicog_clock.wav",
+        "sha256": "a356d58634c2cc63e3cda00f9c2f3377434aae1669c578ae5b18528091319dc7",
+        "bytes": 1105964,
+        "spoken_text_sha256": "27aa860ea9ca792c7be5772ec6db3e83637186c9f08730086d1dad96d7e6ceb4"
+      },
+      "options": [
+        {
+          "ordinal": 0,
+          "label_sha256": "23a77e832072db87ba32c693f52a966edabb681d0fdcbb3131b905ba8a00732a",
+          "audio": {
+            "path": "/audio/cga/minicog/2026-07-16/options/23a77e832072db87ba32.wav",
+            "sha256": "4a55a84df84827e6b80c206c221e35200722f1c5592ee4a23682a8852678e4fa",
+            "bytes": 153644,
+            "spoken_text_sha256": "23a77e832072db87ba32c693f52a966edabb681d0fdcbb3131b905ba8a00732a"
+          }
+        },
+        {
+          "ordinal": 1,
+          "label_sha256": "2452a3ba164e3f8fde234cf89393ad3483b2da2fd6680339209440c0b7395c00",
+          "audio": {
+            "path": "/audio/cga/minicog/2026-07-16/options/2452a3ba164e3f8fde23.wav",
+            "sha256": "16ad897a03e21cc81dd372f5e047fe3f12d0a20028111194158e66caf7603044",
+            "bytes": 145964,
+            "spoken_text_sha256": "2452a3ba164e3f8fde234cf89393ad3483b2da2fd6680339209440c0b7395c00"
+          }
+        },
+        {
+          "ordinal": 2,
+          "label_sha256": "8c39e0aab0b18ae899e6f0bd09b2fb64d828c8d6e07443f74b19c588c6a623c2",
+          "audio": {
+            "path": "/audio/cga/minicog/2026-07-16/options/8c39e0aab0b18ae899e6.wav",
+            "sha256": "062217f2d412837d5a8e80a4825ad5ec47a6213a56c9958556cea1bcbe2298b8",
+            "bytes": 169004,
+            "spoken_text_sha256": "8c39e0aab0b18ae899e6f0bd09b2fb64d828c8d6e07443f74b19c588c6a623c2"
+          }
+        }
+      ]
+    },
+    {
+      "scale_id": "minicog",
+      "definition_version": "2026-07-16",
+      "question_id": "minicog_recall",
+      "question": {
+        "path": "/audio/cga/minicog/2026-07-16/questions/minicog_recall.wav",
+        "sha256": "cbc5a1e99dae8039da8d053c848807f99e32edd62e98f093607f76538c50bc37",
+        "bytes": 683564,
+        "spoken_text_sha256": "b763e8fb5117a7b4810726d491756d5597704984f10147556809f39c21ba19c7"
+      },
+      "options": [
+        {
+          "ordinal": 0,
+          "label_sha256": "b9f2f7763b84df7bfc88b9cd6f1d95387f5383ba737eef906a83396147ff9c74",
+          "audio": {
+            "path": "/audio/cga/minicog/2026-07-16/options/b9f2f7763b84df7bfc88.wav",
+            "sha256": "3a152d00514d73030a8ff55c787653ecdf02311c902d69aedd171e8bc955022d",
+            "bytes": 61484,
+            "spoken_text_sha256": "b9f2f7763b84df7bfc88b9cd6f1d95387f5383ba737eef906a83396147ff9c74"
+          }
+        },
+        {
+          "ordinal": 1,
+          "label_sha256": "1a96239b9cdf7739e65575f52cf6fa1ae527da846ab47f1d99a654b4f971829f",
+          "audio": {
+            "path": "/audio/cga/minicog/2026-07-16/options/1a96239b9cdf7739e655.wav",
+            "sha256": "d57e5dd6ec669a4ea2538efbe538e57e0906e861e769048b516d39b1551b59dd",
+            "bytes": 53804,
+            "spoken_text_sha256": "1a96239b9cdf7739e65575f52cf6fa1ae527da846ab47f1d99a654b4f971829f"
+          }
+        },
+        {
+          "ordinal": 2,
+          "label_sha256": "e344831207f1dfc54ab31866a79b7ac19f6b4457616a158248ca64c09a3e5fc2",
+          "audio": {
+            "path": "/audio/cga/minicog/2026-07-16/options/e344831207f1dfc54ab3.wav",
+            "sha256": "ad3d74a26108d46b6ac69840d085ed0f50fec20d0e449b37811f3782aeeb23ad",
+            "bytes": 53804,
+            "spoken_text_sha256": "e344831207f1dfc54ab31866a79b7ac19f6b4457616a158248ca64c09a3e5fc2"
+          }
+        },
+        {
+          "ordinal": 3,
+          "label_sha256": "45a2590e80aac02ff8c0c37e6e3c6e1d71d371c331ca3b342e4e323259d5b19b",
+          "audio": {
+            "path": "/audio/cga/minicog/2026-07-16/options/45a2590e80aac02ff8c0.wav",
+            "sha256": "2c02d6b82c7b499306d9f5ff952bb57767290e0aca793a8de07bdbbbdec73117",
+            "bytes": 38444,
+            "spoken_text_sha256": "45a2590e80aac02ff8c0c37e6e3c6e1d71d371c331ca3b342e4e323259d5b19b"
+          }
+        }
+      ]
+    },
+    {
+      "scale_id": "mmse",
+      "definition_version": "2026-07-16",
+      "question_id": "mmse_education",
+      "question": {
+        "path": "/audio/cga/mmse/2026-07-16/questions/mmse_education.wav",
+        "sha256": "86d5949701f88fbff3d56f0fdf66c6c5c957189d57ebad69300e5b85c2f704bf",
+        "bytes": 599084,
+        "spoken_text_sha256": "b3c6e0f0d25e7a5b8d5eb8fa74c332503f57d2d30a88d85bbfae1d9f4ee2f923"
+      },
+      "options": [
+        {
+          "ordinal": 0,
+          "label_sha256": "7c425fe1f0d2ef982fecf13a7e6ce7168c476059ea9e7cbe1782d191ee1e2b70",
+          "audio": {
+            "path": "/audio/cga/mmse/2026-07-16/options/7c425fe1f0d2ef982fec.wav",
+            "sha256": "478e07e26f7b7c3d414aab59468d20e46852b2a215e0b611639c5e0086862602",
+            "bytes": 76844,
+            "spoken_text_sha256": "7c425fe1f0d2ef982fecf13a7e6ce7168c476059ea9e7cbe1782d191ee1e2b70"
+          }
+        },
+        {
+          "ordinal": 1,
+          "label_sha256": "8f0ab90d30834824c1514daa0dc4730f5ccfbade9ca4073da18e2e82e44c38f5",
+          "audio": {
+            "path": "/audio/cga/mmse/2026-07-16/options/8f0ab90d30834824c151.wav",
+            "sha256": "2e6be0134f2caf55ac76536266714e13b635c2e5559023435ec8edaff48e5970",
+            "bytes": 138284,
+            "spoken_text_sha256": "8f0ab90d30834824c1514daa0dc4730f5ccfbade9ca4073da18e2e82e44c38f5"
+          }
+        },
+        {
+          "ordinal": 2,
+          "label_sha256": "4b4b325fe4206ce0ce096a185c75b3e523e3ffeb31e74c0b8058222b3b1e563e",
+          "audio": {
+            "path": "/audio/cga/mmse/2026-07-16/options/4b4b325fe4206ce0ce09.wav",
+            "sha256": "549ca47bdf2c31c4dafdee21c09ac9b4b502546f7ed1dbe7a75e47de980edd72",
+            "bytes": 61484,
+            "spoken_text_sha256": "4b4b325fe4206ce0ce096a185c75b3e523e3ffeb31e74c0b8058222b3b1e563e"
+          }
+        }
+      ]
+    },
+    {
+      "scale_id": "mmse",
+      "definition_version": "2026-07-16",
+      "question_id": "mmse_1",
+      "question": {
+        "path": "/audio/cga/mmse/2026-07-16/questions/mmse_1.wav",
+        "sha256": "b6662b651c46938bbfcb928aa9da9733aebf78869efeb9627d4849357a641d59",
+        "bytes": 391724,
+        "spoken_text_sha256": "c2eeb9361e0c97761f164b4bc0a3638b55d0792348e8bd1f4c88fd6e41eca4c3"
+      },
+      "options": [
+        {
+          "ordinal": 0,
+          "label_sha256": "82a2ff12b7d7cf1d3082b5686a51944977797252409d55a9861ed6e6e4e70c41",
+          "audio": {
+            "path": "/audio/cga/mmse/2026-07-16/options/82a2ff12b7d7cf1d3082.wav",
+            "sha256": "052442296cd608f3b5bd4674460b997a040dca099fa7477832684f534faaab0a",
+            "bytes": 115244,
+            "spoken_text_sha256": "82a2ff12b7d7cf1d3082b5686a51944977797252409d55a9861ed6e6e4e70c41"
+          }
+        },
+        {
+          "ordinal": 1,
+          "label_sha256": "ba1bba47818ca0e55b3948420539229ffdfbbdb0fa495f46b8b12f2c0c902342",
+          "audio": {
+            "path": "/audio/cga/mmse/2026-07-16/options/ba1bba47818ca0e55b39.wav",
+            "sha256": "5c2753737b3acfc9174e8e3f6d0b101ccd2a334b447f26de5aa88d85f21f097c",
+            "bytes": 69164,
+            "spoken_text_sha256": "ba1bba47818ca0e55b3948420539229ffdfbbdb0fa495f46b8b12f2c0c902342"
+          }
+        }
+      ]
+    },
+    {
+      "scale_id": "mmse",
+      "definition_version": "2026-07-16",
+      "question_id": "mmse_2",
+      "question": {
+        "path": "/audio/cga/mmse/2026-07-16/questions/mmse_2.wav",
+        "sha256": "53e0f27f8fa72ade41b941823179e9dd884bbd44478afe2824b74de0ab6ca6c3",
+        "bytes": 361004,
+        "spoken_text_sha256": "82c13535a2e4ecc365e00d361b813eb615feba89fa64a7aff9e0252a751d9b21"
+      },
+      "options": [
+        {
+          "ordinal": 0,
+          "label_sha256": "82a2ff12b7d7cf1d3082b5686a51944977797252409d55a9861ed6e6e4e70c41",
+          "audio": {
+            "path": "/audio/cga/mmse/2026-07-16/options/82a2ff12b7d7cf1d3082.wav",
+            "sha256": "052442296cd608f3b5bd4674460b997a040dca099fa7477832684f534faaab0a",
+            "bytes": 115244,
+            "spoken_text_sha256": "82a2ff12b7d7cf1d3082b5686a51944977797252409d55a9861ed6e6e4e70c41"
+          }
+        },
+        {
+          "ordinal": 1,
+          "label_sha256": "ba1bba47818ca0e55b3948420539229ffdfbbdb0fa495f46b8b12f2c0c902342",
+          "audio": {
+            "path": "/audio/cga/mmse/2026-07-16/options/ba1bba47818ca0e55b39.wav",
+            "sha256": "5c2753737b3acfc9174e8e3f6d0b101ccd2a334b447f26de5aa88d85f21f097c",
+            "bytes": 69164,
+            "spoken_text_sha256": "ba1bba47818ca0e55b3948420539229ffdfbbdb0fa495f46b8b12f2c0c902342"
+          }
+        }
+      ]
+    },
+    {
+      "scale_id": "mmse",
+      "definition_version": "2026-07-16",
+      "question_id": "mmse_3",
+      "question": {
+        "path": "/audio/cga/mmse/2026-07-16/questions/mmse_3.wav",
+        "sha256": "2f67b786b6d74ba716e9f2abf07d227a11f8535b7065a0f08d85cca9d466c113",
+        "bytes": 345644,
+        "spoken_text_sha256": "3237db3c8f6962e53867a65d8dcf473f639ea2072fe670a77a40b7f130c909f6"
+      },
+      "options": [
+        {
+          "ordinal": 0,
+          "label_sha256": "82a2ff12b7d7cf1d3082b5686a51944977797252409d55a9861ed6e6e4e70c41",
+          "audio": {
+            "path": "/audio/cga/mmse/2026-07-16/options/82a2ff12b7d7cf1d3082.wav",
+            "sha256": "052442296cd608f3b5bd4674460b997a040dca099fa7477832684f534faaab0a",
+            "bytes": 115244,
+            "spoken_text_sha256": "82a2ff12b7d7cf1d3082b5686a51944977797252409d55a9861ed6e6e4e70c41"
+          }
+        },
+        {
+          "ordinal": 1,
+          "label_sha256": "ba1bba47818ca0e55b3948420539229ffdfbbdb0fa495f46b8b12f2c0c902342",
+          "audio": {
+            "path": "/audio/cga/mmse/2026-07-16/options/ba1bba47818ca0e55b39.wav",
+            "sha256": "5c2753737b3acfc9174e8e3f6d0b101ccd2a334b447f26de5aa88d85f21f097c",
+            "bytes": 69164,
+            "spoken_text_sha256": "ba1bba47818ca0e55b3948420539229ffdfbbdb0fa495f46b8b12f2c0c902342"
+          }
+        }
+      ]
+    },
+    {
+      "scale_id": "mmse",
+      "definition_version": "2026-07-16",
+      "question_id": "mmse_4",
+      "question": {
+        "path": "/audio/cga/mmse/2026-07-16/questions/mmse_4.wav",
+        "sha256": "a129325e55f0a54188ec6aa6943a496a7f494d74c08e7a3e973efdce624e9eba",
+        "bytes": 345644,
+        "spoken_text_sha256": "1da140d3c20bd0dca2f182d6a62530a4a4e3782a29d92db535d0e2e9d2926b79"
+      },
+      "options": [
+        {
+          "ordinal": 0,
+          "label_sha256": "82a2ff12b7d7cf1d3082b5686a51944977797252409d55a9861ed6e6e4e70c41",
+          "audio": {
+            "path": "/audio/cga/mmse/2026-07-16/options/82a2ff12b7d7cf1d3082.wav",
+            "sha256": "052442296cd608f3b5bd4674460b997a040dca099fa7477832684f534faaab0a",
+            "bytes": 115244,
+            "spoken_text_sha256": "82a2ff12b7d7cf1d3082b5686a51944977797252409d55a9861ed6e6e4e70c41"
+          }
+        },
+        {
+          "ordinal": 1,
+          "label_sha256": "ba1bba47818ca0e55b3948420539229ffdfbbdb0fa495f46b8b12f2c0c902342",
+          "audio": {
+            "path": "/audio/cga/mmse/2026-07-16/options/ba1bba47818ca0e55b39.wav",
+            "sha256": "5c2753737b3acfc9174e8e3f6d0b101ccd2a334b447f26de5aa88d85f21f097c",
+            "bytes": 69164,
+            "spoken_text_sha256": "ba1bba47818ca0e55b3948420539229ffdfbbdb0fa495f46b8b12f2c0c902342"
+          }
+        }
+      ]
+    },
+    {
+      "scale_id": "mmse",
+      "definition_version": "2026-07-16",
+      "question_id": "mmse_5",
+      "question": {
+        "path": "/audio/cga/mmse/2026-07-16/questions/mmse_5.wav",
+        "sha256": "33540ff676dfb21daf4258ff0cc244d1a4d48aada75dd34934200d058e74bb29",
+        "bytes": 353324,
+        "spoken_text_sha256": "0e55aaa6e48cda8badf35e51e18b08be8ee7c40f757b6682e4443fb79f26b33f"
+      },
+      "options": [
+        {
+          "ordinal": 0,
+          "label_sha256": "82a2ff12b7d7cf1d3082b5686a51944977797252409d55a9861ed6e6e4e70c41",
+          "audio": {
+            "path": "/audio/cga/mmse/2026-07-16/options/82a2ff12b7d7cf1d3082.wav",
+            "sha256": "052442296cd608f3b5bd4674460b997a040dca099fa7477832684f534faaab0a",
+            "bytes": 115244,
+            "spoken_text_sha256": "82a2ff12b7d7cf1d3082b5686a51944977797252409d55a9861ed6e6e4e70c41"
+          }
+        },
+        {
+          "ordinal": 1,
+          "label_sha256": "ba1bba47818ca0e55b3948420539229ffdfbbdb0fa495f46b8b12f2c0c902342",
+          "audio": {
+            "path": "/audio/cga/mmse/2026-07-16/options/ba1bba47818ca0e55b39.wav",
+            "sha256": "5c2753737b3acfc9174e8e3f6d0b101ccd2a334b447f26de5aa88d85f21f097c",
+            "bytes": 69164,
+            "spoken_text_sha256": "ba1bba47818ca0e55b3948420539229ffdfbbdb0fa495f46b8b12f2c0c902342"
+          }
+        }
+      ]
+    },
+    {
+      "scale_id": "mmse",
+      "definition_version": "2026-07-16",
+      "question_id": "mmse_6",
+      "question": {
+        "path": "/audio/cga/mmse/2026-07-16/questions/mmse_6.wav",
+        "sha256": "5ee63dc8510d5a8d27433401d72990cdca3bb816ef23bbae6742defa604719aa",
+        "bytes": 353324,
+        "spoken_text_sha256": "db1e071813cfe8fc6b92a9683a81a771ce3980479a6489115adfdb59237a2cad"
+      },
+      "options": [
+        {
+          "ordinal": 0,
+          "label_sha256": "82a2ff12b7d7cf1d3082b5686a51944977797252409d55a9861ed6e6e4e70c41",
+          "audio": {
+            "path": "/audio/cga/mmse/2026-07-16/options/82a2ff12b7d7cf1d3082.wav",
+            "sha256": "052442296cd608f3b5bd4674460b997a040dca099fa7477832684f534faaab0a",
+            "bytes": 115244,
+            "spoken_text_sha256": "82a2ff12b7d7cf1d3082b5686a51944977797252409d55a9861ed6e6e4e70c41"
+          }
+        },
+        {
+          "ordinal": 1,
+          "label_sha256": "ba1bba47818ca0e55b3948420539229ffdfbbdb0fa495f46b8b12f2c0c902342",
+          "audio": {
+            "path": "/audio/cga/mmse/2026-07-16/options/ba1bba47818ca0e55b39.wav",
+            "sha256": "5c2753737b3acfc9174e8e3f6d0b101ccd2a334b447f26de5aa88d85f21f097c",
+            "bytes": 69164,
+            "spoken_text_sha256": "ba1bba47818ca0e55b3948420539229ffdfbbdb0fa495f46b8b12f2c0c902342"
+          }
+        }
+      ]
+    },
+    {
+      "scale_id": "mmse",
+      "definition_version": "2026-07-16",
+      "question_id": "mmse_7",
+      "question": {
+        "path": "/audio/cga/mmse/2026-07-16/questions/mmse_7.wav",
+        "sha256": "2f3562a44f9e68175ac9dd686e4052acf1e0b750950ee21f5b9d3ab03f97cc69",
+        "bytes": 422444,
+        "spoken_text_sha256": "ca76407ecc4fe115877d475788a91e046661d050c712d2181a158657e4a20fd3"
+      },
+      "options": [
+        {
+          "ordinal": 0,
+          "label_sha256": "82a2ff12b7d7cf1d3082b5686a51944977797252409d55a9861ed6e6e4e70c41",
+          "audio": {
+            "path": "/audio/cga/mmse/2026-07-16/options/82a2ff12b7d7cf1d3082.wav",
+            "sha256": "052442296cd608f3b5bd4674460b997a040dca099fa7477832684f534faaab0a",
+            "bytes": 115244,
+            "spoken_text_sha256": "82a2ff12b7d7cf1d3082b5686a51944977797252409d55a9861ed6e6e4e70c41"
+          }
+        },
+        {
+          "ordinal": 1,
+          "label_sha256": "ba1bba47818ca0e55b3948420539229ffdfbbdb0fa495f46b8b12f2c0c902342",
+          "audio": {
+            "path": "/audio/cga/mmse/2026-07-16/options/ba1bba47818ca0e55b39.wav",
+            "sha256": "5c2753737b3acfc9174e8e3f6d0b101ccd2a334b447f26de5aa88d85f21f097c",
+            "bytes": 69164,
+            "spoken_text_sha256": "ba1bba47818ca0e55b3948420539229ffdfbbdb0fa495f46b8b12f2c0c902342"
+          }
+        }
+      ]
+    },
+    {
+      "scale_id": "mmse",
+      "definition_version": "2026-07-16",
+      "question_id": "mmse_8",
+      "question": {
+        "path": "/audio/cga/mmse/2026-07-16/questions/mmse_8.wav",
+        "sha256": "6b7e8a126d24c1f3f6e3a750d3e7905e6d8c9f7dade4a9c0f9beaa72cede1776",
+        "bytes": 453164,
+        "spoken_text_sha256": "d53574d142f1db3789675ca6e344154e2a33cd52127c8cad9a58344f877ae5d7"
+      },
+      "options": [
+        {
+          "ordinal": 0,
+          "label_sha256": "82a2ff12b7d7cf1d3082b5686a51944977797252409d55a9861ed6e6e4e70c41",
+          "audio": {
+            "path": "/audio/cga/mmse/2026-07-16/options/82a2ff12b7d7cf1d3082.wav",
+            "sha256": "052442296cd608f3b5bd4674460b997a040dca099fa7477832684f534faaab0a",
+            "bytes": 115244,
+            "spoken_text_sha256": "82a2ff12b7d7cf1d3082b5686a51944977797252409d55a9861ed6e6e4e70c41"
+          }
+        },
+        {
+          "ordinal": 1,
+          "label_sha256": "ba1bba47818ca0e55b3948420539229ffdfbbdb0fa495f46b8b12f2c0c902342",
+          "audio": {
+            "path": "/audio/cga/mmse/2026-07-16/options/ba1bba47818ca0e55b39.wav",
+            "sha256": "5c2753737b3acfc9174e8e3f6d0b101ccd2a334b447f26de5aa88d85f21f097c",
+            "bytes": 69164,
+            "spoken_text_sha256": "ba1bba47818ca0e55b3948420539229ffdfbbdb0fa495f46b8b12f2c0c902342"
+          }
+        }
+      ]
+    },
+    {
+      "scale_id": "mmse",
+      "definition_version": "2026-07-16",
+      "question_id": "mmse_9",
+      "question": {
+        "path": "/audio/cga/mmse/2026-07-16/questions/mmse_9.wav",
+        "sha256": "74e31c6a9ef7a6249802f3098df35c6e21ec6a2746b9c287f54c6d3a29ed20b0",
+        "bytes": 391724,
+        "spoken_text_sha256": "e644f753a86f8594c8ce20710f986c8bd873eac83d286fb3e191e73e641dfffe"
+      },
+      "options": [
+        {
+          "ordinal": 0,
+          "label_sha256": "82a2ff12b7d7cf1d3082b5686a51944977797252409d55a9861ed6e6e4e70c41",
+          "audio": {
+            "path": "/audio/cga/mmse/2026-07-16/options/82a2ff12b7d7cf1d3082.wav",
+            "sha256": "052442296cd608f3b5bd4674460b997a040dca099fa7477832684f534faaab0a",
+            "bytes": 115244,
+            "spoken_text_sha256": "82a2ff12b7d7cf1d3082b5686a51944977797252409d55a9861ed6e6e4e70c41"
+          }
+        },
+        {
+          "ordinal": 1,
+          "label_sha256": "ba1bba47818ca0e55b3948420539229ffdfbbdb0fa495f46b8b12f2c0c902342",
+          "audio": {
+            "path": "/audio/cga/mmse/2026-07-16/options/ba1bba47818ca0e55b39.wav",
+            "sha256": "5c2753737b3acfc9174e8e3f6d0b101ccd2a334b447f26de5aa88d85f21f097c",
+            "bytes": 69164,
+            "spoken_text_sha256": "ba1bba47818ca0e55b3948420539229ffdfbbdb0fa495f46b8b12f2c0c902342"
+          }
+        }
+      ]
+    },
+    {
+      "scale_id": "mmse",
+      "definition_version": "2026-07-16",
+      "question_id": "mmse_10",
+      "question": {
+        "path": "/audio/cga/mmse/2026-07-16/questions/mmse_10.wav",
+        "sha256": "0f7886ce4128e95d5b6aa5e04be684970703024e73ca670b832b83dfcf9a5503",
+        "bytes": 345644,
+        "spoken_text_sha256": "f15e20de0fe64eac1b69105b449fa086b9f2ff91d104a08750383190bd326e58"
+      },
+      "options": [
+        {
+          "ordinal": 0,
+          "label_sha256": "82a2ff12b7d7cf1d3082b5686a51944977797252409d55a9861ed6e6e4e70c41",
+          "audio": {
+            "path": "/audio/cga/mmse/2026-07-16/options/82a2ff12b7d7cf1d3082.wav",
+            "sha256": "052442296cd608f3b5bd4674460b997a040dca099fa7477832684f534faaab0a",
+            "bytes": 115244,
+            "spoken_text_sha256": "82a2ff12b7d7cf1d3082b5686a51944977797252409d55a9861ed6e6e4e70c41"
+          }
+        },
+        {
+          "ordinal": 1,
+          "label_sha256": "ba1bba47818ca0e55b3948420539229ffdfbbdb0fa495f46b8b12f2c0c902342",
+          "audio": {
+            "path": "/audio/cga/mmse/2026-07-16/options/ba1bba47818ca0e55b39.wav",
+            "sha256": "5c2753737b3acfc9174e8e3f6d0b101ccd2a334b447f26de5aa88d85f21f097c",
+            "bytes": 69164,
+            "spoken_text_sha256": "ba1bba47818ca0e55b3948420539229ffdfbbdb0fa495f46b8b12f2c0c902342"
+          }
+        }
+      ]
+    },
+    {
+      "scale_id": "mmse",
+      "definition_version": "2026-07-16",
+      "question_id": "mmse_11",
+      "question": {
+        "path": "/audio/cga/mmse/2026-07-16/questions/mmse_11.wav",
+        "sha256": "d98e610359a6c46d573e9dbb58115dbd31c92b804c91f68776fbe718b94b7e63",
+        "bytes": 437804,
+        "spoken_text_sha256": "8a82e351b136676b346cbb5aeae5bec8a3c774b2d58db27223ffdb9f9baa15dd"
+      },
+      "options": [
+        {
+          "ordinal": 0,
+          "label_sha256": "82a2ff12b7d7cf1d3082b5686a51944977797252409d55a9861ed6e6e4e70c41",
+          "audio": {
+            "path": "/audio/cga/mmse/2026-07-16/options/82a2ff12b7d7cf1d3082.wav",
+            "sha256": "052442296cd608f3b5bd4674460b997a040dca099fa7477832684f534faaab0a",
+            "bytes": 115244,
+            "spoken_text_sha256": "82a2ff12b7d7cf1d3082b5686a51944977797252409d55a9861ed6e6e4e70c41"
+          }
+        },
+        {
+          "ordinal": 1,
+          "label_sha256": "ba1bba47818ca0e55b3948420539229ffdfbbdb0fa495f46b8b12f2c0c902342",
+          "audio": {
+            "path": "/audio/cga/mmse/2026-07-16/options/ba1bba47818ca0e55b39.wav",
+            "sha256": "5c2753737b3acfc9174e8e3f6d0b101ccd2a334b447f26de5aa88d85f21f097c",
+            "bytes": 69164,
+            "spoken_text_sha256": "ba1bba47818ca0e55b3948420539229ffdfbbdb0fa495f46b8b12f2c0c902342"
+          }
+        }
+      ]
+    },
+    {
+      "scale_id": "mmse",
+      "definition_version": "2026-07-16",
+      "question_id": "mmse_12",
+      "question": {
+        "path": "/audio/cga/mmse/2026-07-16/questions/mmse_12.wav",
+        "sha256": "8cbc4de00a81c83f4e8e0ed3003e2ed1448fbfca7826b7c3fd0f65c3a339a24d",
+        "bytes": 414764,
+        "spoken_text_sha256": "bd902e4e361df4280eae1da4326f32678e83e2aafb2286fa32ece19d18ea9056"
+      },
+      "options": [
+        {
+          "ordinal": 0,
+          "label_sha256": "82a2ff12b7d7cf1d3082b5686a51944977797252409d55a9861ed6e6e4e70c41",
+          "audio": {
+            "path": "/audio/cga/mmse/2026-07-16/options/82a2ff12b7d7cf1d3082.wav",
+            "sha256": "052442296cd608f3b5bd4674460b997a040dca099fa7477832684f534faaab0a",
+            "bytes": 115244,
+            "spoken_text_sha256": "82a2ff12b7d7cf1d3082b5686a51944977797252409d55a9861ed6e6e4e70c41"
+          }
+        },
+        {
+          "ordinal": 1,
+          "label_sha256": "ba1bba47818ca0e55b3948420539229ffdfbbdb0fa495f46b8b12f2c0c902342",
+          "audio": {
+            "path": "/audio/cga/mmse/2026-07-16/options/ba1bba47818ca0e55b39.wav",
+            "sha256": "5c2753737b3acfc9174e8e3f6d0b101ccd2a334b447f26de5aa88d85f21f097c",
+            "bytes": 69164,
+            "spoken_text_sha256": "ba1bba47818ca0e55b3948420539229ffdfbbdb0fa495f46b8b12f2c0c902342"
+          }
+        }
+      ]
+    },
+    {
+      "scale_id": "mmse",
+      "definition_version": "2026-07-16",
+      "question_id": "mmse_13",
+      "question": {
+        "path": "/audio/cga/mmse/2026-07-16/questions/mmse_13.wav",
+        "sha256": "a3502ce1aac6b8761bfa9b5d1588d5f39f80246702491553768cceced2c2a78d",
+        "bytes": 384044,
+        "spoken_text_sha256": "8cd4da90a1bbee97fa73f29dafcd78e8cc85adf5a9ae3be5d2a8460a8fcbd535"
+      },
+      "options": [
+        {
+          "ordinal": 0,
+          "label_sha256": "82a2ff12b7d7cf1d3082b5686a51944977797252409d55a9861ed6e6e4e70c41",
+          "audio": {
+            "path": "/audio/cga/mmse/2026-07-16/options/82a2ff12b7d7cf1d3082.wav",
+            "sha256": "052442296cd608f3b5bd4674460b997a040dca099fa7477832684f534faaab0a",
+            "bytes": 115244,
+            "spoken_text_sha256": "82a2ff12b7d7cf1d3082b5686a51944977797252409d55a9861ed6e6e4e70c41"
+          }
+        },
+        {
+          "ordinal": 1,
+          "label_sha256": "ba1bba47818ca0e55b3948420539229ffdfbbdb0fa495f46b8b12f2c0c902342",
+          "audio": {
+            "path": "/audio/cga/mmse/2026-07-16/options/ba1bba47818ca0e55b39.wav",
+            "sha256": "5c2753737b3acfc9174e8e3f6d0b101ccd2a334b447f26de5aa88d85f21f097c",
+            "bytes": 69164,
+            "spoken_text_sha256": "ba1bba47818ca0e55b3948420539229ffdfbbdb0fa495f46b8b12f2c0c902342"
+          }
+        }
+      ]
+    },
+    {
+      "scale_id": "mmse",
+      "definition_version": "2026-07-16",
+      "question_id": "mmse_14",
+      "question": {
+        "path": "/audio/cga/mmse/2026-07-16/questions/mmse_14.wav",
+        "sha256": "06ca710bb61887fc129f89420bc09d11039e4719d5b911de5d461748330922f5",
+        "bytes": 353324,
+        "spoken_text_sha256": "2ff1ba53eaad1db9b5613075600aeed4219f7ad5861255bb5c1e60ccb7817472"
+      },
+      "options": [
+        {
+          "ordinal": 0,
+          "label_sha256": "82a2ff12b7d7cf1d3082b5686a51944977797252409d55a9861ed6e6e4e70c41",
+          "audio": {
+            "path": "/audio/cga/mmse/2026-07-16/options/82a2ff12b7d7cf1d3082.wav",
+            "sha256": "052442296cd608f3b5bd4674460b997a040dca099fa7477832684f534faaab0a",
+            "bytes": 115244,
+            "spoken_text_sha256": "82a2ff12b7d7cf1d3082b5686a51944977797252409d55a9861ed6e6e4e70c41"
+          }
+        },
+        {
+          "ordinal": 1,
+          "label_sha256": "ba1bba47818ca0e55b3948420539229ffdfbbdb0fa495f46b8b12f2c0c902342",
+          "audio": {
+            "path": "/audio/cga/mmse/2026-07-16/options/ba1bba47818ca0e55b39.wav",
+            "sha256": "5c2753737b3acfc9174e8e3f6d0b101ccd2a334b447f26de5aa88d85f21f097c",
+            "bytes": 69164,
+            "spoken_text_sha256": "ba1bba47818ca0e55b3948420539229ffdfbbdb0fa495f46b8b12f2c0c902342"
+          }
+        }
+      ]
+    },
+    {
+      "scale_id": "mmse",
+      "definition_version": "2026-07-16",
+      "question_id": "mmse_15",
+      "question": {
+        "path": "/audio/cga/mmse/2026-07-16/questions/mmse_15.wav",
+        "sha256": "855853b7f9f8c3da081c4a582e78a8f391b52d8fb8a6c770694b0bbeaef3008b",
+        "bytes": 437804,
+        "spoken_text_sha256": "277384fa95e928850fcd8801754b196f86c8133845ebe45bb4eab0baf05fae2a"
+      },
+      "options": [
+        {
+          "ordinal": 0,
+          "label_sha256": "82a2ff12b7d7cf1d3082b5686a51944977797252409d55a9861ed6e6e4e70c41",
+          "audio": {
+            "path": "/audio/cga/mmse/2026-07-16/options/82a2ff12b7d7cf1d3082.wav",
+            "sha256": "052442296cd608f3b5bd4674460b997a040dca099fa7477832684f534faaab0a",
+            "bytes": 115244,
+            "spoken_text_sha256": "82a2ff12b7d7cf1d3082b5686a51944977797252409d55a9861ed6e6e4e70c41"
+          }
+        },
+        {
+          "ordinal": 1,
+          "label_sha256": "ba1bba47818ca0e55b3948420539229ffdfbbdb0fa495f46b8b12f2c0c902342",
+          "audio": {
+            "path": "/audio/cga/mmse/2026-07-16/options/ba1bba47818ca0e55b39.wav",
+            "sha256": "5c2753737b3acfc9174e8e3f6d0b101ccd2a334b447f26de5aa88d85f21f097c",
+            "bytes": 69164,
+            "spoken_text_sha256": "ba1bba47818ca0e55b3948420539229ffdfbbdb0fa495f46b8b12f2c0c902342"
+          }
+        }
+      ]
+    },
+    {
+      "scale_id": "mmse",
+      "definition_version": "2026-07-16",
+      "question_id": "mmse_16",
+      "question": {
+        "path": "/audio/cga/mmse/2026-07-16/questions/mmse_16.wav",
+        "sha256": "e24d64c9f5c49cfce9477bd07896977eb14d47dd2a5aff4b331b31098e43045a",
+        "bytes": 491564,
+        "spoken_text_sha256": "277384fa95e928850fcd8801754b196f86c8133845ebe45bb4eab0baf05fae2a"
+      },
+      "options": [
+        {
+          "ordinal": 0,
+          "label_sha256": "82a2ff12b7d7cf1d3082b5686a51944977797252409d55a9861ed6e6e4e70c41",
+          "audio": {
+            "path": "/audio/cga/mmse/2026-07-16/options/82a2ff12b7d7cf1d3082.wav",
+            "sha256": "052442296cd608f3b5bd4674460b997a040dca099fa7477832684f534faaab0a",
+            "bytes": 115244,
+            "spoken_text_sha256": "82a2ff12b7d7cf1d3082b5686a51944977797252409d55a9861ed6e6e4e70c41"
+          }
+        },
+        {
+          "ordinal": 1,
+          "label_sha256": "ba1bba47818ca0e55b3948420539229ffdfbbdb0fa495f46b8b12f2c0c902342",
+          "audio": {
+            "path": "/audio/cga/mmse/2026-07-16/options/ba1bba47818ca0e55b39.wav",
+            "sha256": "5c2753737b3acfc9174e8e3f6d0b101ccd2a334b447f26de5aa88d85f21f097c",
+            "bytes": 69164,
+            "spoken_text_sha256": "ba1bba47818ca0e55b3948420539229ffdfbbdb0fa495f46b8b12f2c0c902342"
+          }
+        }
+      ]
+    },
+    {
+      "scale_id": "mmse",
+      "definition_version": "2026-07-16",
+      "question_id": "mmse_17",
+      "question": {
+        "path": "/audio/cga/mmse/2026-07-16/questions/mmse_17.wav",
+        "sha256": "e21f66858bf787c6df92695f9d5f6c0f89deed53e0da0b55003f30d74b448f25",
+        "bytes": 437804,
+        "spoken_text_sha256": "277384fa95e928850fcd8801754b196f86c8133845ebe45bb4eab0baf05fae2a"
+      },
+      "options": [
+        {
+          "ordinal": 0,
+          "label_sha256": "82a2ff12b7d7cf1d3082b5686a51944977797252409d55a9861ed6e6e4e70c41",
+          "audio": {
+            "path": "/audio/cga/mmse/2026-07-16/options/82a2ff12b7d7cf1d3082.wav",
+            "sha256": "052442296cd608f3b5bd4674460b997a040dca099fa7477832684f534faaab0a",
+            "bytes": 115244,
+            "spoken_text_sha256": "82a2ff12b7d7cf1d3082b5686a51944977797252409d55a9861ed6e6e4e70c41"
+          }
+        },
+        {
+          "ordinal": 1,
+          "label_sha256": "ba1bba47818ca0e55b3948420539229ffdfbbdb0fa495f46b8b12f2c0c902342",
+          "audio": {
+            "path": "/audio/cga/mmse/2026-07-16/options/ba1bba47818ca0e55b39.wav",
+            "sha256": "5c2753737b3acfc9174e8e3f6d0b101ccd2a334b447f26de5aa88d85f21f097c",
+            "bytes": 69164,
+            "spoken_text_sha256": "ba1bba47818ca0e55b3948420539229ffdfbbdb0fa495f46b8b12f2c0c902342"
+          }
+        }
+      ]
+    },
+    {
+      "scale_id": "mmse",
+      "definition_version": "2026-07-16",
+      "question_id": "mmse_18",
+      "question": {
+        "path": "/audio/cga/mmse/2026-07-16/questions/mmse_18.wav",
+        "sha256": "ab1efe348c38ca2d7abd4a56296b240405cfff006b659e062486e483a43bc111",
+        "bytes": 407084,
+        "spoken_text_sha256": "277384fa95e928850fcd8801754b196f86c8133845ebe45bb4eab0baf05fae2a"
+      },
+      "options": [
+        {
+          "ordinal": 0,
+          "label_sha256": "82a2ff12b7d7cf1d3082b5686a51944977797252409d55a9861ed6e6e4e70c41",
+          "audio": {
+            "path": "/audio/cga/mmse/2026-07-16/options/82a2ff12b7d7cf1d3082.wav",
+            "sha256": "052442296cd608f3b5bd4674460b997a040dca099fa7477832684f534faaab0a",
+            "bytes": 115244,
+            "spoken_text_sha256": "82a2ff12b7d7cf1d3082b5686a51944977797252409d55a9861ed6e6e4e70c41"
+          }
+        },
+        {
+          "ordinal": 1,
+          "label_sha256": "ba1bba47818ca0e55b3948420539229ffdfbbdb0fa495f46b8b12f2c0c902342",
+          "audio": {
+            "path": "/audio/cga/mmse/2026-07-16/options/ba1bba47818ca0e55b39.wav",
+            "sha256": "5c2753737b3acfc9174e8e3f6d0b101ccd2a334b447f26de5aa88d85f21f097c",
+            "bytes": 69164,
+            "spoken_text_sha256": "ba1bba47818ca0e55b3948420539229ffdfbbdb0fa495f46b8b12f2c0c902342"
+          }
+        }
+      ]
+    },
+    {
+      "scale_id": "mmse",
+      "definition_version": "2026-07-16",
+      "question_id": "mmse_19",
+      "question": {
+        "path": "/audio/cga/mmse/2026-07-16/questions/mmse_19.wav",
+        "sha256": "a4ff6529d1cddf6333febe98445deae6b0a0bf0d34d4045fd79c78dae0db8870",
+        "bytes": 384044,
+        "spoken_text_sha256": "57f68c56cda1a30cf0b2b75a647538031b9d4b7c464a8e4932a01642c2a0af82"
+      },
+      "options": [
+        {
+          "ordinal": 0,
+          "label_sha256": "82a2ff12b7d7cf1d3082b5686a51944977797252409d55a9861ed6e6e4e70c41",
+          "audio": {
+            "path": "/audio/cga/mmse/2026-07-16/options/82a2ff12b7d7cf1d3082.wav",
+            "sha256": "052442296cd608f3b5bd4674460b997a040dca099fa7477832684f534faaab0a",
+            "bytes": 115244,
+            "spoken_text_sha256": "82a2ff12b7d7cf1d3082b5686a51944977797252409d55a9861ed6e6e4e70c41"
+          }
+        },
+        {
+          "ordinal": 1,
+          "label_sha256": "ba1bba47818ca0e55b3948420539229ffdfbbdb0fa495f46b8b12f2c0c902342",
+          "audio": {
+            "path": "/audio/cga/mmse/2026-07-16/options/ba1bba47818ca0e55b39.wav",
+            "sha256": "5c2753737b3acfc9174e8e3f6d0b101ccd2a334b447f26de5aa88d85f21f097c",
+            "bytes": 69164,
+            "spoken_text_sha256": "ba1bba47818ca0e55b3948420539229ffdfbbdb0fa495f46b8b12f2c0c902342"
+          }
+        }
+      ]
+    },
+    {
+      "scale_id": "mmse",
+      "definition_version": "2026-07-16",
+      "question_id": "mmse_20",
+      "question": {
+        "path": "/audio/cga/mmse/2026-07-16/questions/mmse_20.wav",
+        "sha256": "c3bdfa2453dc13132533978ce28b5858f49c36f3b910c53787b3d41744dd4bc7",
+        "bytes": 422444,
+        "spoken_text_sha256": "c30ed7307684667b630ed5d0b81d361b8d8335dbb111a792c34ef56b6ceacf25"
+      },
+      "options": [
+        {
+          "ordinal": 0,
+          "label_sha256": "82a2ff12b7d7cf1d3082b5686a51944977797252409d55a9861ed6e6e4e70c41",
+          "audio": {
+            "path": "/audio/cga/mmse/2026-07-16/options/82a2ff12b7d7cf1d3082.wav",
+            "sha256": "052442296cd608f3b5bd4674460b997a040dca099fa7477832684f534faaab0a",
+            "bytes": 115244,
+            "spoken_text_sha256": "82a2ff12b7d7cf1d3082b5686a51944977797252409d55a9861ed6e6e4e70c41"
+          }
+        },
+        {
+          "ordinal": 1,
+          "label_sha256": "ba1bba47818ca0e55b3948420539229ffdfbbdb0fa495f46b8b12f2c0c902342",
+          "audio": {
+            "path": "/audio/cga/mmse/2026-07-16/options/ba1bba47818ca0e55b39.wav",
+            "sha256": "5c2753737b3acfc9174e8e3f6d0b101ccd2a334b447f26de5aa88d85f21f097c",
+            "bytes": 69164,
+            "spoken_text_sha256": "ba1bba47818ca0e55b3948420539229ffdfbbdb0fa495f46b8b12f2c0c902342"
+          }
+        }
+      ]
+    },
+    {
+      "scale_id": "mmse",
+      "definition_version": "2026-07-16",
+      "question_id": "mmse_21",
+      "question": {
+        "path": "/audio/cga/mmse/2026-07-16/questions/mmse_21.wav",
+        "sha256": "1251928459886c778e1eef84cfad823e1dee6dc89a6e4957fa77979653ae906d",
+        "bytes": 361004,
+        "spoken_text_sha256": "f9e43ff1196c88b1c875366c34eb49c8defce87ee1a9933b1cbf0c93da67de94"
+      },
+      "options": [
+        {
+          "ordinal": 0,
+          "label_sha256": "82a2ff12b7d7cf1d3082b5686a51944977797252409d55a9861ed6e6e4e70c41",
+          "audio": {
+            "path": "/audio/cga/mmse/2026-07-16/options/82a2ff12b7d7cf1d3082.wav",
+            "sha256": "052442296cd608f3b5bd4674460b997a040dca099fa7477832684f534faaab0a",
+            "bytes": 115244,
+            "spoken_text_sha256": "82a2ff12b7d7cf1d3082b5686a51944977797252409d55a9861ed6e6e4e70c41"
+          }
+        },
+        {
+          "ordinal": 1,
+          "label_sha256": "ba1bba47818ca0e55b3948420539229ffdfbbdb0fa495f46b8b12f2c0c902342",
+          "audio": {
+            "path": "/audio/cga/mmse/2026-07-16/options/ba1bba47818ca0e55b39.wav",
+            "sha256": "5c2753737b3acfc9174e8e3f6d0b101ccd2a334b447f26de5aa88d85f21f097c",
+            "bytes": 69164,
+            "spoken_text_sha256": "ba1bba47818ca0e55b3948420539229ffdfbbdb0fa495f46b8b12f2c0c902342"
+          }
+        }
+      ]
+    },
+    {
+      "scale_id": "mmse",
+      "definition_version": "2026-07-16",
+      "question_id": "mmse_22",
+      "question": {
+        "path": "/audio/cga/mmse/2026-07-16/questions/mmse_22.wav",
+        "sha256": "cdf807966f2a1d23c015df0fda391c71d63ae02969ded12e46df7112f395f9c8",
+        "bytes": 345644,
+        "spoken_text_sha256": "1f9377854b5c9ee97cee067adbe9afffc48366d7b1faa83be95efa74c78200f0"
+      },
+      "options": [
+        {
+          "ordinal": 0,
+          "label_sha256": "82a2ff12b7d7cf1d3082b5686a51944977797252409d55a9861ed6e6e4e70c41",
+          "audio": {
+            "path": "/audio/cga/mmse/2026-07-16/options/82a2ff12b7d7cf1d3082.wav",
+            "sha256": "052442296cd608f3b5bd4674460b997a040dca099fa7477832684f534faaab0a",
+            "bytes": 115244,
+            "spoken_text_sha256": "82a2ff12b7d7cf1d3082b5686a51944977797252409d55a9861ed6e6e4e70c41"
+          }
+        },
+        {
+          "ordinal": 1,
+          "label_sha256": "ba1bba47818ca0e55b3948420539229ffdfbbdb0fa495f46b8b12f2c0c902342",
+          "audio": {
+            "path": "/audio/cga/mmse/2026-07-16/options/ba1bba47818ca0e55b39.wav",
+            "sha256": "5c2753737b3acfc9174e8e3f6d0b101ccd2a334b447f26de5aa88d85f21f097c",
+            "bytes": 69164,
+            "spoken_text_sha256": "ba1bba47818ca0e55b3948420539229ffdfbbdb0fa495f46b8b12f2c0c902342"
+          }
+        }
+      ]
+    },
+    {
+      "scale_id": "mmse",
+      "definition_version": "2026-07-16",
+      "question_id": "mmse_23",
+      "question": {
+        "path": "/audio/cga/mmse/2026-07-16/questions/mmse_23.wav",
+        "sha256": "68aeba7f44bcbaaa4c8a9386ba1fa598dc18a6e51ef5d793a7fb5b5d4e436499",
+        "bytes": 384044,
+        "spoken_text_sha256": "ab4fdd5c12da14782ba0ad73a342bc7e8376fe4d905c025465a2c97781704b87"
+      },
+      "options": [
+        {
+          "ordinal": 0,
+          "label_sha256": "82a2ff12b7d7cf1d3082b5686a51944977797252409d55a9861ed6e6e4e70c41",
+          "audio": {
+            "path": "/audio/cga/mmse/2026-07-16/options/82a2ff12b7d7cf1d3082.wav",
+            "sha256": "052442296cd608f3b5bd4674460b997a040dca099fa7477832684f534faaab0a",
+            "bytes": 115244,
+            "spoken_text_sha256": "82a2ff12b7d7cf1d3082b5686a51944977797252409d55a9861ed6e6e4e70c41"
+          }
+        },
+        {
+          "ordinal": 1,
+          "label_sha256": "ba1bba47818ca0e55b3948420539229ffdfbbdb0fa495f46b8b12f2c0c902342",
+          "audio": {
+            "path": "/audio/cga/mmse/2026-07-16/options/ba1bba47818ca0e55b39.wav",
+            "sha256": "5c2753737b3acfc9174e8e3f6d0b101ccd2a334b447f26de5aa88d85f21f097c",
+            "bytes": 69164,
+            "spoken_text_sha256": "ba1bba47818ca0e55b3948420539229ffdfbbdb0fa495f46b8b12f2c0c902342"
+          }
+        }
+      ]
+    },
+    {
+      "scale_id": "mmse",
+      "definition_version": "2026-07-16",
+      "question_id": "mmse_24",
+      "question": {
+        "path": "/audio/cga/mmse/2026-07-16/questions/mmse_24.wav",
+        "sha256": "6761fd4a1212ff9390c2f51a007c2b284c17178c150a41896d5ebbaec91dd583",
+        "bytes": 422444,
+        "spoken_text_sha256": "913f13649bb5749ceb02d88fc74a5b4cd4ea59111c3b564b0f20f75f11fd3262"
+      },
+      "options": [
+        {
+          "ordinal": 0,
+          "label_sha256": "82a2ff12b7d7cf1d3082b5686a51944977797252409d55a9861ed6e6e4e70c41",
+          "audio": {
+            "path": "/audio/cga/mmse/2026-07-16/options/82a2ff12b7d7cf1d3082.wav",
+            "sha256": "052442296cd608f3b5bd4674460b997a040dca099fa7477832684f534faaab0a",
+            "bytes": 115244,
+            "spoken_text_sha256": "82a2ff12b7d7cf1d3082b5686a51944977797252409d55a9861ed6e6e4e70c41"
+          }
+        },
+        {
+          "ordinal": 1,
+          "label_sha256": "ba1bba47818ca0e55b3948420539229ffdfbbdb0fa495f46b8b12f2c0c902342",
+          "audio": {
+            "path": "/audio/cga/mmse/2026-07-16/options/ba1bba47818ca0e55b39.wav",
+            "sha256": "5c2753737b3acfc9174e8e3f6d0b101ccd2a334b447f26de5aa88d85f21f097c",
+            "bytes": 69164,
+            "spoken_text_sha256": "ba1bba47818ca0e55b3948420539229ffdfbbdb0fa495f46b8b12f2c0c902342"
+          }
+        }
+      ]
+    },
+    {
+      "scale_id": "mmse",
+      "definition_version": "2026-07-16",
+      "question_id": "mmse_25",
+      "question": {
+        "path": "/audio/cga/mmse/2026-07-16/questions/mmse_25.wav",
+        "sha256": "16d45aaf1cb1ec9c0743d64ecb1a35c2a4cbc9d74c06aeb20cae0652419700bb",
+        "bytes": 491564,
+        "spoken_text_sha256": "45c0d172c53269a5c86d48f296abf0a5f7c2dc0106275ca5d70d3172c0d7b000"
+      },
+      "options": [
+        {
+          "ordinal": 0,
+          "label_sha256": "82a2ff12b7d7cf1d3082b5686a51944977797252409d55a9861ed6e6e4e70c41",
+          "audio": {
+            "path": "/audio/cga/mmse/2026-07-16/options/82a2ff12b7d7cf1d3082.wav",
+            "sha256": "052442296cd608f3b5bd4674460b997a040dca099fa7477832684f534faaab0a",
+            "bytes": 115244,
+            "spoken_text_sha256": "82a2ff12b7d7cf1d3082b5686a51944977797252409d55a9861ed6e6e4e70c41"
+          }
+        },
+        {
+          "ordinal": 1,
+          "label_sha256": "ba1bba47818ca0e55b3948420539229ffdfbbdb0fa495f46b8b12f2c0c902342",
+          "audio": {
+            "path": "/audio/cga/mmse/2026-07-16/options/ba1bba47818ca0e55b39.wav",
+            "sha256": "5c2753737b3acfc9174e8e3f6d0b101ccd2a334b447f26de5aa88d85f21f097c",
+            "bytes": 69164,
+            "spoken_text_sha256": "ba1bba47818ca0e55b3948420539229ffdfbbdb0fa495f46b8b12f2c0c902342"
+          }
+        }
+      ]
+    },
+    {
+      "scale_id": "mmse",
+      "definition_version": "2026-07-16",
+      "question_id": "mmse_26",
+      "question": {
+        "path": "/audio/cga/mmse/2026-07-16/questions/mmse_26.wav",
+        "sha256": "fda92605b1aef898af848b4cb9178c2f90fd25abdf602f0d5dc7a20fdb8a1d5b",
+        "bytes": 376364,
+        "spoken_text_sha256": "399bedf5838af77395c580d42796e21353be214a7aad6ad109477f804696e2af"
+      },
+      "options": [
+        {
+          "ordinal": 0,
+          "label_sha256": "82a2ff12b7d7cf1d3082b5686a51944977797252409d55a9861ed6e6e4e70c41",
+          "audio": {
+            "path": "/audio/cga/mmse/2026-07-16/options/82a2ff12b7d7cf1d3082.wav",
+            "sha256": "052442296cd608f3b5bd4674460b997a040dca099fa7477832684f534faaab0a",
+            "bytes": 115244,
+            "spoken_text_sha256": "82a2ff12b7d7cf1d3082b5686a51944977797252409d55a9861ed6e6e4e70c41"
+          }
+        },
+        {
+          "ordinal": 1,
+          "label_sha256": "ba1bba47818ca0e55b3948420539229ffdfbbdb0fa495f46b8b12f2c0c902342",
+          "audio": {
+            "path": "/audio/cga/mmse/2026-07-16/options/ba1bba47818ca0e55b39.wav",
+            "sha256": "5c2753737b3acfc9174e8e3f6d0b101ccd2a334b447f26de5aa88d85f21f097c",
+            "bytes": 69164,
+            "spoken_text_sha256": "ba1bba47818ca0e55b3948420539229ffdfbbdb0fa495f46b8b12f2c0c902342"
+          }
+        }
+      ]
+    },
+    {
+      "scale_id": "mmse",
+      "definition_version": "2026-07-16",
+      "question_id": "mmse_27",
+      "question": {
+        "path": "/audio/cga/mmse/2026-07-16/questions/mmse_27.wav",
+        "sha256": "488f684b2183b09f4a23c7ad23eda845fb2e9fe3c74c03b6a320c0de2f09db03",
+        "bytes": 337964,
+        "spoken_text_sha256": "7e7f560ce374074806fbf28509d4d9f18af4b833f237a5147d7c81370f9b8536"
+      },
+      "options": [
+        {
+          "ordinal": 0,
+          "label_sha256": "82a2ff12b7d7cf1d3082b5686a51944977797252409d55a9861ed6e6e4e70c41",
+          "audio": {
+            "path": "/audio/cga/mmse/2026-07-16/options/82a2ff12b7d7cf1d3082.wav",
+            "sha256": "052442296cd608f3b5bd4674460b997a040dca099fa7477832684f534faaab0a",
+            "bytes": 115244,
+            "spoken_text_sha256": "82a2ff12b7d7cf1d3082b5686a51944977797252409d55a9861ed6e6e4e70c41"
+          }
+        },
+        {
+          "ordinal": 1,
+          "label_sha256": "ba1bba47818ca0e55b3948420539229ffdfbbdb0fa495f46b8b12f2c0c902342",
+          "audio": {
+            "path": "/audio/cga/mmse/2026-07-16/options/ba1bba47818ca0e55b39.wav",
+            "sha256": "5c2753737b3acfc9174e8e3f6d0b101ccd2a334b447f26de5aa88d85f21f097c",
+            "bytes": 69164,
+            "spoken_text_sha256": "ba1bba47818ca0e55b3948420539229ffdfbbdb0fa495f46b8b12f2c0c902342"
+          }
+        }
+      ]
+    },
+    {
+      "scale_id": "mmse",
+      "definition_version": "2026-07-16",
+      "question_id": "mmse_28",
+      "question": {
+        "path": "/audio/cga/mmse/2026-07-16/questions/mmse_28.wav",
+        "sha256": "c2b6d49f95fd870995cd3b71993ed5fec9fd3ba241a2d1b28a93b79d07807f3c",
+        "bytes": 391724,
+        "spoken_text_sha256": "5ca013886b20f7e92aa0758818b47e68e0fe5c471c84057aebf6cbcd261269b8"
+      },
+      "options": [
+        {
+          "ordinal": 0,
+          "label_sha256": "82a2ff12b7d7cf1d3082b5686a51944977797252409d55a9861ed6e6e4e70c41",
+          "audio": {
+            "path": "/audio/cga/mmse/2026-07-16/options/82a2ff12b7d7cf1d3082.wav",
+            "sha256": "052442296cd608f3b5bd4674460b997a040dca099fa7477832684f534faaab0a",
+            "bytes": 115244,
+            "spoken_text_sha256": "82a2ff12b7d7cf1d3082b5686a51944977797252409d55a9861ed6e6e4e70c41"
+          }
+        },
+        {
+          "ordinal": 1,
+          "label_sha256": "ba1bba47818ca0e55b3948420539229ffdfbbdb0fa495f46b8b12f2c0c902342",
+          "audio": {
+            "path": "/audio/cga/mmse/2026-07-16/options/ba1bba47818ca0e55b39.wav",
+            "sha256": "5c2753737b3acfc9174e8e3f6d0b101ccd2a334b447f26de5aa88d85f21f097c",
+            "bytes": 69164,
+            "spoken_text_sha256": "ba1bba47818ca0e55b3948420539229ffdfbbdb0fa495f46b8b12f2c0c902342"
+          }
+        }
+      ]
+    },
+    {
+      "scale_id": "mmse",
+      "definition_version": "2026-07-16",
+      "question_id": "mmse_29",
+      "question": {
+        "path": "/audio/cga/mmse/2026-07-16/questions/mmse_29.wav",
+        "sha256": "3805f11fdb98b064623b7c3335a5fff7c3d22d477034da681282a88dc1569782",
+        "bytes": 384044,
+        "spoken_text_sha256": "c778cfc8125546eed4f1a368a7564d5fe1840e05d9ac30cea0e312068115dc57"
+      },
+      "options": [
+        {
+          "ordinal": 0,
+          "label_sha256": "82a2ff12b7d7cf1d3082b5686a51944977797252409d55a9861ed6e6e4e70c41",
+          "audio": {
+            "path": "/audio/cga/mmse/2026-07-16/options/82a2ff12b7d7cf1d3082.wav",
+            "sha256": "052442296cd608f3b5bd4674460b997a040dca099fa7477832684f534faaab0a",
+            "bytes": 115244,
+            "spoken_text_sha256": "82a2ff12b7d7cf1d3082b5686a51944977797252409d55a9861ed6e6e4e70c41"
+          }
+        },
+        {
+          "ordinal": 1,
+          "label_sha256": "ba1bba47818ca0e55b3948420539229ffdfbbdb0fa495f46b8b12f2c0c902342",
+          "audio": {
+            "path": "/audio/cga/mmse/2026-07-16/options/ba1bba47818ca0e55b39.wav",
+            "sha256": "5c2753737b3acfc9174e8e3f6d0b101ccd2a334b447f26de5aa88d85f21f097c",
+            "bytes": 69164,
+            "spoken_text_sha256": "ba1bba47818ca0e55b3948420539229ffdfbbdb0fa495f46b8b12f2c0c902342"
+          }
+        }
+      ]
+    },
+    {
+      "scale_id": "mmse",
+      "definition_version": "2026-07-16",
+      "question_id": "mmse_30",
+      "question": {
+        "path": "/audio/cga/mmse/2026-07-16/questions/mmse_30.wav",
+        "sha256": "d166f11025d63a7d0c1dde7a7b850ff84aa21a6da54a78ca34be332c71904970",
+        "bytes": 399404,
+        "spoken_text_sha256": "c0457a5a5f02dffe8c65c2b3fc29320af4451d373db1c8945104602c643bf261"
+      },
+      "options": [
+        {
+          "ordinal": 0,
+          "label_sha256": "82a2ff12b7d7cf1d3082b5686a51944977797252409d55a9861ed6e6e4e70c41",
+          "audio": {
+            "path": "/audio/cga/mmse/2026-07-16/options/82a2ff12b7d7cf1d3082.wav",
+            "sha256": "052442296cd608f3b5bd4674460b997a040dca099fa7477832684f534faaab0a",
+            "bytes": 115244,
+            "spoken_text_sha256": "82a2ff12b7d7cf1d3082b5686a51944977797252409d55a9861ed6e6e4e70c41"
+          }
+        },
+        {
+          "ordinal": 1,
+          "label_sha256": "ba1bba47818ca0e55b3948420539229ffdfbbdb0fa495f46b8b12f2c0c902342",
+          "audio": {
+            "path": "/audio/cga/mmse/2026-07-16/options/ba1bba47818ca0e55b39.wav",
+            "sha256": "5c2753737b3acfc9174e8e3f6d0b101ccd2a334b447f26de5aa88d85f21f097c",
+            "bytes": 69164,
+            "spoken_text_sha256": "ba1bba47818ca0e55b3948420539229ffdfbbdb0fa495f46b8b12f2c0c902342"
           }
         }
       ]

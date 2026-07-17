@@ -22,9 +22,25 @@ for (const question of manifest.scales) {
   for (const option of question.options) assets.set(option.audio.path, option.audio);
 }
 
-if (manifest.scales.length !== 48 || assets.size !== 76) {
+const expectedQuestionCounts = new Map([
+  ["phq9", 9],
+  ["sas", 20],
+  ["psqi", 19],
+  ["minicog", 3],
+  ["mmse", 31],
+]);
+const actualQuestionCounts = new Map();
+for (const question of manifest.scales) {
+  actualQuestionCounts.set(question.scale_id, (actualQuestionCounts.get(question.scale_id) ?? 0) + 1);
+}
+if (
+  manifest.scales.length !== 82 ||
+  assets.size !== 123 ||
+  actualQuestionCounts.size !== expectedQuestionCounts.size ||
+  [...expectedQuestionCounts].some(([scaleId, count]) => actualQuestionCounts.get(scaleId) !== count)
+) {
   throw new Error(
-    "CGA 音频资产数量异常：题干 " + manifest.scales.length + "，唯一资源 " + assets.size + "。"
+    "CGA 音频资产数量或量表覆盖异常：题干 " + manifest.scales.length + "，唯一资源 " + assets.size + "。"
   );
 }
 
