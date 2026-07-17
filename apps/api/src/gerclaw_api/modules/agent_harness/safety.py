@@ -25,6 +25,17 @@ _SYSTEM_CAPABILITY_EXPLANATION = re.compile(
     r")[？?。！!\s]*$",
     re.IGNORECASE,
 )
+_MEDICAL_SIGNAL = re.compile(
+    r"(?:"
+    r"健康|医疗|就医|医生|病历|检查(?:单|报告)?|化验|检验|影像|"
+    r"症状|不适|疼痛|头晕|乏力|胸痛|呼吸|发热|咳嗽|失眠|跌倒|"
+    r"血压|血糖|心率|心脏|心血管|肺|肝|肾|胃|肠|脑|骨|关节|"
+    r"药(?:物|品|方|量)?|用药|处方|剂量|停药|加药|换药|相互作用|"
+    r"诊断|治疗|康复|营养|运动|慢病|疾病|病情|高血压|糖尿病|"
+    r"冠心病|老年|老人|患者|护理"
+    r")",
+    re.IGNORECASE,
+)
 _MALFORMED_LIMITATION_DIAGNOSIS = re.compile(
     r"(?P<prefix>(?:不能|无法|不应|不得)[^。！？!?；;\n]{0,80}?)"
     r"(?:明确(?:临床)?诊断|诊断结论|诊断)(?:为|是)结论"
@@ -84,17 +95,24 @@ _EMBEDDED_CITATION_MARKER = re.compile(r"\[(?:E|W|K|R)\d{1,4}\]", re.IGNORECASE)
 
 
 class EvidenceUnavailableError(RuntimeError):
-    """Raised when a medical answer cannot be grounded in local evidence."""
+    """Raised when a medical answer cannot be grounded in traceable evidence."""
 
 
 def is_medical_message(text: str) -> bool:
-    """Fail safe, except for narrow product-capability explanations."""
+    """Identify requests that need the medical evidence-and-risk output path.
+
+    General conversation and neutral image interpretation are not medical merely
+    because they are sent through a healthcare product.  Medical terms opt a
+    request into the evidence requirement; high-risk detection remains an
+    independent safety short-circuit.
+    """
 
     candidate = text.strip()
-    return (
-        _CLEARLY_NON_MEDICAL.fullmatch(candidate) is None
-        and _SYSTEM_CAPABILITY_EXPLANATION.fullmatch(candidate) is None
-    )
+    if _CLEARLY_NON_MEDICAL.fullmatch(candidate) is not None:
+        return False
+    if _SYSTEM_CAPABILITY_EXPLANATION.fullmatch(candidate) is not None:
+        return False
+    return _MEDICAL_SIGNAL.search(candidate) is not None
 
 
 def detect_high_risk(text: str) -> list[str]:

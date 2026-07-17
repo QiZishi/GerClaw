@@ -7,7 +7,7 @@ This module owns the production, one-turn AgentScope ReAct orchestration and saf
 ## Invariants
 
 - A turn is tenant/actor/session/trace scoped, fenced by the session lease, and commits its terminal message and trace atomically.
-- Medical text needs validated local evidence and citations. Red-flag input short-circuits to emergency guidance; deterministic diagnosis filtering and the unified disclaimer remain mandatory.
+- Medical text needs at least one validated, traceable citation from local knowledge, governed web search, or the current user's uploaded materials. Red-flag input short-circuits to emergency guidance; deterministic diagnosis filtering and the unified disclaimer remain mandatory.
 - Never expose raw Chain-of-Thought, provider details, credentials, or untrusted tool/document instructions.
 - Daily conversation prompts must not impose answer length, fixed presentation, or repeated self-review. Safety is enforced by evidence, policy and deterministic guards; default ReAct and retrieval limits prevent loops.
 - `workflow=companion` is a policy-owned exception to medical retrieval: it has

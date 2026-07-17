@@ -44,7 +44,8 @@ def test_medical_classifier_fails_safe_outside_small_talk() -> None:
     assert not is_medical_message("为什么上传资料不能直接作为确诊依据？")
     assert is_medical_message("老人最近总是头晕怎么办")
     assert is_medical_message("上传资料提示头晕，应该怎样诊断？")
-    assert is_medical_message("计算 1+1")
+    assert not is_medical_message("计算 1+1")
+    assert not is_medical_message("请解读这张图片里的画面元素和主色")
 
 
 def test_red_flags_use_stable_codes_without_echoing_input() -> None:

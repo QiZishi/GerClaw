@@ -6,11 +6,11 @@
 
 1. API 根据签名 JWT 派生 tenant/actor；PostgreSQL sequence 为每次租约尝试分配单调 fencing token，Redis owner-token lease 串行化同一 session。
 2. 新 owner 先把更高 fencing token 与当前 Trace ID 提交到 session 行，再装载排除当前 Trace 的有界历史；用户消息按 `(tenant_id, trace_id, role)` 幂等落库。
-3. 医疗输入先执行本地证据门；检索结果必须能投影为至少一条结构合法、可追溯的本地 citation，才允许调用模型并释放医疗正文。
+3. 医疗输入优先执行本地证据检索；正文必须至少绑定一条结构合法、可追溯的证据。证据可以来自本地知识库、受治理联网搜索或当前用户上传的资料/图片；本地无命中时不得阻断对病例图片的正常视觉解读。
 4. AgentScope 可自主调用 `search_knowledge`；该工具复用 production hybrid RAG，不存在简化检索旁路。
    默认每种检索工具只调用一次；只有首轮无可用证据或存在独立子问题时才允许再调用一次，避免同义检索循环。默认 ReAct 上限为 6，支持通过受校验的 `GERCLAW_AGENT_MAX_REACT_ITERATIONS` 按环境调整。
 5. 三模型按 `primary → backup1 → backup2` 切换。只有尚未产生可见文本或工具调用时才允许切换；thinking-only、空字符串和 whitespace-only 都按 `MODEL_EMPTY_RESPONSE` 继续兜底，流中断后 fail closed。
-6. 文本按句经过确定性诊断措辞改写，红旗症状先发 120/急诊提示；AgentScope final-only 正文从本 turn 的 AgentState 安全补齐，纯格式空白差异以已发布 SSE 为权威，任何非空白正文分叉 fail closed；完成输出强制追加统一免责声明和本地 citation。
+6. 文本按句经过确定性诊断措辞改写，红旗症状先发 120/急诊提示；AgentScope final-only 正文从本 turn 的 AgentState 安全补齐，纯格式空白差异以已发布 SSE 为权威，任何非空白正文分叉 fail closed；完成输出强制追加统一免责声明和可追溯 citation。
 7. 成功与失败终态都在 Redis lease 尚未释放时复验 owner，并以 PostgreSQL session 行锁同时校验 fencing token 与 Trace ID。成功路径原子提交 assistant、审计事件和 completed Trace 后才发送 `done`；失败路径原子提交 SYSTEM_ERROR、failed/cancelled Trace 和 Bad Case。
 
 ## 日常交流的提示语与预算
@@ -38,8 +38,8 @@
 - 正在执行的同 Trace 重试如果未取得 lease，不得把原 owner 的 Trace 标记为失败；接管 running Trace 时排除已保存的当前 user message，避免模型上下文重复本轮输入。
 
 长期 Memory、Skill 与已解析上传文档已在标准聊天 turn 中接入本 Harness：文档只会在
-Document 模块按 tenant、actor、session 验证并限长后作为显式标记的**不可信输入数据**
-注入，绝不写入公共知识库或作为本地医学证据。用户明确要求阅读/概述上传资料时，
+Document 模块按 tenant、actor、session 验证并限长后作为显式标记的用户输入资料
+注入，绝不写入公共知识库。用户明确要求阅读/概述上传资料时，
 Harness 会禁用 Memory、RAG、联网和 Skill，并仅以“上传资料”出处标记；一般医疗问题
-即使携带资料也仍必须满足本地证据与免责声明门禁。陪伴 workflow 继续拒绝 Skills 和
+即使携带资料也仍必须满足可追溯证据与免责声明门禁。陪伴 workflow 继续拒绝 Skills 和
 上传资料。CGA、经治理的处方与 Voice 上下文仍未接入本 Harness。

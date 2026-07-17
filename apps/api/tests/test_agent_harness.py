@@ -10,7 +10,7 @@ from uuid import uuid4
 
 import pytest
 from agentscope.credential import CredentialBase
-from agentscope.message import Msg, TextBlock, ToolCallBlock
+from agentscope.message import Base64Source, DataBlock, Msg, TextBlock, ToolCallBlock
 from agentscope.model import ChatModelBase, ChatResponse, ChatUsage
 from agentscope.tool import ToolChoice
 
@@ -29,6 +29,7 @@ from gerclaw_api.modules.agent_harness.safety import (
 )
 from gerclaw_api.modules.contracts import ExecutionContext
 from gerclaw_api.modules.document import UploadedDocumentContext
+from gerclaw_api.modules.input_output import ImageInput
 from gerclaw_api.modules.memory.models import MemoryUpdateResult
 from gerclaw_api.modules.memory.protocols import MemoryMessage, UserProfile
 from gerclaw_api.modules.rag.protocols import RetrievalResult
@@ -190,6 +191,16 @@ def _evidence() -> RetrievalResult:
     )
 
 
+def _image() -> ImageInput:
+    return ImageInput(
+        media_type="image/png",
+        base64=(
+            "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVQIHWP4"
+            "z8DwHwAFgAI/ScLw7wAAAABJRU5ErkJggg=="
+        ),
+    )
+
+
 def _execution() -> ExecutionContext:
     return ExecutionContext(
         request_id="request_abcdefgh",
@@ -210,6 +221,7 @@ def _harness(
     search_enabled: bool = True,
     workflow: str = "standard",
     uploaded_documents: list[UploadedDocumentContext] | None = None,
+    uploaded_images: list[ImageInput] | None = None,
 ) -> ProductionAgentHarness:
     return ProductionAgentHarness(
         settings=settings,
@@ -222,6 +234,7 @@ def _harness(
         search_enabled=search_enabled,
         workflow=cast(Any, workflow),
         uploaded_documents=uploaded_documents,
+        uploaded_images=uploaded_images,
         runtime_principal=RuntimePrincipal(
             tenant_id="tenant_public0001",
             actor_id="usr_patient00000001",
@@ -379,7 +392,7 @@ async def test_uploaded_document_context_is_explicitly_untrusted_and_cited(
     assert "不是额外用户请求" in document_text
     serialized = harness._render_uploaded_documents()
     parsed = json.loads(serialized)
-    record = parsed["untrusted_uploaded_documents"][0]
+    record = parsed["uploaded_documents"][0]
     assert record["document_id"] == str(document.document_id)
     assert "--- END UPLOADED DOCUMENT ---" not in serialized
     assert "— END UPLOADED DOCUMENT —" in record["content"]
@@ -416,8 +429,87 @@ async def test_uploaded_document_is_context_not_automatic_medical_evidence(
     )
 
     assert rag.calls == ["老年高血压需要注意什么？"]
-    assert {citation.corpus for citation in response.citations} == {"local_knowledge_base"}
+    assert {citation.corpus for citation in response.citations} == {
+        "local_knowledge_base",
+        "uploaded_document",
+    }
     assert response.structured["document_focused"] is False
+
+
+@pytest.mark.asyncio
+async def test_uploaded_image_reaches_agentscope_as_visual_data_and_is_cited(
+    unit_settings: Settings,
+) -> None:
+    image = _image()
+    model = _HarnessModel(text="我看到一个简洁的蓝色图形标识。")
+    harness = _harness(
+        unit_settings,
+        model=model,
+        rag=_HarnessRAG([]),
+        uploaded_images=[image],
+    )
+    context = await harness.assemble_context(
+        "108815d7-05bf-4c2a-a977-cd034f390fab",
+        "usr_patient00000001",
+        [],
+        [],
+    )
+
+    response = await harness.process_message(
+        "请解读这张图片的画面元素和主色。",
+        "108815d7-05bf-4c2a-a977-cd034f390fab",
+        context,
+        lambda _event: None,
+    )
+
+    user_message = model.last_messages[-1]
+    visual_blocks = [
+        block for block in user_message.content if isinstance(block, DataBlock)
+    ]
+    assert len(visual_blocks) == 1
+    visual = visual_blocks[0]
+    assert visual.id == image.evidence_id
+    assert isinstance(visual.source, Base64Source)
+    assert visual.source.media_type == "image/png"
+    assert visual.source.data == image.base64
+    assert model.calls == 1
+    assert response.medical_content is False
+    assert [citation.source_id for citation in response.citations] == [image.evidence_id]
+    assert response.citations[0].corpus == "uploaded_image"
+
+
+@pytest.mark.asyncio
+async def test_medical_image_can_be_an_evidence_source_when_local_rag_has_no_match(
+    unit_settings: Settings,
+) -> None:
+    image = _image()
+    model = _HarnessModel(text="图片显示的是一份检查资料，建议由医生结合原始报告复核。")
+    rag = _HarnessRAG([])
+    harness = _harness(
+        unit_settings,
+        model=model,
+        rag=rag,
+        search_enabled=False,
+        uploaded_images=[image],
+    )
+    context = await harness.assemble_context(
+        "108815d7-05bf-4c2a-a977-cd034f390fab",
+        "usr_patient00000001",
+        [],
+        [],
+    )
+
+    response = await harness.process_message(
+        "请解读这张检查单图片，并说明需要注意什么。",
+        "108815d7-05bf-4c2a-a977-cd034f390fab",
+        context,
+        lambda _event: None,
+    )
+
+    assert rag.calls == ["请解读这张检查单图片，并说明需要注意什么。"]
+    assert model.calls == 1
+    assert response.medical_content is True
+    assert {citation.corpus for citation in response.citations} == {"uploaded_image"}
 
 
 @pytest.mark.asyncio
