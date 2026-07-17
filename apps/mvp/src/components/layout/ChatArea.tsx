@@ -840,6 +840,7 @@ export function ChatArea() {
       ) : chatAction === "prescription" ? (
         currentSessionId ? (
           <PrescriptionConversation
+            key={currentSessionId}
             localSessionId={currentSessionId}
             seniorMode={seniorMode}
             hasExistingDraft={

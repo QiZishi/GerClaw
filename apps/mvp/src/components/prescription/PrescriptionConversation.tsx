@@ -60,6 +60,9 @@ export function PrescriptionConversation({
 
   useEffect(() => {
     let live = true;
+    // The parent keys this component by session so every intake gets a fresh
+    // state instance. Keep the ref explicit because it gates retries.
+    generationStartedRef.current = false;
     void startClinicalIntake({ localSessionId, kind: "prescription" }).then(
       async (result) => {
         if (!live) return;
