@@ -15,6 +15,7 @@
     "test:gerclaw-proxy": "node --test src/server/gerclaw-api.test.ts",
     "test:feedback": "node --test src/services/gerclaw/feedback.test.ts",
     "test:chat": "node --test src/services/gerclaw/chat.test.ts",
+    "test:prescription-report": "node --test src/services/gerclaw/prescription-report.test.ts",
     "test:search": "node --test src/server/search-retry.test.mjs"
   },
   "dependencies": {
