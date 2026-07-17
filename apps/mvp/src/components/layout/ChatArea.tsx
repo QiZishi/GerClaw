@@ -48,6 +48,7 @@ import type { ChatActionType, ImageAttachment, Message, MessageBlock } from "@/t
  */
 export function ChatArea() {
   const role = useAppStore((s) => s.role);
+  const isGuest = useAppStore((s) => s.isGuest);
   const currentSessionId = useAppStore((s) => s.currentSessionId);
   const setCurrentSession = useAppStore((s) => s.setCurrentSession);
   const mainView = useAppStore((s) => s.mainView);
@@ -120,6 +121,12 @@ export function ChatArea() {
   };
 
   useEffect(() => {
+    if (isGuest) {
+      skillSelectionLoadRef.current += 1;
+      setLoadedSkills([]);
+      skillSelectionReadySessionIdRef.current = currentSessionId;
+      return;
+    }
     if (!currentSessionId) {
       skillSelectionLoadRef.current += 1;
       setLoadedSkills([]);
@@ -161,7 +168,7 @@ export function ChatArea() {
           toast.show(error instanceof Error ? error.message : "会话技能未能恢复");
         }
       });
-  }, [currentSessionId, setLoadedSkills]);
+  }, [currentSessionId, isGuest, setLoadedSkills]);
 
   // 仅健康画像由右侧面板承载；其余入口均由各自的真实后端流程承载。
   useEffect(() => {
@@ -299,7 +306,7 @@ export function ChatArea() {
     const liveSessionId = useAppStore.getState().currentSessionId;
     if (
       liveSessionId !== currentSessionId ||
-      (workflow === "standard" && skillSelectionReadySessionIdRef.current !== liveSessionId)
+      (workflow === "standard" && !isGuest && skillSelectionReadySessionIdRef.current !== liveSessionId)
     ) {
       toast.show("正在恢复当前会话的技能，请稍候再发送");
       return false;
@@ -887,7 +894,7 @@ export function ChatArea() {
           onStop={handleStop}
           onStartAction={handleStartAction}
           contextLoading={Boolean(
-            chatAction !== "companion" && currentSessionId && skillSelectionReadySessionId !== currentSessionId
+            chatAction !== "companion" && !isGuest && currentSessionId && skillSelectionReadySessionId !== currentSessionId
           )}
           companionMode={chatAction === "companion"}
         />
