@@ -160,6 +160,14 @@ class FivePrescriptionDraft(BaseModel):
 
     @model_validator(mode="after")
     def validate_evidence_references(self) -> FivePrescriptionDraft:
+        # A generic/governance-pending projection has not passed the
+        # owner/session-bound document resolution performed by the real draft
+        # workflow.  It therefore cannot claim patient-material provenance.
+        # Only the server-built, clinician-review draft may carry those IDs.
+        if self.status == "needs_medical_governance" and self.uploaded_document_ids:
+            raise ValueError(
+                "governance-pending drafts cannot claim uploaded-document provenance"
+            )
         available = {source.evidence_id for source in self.evidence_sources}
         sections: tuple[PrescriptionSection, ...] = (
             self.medication,

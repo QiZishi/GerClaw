@@ -83,3 +83,8 @@ Write operations also emit an atomic, PHI-free Runtime Trace. The trace contains
 心脏康复案例、药名、剂量和数值从不作为默认值、生成示例或规则来源。没有经审核的
 医学规则、证据、授权和医生审核流程时，任何草案只能是 `needs_medical_governance`
 或 `needs_clinician_review`，不能向患者发布、更不能视为可执行处方。
+
+`needs_medical_governance` 的通用草案不得携带 `uploaded_document_ids`：该状态尚未
+经过 owner/session-bound 的文档再次解析，不能用任意 UUID 声称患者资料 provenance。
+只有服务端从完整私有输入构建的 `needs_clinician_review` 草案才能绑定同会话上传资料
+及其独立 evidence ID。
