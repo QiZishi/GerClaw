@@ -102,3 +102,28 @@ class SqlAlchemyCgaRepository:
             .limit(limit)
         )
         return list((await self._session.scalars(statement)).all())
+
+    async def previous_completed_same_scale(
+        self,
+        record: CgaAssessment,
+        *,
+        tenant_id: str,
+        actor_id: str,
+    ) -> CgaAssessment | None:
+        """Find the immediately preceding owned completion for one scale only."""
+
+        if record.updated_at is None:
+            return None
+        statement = (
+            select(CgaAssessment)
+            .where(
+                CgaAssessment.tenant_id == tenant_id,
+                CgaAssessment.actor_id == actor_id,
+                CgaAssessment.scale_id == record.scale_id,
+                CgaAssessment.status == "completed",
+                CgaAssessment.updated_at < record.updated_at,
+            )
+            .order_by(CgaAssessment.updated_at.desc(), CgaAssessment.id.desc())
+            .limit(1)
+        )
+        return cast(CgaAssessment | None, await self._session.scalar(statement))

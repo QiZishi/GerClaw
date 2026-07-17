@@ -161,6 +161,27 @@ export const cgaHistorySchema = z
     ).max(20),
   })
   .strict();
+export const cgaComparisonSchema = z
+  .object({
+    status: z.enum(["comparable", "no_prior_same_scale", "definition_version_changed"]),
+    current: z.object({
+      assessment_id: z.string().uuid(),
+      scale_id: cgaScaleIdSchema,
+      definition_version: z.string().min(1).max(32),
+      completed_at: z.string().datetime(),
+      report: cgaReportSchema,
+    }).strict(),
+    prior: z.object({
+      assessment_id: z.string().uuid(),
+      scale_id: cgaScaleIdSchema,
+      definition_version: z.string().min(1).max(32),
+      completed_at: z.string().datetime(),
+      report: cgaReportSchema,
+    }).strict().nullable(),
+    score_delta: z.number().int().min(-100).max(100).nullable(),
+    disclaimer: z.string().min(1).max(200),
+  })
+  .strict();
 export const cgaActiveAssessmentsSchema = z
   .object({
     items: z.array(cgaAssessmentSchema).max(3),
@@ -171,6 +192,7 @@ export type CgaAssessment = z.infer<typeof cgaAssessmentSchema>;
 export type CgaQuestion = z.infer<typeof cgaQuestionSchema>;
 export type CgaReport = z.infer<typeof cgaReportSchema>;
 export type CgaHistoryItem = z.infer<typeof cgaHistorySchema>["items"][number];
+export type CgaComparison = z.infer<typeof cgaComparisonSchema>;
 export type CgaActiveAssessment = z.infer<typeof cgaActiveAssessmentsSchema>["items"][number];
 export type CgaScale = z.infer<typeof cgaScalesSchema>["scales"][number];
 export type CgaScaleId = z.infer<typeof cgaScaleIdSchema>;

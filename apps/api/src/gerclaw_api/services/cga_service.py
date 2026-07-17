@@ -9,6 +9,7 @@ from gerclaw_api.database.models import CgaAssessment
 from gerclaw_api.modules.cga.models import (
     CgaActiveAssessmentsRead,
     CgaAssessmentRead,
+    CgaComparisonRead,
     CgaHistoryItemRead,
     CgaHistoryRead,
     CgaQuestionRead,
@@ -176,24 +177,51 @@ class CgaService:
         )
         items: list[CgaHistoryItemRead] = []
         for record in records:
-            if record.report is None or record.updated_at is None:
-                raise CgaAssessmentConflictError("completed assessment state is invalid")
-            try:
-                report = CgaReportRead.model_validate(record.report)
-            except ValueError as error:
-                raise CgaAssessmentConflictError(
-                    "completed assessment report is invalid"
-                ) from error
-            items.append(
-                CgaHistoryItemRead(
-                    assessment_id=record.id,
-                    scale_id=cast(Literal["phq9", "sas", "psqi"], record.scale_id),
-                    definition_version=record.definition_version,
-                    completed_at=record.updated_at,
-                    report=report,
-                )
-            )
+            items.append(self._history_item(record))
         return CgaHistoryRead(items=items)
+
+    async def comparison(
+        self, assessment_id: uuid.UUID, *, tenant_id: str, actor_id: str
+    ) -> CgaComparisonRead:
+        """Compare only equivalent completed, caller-owned screening versions.
+
+        The result deliberately describes a numerical difference only.  It is
+        not an interpretation of symptom change, diagnosis, or treatment need.
+        """
+
+        current_record = await self._repository.get(
+            assessment_id, tenant_id=tenant_id, actor_id=actor_id
+        )
+        if current_record.status != "completed":
+            raise CgaAssessmentConflictError("assessment report is not available")
+        current = self._history_item(current_record)
+        prior_record = await self._repository.previous_completed_same_scale(
+            current_record, tenant_id=tenant_id, actor_id=actor_id
+        )
+        if prior_record is None:
+            return CgaComparisonRead(
+                status="no_prior_same_scale",
+                current=current,
+                disclaimer="暂无可对照的同量表历史结果。筛查分数不能替代医生诊断。",
+            )
+        prior = self._history_item(prior_record)
+        if prior.definition_version != current.definition_version:
+            return CgaComparisonRead(
+                status="definition_version_changed",
+                current=current,
+                prior=prior,
+                disclaimer="两次量表版本不同, 系统未比较分数。筛查分数不能替代医生诊断。",
+            )
+        return CgaComparisonRead(
+            status="comparable",
+            current=current,
+            prior=prior,
+            score_delta=current.report.total_score - prior.report.total_score,
+            disclaimer=(
+                "分数变化仅供回顾同一量表的两次筛查结果, 不等于病情诊断或治疗建议; "
+                "请结合医生评估。"
+            ),
+        )
 
     async def active(
         self, *, tenant_id: str, actor_id: str, limit: int
@@ -250,6 +278,22 @@ class CgaService:
                 high_severity_follow_up=high_follow_up,
                 messages=list(messages),
             ),
+        )
+
+    @staticmethod
+    def _history_item(record: CgaAssessment) -> CgaHistoryItemRead:
+        if record.report is None or record.updated_at is None:
+            raise CgaAssessmentConflictError("completed assessment state is invalid")
+        try:
+            report = CgaReportRead.model_validate(record.report)
+        except ValueError as error:
+            raise CgaAssessmentConflictError("completed assessment report is invalid") from error
+        return CgaHistoryItemRead(
+            assessment_id=record.id,
+            scale_id=cast(Literal["phq9", "sas", "psqi"], record.scale_id),
+            definition_version=record.definition_version,
+            completed_at=record.updated_at,
+            report=report,
         )
 
     @staticmethod

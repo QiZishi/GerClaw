@@ -19,6 +19,7 @@ class _Repository:
         self.record: CgaAssessment | None = None
         self.history_records: list[CgaAssessment] = []
         self.active_records: list[CgaAssessment] = []
+        self.prior_completed_record: CgaAssessment | None = None
 
     async def create(self, **kwargs: str) -> CgaAssessment:
         self.record = CgaAssessment(
@@ -43,6 +44,11 @@ class _Repository:
 
     async def list_active(self, **_kwargs: object) -> list[CgaAssessment]:
         return self.active_records
+
+    async def previous_completed_same_scale(
+        self, _record: CgaAssessment, **_kwargs: str
+    ) -> CgaAssessment | None:
+        return self.prior_completed_record
 
 
 @pytest.mark.asyncio
@@ -299,6 +305,74 @@ async def test_history_returns_only_completed_report_summaries_without_answers()
     assert history.items[0].assessment_id == state.assessment_id
     assert history.items[0].report.total_score == 3
     assert "answers" not in history.items[0].model_dump(mode="json")
+
+
+@pytest.mark.asyncio
+async def test_comparison_is_owner_scoped_and_only_calculates_same_definition_versions() -> None:
+    repository = _Repository()
+    service = CgaService(repository)  # type: ignore[arg-type]
+    current = await service.start(tenant_id="tenant_public0001", actor_id="usr_patient_test0001")
+    assert repository.record is not None
+    repository.record.status = "completed"
+    repository.record.updated_at = datetime(2026, 7, 16, tzinfo=UTC)
+    repository.record.report = {
+        "total_score": 7,
+        "score_max": 27,
+        "severity": "mild",
+        "self_harm_signal": False,
+        "requires_immediate_safety_assessment": False,
+        "high_severity_follow_up": False,
+        "safety_messages": [],
+        "component_scores": {},
+        "disclaimer": "筛查结果不能替代临床诊断。",
+    }
+    repository.prior_completed_record = CgaAssessment(
+        id=uuid.uuid4(),
+        tenant_id="tenant_public0001",
+        actor_id="usr_patient_test0001",
+        scale_id="phq9",
+        definition_version=repository.record.definition_version,
+        status="completed",
+        current_position=9,
+        revision=10,
+        answers={},
+        notes={},
+        updated_at=datetime(2026, 7, 15, tzinfo=UTC),
+        report={
+            "total_score": 4,
+            "score_max": 27,
+            "severity": "minimal",
+            "self_harm_signal": False,
+            "requires_immediate_safety_assessment": False,
+            "high_severity_follow_up": False,
+            "safety_messages": [],
+            "component_scores": {},
+            "disclaimer": "筛查结果不能替代临床诊断。",
+        },
+    )
+
+    comparable = await service.comparison(
+        current.assessment_id, tenant_id="tenant_public0001", actor_id="usr_patient_test0001"
+    )
+
+    assert comparable.status == "comparable"
+    assert comparable.score_delta == 3
+    assert "诊断" in comparable.disclaimer
+    assert comparable.prior is not None
+
+    repository.prior_completed_record.definition_version = "phq9-v2"
+    version_changed = await service.comparison(
+        current.assessment_id, tenant_id="tenant_public0001", actor_id="usr_patient_test0001"
+    )
+    assert version_changed.status == "definition_version_changed"
+    assert version_changed.score_delta is None
+
+    repository.prior_completed_record = None
+    no_prior = await service.comparison(
+        current.assessment_id, tenant_id="tenant_public0001", actor_id="usr_patient_test0001"
+    )
+    assert no_prior.status == "no_prior_same_scale"
+    assert no_prior.prior is None
 
 
 @pytest.mark.asyncio

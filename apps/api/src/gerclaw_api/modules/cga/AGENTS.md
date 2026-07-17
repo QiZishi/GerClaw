@@ -10,6 +10,7 @@ This module owns versioned, deterministic screening-scale definitions and scorin
 - Screening is not diagnosis.  Every report must retain a medical disclaimer.  PHQ-9 item 9 safety handling must remain distinct from aggregate-score follow-up.
 - Start, answer and complete writes create an atomic Runtime Trace containing only scale/version, operation, answer count and status. Never add question IDs, scores, risk flags, notes, assessment IDs or raw request bodies to that Trace.
 - Scale source, item order, option values, reverse scoring, thresholds, and definition version are immutable facts.  Add a new version rather than silently changing a published definition.
+- Historical comparison may use only the caller's immediately prior completed record for the same scale. It must refuse a changed definition version and may expose a numerical delta with a screening disclaimer, never a clinical interpretation of direction.
 - This module must not call LLMs, RAG, web search, TTS, or external clinical services.
 
 ## Change and test rules

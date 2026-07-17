@@ -19,6 +19,7 @@ from gerclaw_api.modules.cga.models import (
     CgaActiveAssessmentsRead,
     CgaAnswerRequest,
     CgaAssessmentRead,
+    CgaComparisonRead,
     CgaCompleteRequest,
     CgaHistoryRead,
     CgaQuestionRead,
@@ -316,6 +317,24 @@ async def list_active_assessments(
     return await CgaService(SqlAlchemyCgaRepository(session)).active(
         tenant_id=identity.tenant_id, actor_id=identity.actor_id, limit=20
     )
+
+
+@router.get("/assessments/{assessment_id}/comparison", response_model=CgaComparisonRead)
+async def get_assessment_comparison(
+    assessment_id: uuid.UUID, session: SessionDependency, identity: ReadIdentity
+) -> CgaComparisonRead:
+    """Return a caller-owned, same-version numerical screening comparison only."""
+
+    try:
+        return await CgaService(SqlAlchemyCgaRepository(session)).comparison(
+            assessment_id, tenant_id=identity.tenant_id, actor_id=identity.actor_id
+        )
+    except CgaAssessmentNotFoundError as error:
+        raise HTTPException(status_code=404, detail={"code": "CGA_NOT_FOUND"}) from error
+    except CgaAssessmentConflictError as error:
+        raise HTTPException(
+            status_code=409, detail={"code": "CGA_COMPARISON_UNAVAILABLE"}
+        ) from error
 
 
 @router.get("/assessments/{assessment_id}", response_model=CgaAssessmentRead)

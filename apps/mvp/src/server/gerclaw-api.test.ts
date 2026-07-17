@@ -72,3 +72,9 @@ test("skill evolution proxy permits only a caller-owned review-draft request", (
   assert.equal(isAllowedGerclawProxyTarget("skills/safe-followup/evolve", "GET"), false);
   assert.equal(isAllowedGerclawProxyTarget("skills/safe-followup/evolve/commit", "POST"), false);
 });
+
+test("CGA proxy permits only caller-owned descriptive comparison reads", () => {
+  assert.equal(isAllowedGerclawProxyTarget(`cga/assessments/${sessionId}/comparison`, "GET"), true);
+  assert.equal(isAllowedGerclawProxyTarget(`cga/assessments/${sessionId}/comparison`, "POST"), false);
+  assert.equal(isAllowedGerclawProxyTarget("cga/assessments/not-a-uuid/comparison", "GET"), false);
+});

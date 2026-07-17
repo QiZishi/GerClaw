@@ -2,10 +2,12 @@ import { gerclawRequest } from "./client";
 import {
   cgaAssessmentSchema,
   cgaActiveAssessmentsSchema,
+  cgaComparisonSchema,
   cgaHistorySchema,
   cgaReportSchema,
   cgaScalesSchema,
   type CgaAssessment,
+  type CgaComparison,
   type CgaReport,
   type CgaScaleId,
 } from "./schemas";
@@ -86,5 +88,13 @@ export async function getCgaReport(assessmentId: string): Promise<CgaReport> {
   return gerclawRequest(
     `cga/assessments/${encodeURIComponent(parsedId)}/report`,
     cgaReportSchema
+  );
+}
+
+export async function getCgaComparison(assessmentId: string): Promise<CgaComparison> {
+  const parsedId = assessmentIdSchema.parse(assessmentId);
+  return gerclawRequest(
+    `cga/assessments/${encodeURIComponent(parsedId)}/comparison`,
+    cgaComparisonSchema
   );
 }

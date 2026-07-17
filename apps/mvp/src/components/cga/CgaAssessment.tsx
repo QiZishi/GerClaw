@@ -13,6 +13,7 @@ import { toast } from "@/components/ui/toast";
 import {
   completeCgaAssessment,
   getCgaAssessment,
+  getCgaComparison,
   listActiveCgaAssessments,
   listCgaHistory,
   getCgaReport,
@@ -21,7 +22,7 @@ import {
   submitCgaAnswer,
 } from "@/services/gerclaw/cga";
 import { GerclawApiError } from "@/services/gerclaw/client";
-import type { CgaAssessment as Assessment, CgaHistoryItem, CgaQuestion, CgaReport, CgaScale, CgaScaleId } from "@/services/gerclaw/schemas";
+import type { CgaAssessment as Assessment, CgaComparison, CgaHistoryItem, CgaQuestion, CgaReport, CgaScale, CgaScaleId } from "@/services/gerclaw/schemas";
 
 interface CgaAssessmentProps {
   onExit: () => void;
@@ -94,6 +95,7 @@ export function CgaAssessment({ onExit }: CgaAssessmentProps) {
   const [assessment, setAssessment] = useState<Assessment | null>(null);
   const [savedAssessments, setSavedAssessments] = useState<Partial<Record<CgaScaleId, Assessment>>>({});
   const [report, setReport] = useState<CgaReport | null>(null);
+  const [comparison, setComparison] = useState<CgaComparison | null>(null);
   const [history, setHistory] = useState<CgaHistoryItem[]>([]);
   const [selectedScaleId, setSelectedScaleId] = useState<CgaScaleId | null>(null);
   const [loadingDirectory, setLoadingDirectory] = useState(true);
@@ -260,7 +262,19 @@ export function CgaAssessment({ onExit }: CgaAssessmentProps) {
       setSavedAssessments((current) => ({ ...current, [scale.id]: next! }));
       setSelectedScaleId(scale.id);
       setAssessment(next);
-      setReport(next.status === "completed" ? await getCgaReport(next.assessment_id) : null);
+      if (next.status === "completed") {
+        setReport(await getCgaReport(next.assessment_id));
+        try {
+          setComparison(await getCgaComparison(next.assessment_id));
+        } catch {
+          // The completed report remains usable if its optional historical
+          // comparison read is temporarily unavailable.
+          setComparison(null);
+        }
+      } else {
+        setReport(null);
+        setComparison(null);
+      }
     } catch {
       setError("评估服务暂时不可用。请检查网络后重试，已有进度不会被清除。");
     } finally {
@@ -285,6 +299,11 @@ export function CgaAssessment({ onExit }: CgaAssessmentProps) {
       setSelectedScaleId(scale.id);
       setAssessment(historicAssessment);
       setReport(await getCgaReport(historicAssessment.assessment_id));
+      try {
+        setComparison(await getCgaComparison(historicAssessment.assessment_id));
+      } catch {
+        setComparison(null);
+      }
     } catch {
       setError("这份历史筛查报告暂时无法读取，请稍后重试。");
     } finally {
@@ -317,6 +336,11 @@ export function CgaAssessment({ onExit }: CgaAssessmentProps) {
       setAssessment(completed);
       setSavedAssessments((current) => ({ ...current, [completed.scale_id]: completed }));
       setReport(await getCgaReport(completed.assessment_id));
+      try {
+        setComparison(await getCgaComparison(completed.assessment_id));
+      } catch {
+        setComparison(null);
+      }
     } catch {
       setError("结果尚未生成。请重试；您的已答内容仍会保留。");
     } finally {
@@ -329,6 +353,7 @@ export function CgaAssessment({ onExit }: CgaAssessmentProps) {
     localStorage.removeItem(assessmentKey(selectedScale.id));
     setAssessment(null);
     setReport(null);
+    setComparison(null);
     setManualInput("");
     setSelectedOrdinalScore(null);
     setSupplementalDetail("");
@@ -348,6 +373,7 @@ export function CgaAssessment({ onExit }: CgaAssessmentProps) {
   const backToDirectory = () => {
     setAssessment(null);
     setReport(null);
+    setComparison(null);
     setSelectedScaleId(null);
     setError(null);
     setNotice(null);
@@ -628,6 +654,20 @@ export function CgaAssessment({ onExit }: CgaAssessmentProps) {
               <p className={cn("mt-4", textClass)}>得分：<strong>{report.total_score} / {report.score_max}</strong></p>
               {report.raw_score !== null && report.standard_score !== null && <p className={cn("mt-2", textClass)}>粗分：{report.raw_score}；标准分：{report.standard_score}</p>}
               <p className={cn("mt-2", textClass)}>分级：{SEVERITY_LABEL[report.severity]}</p>
+              {comparison && (
+                <div className={cn("mt-4 rounded-md border bg-muted/50 p-3", textClass)}>
+                  <p className="font-medium">与上一次同量表筛查的对照</p>
+                  {comparison.status === "comparable" && comparison.prior && comparison.score_delta !== null ? (
+                    <>
+                      <p className="mt-2">本次与上次的分数差：<strong>{comparison.score_delta > 0 ? "+" : ""}{comparison.score_delta}</strong></p>
+                      <p className="mt-2 text-muted-foreground">上次完成于 {new Date(comparison.prior.completed_at).toLocaleString("zh-CN")}。</p>
+                    </>
+                  ) : (
+                    <p className="mt-2">{comparison.status === "definition_version_changed" ? "两次量表版本不同，未作分数对照。" : "暂无可对照的同量表历史结果。"}</p>
+                  )}
+                  <p className="mt-2 text-muted-foreground">{comparison.disclaimer}</p>
+                </div>
+              )}
               {Object.keys(report.component_scores).length > 0 && (
                 <div className={cn("mt-4 rounded-md bg-muted p-3", textClass)}>
                   <p className="font-medium">各项得分</p>

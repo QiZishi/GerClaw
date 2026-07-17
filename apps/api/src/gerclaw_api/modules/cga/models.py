@@ -131,6 +131,18 @@ class CgaHistoryRead(BaseModel):
     items: list[CgaHistoryItemRead] = Field(default_factory=list, max_length=20)
 
 
+class CgaComparisonRead(BaseModel):
+    """A descriptive, version-safe comparison of two caller-owned screenings."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    status: Literal["comparable", "no_prior_same_scale", "definition_version_changed"]
+    current: CgaHistoryItemRead
+    prior: CgaHistoryItemRead | None = None
+    score_delta: int | None = Field(default=None, ge=-100, le=100)
+    disclaimer: str
+
+
 class CgaActiveAssessmentsRead(BaseModel):
     """A bounded list of the caller's resumable screenings only."""
 

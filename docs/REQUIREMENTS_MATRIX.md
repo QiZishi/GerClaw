@@ -24,7 +24,7 @@
 | AI-06 | Privacy | security、harness safety | PHI/凭证、注入、诊断、红旗、自伤、免责声明 | 🚧 核心规则分散，缺独立完整模块 |
 | AI-07 | MinerU Document | document module、上传 UI | PDF/Office/MD/TXT 真实解析、轮询、重试 | 🚧 Next.js BFF 已真实完成签名上传、轮询和 Markdown 下载；2026-07-17 对用户指定的既有病例 PDF 实测返回 HTTP 200 与 4,698 字符 Markdown，随后登记为 `mineru` 会话输入、撤销资料并删除临时会话均返回 200。FastAPI 已登记加密会话文档，删除会话会级联擦除会话消息、文档、临床收集及会话绑定审批/检查点。上传资料按当前设计是当前会话的受控输入，**不作为私有向量知识库证据**；长文档受限上下文策略、跨会话保留、医生授权与病毒扫描待完成 |
 | AI-08 | Provider capability/version | services/adapters | schema/version/能力协商与不兼容拒绝 | 🚧 AgentScope 版本固定，其他 adapter 合同未统一 |
-| CLN-01 | CGA 后端闭环 | cga module/API/UI | 量表、答案、确定性计分、报告、历史 | 🚧 PHQ-9、SAS、PSQI 已具版本化 FastAPI 状态机、确定性计分、患者端真实 API、报告导出与本人历史；Mini-Cog/MMSE 的人工确认、医生授权与历史比较待完成 |
+| CLN-01 | CGA 后端闭环 | cga module/API/UI | 量表、答案、确定性计分、报告、历史 | 🚧 PHQ-9、SAS、PSQI 已具版本化 FastAPI 状态机、确定性计分、患者端真实 API、报告导出与本人历史；同一用户/量表/版本的相邻完成结果可作数值对照，版本不同明确拒绝比较且不作临床解释；Mini-Cog/MMSE 的人工确认与医生授权待完成 |
 | CLN-02 | 五大处方后端闭环 | prescription module/API/UI | 模板 JSON、四重校验、证据、版本、审批、导出 | 🚧 真实、加密、版本化的最小信息收集与 MinerU 资料绑定已接入；没有医学审核的 JSON 模板、四重校验、证据、报告、导出或医生批准，页面不得生成处方建议 |
 | CLN-03 | 用药审查规则 | medication module/API/UI | DDI/Beers/剂量/重复、版本和来源 | 🚧 真实、加密、版本化的用药信息收集已接入；本人范围内可核对 Unicode/空白规范化后完全相同的录入行，明确不推断药物、成分、剂量或重复用药。没有经医学审核的 DDI/Beers/剂量/重复用药规则、来源版本、审查结论或医生批准 |
 | CLN-04 | 健康画像产品 UI | memory API、RightPanel | 本人/授权医生读取、确认/退役、历史 | 🚧 当前访客可经受限 BFF 读取本人已确认事实，并确认/忽略待确认事实；账号、患者授权、医生跨患者读取与历史视图待完成 |
