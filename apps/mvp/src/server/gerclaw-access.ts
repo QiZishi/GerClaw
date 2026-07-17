@@ -36,9 +36,8 @@ async function issueGuestCredential(visitorId: string): Promise<{ accessToken: s
 /** Resolve account identity or a bounded, patient-only guest identity. */
 export async function resolveGerclawAccess(
   request: Request,
-  _options: { refreshGuest?: boolean } = {},
+  options: { refreshGuest?: boolean } = {},
 ): Promise<GerclawAccess> {
-  void _options;
   const cookieHeader = request.headers.get("cookie") ?? "";
   const accountAccessToken = readCookie(cookieHeader, ACCOUNT_ACCESS_COOKIE);
   if (accountAccessToken) return { accessToken: accountAccessToken, applyCookies: () => undefined };
@@ -47,7 +46,9 @@ export async function resolveGerclawAccess(
   // This is deliberately a session cookie: closing the browser removes it, so
   // a later guest entry cannot restore the prior guest's chat history.
   const guestAccessToken = readCookie(cookieHeader, GUEST_ACCESS_COOKIE);
-  if (guestAccessToken) return { accessToken: guestAccessToken, applyCookies: () => undefined };
+  if (guestAccessToken && !options.refreshGuest) {
+    return { accessToken: guestAccessToken, applyCookies: () => undefined };
+  }
   const visitorId = randomUUID().replaceAll("-", "");
   const credential = await issueGuestCredential(visitorId);
   return {

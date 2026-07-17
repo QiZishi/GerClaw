@@ -13,7 +13,7 @@ test("guest access is stable within one browser session without becoming persist
   globalThis.fetch = async () => {
     issuedCredentials += 1;
     return new Response(
-      JSON.stringify({ access_token: "a".repeat(32), expires_in: 3_600 }),
+      JSON.stringify({ access_token: String(issuedCredentials).repeat(32), expires_in: 3_600 }),
       { status: 200, headers: { "Content-Type": "application/json" } },
     );
   };
@@ -36,6 +36,18 @@ test("guest access is stable within one browser session without becoming persist
     );
     assert.equal(second.accessToken, first.accessToken);
     assert.equal(issuedCredentials, 1);
+
+    const refreshed = await resolveGerclawAccess(
+      new Request("https://mvp.example.test/api/mineru/parse", {
+        headers: { cookie: `${GUEST_ACCESS_COOKIE}=${guestToken}` },
+      }),
+      { refreshGuest: true },
+    );
+    assert.notEqual(refreshed.accessToken, first.accessToken);
+    assert.equal(issuedCredentials, 2);
+    const refreshedResponse = new Response();
+    refreshed.applyCookies(refreshedResponse);
+    assert.doesNotMatch(refreshedResponse.headers.get("set-cookie") ?? "", /Max-Age=/i);
   } finally {
     globalThis.fetch = originalFetch;
     if (originalApiUrl === undefined) delete process.env.GERCLAW_API_URL;
