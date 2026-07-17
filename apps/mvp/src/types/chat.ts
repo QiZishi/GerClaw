@@ -232,6 +232,8 @@ export interface Message {
   loadedSkills?: string[];
   /** 已上传文件ID列表 */
   uploadedFiles?: string[];
+  /** 生成这条消息的受治理对话模式；用于避免跨模式展示错误的安全文案。 */
+  workflow?: "standard" | "companion";
   /** 是否含免责声明 */
   hasDisclaimer?: boolean;
   /**
@@ -285,6 +287,7 @@ export interface InputContext {
 /** 聊天中可加载的功能动作类型（在中间栏执行，非右侧面板）*/
 export type ChatActionType =
   | "none"
+  | "companion"
   | "prescription"
   | "cga"
   | "drug-review"

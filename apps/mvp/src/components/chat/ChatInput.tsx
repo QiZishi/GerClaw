@@ -80,6 +80,8 @@ interface ChatInputProps {
   onStop?: () => void;
   onStartAction?: (action: "prescription" | "cga" | "drug-review" | "health-profile") => void;
   contextLoading?: boolean;
+  /** The companion backend rejects files and Skills; keep the controls truthful. */
+  companionMode?: boolean;
 }
 
 function WaveformBars({ audioLevel }: { audioLevel: number }) {
@@ -284,6 +286,7 @@ export function ChatInput({
   onStop,
   onStartAction,
   contextLoading = false,
+  companionMode = false,
 }: ChatInputProps) {
   const [mounted, setMounted] = useState(false);
   const role = useAppStore((s) => s.role);
@@ -701,6 +704,8 @@ export function ChatInput({
     ? "描述您的健康问题…"
     : contextLoading
       ? "正在恢复当前会话的技能，请稍候…"
+    : companionMode
+      ? "想说些什么？我会认真听您说…"
     : role === "doctor"
       ? seniorMode
         ? "请描述患者病情或评估需求…"
@@ -717,6 +722,10 @@ export function ChatInput({
 
   const handleSend = async () => {
     const trimmed = text.trim();
+    if (companionMode && (pendingImages.length > 0 || pendingDocuments.length > 0)) {
+      toast.show("陪伴模式仅支持文字或语音交流，请先移除资料后再发送。");
+      return;
+    }
     if (
       (!trimmed && (pendingImages.length === 0 || hasUnboundParsedDocuments)) ||
       isGenerating ||
@@ -894,7 +903,7 @@ export function ChatInput({
   return (
     <div className="border-t border-border bg-background px-4 py-3">
       <div className="max-w-3xl mx-auto">
-        {(loadedSkillIds.length > 0 || pendingImages.length > 0 || pendingDocuments.length > 0) && (
+        {(!companionMode && (loadedSkillIds.length > 0 || pendingImages.length > 0 || pendingDocuments.length > 0)) && (
           <div className="flex flex-wrap gap-2 mb-2">
             {pendingDocuments.map((file) => (
               <div key={file.id} className="min-w-0 space-y-2">
@@ -954,28 +963,32 @@ export function ChatInput({
             ))}
           </div>
         )}
-        {hasUnboundParsedDocuments && (
+        {!companionMode && hasUnboundParsedDocuments && (
           <p className={cn("mb-2 rounded-lg border border-primary/20 bg-primary/5 px-3 py-2 text-muted-foreground", seniorMode ? "text-lg leading-8" : "text-sm")} role="status">
             文档已准备好。请在下方提出您想了解的问题，发送后才会安全加入本次对话。
           </p>
         )}
 
-        <input
-          ref={imageInputRef}
-          type="file"
-          accept={ALLOWED_IMAGE_MIME_TYPES.join(",")}
-          multiple
-          className="hidden"
-          onChange={handleImageChange}
-        />
-        <input
-          ref={fileInputRef}
-          type="file"
-          accept={ALLOWED_FILE_EXT.join(",")}
-          multiple
-          className="hidden"
-          onChange={handleFileChange}
-        />
+        {!companionMode && (
+          <>
+            <input
+              ref={imageInputRef}
+              type="file"
+              accept={ALLOWED_IMAGE_MIME_TYPES.join(",")}
+              multiple
+              className="hidden"
+              onChange={handleImageChange}
+            />
+            <input
+              ref={fileInputRef}
+              type="file"
+              accept={ALLOWED_FILE_EXT.join(",")}
+              multiple
+              className="hidden"
+              onChange={handleFileChange}
+            />
+          </>
+        )}
 
         <div className="rounded-xl border border-border bg-muted/50 focus-within:border-primary/50 focus-within:ring-2 focus-within:ring-ring/40 transition-all duration-200">
           <textarea
@@ -994,15 +1007,21 @@ export function ChatInput({
           />
 
           <div className="flex items-end justify-between gap-2 px-2 py-1.5 border-t border-border/60">
-            <FunctionButtonGroup
-              disabled={isTranscribing || contextLoading}
-              role={role}
-              mounted={mounted}
-      seniorMode={seniorMode}
-      onSetChatAction={handleStartAction}
-              onPickImage={handleImageSelect}
-              onPickFile={handleFileSelect}
-            />
+            {companionMode ? (
+              <p className={cn("px-2 text-muted-foreground", seniorMode ? "text-base" : "text-xs")}>
+                仅使用当前对话，不读取健康档案、资料或技能
+              </p>
+            ) : (
+              <FunctionButtonGroup
+                disabled={isTranscribing || contextLoading}
+                role={role}
+                mounted={mounted}
+                seniorMode={seniorMode}
+                onSetChatAction={handleStartAction}
+                onPickImage={handleImageSelect}
+                onPickFile={handleFileSelect}
+              />
+            )}
 
             <div className="flex items-center gap-1">
               {isGenerating ? (
@@ -1101,7 +1120,9 @@ export function ChatInput({
               正在恢复当前会话的技能，恢复完成后即可发送。
             </span>
           )}
-          {MEDICAL_DISCLAIMER}
+          {companionMode
+            ? "此模式提供情感支持，不替代医疗咨询、心理治疗或紧急援助。"
+            : MEDICAL_DISCLAIMER}
         </div>
       </div>
 

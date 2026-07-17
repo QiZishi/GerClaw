@@ -162,6 +162,8 @@ export async function streamAgentChat(
     message: string;
     loadedSkills: string[];
     uploadedDocumentIds?: string[];
+    /** Companion has an isolated, no-tool backend policy. */
+    workflow?: "standard" | "companion";
   },
   signal: AbortSignal,
   callbacks: AgentChatCallbacks
@@ -208,7 +210,7 @@ export async function streamAgentChat(
         loaded_skills: input.loadedSkills,
         uploaded_files: input.uploadedDocumentIds ?? [],
         channel: "web",
-        workflow: "standard",
+        workflow: input.workflow ?? "standard",
       }),
       credentials: "same-origin",
       cache: "no-store",

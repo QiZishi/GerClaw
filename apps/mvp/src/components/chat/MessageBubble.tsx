@@ -98,7 +98,13 @@ function EmergencyWarningCard({
  * its final safety check. Put that state at the top of the output, where it
  * cannot be missed after a long response.
  */
-function IncompleteAnswerWarning({ seniorMode }: { seniorMode: boolean }) {
+function IncompleteAnswerWarning({
+  seniorMode,
+  companionMode,
+}: {
+  seniorMode: boolean;
+  companionMode: boolean;
+}) {
   return (
     <section
       role="alert"
@@ -110,10 +116,12 @@ function IncompleteAnswerWarning({ seniorMode }: { seniorMode: boolean }) {
     >
       <div className={cn("flex items-center gap-2 font-bold", seniorMode ? "text-lg" : "text-base")}>
         <AlertTriangle aria-hidden className={cn("shrink-0", seniorMode ? "size-6" : "size-5")} />
-        <span>本次回答未完成</span>
+        <span>本次回复未完成</span>
       </div>
       <p className={cn("mt-2 leading-relaxed", seniorMode ? "text-lg" : "text-sm")}>
-        以下内容未经最终安全校验，请勿据此调整治疗或用药。您可以重新生成，或咨询医生。
+        {companionMode
+          ? "以下内容未经最终安全校验。您可以重新生成，或稍后再试。"
+          : "以下内容未经最终安全校验，请勿据此调整治疗或用药。您可以重新生成，或咨询医生。"}
       </p>
     </section>
   );
@@ -457,6 +465,7 @@ export function MessageBubble({
     (message.status === "done" || message.status === "stopped" || message.status === "error");
   const stoppedAssistant = !isUser && message.status === "stopped";
   const errorAssistant = !isUser && message.status === "error";
+  const companionMode = message.workflow === "companion";
 
   return (
     <div
@@ -496,7 +505,9 @@ export function MessageBubble({
             seniorMode={seniorMode}
           />
         )}
-        {!isUser && errorAssistant && <IncompleteAnswerWarning seniorMode={seniorMode} />}
+        {!isUser && errorAssistant && (
+          <IncompleteAnswerWarning seniorMode={seniorMode} companionMode={companionMode} />
+        )}
         <div
           className={cn(
             "rounded-2xl px-4 py-2.5 shadow-sm",
@@ -673,7 +684,9 @@ export function MessageBubble({
             "text-muted-foreground px-2",
             seniorMode ? "text-lg leading-relaxed" : "text-[11px]"
           )}>
-            {MEDICAL_DISCLAIMER}
+            {companionMode
+              ? "此模式提供情感支持，不替代医疗咨询、心理治疗或紧急援助。"
+              : MEDICAL_DISCLAIMER}
           </div>
         )}
 

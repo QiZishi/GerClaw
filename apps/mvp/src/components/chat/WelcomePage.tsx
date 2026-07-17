@@ -4,6 +4,7 @@ import { useState, useEffect } from "react";
 import {
   ClipboardCheck,
   FileSearch,
+  HeartHandshake,
   HeartPulse,
   Pill,
   Stethoscope,
@@ -88,6 +89,12 @@ export function WelcomePage({
       label: "我的慢病记录",
       desc: "记录测量值，只显示数值变化",
       action: "chronic-care" as const,
+    },
+    {
+      icon: HeartHandshake,
+      label: "暖心陪伴",
+      desc: "倾诉与陪伴；不替代医疗咨询",
+      action: "companion" as const,
     },
   ];
 

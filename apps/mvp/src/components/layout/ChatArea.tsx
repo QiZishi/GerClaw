@@ -5,6 +5,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import {
   ArrowLeft,
   AlertTriangle,
+  HeartHandshake,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import {
@@ -160,7 +161,7 @@ export function ChatArea() {
 
   // 仅健康画像由右侧面板承载；其余入口均由各自的真实后端流程承载。
   useEffect(() => {
-    if (chatAction === "none" || chatAction === "cga" || chatAction === "prescription" || chatAction === "drug-review" || chatAction === "chronic-care") return;
+    if (chatAction === "none" || chatAction === "companion" || chatAction === "cga" || chatAction === "prescription" || chatAction === "drug-review" || chatAction === "chronic-care") return;
     setChatAction("none");
   }, [chatAction, setChatAction]);
 
@@ -196,6 +197,7 @@ export function ChatArea() {
     if (userMsgIndex < 0) return;
     
     const userMsg = messages[userMsgIndex];
+    const assistantWorkflow = messages[aiMsgIndex]?.workflow ?? "standard";
     const userText = getTextFromMessage(userMsg);
     const userImages: ImageAttachment[] = userMsg.blocks
       .filter((b): b is Extract<MessageBlock, { kind: "image" }> => b.kind === "image")
@@ -209,7 +211,8 @@ export function ChatArea() {
       userText,
       true,
       userImages.length > 0 ? userImages : undefined,
-      userMsg.uploadedFiles ?? []
+      userMsg.uploadedFiles ?? [],
+      assistantWorkflow
     );
   };
 
@@ -265,19 +268,24 @@ export function ChatArea() {
     images?: ImageAttachment[],
     documents: ChatDocumentAttachment[] = []
   ) => {
-    if (chatAction !== "none") {
+    const workflow = chatAction === "companion" ? "companion" : "standard";
+    if (chatAction !== "none" && chatAction !== "companion") {
       toast.show("请先保存信息或返回健康咨询后再发送消息。");
+      return false;
+    }
+    if (workflow === "companion" && (images?.length || documents.length)) {
+      toast.show("陪伴模式不接收图片、文件或技能，请用文字或语音交流。");
       return false;
     }
     if (!currentSessionId) {
       const sid = createSession(role);
-      if (loadedSkillIds.length > 0) {
+      if (workflow === "standard" && loadedSkillIds.length > 0) {
         pendingSkillSelectionRef.current.set(sid, [...loadedSkillIds]);
       }
       setCurrentSession(sid);
       try {
         const bindings = await prepareDocuments(sid, documents);
-        doSend(sid, text, false, images, Object.values(bindings));
+        doSend(sid, text, false, images, Object.values(bindings), workflow);
         return { accepted: true as const, documentBindings: bindings, documentSessionId: sid };
       } catch (error) {
         toast.show(error instanceof Error ? error.message : "文档无法安全加入本次对话");
@@ -287,14 +295,14 @@ export function ChatArea() {
     const liveSessionId = useAppStore.getState().currentSessionId;
     if (
       liveSessionId !== currentSessionId ||
-      skillSelectionReadySessionIdRef.current !== liveSessionId
+      (workflow === "standard" && skillSelectionReadySessionIdRef.current !== liveSessionId)
     ) {
       toast.show("正在恢复当前会话的技能，请稍候再发送");
       return false;
     }
     try {
       const bindings = await prepareDocuments(currentSessionId, documents);
-      doSend(currentSessionId, text, false, images, Object.values(bindings));
+      doSend(currentSessionId, text, false, images, Object.values(bindings), workflow);
       return {
         accepted: true as const,
         documentBindings: bindings,
@@ -311,7 +319,8 @@ export function ChatArea() {
     text: string,
     isRegenerate = false,
     images?: ImageAttachment[],
-    uploadedDocumentIds: string[] = []
+    uploadedDocumentIds: string[] = [],
+    workflow: "standard" | "companion" = "standard"
   ) => {
     const userBlocks: MessageBlock[] = [];
     if (images && images.length > 0) {
@@ -334,6 +343,7 @@ export function ChatArea() {
       status: "done",
       createdAt: Date.now(),
       uploadedFiles: uploadedDocumentIds.length > 0 ? uploadedDocumentIds : undefined,
+      workflow,
     };
     if (!isRegenerate) {
       addMessage(userMsg);
@@ -360,6 +370,7 @@ export function ChatArea() {
       status: "streaming",
       createdAt: Date.now(),
       hasDisclaimer: false,
+      workflow,
     };
     addMessage(assistantMsg);
     initMessageThinking(assistantMsgId, initialThinkingBlockId);
@@ -373,8 +384,9 @@ export function ChatArea() {
       {
         localSessionId: sid,
         message: text,
-        loadedSkills: loadedSkillIds,
-        uploadedDocumentIds,
+        loadedSkills: workflow === "companion" ? [] : loadedSkillIds,
+        uploadedDocumentIds: workflow === "companion" ? [] : uploadedDocumentIds,
+        workflow,
       },
       abortControllerRef.current.signal,
       {
@@ -524,7 +536,9 @@ export function ChatArea() {
           const msgNow = useChatStore.getState().messagesBySession[sid]?.find(
             (message) => message.id === assistantMsgId
           );
-          const stoppedNotice = `⚠️ ${cancellationMessage}以上内容不完整且未通过最终校验，请勿据此调整治疗或用药。`;
+          const stoppedNotice = workflow === "companion"
+            ? `⚠️ ${cancellationMessage}以上内容不完整，请重新生成或稍后再试。`
+            : `⚠️ ${cancellationMessage}以上内容不完整且未通过最终校验，请勿据此调整治疗或用药。`;
           const updatedBlocks = msgNow?.blocks.map((block) => {
             if (block.kind === "text" && block.id === assistantBlockId) {
               return {
@@ -582,7 +596,9 @@ export function ChatArea() {
           const updatedBlocks = msgNow?.blocks.map((block) => {
             if (block.kind === "text" && block.id === assistantBlockId) {
               const partialContent = block.content.trim();
-              const incompleteNotice = "⚠️ 本次回答未完成，未通过最终安全校验。请点击“重新生成”重试；请勿据此调整治疗或用药。";
+              const incompleteNotice = workflow === "companion"
+                ? "⚠️ 本次回复未完成，未通过最终安全校验。请点击“重新生成”重试。"
+                : "⚠️ 本次回答未完成，未通过最终安全校验。请点击“重新生成”重试；请勿据此调整治疗或用药。";
               return {
                 ...block,
                 content: awaitingApproval
@@ -637,6 +653,14 @@ const handleExampleClick = (text: string) => {
       setChatAction("chronic-care");
       return;
     }
+    if (action === "companion") {
+      // A fresh local session prevents ordinary medical-chat context, a selected
+      // Skill, or a pending document from silently crossing into this mode.
+      const companionSessionId = createSession(role);
+      setCurrentSession(companionSessionId);
+      setChatAction("companion");
+      return;
+    }
     if (action === "prescription" || action === "drug-review") {
       let sessionId = currentSessionId;
       if (!sessionId) {
@@ -678,6 +702,7 @@ const handleExampleClick = (text: string) => {
 
   const actionTitles: Record<string, string> = {
     prescription: "五大处方信息收集",
+    companion: "暖心陪伴",
     cga: "老年综合评估",
     "drug-review": "用药信息收集",
     "chronic-care": "我的慢病记录",
@@ -792,19 +817,35 @@ const handleExampleClick = (text: string) => {
         </div>
       ) : (
         <div className="flex-1 min-h-0 overflow-hidden flex flex-col">
+          {chatAction === "companion" && (
+            <section
+              className={cn(
+                "mx-auto mt-4 flex w-full max-w-3xl items-start gap-3 border-l-4 border-primary bg-primary/5 px-4 py-3 text-left",
+                seniorMode ? "text-lg leading-8" : "text-sm leading-6"
+              )}
+              aria-label="暖心陪伴模式说明"
+            >
+              <HeartHandshake className="mt-1 size-5 shrink-0 text-primary" aria-hidden="true" />
+              <div>
+                <p className="font-semibold text-foreground">暖心陪伴</p>
+                <p className="text-muted-foreground">我是一位 AI，可以听您说说心里话。本次不读取健康档案、上传资料或技能，也不替代医疗咨询或紧急援助。</p>
+              </div>
+            </section>
+          )}
           {messages.length > 0 && <MessageList messages={messages} onRegenerate={handleRegenerate} onShare={(messageId) => setExportMessageId(messageId)} onDelete={handleDeleteRequest} />}
         </div>
       )}
 
-      {chatAction === "none" && (
+      {(chatAction === "none" || chatAction === "companion") && (
         <ChatInput
           onSend={handleSend}
           isGenerating={isGenerating}
           onStop={handleStop}
           onStartAction={handleStartAction}
           contextLoading={Boolean(
-            currentSessionId && skillSelectionReadySessionId !== currentSessionId
+            chatAction !== "companion" && currentSessionId && skillSelectionReadySessionId !== currentSessionId
           )}
+          companionMode={chatAction === "companion"}
         />
       )}
 
