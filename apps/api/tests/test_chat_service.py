@@ -22,7 +22,11 @@ from gerclaw_api.config import Settings
 from gerclaw_api.database.models import ConversationSession, ExecutionTrace
 from gerclaw_api.domain.chat_schemas import ChatRequest
 from gerclaw_api.domain.enums import TraceStatus
-from gerclaw_api.domain.trace_schemas import TraceEventCreate, TraceFinishRequest
+from gerclaw_api.domain.trace_schemas import (
+    TraceEventCreate,
+    TraceFinishRequest,
+    TraceStartRequest,
+)
 from gerclaw_api.modules.memory.models import MemoryUpdateResult
 from gerclaw_api.modules.memory.protocols import MemoryMessage, UserProfile
 from gerclaw_api.modules.runtime.models import ActorRole
@@ -247,6 +251,7 @@ class _TraceFacade:
         self.fail_cancelled_finish = fail_cancelled_finish
         self.events: list[TraceEventCreate] = []
         self.finishes: list[TraceFinishRequest] = []
+        self.start_request: TraceStartRequest | None = None
         self.trace = ExecutionTrace(
             trace_id="trace_chat_busy_0001",
             request_id="request_chat_busy_0001",
@@ -259,7 +264,10 @@ class _TraceFacade:
             started_at=datetime.now(UTC),
         )
 
-    async def start_trace_with_status(self, *_args: object, **_kwargs: object) -> TraceStartResult:
+    async def start_trace_with_status(
+        self, request: TraceStartRequest, *_args: object, **_kwargs: object
+    ) -> TraceStartResult:
+        self.start_request = request
         return TraceStartResult(trace=self.trace, created=self.created)
 
     async def append_event(
@@ -455,6 +463,10 @@ async def test_owned_turn_streams_only_after_durable_success(unit_settings: Sett
     assert memory.compensation_count == 0
     assert response.text.endswith("内容由 AI 生成，仅供参考。身体不适请及时就医。")
     assert traces.trace.status == TraceStatus.COMPLETED.value
+    assert traces.start_request is not None
+    assert traces.start_request.attributes["workflow"] == "standard"
+    assert traces.start_request.attributes["workflow_version"] == "1.0.0"
+    assert traces.start_request.attributes["workflow_owner_module"] == "agent_harness"
     trace_event_types = [event.event_type.value for event in traces.events]
     assert trace_event_types == [
         "agent.start",

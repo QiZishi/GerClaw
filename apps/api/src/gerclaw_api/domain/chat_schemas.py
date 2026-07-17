@@ -10,6 +10,11 @@ from pydantic import BaseModel, ConfigDict, Field, field_validator, model_valida
 
 from gerclaw_api.modules.contracts import Citation, SafetyDecision
 from gerclaw_api.modules.skill.models import SkillId
+from gerclaw_api.modules.workflows import (
+    WorkflowContextError,
+    WorkflowId,
+    get_default_workflow_registry,
+)
 
 STRICT = ConfigDict(extra="forbid")
 
@@ -24,7 +29,7 @@ class ChatRequest(BaseModel):
     loaded_skills: list[SkillId] = Field(default_factory=list, max_length=20)
     uploaded_files: list[uuid.UUID] = Field(default_factory=list, max_length=10)
     channel: Literal["web"] = "web"
-    workflow: Literal["standard", "cga", "companion"] = "standard"
+    workflow: WorkflowId = WorkflowId.STANDARD
 
     @field_validator("message")
     @classmethod
@@ -35,11 +40,17 @@ class ChatRequest(BaseModel):
         return normalized
 
     @model_validator(mode="after")
-    def restrict_companion_context(self) -> ChatRequest:
-        """Keep companion mode isolated from tools and uploaded PHI context."""
+    def validate_workflow_context(self) -> ChatRequest:
+        """Use the Runtime-owned workflow policy instead of UI-local branching."""
 
-        if self.workflow == "companion" and (self.loaded_skills or self.uploaded_files):
-            raise ValueError("companion workflow does not accept Skills or uploaded files")
+        try:
+            get_default_workflow_registry().validate_context(
+                self.workflow,
+                loaded_skill_count=len(self.loaded_skills),
+                uploaded_file_count=len(self.uploaded_files),
+            )
+        except WorkflowContextError as error:
+            raise ValueError(str(error)) from error
         return self
 
 

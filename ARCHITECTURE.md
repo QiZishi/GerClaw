@@ -51,7 +51,7 @@ apps/api (FastAPI)
 
 ### 2.2 当前 Runtime Harness
 
-`apps/api/src/gerclaw_api/modules/runtime/` 提供版本化 Capability、`RuntimePrincipal`、Pydantic Tool 输入边界、预算、PermissionEngine 与 AgentScope `GovernedTool` 代理。生产 Chat Toolkit 在注册表之前还会经过 `security_evaluation` 的版本绑定风险档案门禁；执行顺序是：服务器拥有的风险档案/注册表 → schema/字节数校验 → AgentScope 与 Runtime 双重授权 → 超时/输出上限 → Trace/终态。
+`apps/api/src/gerclaw_api/modules/runtime/` 提供版本化 Capability、`RuntimePrincipal`、Pydantic Tool 输入边界、预算、PermissionEngine 与 AgentScope `GovernedTool` 代理。`modules/workflows` 还对当前实际可进入 Chat 的 `standard`、`cga` 与 `companion` workflow 执行版本、责任模块、允许上下文和 workflow 风险档案核验；该定义版本会写入受限 Trace 属性。生产 Chat Toolkit 在注册表之前还会经过 `security_evaluation` 的版本绑定风险档案门禁；执行顺序是：服务器拥有的风险档案/注册表 → schema/字节数校验 → AgentScope 与 Runtime 双重授权 → 超时/输出上限 → Trace/终态。
 
 - 未注册工具、版本不匹配、缺 scope/角色、未验证患者访问、未脱敏的敏感外发与 critical action 默认拒绝。
 - 高风险或副作用工具需要幂等键和持久化人工审批；当前临床副作用 resume executor 尚未投入业务流程。
@@ -118,6 +118,7 @@ apps/api
 | 模块 | 当前真实能力 | 关键限制 |
 |---|---|---|
 | `agent_harness` | AgentScope ReAct、SSE、模型 failover、取消、医疗安全后处理 | 多智能体临床复核与临床副作用 workflow 未接入 |
+| `workflows` | Chat workflow 的版本、责任模块、允许上下文和 workflow 风险档案注册 | 不是工作流执行器；临床副作用恢复、补偿与批准后执行未接入 |
 | `runtime` | Capability registry、ALLOW/DENY/ASK、预算、审批与 checkpoint 契约 | 临床恢复 executor 未启用 |
 | `rag` | 本地知识库摄取、混合检索、重排、引用与 Agent 工具 | 专项质量/安全评测缺口见矩阵 |
 | `memory` | 加密会话事实、健康画像与无 PHI 语义引用 | 正式身份授权和生命周期治理未完成 |

@@ -103,6 +103,9 @@ ALLOWED_AUDIT_KEYS = frozenset(
         "tool_name",
         "total_tokens",
         "version",
+        "workflow",
+        "workflow_owner_module",
+        "workflow_version",
     }
 )
 

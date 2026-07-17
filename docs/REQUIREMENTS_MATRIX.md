@@ -13,7 +13,7 @@
 | RUN-02 | ALLOW/DENY/ASK 与 HITL | permission、approval | 三决策单测；ASK 可恢复审批 | 🚧 PermissionEngine、加密审批 API、一次性 token、pending SSE 已实现；临床副作用 resume executor 待业务模块启用 |
 | RUN-03 | 工具注册表和边界 | tools、harness | allowlist、schema、超时/大小/结果校验 | 🚧 RAG/Memory/Search/Skill 已通过 Runtime registry；初始本地 RAG 预取现以 `search_knowledge` 事件真实投影，临床写入工具待对应模块接入 |
 | RUN-04 | PHI-free Trace | trace repo/routes | 成功/失败/取消/工具/Skill 全事件 | 🚧 核心 Chat 已有，缺审批/临床模块/反馈 |
-| RUN-05 | workflow 与多智能体复核 | harness | standard/CGA；全科→老年专科复核 | 🚧 workflow 字段已有，缺生产复核链 |
+| RUN-05 | workflow 与多智能体复核 | harness、workflows | standard/CGA；全科→老年专科复核 | 🚧 `modules/workflows` 已以版本、owner、允许上下文和 workflow 风险档案注册标准咨询/CGA/陪伴，并实际在 Chat 前 fail closed、写入 Trace；仍缺生产多智能体复核、临床副作用恢复/补偿与批准后执行 |
 | RUN-06 | 长任务 checkpoint/replay | runtime、repositories | 重启恢复且副作用不重复 | 🚧 加密 checkpoint、状态指纹和版本 fail-closed 已实现；副作用 replay executor 待临床模块接入 |
 | RUN-07 | 执行预算 | harness、config | token/tool/time/call/output 超限稳定失败 | ✅ 统一 RuntimeBudgetTracker 已在 Agent Harness 计量 model/tool/step/token/output/wall-clock |
 | AI-01 | 本地 RAG | `modules/rag` | 436 文档、39,837 chunks、混合检索/重排/引用、显式 opt-in 合成评测 | 🚧 当前生产镜像 readiness 已核验语料/索引一致，2026-07-17 的真实 embedding/rerank/Qdrant 回归同时通过“命中文档”和“无本地证据返回空结果”两例；仍需扩大人工审核的医学正例/反例集并完成临床有效性评测 |
@@ -53,7 +53,7 @@
 | OPS-06 | 故障注入 | unit/integration/e2e | 断流/429/5xx/依赖中断/lost-ack/竞争/重启 | 🚧 RAG/Chat 有较强覆盖，临床/Document/HITL 缺失 |
 | OPS-07 | 供应链/SBOM | locks/CI/images | 固定版本、audit、SBOM、许可证、升级策略 | 🚧 lock/audit/CI pin 有；`security` 可从实际 production API image 生成 Python runtime CycloneDX SBOM，许可证未知项显式报告。Debian/npm runtime 清单、法务复审与发布签名仍待最终交付阶段。 |
 | OPS-08 | 千级扩展容量规划 | architecture/perf | 容量模型、背压、水平扩展、成本、压测计划 | ❌ 仅允许声明已验证的 10 并发范围 |
-| SEC-01 | red-team 与安全 eval | security-evaluation/eval/bad-case | 攻击语料、可执行风险档案、复现、回放、修复回归 | 🚧 Chat 的 `search_knowledge`、`search_memory`、`web_search` 已在 Runtime 注册/构建时经过版本、风险、网络、数据类别与必需控制的 fail-closed 档案门禁；外网工具还需服务端脱敏证明。其余 Agent/Skill/workflow/Memory/RAG-source 尚未接入生产档案门禁，统一攻击语料与回放仍缺 |
+| SEC-01 | red-team 与安全 eval | security-evaluation/eval/bad-case | 攻击语料、可执行风险档案、复现、回放、修复回归 | 🚧 Chat 的 `search_knowledge`、`search_memory`、`web_search` 已在 Runtime 注册/构建时经过版本、风险、网络、数据类别与必需控制的 fail-closed 档案门禁；外网工具还需服务端脱敏证明。`standard`、`cga`、`companion` workflow 也已在 Chat 前核验精确风险档案。其余 Agent/Skill/Memory/RAG-source 尚未接入生产档案门禁，统一攻击语料与回放仍缺 |
 | SEC-02 | 全出口泄露检测 | API/SSE/export/log/trace/vector | PHI/密钥 canary 在所有出口均不出现 | 🚧 核心日志/Trace/vector 已测，导出/临床未覆盖 |
 | SEC-03 | 第三方/依赖/镜像威胁模型 | security/CI | 最小权限、固定版本、响应/替换策略 | 🚧 部分 pin/audit，缺完整威胁模型 |
 | SEC-04 | 服务端安全边界 | auth/middleware/repos | scope/tenant/role/ownership/CSRF/CORS/SSRF/rate limit | 🚧 核心 scope/tenant/SSRF 已有，角色/CSRF 待补 |

@@ -31,7 +31,18 @@ STRICT_MODEL_CONFIG = ConfigDict(extra="forbid")
 
 EVENT_AUDIT_KEYS: dict[TraceEventType, frozenset[str]] = {
     TraceEventType.AGENT_START: frozenset(
-        {"channel", "feature", "model", "module", "operation", "provider", "protocol"}
+        {
+            "channel",
+            "feature",
+            "model",
+            "module",
+            "operation",
+            "provider",
+            "protocol",
+            "workflow",
+            "workflow_owner_module",
+            "workflow_version",
+        }
     ),
     TraceEventType.AGENT_FINISH: frozenset(
         {

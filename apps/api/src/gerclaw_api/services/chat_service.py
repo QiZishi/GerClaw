@@ -42,6 +42,7 @@ from gerclaw_api.modules.runtime.models import (
 )
 from gerclaw_api.modules.search.protocols import SearchModule
 from gerclaw_api.modules.skill.skill_module import ProductionSkillModule
+from gerclaw_api.modules.workflows import get_default_workflow_registry
 from gerclaw_api.repositories.approval import SqlAlchemyApprovalRepository
 from gerclaw_api.security import JsonValue, audit_hmac_digest
 from gerclaw_api.services.conversation_service import ConversationService
@@ -163,6 +164,11 @@ class ChatService:
         callback: StreamCallback,
         cancellation_requested: CancellationProbe | None = None,
     ) -> AgentResponse:
+        workflow = get_default_workflow_registry().validate_context(
+            payload.workflow,
+            loaded_skill_count=len(payload.loaded_skills),
+            uploaded_file_count=len(payload.uploaded_files),
+        )
         normalized = await self._input_output.normalize(
             AgentRequest(
                 context=ExecutionContext(
@@ -189,6 +195,9 @@ class ChatService:
                     "module": "agent_harness",
                     "operation": "process_message",
                     "request_fingerprint": request_fingerprint,
+                    "workflow": workflow.workflow_id.value,
+                    "workflow_version": workflow.version,
+                    "workflow_owner_module": workflow.owner_module,
                 },
             ),
             request_id,
@@ -380,7 +389,12 @@ class ChatService:
             session_id=payload.session_id,
             trace_id=trace_id,
         )
-        companion = is_companion_workflow(payload.workflow)
+        workflow = get_default_workflow_registry().validate_context(
+            payload.workflow,
+            loaded_skill_count=len(payload.loaded_skills),
+            uploaded_file_count=len(payload.uploaded_files),
+        )
+        companion = is_companion_workflow(workflow.workflow_id.value)
         if companion:
             history = await self._conversation.load_history(
                 payload.session_id,
@@ -470,8 +484,8 @@ class ChatService:
             memory_refs=memory_refs,
             session_summary=session_summary,
             search_module=self._search_module,
-            search_enabled=payload.workflow == "standard",
-            workflow=payload.workflow,
+            search_enabled=workflow.search_enabled,
+            workflow=workflow.workflow_id.value,
             agent_skills=agent_skills,
             loaded_skill_ids=payload.loaded_skills,
             uploaded_documents=uploaded_documents,
@@ -494,6 +508,9 @@ class ChatService:
                 "feature": "medical_chat",
                 "module": "agent_harness",
                 "operation": "process_message",
+                "workflow": workflow.workflow_id.value,
+                "workflow_version": workflow.version,
+                "workflow_owner_module": workflow.owner_module,
             },
             commit=False,
         )
@@ -1059,6 +1076,7 @@ class ChatService:
             "RuntimeBudgetExceededError": "CHAT_RUNTIME_BUDGET_EXCEEDED",
             "AgentApprovalRequiredError": "CHAT_APPROVAL_REQUIRED",
             "UnsupportedAgentContextError": "CHAT_CONTEXT_UNSUPPORTED",
+            "WorkflowContextError": "CHAT_CONTEXT_UNSUPPORTED",
             "DocumentContextError": "CHAT_DOCUMENT_UNAVAILABLE",
             "EmptyAgentResponseError": "CHAT_EMPTY_RESPONSE",
             "AgentScopeMemoryAdapterError": "CHAT_MEMORY_UNAVAILABLE",
