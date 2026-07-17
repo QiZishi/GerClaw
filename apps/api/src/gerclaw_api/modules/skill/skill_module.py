@@ -204,6 +204,29 @@ class ProductionSkillModule:
             raise RuntimeError("Skill generation model is unavailable")
         return await self._generator.generate(description)
 
+    async def evolve_skill_from_nl(
+        self,
+        skill_id: str,
+        *,
+        change_request: str,
+        expected_revision: int,
+    ) -> SkillDefinition:
+        """Generate a revision draft; saving it remains a separate explicit action."""
+
+        if self._generator is None:
+            raise RuntimeError("Skill generation model is unavailable")
+        if await self._builtins.get(skill_id) is not None:
+            raise SkillConflictError("system Skills are immutable")
+        record = await self._repository.get_custom(
+            skill_id, tenant_id=self._tenant_id, actor_id=self._actor_id
+        )
+        if record is None:
+            raise SkillNotFoundError("Skill not found")
+        current = self._definition_from_record(record)
+        if current.revision != expected_revision:
+            raise SkillConflictError("Skill revision is stale")
+        return await self._generator.evolve(current, change_request)
+
     async def resolve_agent_skills(self, skill_ids: list[str]) -> list[AgentScopeSkill]:
         skills = [await self.load_enabled_skill(skill_id) for skill_id in skill_ids]
         names = [item.definition.name.casefold() for item in skills]

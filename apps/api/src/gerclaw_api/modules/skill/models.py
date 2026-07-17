@@ -109,6 +109,23 @@ class SkillDraftRequest(BaseModel):
         return normalized
 
 
+class SkillEvolutionRequest(BaseModel):
+    """A caller-requested, review-only revision draft for one custom Skill."""
+
+    model_config = STRICT
+
+    change_request: str = Field(min_length=10, max_length=2_000)
+    expected_revision: int = Field(ge=1)
+
+    @field_validator("change_request")
+    @classmethod
+    def normalize_change_request(cls, value: str) -> str:
+        normalized = value.strip()
+        if not normalized:
+            raise ValueError("change_request cannot contain only whitespace")
+        return normalized
+
+
 class GeneratedSkillContent(BaseModel):
     """Structured model response before deterministic Markdown serialization."""
 

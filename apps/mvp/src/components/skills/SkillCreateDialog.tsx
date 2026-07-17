@@ -77,7 +77,9 @@ export function SkillEditorDialog({
   const create = useSkillStore((state) => state.create);
   const update = useSkillStore((state) => state.update);
   const generateDraft = useSkillStore((state) => state.generateDraft);
+  const evolveDraft = useSkillStore((state) => state.evolveDraft);
   const [description, setDescription] = useState("");
+  const [changeRequest, setChangeRequest] = useState("");
   const [markdown, setMarkdown] = useState(definition?.source_markdown ?? TEMPLATE);
   const [origin, setOrigin] = useState<"text" | "upload" | "generated">(
     mode === "upload" ? "upload" : "text"
@@ -125,6 +127,25 @@ export function SkillEditorDialog({
       onOpenChange(false);
     } catch (saveError) {
       setError(saveError instanceof Error ? saveError.message : "技能保存失败");
+    } finally {
+      setBusy(null);
+    }
+  };
+
+  const handleEvolve = async () => {
+    if (!definition || changeRequest.trim().length < 10) {
+      setError("请至少用 10 个字说明希望如何优化这个技能。");
+      return;
+    }
+    setBusy("generate");
+    setError(null);
+    try {
+      const draft = await evolveDraft(definition, changeRequest.trim());
+      setMarkdown(draft.source_markdown);
+      setOrigin("generated");
+      toast.show("已生成新的待审阅修订；确认无误后再保存");
+    } catch (evolutionError) {
+      setError(evolutionError instanceof Error ? evolutionError.message : "修订草稿生成失败");
     } finally {
       setBusy(null);
     }
@@ -183,6 +204,42 @@ export function SkillEditorDialog({
               >
                 {busy === "generate" ? <span className="text-base leading-none" aria-hidden="true">…</span> : <Bot className="size-5" />}
                 {busy === "generate" ? "正在生成草稿" : "生成可审阅草稿"}
+              </Button>
+            </div>
+          </section>
+        )}
+
+        {mode === "edit" && definition && (
+          <section className="space-y-3 rounded-xl border border-border bg-muted/20 p-4" aria-labelledby="skill-evolution-title">
+            <div>
+              <Label id="skill-evolution-title" htmlFor="skill-change-request" className={cn(seniorMode && "text-lg")}>
+                生成优化修订草稿（可选）
+              </Label>
+              <p className={cn("mt-1 text-xs text-muted-foreground", seniorMode && "text-lg leading-8")}>
+                保持技能编号不变，只生成更高版本的待审阅草稿；不会自动保存或启用。
+              </p>
+            </div>
+            <textarea
+              id="skill-change-request"
+              value={changeRequest}
+              onChange={(event) => setChangeRequest(event.target.value)}
+              maxLength={2_000}
+              placeholder="例如：增加对用户提供信息是否完整的核对步骤，并让输出先列出待向医生确认的问题。"
+              className={cn(
+                "min-h-24 w-full resize-y rounded-lg border border-input bg-background px-3 py-2 text-sm leading-6 outline-none focus-visible:border-ring focus-visible:ring-2 focus-visible:ring-ring/40",
+                seniorMode && "min-h-36 text-lg leading-8"
+              )}
+            />
+            <div className="flex flex-wrap items-center justify-between gap-3">
+              <span className={cn("text-xs text-muted-foreground", seniorMode && "text-lg")}>{changeRequest.length}/2000</span>
+              <Button
+                variant="outline"
+                onClick={() => void handleEvolve()}
+                disabled={busy !== null}
+                className={cn(seniorMode && "h-12 px-4 text-lg")}
+              >
+                {busy === "generate" ? <span className="text-base leading-none" aria-hidden="true">…</span> : <Bot className="size-5" />}
+                {busy === "generate" ? "正在生成修订" : "生成待审阅修订"}
               </Button>
             </div>
           </section>

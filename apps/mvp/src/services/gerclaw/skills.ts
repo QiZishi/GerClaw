@@ -55,6 +55,24 @@ export async function generateSkill(description: string): Promise<SkillDefinitio
   return result.definition;
 }
 
+export async function evolveSkill(
+  skill: SkillInfo,
+  changeRequest: string
+): Promise<SkillDefinition> {
+  const result = await gerclawRequest(
+    `skills/${encodeURIComponent(skill.skill_id)}/evolve`,
+    generatedSkillSchema,
+    {
+      method: "POST",
+      body: JSON.stringify({
+        change_request: changeRequest,
+        expected_revision: skill.revision,
+      }),
+    }
+  );
+  return result.definition;
+}
+
 export async function previewSkillUpload(file: File): Promise<SkillDefinition> {
   const body = new FormData();
   body.set("file", file);

@@ -1,6 +1,7 @@
 import { create } from "zustand";
 import {
   deleteSkill as deleteRemoteSkill,
+  evolveSkill,
   generateSkill,
   getSkill,
   listSkills,
@@ -25,6 +26,7 @@ interface SkillState {
   ) => Promise<SkillDefinition>;
   update: (skill: SkillInfo, markdown: string) => Promise<SkillDefinition>;
   generateDraft: (description: string) => Promise<SkillDefinition>;
+  evolveDraft: (skill: SkillInfo, changeRequest: string) => Promise<SkillDefinition>;
   inspectUpload: (file: File) => Promise<SkillDefinition>;
   toggle: (skill: SkillInfo, enabled: boolean) => Promise<SkillDefinition>;
   remove: (skill: SkillInfo) => Promise<void>;
@@ -64,6 +66,7 @@ export const useSkillStore = create<SkillState>()((set, get) => ({
     return definition;
   },
   generateDraft: (description) => generateSkill(description),
+  evolveDraft: (skill, changeRequest) => evolveSkill(skill, changeRequest),
   inspectUpload: (file) => previewSkillUpload(file),
   toggle: async (skill, enabled) => {
     const definition = await setSkillEnabled(skill, enabled);

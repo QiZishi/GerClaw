@@ -26,6 +26,15 @@ class SkillModule(Protocol):
     async def generate_skill_from_nl(self, description: str) -> SkillDefinition:
         """Generate a definition for review; registration remains explicit."""
 
+    async def evolve_skill_from_nl(
+        self,
+        skill_id: str,
+        *,
+        change_request: str,
+        expected_revision: int,
+    ) -> SkillDefinition:
+        """Generate a non-persistent next draft for one caller-owned Skill."""
+
 
 __all__ = [
     "Skill",

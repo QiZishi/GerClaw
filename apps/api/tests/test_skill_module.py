@@ -437,6 +437,45 @@ async def test_generator_preserves_stable_generation_error() -> None:
 
 
 @pytest.mark.asyncio
+async def test_generator_evolves_only_same_skill_to_a_higher_version() -> None:
+    current = parse_skill_markdown(_markdown(), source="custom", origin="text")
+    model = _SkillModel(
+        {
+            "skill_id": "safe-followup",
+            "name": "安全随访优化版",
+            "description": "生成需要人工复核的优化随访草稿",
+            "version": "1.1.0",
+            "category": "followup",
+            "parameters": {},
+            "tools": ["search_knowledge"],
+            "instructions": "# 工作流\n\n先核对资料完整性，再检索本地证据并列出供医生确认的问题。",
+        }
+    )
+    evolved = await RealSkillGenerator(cast(StructuredSkillModel, model)).evolve(
+        current,
+        "增加资料完整性核对和待医生确认的问题。",
+    )
+    assert evolved.skill_id == current.skill_id
+    assert evolved.version == "1.1.0"
+    assert evolved.origin == "generated"
+
+    model.content["skill_id"] = "different-skill"
+    with pytest.raises(SkillGenerationError, match="cannot change"):
+        await RealSkillGenerator(cast(StructuredSkillModel, model)).evolve(
+            current,
+            "增加资料完整性核对和待医生确认的问题。",
+        )
+
+    model.content["skill_id"] = "safe-followup"
+    model.content["version"] = "1.0.0"
+    with pytest.raises(SkillGenerationError, match="must increase"):
+        await RealSkillGenerator(cast(StructuredSkillModel, model)).evolve(
+            current,
+            "增加资料完整性核对和待医生确认的问题。",
+        )
+
+
+@pytest.mark.asyncio
 async def test_executor_activates_agentscope_and_never_echoes_parameter_values() -> None:
     definition = parse_skill_markdown(_markdown(), source="custom", origin="text")
     secret_value = "患者隐私文本不应出现在激活结果"
@@ -670,6 +709,47 @@ async def test_production_module_generates_and_persists_session_selection() -> N
     await module.replace_session_skills(cast(Any, session_id), [draft.skill_id])
     assert await module.list_session_skills(cast(Any, session_id)) == [draft.skill_id]
     assert repository.commits == 2
+
+
+@pytest.mark.asyncio
+async def test_production_module_evolution_is_review_only_and_revision_bound() -> None:
+    model = _SkillModel(
+        {
+            "skill_id": "safe-followup",
+            "name": "安全随访优化版",
+            "description": "生成需要人工复核的优化随访草稿",
+            "version": "1.1.0",
+            "category": "followup",
+            "parameters": {},
+            "tools": ["search_knowledge"],
+            "instructions": "# 工作流\n\n先核对资料完整性，再检索本地证据并列出供医生确认的问题。",
+        }
+    )
+    repository = _SkillRepository()
+    module = _production_module(repository, model)
+    await module.register_markdown(_markdown(), origin="text")
+
+    draft = await module.evolve_skill_from_nl(
+        "safe-followup",
+        change_request="增加资料完整性核对和待医生确认的问题。",
+        expected_revision=1,
+    )
+    assert draft.version == "1.1.0"
+    assert draft.revision == 1
+    assert (await module.load_skill("safe-followup")).definition.version == "1.0.0"
+
+    with pytest.raises(SkillConflictError, match="stale"):
+        await module.evolve_skill_from_nl(
+            "safe-followup",
+            change_request="增加资料完整性核对和待医生确认的问题。",
+            expected_revision=2,
+        )
+    with pytest.raises(SkillConflictError, match="immutable"):
+        await module.evolve_skill_from_nl(
+            "health-education",
+            change_request="增加资料完整性核对和待医生确认的问题。",
+            expected_revision=1,
+        )
 
 
 def test_registry_can_read_explicit_directory(tmp_path: Path) -> None:

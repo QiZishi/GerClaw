@@ -16,6 +16,10 @@ const proxyRules: Array<{ pattern: RegExp; methods: ReadonlySet<string> }> = [
     methods: new Set(["POST"]),
   },
   {
+    pattern: /^skills\/[a-z][a-z0-9_.-]{1,63}\/evolve$/,
+    methods: new Set(["POST"]),
+  },
+  {
     pattern: /^skills\/sessions\/[0-9a-f-]{36}\/selection$/,
     methods: new Set(["GET", "PUT"]),
   },

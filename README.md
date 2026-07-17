@@ -12,7 +12,7 @@ GerClaw 是面向老年患者与老年科医生的 Web 端 AI 双向诊疗平台
 - 436 份本地知识库的 Agentic RAG、混合检索、重排和引用
 - 加密 Memory/健康画像引擎与无 PHI Qdrant 语义索引
 - AnySearch→Tavily 联网证据、SSRF 防护与不可信网页隔离
-- 声明式 Skill 注册、版本、会话加载、AgentScope viewer 和安全策略
+- 声明式 Skill 注册、版本、会话加载、AgentScope viewer 和安全策略；自定义 Skill 支持自然语言生成下一版待审阅草稿，且必须保持 ID、递增版本并由用户显式保存
 - 访客短期 JWT/BFF、以及患者/医生本地账号的注册、登录、refresh 轮换、登出与改密；均由 scope、tenant/actor 隔离、限流、PHI-free 安全审计、readiness 与 metrics 保护
 - PHQ-9、SAS、PSQI 的版本化 FastAPI 状态机、确定性计分、加密持久化、患者端断点恢复、报告 Markdown 导出与本人历史；量表题目使用版本绑定预录制 WAV，并保留受控实时 TTS 兜底
 - MinerU 签名上传、轮询和 Markdown 下载的 Next.js BFF；FastAPI 将会话资料加密登记并按 tenant/actor/session 绑定
@@ -35,6 +35,7 @@ GerClaw 是面向老年患者与老年科医生的 Web 端 AI 双向诊疗平台
 - 风险预警、慢病管理、情感陪伴均只具当前最小的本人范围 workflow；缺通知升级、医学审核规则、人工升级、患者授权与医生队列
 - 患者授权、医生资质/RBAC 与跨患者访问；本地账号登录/注册入口已接入侧边栏，但没有账号验证、找回、MFA、停用与风控
 - Bad Case 的授权脱敏晋升、模型/RAG/医疗评测、趋势指标与安全回放闭环
+- Skill 的自然语言修订不会自动发布、启用或执行；医疗业务 Skill 的审核发布和持续质量评测仍未完成
 - 安全风险档案当前仅接入上述三种 Chat 工具；Agent、Skill、workflow、Memory 和 RAG 数据源的上线档案、统一 red-team 语料及发布门禁仍未完成
 - 隐私策略已覆盖外部搜索、模型 prompt、FastAPI TTS/ASR 和 MinerU egress audit；字段级分类、同意、导出、生命周期、透明度及剩余出口尚未统一接入
 - 全站响应式/适老化 E2E 和最终 Docker 空卷验收

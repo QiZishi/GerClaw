@@ -29,6 +29,7 @@ from gerclaw_api.modules.skill import (
     SkillDefinition,
     SkillDisabledError,
     SkillDraftRequest,
+    SkillEvolutionRequest,
     SkillExecuteRequest,
     SkillId,
     SkillInfo,
@@ -444,6 +445,68 @@ async def generate_skill(
             skill_id="skill_generation",
             success=False,
             error_code="SKILL_GENERATION_FAILED",
+        )
+        raise
+
+
+@router.post("/{skill_id}/evolve", response_model=SkillDraftRead)
+async def evolve_skill(
+    skill_id: SkillId,
+    payload: SkillEvolutionRequest,
+    request: Request,
+    session: SessionDependency,
+    identity: SkillWriteIdentity,
+) -> SkillDraftRead:
+    """Generate a review-only new draft for a caller-owned custom Skill."""
+
+    await _rate_limit(request, identity)
+    service = get_trace_service(
+        session, max_events_per_trace=request.app.state.settings.max_events_per_trace
+    )
+    trace_id = await _start_trace(
+        request,
+        service,
+        identity,
+        operation="evolve",
+        request_fingerprint=_fingerprint(request, payload, resource_id=skill_id),
+    )
+    try:
+        definition = await _module(request, session, identity).evolve_skill_from_nl(
+            skill_id,
+            change_request=payload.change_request,
+            expected_revision=payload.expected_revision,
+        )
+        await _finish_trace(
+            service,
+            identity,
+            trace_id=trace_id,
+            operation="evolve",
+            skill_id=skill_id,
+            success=True,
+            version=definition.version,
+        )
+        return SkillDraftRead(trace_id=trace_id, definition=definition)
+    except asyncio.CancelledError:
+        await _finish_trace(
+            service,
+            identity,
+            trace_id=trace_id,
+            operation="evolve",
+            skill_id=skill_id,
+            success=False,
+            error_code="SKILL_EVOLUTION_CANCELLED",
+            cancelled=True,
+        )
+        raise
+    except Exception:
+        await _finish_trace(
+            service,
+            identity,
+            trace_id=trace_id,
+            operation="evolve",
+            skill_id=skill_id,
+            success=False,
+            error_code="SKILL_EVOLUTION_FAILED",
         )
         raise
 

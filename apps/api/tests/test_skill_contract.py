@@ -10,5 +10,6 @@ def test_skill_exposes_registry_execution_and_generation_methods() -> None:
         "register_skill",
         "execute_skill",
         "generate_skill_from_nl",
+        "evolve_skill_from_nl",
     ):
         assert hasattr(SkillModule, name)

@@ -66,3 +66,9 @@ test("medication reconciliation proxy permits only its owner-scoped read boundar
   assert.equal(isAllowedGerclawProxyTarget(path, "POST"), false);
   assert.equal(isAllowedGerclawProxyTarget(`clinical-intakes/${intakeId}/other`, "GET"), false);
 });
+
+test("skill evolution proxy permits only a caller-owned review-draft request", () => {
+  assert.equal(isAllowedGerclawProxyTarget("skills/safe-followup/evolve", "POST"), true);
+  assert.equal(isAllowedGerclawProxyTarget("skills/safe-followup/evolve", "GET"), false);
+  assert.equal(isAllowedGerclawProxyTarget("skills/safe-followup/evolve/commit", "POST"), false);
+});
