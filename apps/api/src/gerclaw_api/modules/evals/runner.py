@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from collections.abc import Mapping
+
 from gerclaw_api.modules.agent_harness.safety import (
     HIGH_RISK_NOTICE,
     MEDICAL_DISCLAIMER,
@@ -33,6 +35,48 @@ from gerclaw_api.modules.privacy_redaction.policy import (
     redact_external_tts_text,
 )
 from gerclaw_api.modules.rag.protocols import RAGModule
+from gerclaw_api.security import JsonValue
+
+_RAG_SOURCE_TYPES = frozenset({"guideline", "consensus", "textbook", "literature"})
+
+
+def _has_complete_rag_provenance(metadata: Mapping[str, JsonValue]) -> bool:
+    """Accept only citation metadata that can locate a returned evidence chunk."""
+
+    document_id = metadata.get("document_id")
+    chunk_id = metadata.get("chunk_id")
+    required_text_fields = ("title", "chapter", "category")
+    source_type = metadata.get("source_type")
+    chunk_index = metadata.get("chunk_index")
+    total_chunks = metadata.get("total_chunks")
+    publish_year = metadata.get("publish_year")
+
+    if not (
+        isinstance(document_id, str)
+        and len(document_id) == 64
+        and all(character in "0123456789abcdefABCDEF" for character in document_id)
+        and isinstance(chunk_id, str)
+        and bool(chunk_id.strip())
+        and all(
+            isinstance(value := metadata.get(field), str) and value.strip()
+            for field in required_text_fields
+        )
+        and isinstance(source_type, str)
+        and source_type in _RAG_SOURCE_TYPES
+        and isinstance(chunk_index, int)
+        and not isinstance(chunk_index, bool)
+        and chunk_index >= 0
+        and isinstance(total_chunks, int)
+        and not isinstance(total_chunks, bool)
+        and total_chunks >= 1
+        and chunk_index < total_chunks
+    ):
+        return False
+    return publish_year is None or (
+        isinstance(publish_year, int)
+        and not isinstance(publish_year, bool)
+        and 1900 <= publish_year <= 2100
+    )
 
 
 def run_case(case: EvalCase) -> EvalCaseResult:
@@ -140,15 +184,31 @@ async def run_rag_retrieval_case(
     """Evaluate one reviewed synthetic case without retaining its query or results."""
 
     results = await module.retrieve(case.synthetic_query, top_k=top_k)
+    valid_results = [
+        result for result in results if _has_complete_rag_provenance(result.metadata)
+    ]
     returned_document_ids = {
-        value.casefold()
-        for result in results
-        if isinstance((value := result.metadata.get("document_id")), str)
-        and len(value) == 64
-        and all(character in "0123456789abcdefABCDEF" for character in value)
+        str(result.metadata["document_id"]).casefold() for result in valid_results
     }
     matched = len(returned_document_ids.intersection(case.expected_document_ids))
-    passed = not results if case.expect_no_evidence else matched >= case.minimum_expected_hits
+    returned_source_types = {
+        str(result.metadata["source_type"])
+        for result in valid_results
+        if result.metadata.get("source_type") in case.required_source_types
+    }
+    matched_source_types = len(returned_source_types)
+    passed = (
+        not results
+        if case.expect_no_evidence
+        else (
+            len(valid_results) == len(results)
+            and matched >= case.minimum_expected_hits
+            and (
+                not case.required_source_types
+                or set(case.required_source_types).issubset(returned_source_types)
+            )
+        )
+    )
     return RAGRetrievalEvalCaseResult(
         case_id=case.case_id,
         passed=passed,
@@ -156,6 +216,8 @@ async def run_rag_retrieval_case(
         expected_no_evidence=case.expect_no_evidence,
         matched_expected_document_count=matched,
         returned_result_count=len(results),
+        provenance_valid_result_count=len(valid_results),
+        matched_required_source_type_count=matched_source_types,
         index_version=case.index_version,
     )
 

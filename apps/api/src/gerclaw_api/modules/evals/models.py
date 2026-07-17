@@ -106,6 +106,9 @@ class RAGRetrievalEvalCase(BaseModel):
     title: str = Field(min_length=1, max_length=120)
     synthetic_query: str = Field(min_length=1, max_length=500)
     expected_document_ids: tuple[str, ...] = Field(default_factory=tuple, max_length=10)
+    required_source_types: tuple[
+        Literal["guideline", "consensus", "textbook", "literature"], ...
+    ] = ()
     minimum_expected_hits: int = Field(default=0, ge=0, le=10)
     expect_no_evidence: bool = False
     index_version: str = Field(min_length=1, max_length=64)
@@ -125,12 +128,27 @@ class RAGRetrievalEvalCase(BaseModel):
             raise ValueError("expected_document_ids must be unique 64-character hexadecimal IDs")
         return normalized
 
+    @field_validator("required_source_types")
+    @classmethod
+    def _validate_required_source_types(
+        cls,
+        value: tuple[Literal["guideline", "consensus", "textbook", "literature"], ...],
+    ) -> tuple[Literal["guideline", "consensus", "textbook", "literature"], ...]:
+        if len(value) > 4 or len(set(value)) != len(value):
+            raise ValueError("required_source_types must contain at most four unique source types")
+        return value
+
     @model_validator(mode="after")
     def validate_expectation(self) -> RAGRetrievalEvalCase:
         if self.expect_no_evidence:
-            if self.expected_document_ids or self.minimum_expected_hits != 0:
+            if (
+                self.expected_document_ids
+                or self.required_source_types
+                or self.minimum_expected_hits != 0
+            ):
                 raise ValueError(
-                    "no-evidence cases cannot declare expected document IDs or minimum hits"
+                    "no-evidence cases cannot declare expected document IDs, "
+                    "source types, or minimum hits"
                 )
             return self
         if not self.expected_document_ids or self.minimum_expected_hits < 1:
@@ -173,6 +191,8 @@ class RAGRetrievalEvalCaseResult(BaseModel):
     expected_no_evidence: bool
     matched_expected_document_count: int = Field(ge=0)
     returned_result_count: int = Field(ge=0)
+    provenance_valid_result_count: int = Field(ge=0)
+    matched_required_source_type_count: int = Field(ge=0)
     index_version: str
 
 

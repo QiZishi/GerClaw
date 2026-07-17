@@ -34,11 +34,15 @@ reviewed synthetic RAG case set. The committed
 retrieval baseline and a no-evidence baseline; it contains no patient or
 provider content. A reviewer must still bind every new synthetic query to its
 expected local-corpus document IDs (or explicitly require no evidence) and one
-index version. The caller must pass `allow_external_rag=True`, an index
-version, a top-k value and a maximum case budget. Its report contains IDs,
-counts and outcomes only; it never emits queries, retrieved text, source paths
-or model content. It is an evidence-retrieval regression check, not a
-medical-validity or model-quality claim.
+index version. A positive case also rejects every returned result whose
+citation provenance cannot locate its chunk (document ID, chunk ID, title,
+chapter, category, source type and bounded chunk position); a reviewed case
+may further require specific source types. The caller must pass
+`allow_external_rag=True`, an index version, a top-k value and a maximum case
+budget. Its report contains IDs, counts and outcomes only; it never emits
+queries, retrieved text, source paths or model content. It is an
+evidence-retrieval regression check, not a medical-validity or model-quality
+claim.
 
 For a real, cost-bearing run use the separate CLI, which refuses to execute
 without an explicit opt-in:

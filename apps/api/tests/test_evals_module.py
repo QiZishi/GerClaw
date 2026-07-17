@@ -43,6 +43,33 @@ class _RAG:
         return self.results
 
 
+def _evidence(
+    document_id: str,
+    *,
+    source_type: str = "guideline",
+    metadata: dict[str, object] | None = None,
+) -> RetrievalResult:
+    """Build an in-memory citation with the same metadata shape as the index."""
+
+    return RetrievalResult(
+        content="synthetic local evidence",
+        source="reviewed/source.md",
+        score=0.9,
+        metadata={
+            "document_id": document_id,
+            "chunk_id": "chunk-0001",
+            "title": "Reviewed synthetic source",
+            "chapter": "Chapter 1",
+            "category": "medication",
+            "source_type": source_type,
+            "publish_year": 2024,
+            "chunk_index": 0,
+            "total_chunks": 1,
+            **(metadata or {}),
+        },
+    )
+
+
 def test_safety_golden_cases_pass_without_external_execution() -> None:
     results = run_golden_cases()
 
@@ -164,12 +191,7 @@ async def test_opt_in_rag_evaluation_is_bounded_and_never_echoes_query_or_conten
     document_id = "a" * 64
     rag = _RAG(
         [
-            RetrievalResult(
-                content="synthetic local evidence",
-                source="reviewed/source.md",
-                score=0.9,
-                metadata={"document_id": document_id},
-            )
+            _evidence(document_id)
         ]
     )
     case = RAGRetrievalEvalCase(
@@ -198,6 +220,7 @@ async def test_opt_in_rag_evaluation_is_bounded_and_never_echoes_query_or_conten
     assert "synthetic retrieval query" not in serialized
     assert "synthetic local evidence" not in serialized
     assert "reviewed/source.md" not in serialized
+    assert report.results[0].provenance_valid_result_count == 1
 
 
 @pytest.mark.asyncio
@@ -270,12 +293,7 @@ async def test_opt_in_rag_no_evidence_case_requires_an_empty_result_without_echo
     false_positive = await run_opt_in_rag_retrieval_evaluation(
         _RAG(
             [
-                RetrievalResult(
-                    content="unrelated retrieved material",
-                    source="reviewed/source.md",
-                    score=0.9,
-                    metadata={"document_id": "d" * 64},
-                )
+                _evidence("d" * 64)
             ]
         ),  # type: ignore[arg-type]
         (case,),
@@ -286,6 +304,69 @@ async def test_opt_in_rag_no_evidence_case_requires_an_empty_result_without_echo
         ),
     )
     assert false_positive.passed_count == 0
+
+
+@pytest.mark.asyncio
+async def test_opt_in_rag_evaluation_rejects_correct_document_without_complete_provenance() -> None:
+    document_id = "f" * 64
+    case = RAGRetrievalEvalCase(
+        case_id="rag-retrieval.incomplete_provenance",
+        title="citation metadata regression sentinel",
+        synthetic_query="synthetic retrieval query",
+        expected_document_ids=(document_id,),
+        minimum_expected_hits=1,
+        index_version="corpus-v1",
+    )
+
+    report = await run_opt_in_rag_retrieval_evaluation(
+        _RAG([_evidence(document_id, metadata={"chunk_id": ""})]),  # type: ignore[arg-type]
+        (case,),
+        config=RAGEvaluationRunConfig(
+            allow_external_rag=True,
+            index_version="corpus-v1",
+            max_cases=1,
+        ),
+    )
+
+    result = report.results[0]
+    assert result.passed is False
+    assert result.matched_expected_document_count == 0
+    assert result.provenance_valid_result_count == 0
+    serialized = result.model_dump_json()
+    assert "synthetic retrieval query" not in serialized
+    assert "reviewed/source.md" not in serialized
+    assert "synthetic local evidence" not in serialized
+
+
+@pytest.mark.asyncio
+async def test_opt_in_rag_evaluation_can_require_each_reviewed_source_type() -> None:
+    document_id = "9" * 64
+    case = RAGRetrievalEvalCase(
+        case_id="rag-retrieval.source_type",
+        title="reviewed source type expectation",
+        synthetic_query="synthetic retrieval query",
+        expected_document_ids=(document_id,),
+        required_source_types=("consensus", "guideline"),
+        minimum_expected_hits=1,
+        index_version="corpus-v1",
+    )
+    report = await run_opt_in_rag_retrieval_evaluation(
+        _RAG(  # type: ignore[arg-type]
+            [
+                _evidence(document_id, source_type="consensus"),
+                _evidence(document_id, source_type="consensus"),
+            ]
+        ),
+        (case,),
+        config=RAGEvaluationRunConfig(
+            allow_external_rag=True,
+            index_version="corpus-v1",
+            max_cases=1,
+        ),
+    )
+
+    assert report.passed_count == 0
+    assert report.results[0].matched_required_source_type_count == 1
 
 
 def test_rag_eval_case_rejects_contradictory_no_evidence_expectations() -> None:
@@ -304,6 +385,25 @@ def test_rag_eval_case_rejects_contradictory_no_evidence_expectations() -> None:
             case_id="rag-retrieval.invalid_empty_match",
             title="invalid evidence match",
             synthetic_query="synthetic",
+            index_version="corpus-v1",
+        )
+    with pytest.raises(ValidationError, match="no-evidence cases"):
+        RAGRetrievalEvalCase(
+            case_id="rag-retrieval.invalid_no_evidence_source",
+            title="invalid no evidence source type",
+            synthetic_query="synthetic",
+            required_source_types=("consensus",),
+            expect_no_evidence=True,
+            index_version="corpus-v1",
+        )
+    with pytest.raises(ValidationError, match="unique source types"):
+        RAGRetrievalEvalCase(
+            case_id="rag-retrieval.duplicate_source_type",
+            title="invalid repeated source type",
+            synthetic_query="synthetic",
+            expected_document_ids=("e" * 64,),
+            required_source_types=("consensus", "consensus"),
+            minimum_expected_hits=1,
             index_version="corpus-v1",
         )
 
