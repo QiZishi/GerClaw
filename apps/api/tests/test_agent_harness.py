@@ -133,6 +133,15 @@ class _HarnessRAG:
         return self.results
 
 
+class _UnavailableHarnessRAG(_HarnessRAG):
+    async def retrieve(
+        self, query: str, top_k: int = 5, filters: object | None = None
+    ) -> list[RetrievalResult]:
+        del top_k, filters
+        self.calls.append(query)
+        raise RuntimeError("local RAG temporarily unavailable")
+
+
 class _HarnessMemory:
     def __init__(self) -> None:
         self.searches: list[str] = []
@@ -570,6 +579,48 @@ async def test_medical_image_can_be_an_evidence_source_when_local_rag_has_no_mat
     assert model.calls == 1
     assert response.medical_content is True
     assert {citation.corpus for citation in response.citations} == {"uploaded_image"}
+
+
+@pytest.mark.asyncio
+async def test_medical_image_remains_usable_when_local_rag_is_unavailable(
+    unit_settings: Settings,
+) -> None:
+    """An attachment is evidence in its own right, not a hostage of local RAG."""
+
+    image = _image()
+    model = _HarnessModel(text="图片中的检查结果需要结合原始报告和症状进一步判断。")
+    rag = _UnavailableHarnessRAG([])
+    harness = _harness(
+        unit_settings,
+        model=model,
+        rag=rag,
+        search_enabled=False,
+        uploaded_images=[image],
+    )
+    context = await harness.assemble_context(
+        "108815d7-05bf-4c2a-a977-cd034f390fab",
+        "usr_patient00000001",
+        [],
+        [],
+    )
+    events: list[StreamEvent] = []
+
+    response = await harness.process_message(
+        "请解读这张检查单图片，并说明需要注意什么。",
+        "108815d7-05bf-4c2a-a977-cd034f390fab",
+        context,
+        events.append,
+    )
+
+    assert rag.calls == ["请解读这张检查单图片，并说明需要注意什么。"]
+    assert model.calls == 1
+    assert {citation.corpus for citation in response.citations} == {"uploaded_image"}
+    # The prefetch failure is public. AgentScope may still make a separate,
+    # governed retrieval attempt while answering, so it is intentionally not
+    # asserted to be the only tool-result event.
+    assert next(
+        event.data["status"] for event in events if event.event_type == "tool_result"
+    ) == "failed"
 
 
 @pytest.mark.asyncio

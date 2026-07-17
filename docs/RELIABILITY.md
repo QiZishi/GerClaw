@@ -37,10 +37,10 @@
 | ASR服务不可用 | 隐藏语音输入按钮，提示"语音识别暂时不可用，请文字输入" | 自动降级为文本输入模式 |
 | TTS服务不可用 | 播放按钮显示为禁用状态，hover提示"语音播放暂时不可用" | 不自动播放，不影响文字阅读 |
 | AnySearch不可用 | 自动切换Tavily搜索 | 用户无感知 |
-| 所有搜索不可用 | `SearchModule` 返回 `SEARCH_UNAVAILABLE`；对话工具结果显式失败，不把模型记忆伪装成最新证据 | 明确告知用户未联网，仍只能使用已有本地证据 |
+| 所有搜索不可用 | `SearchModule` 返回 `SEARCH_UNAVAILABLE`；对话工具结果显式失败，不把模型记忆伪装成最新证据 | 仍可使用当前用户上传资料或已有本地证据；两者也不可用时请求补充资料 |
 | MinerU不可用 | 提示"文档解析服务暂时不可用"，图片仍可上传(多模态理解) | 文件上传按钮显示状态 |
-| RAG embedding/rerank/Qdrant 不可用 | fail closed，返回 `RAG_UNAVAILABLE` 并完成 failed Trace | 明确告知本地医学证据暂不可用；不回退为模型自身知识、不伪造引用 |
-| Chat 本地医学证据不可用或无法生成有效 citation | 在模型调用和医疗正文前返回 `CHAT_EVIDENCE_UNAVAILABLE`，不写 assistant 消息，failed Trace 自动进入 Bad Case | 明确提示暂时无法基于本地证据生成医学建议 |
+| RAG embedding/rerank/Qdrant 不可用 | 没有其他证据入口时返回 `RAG_UNAVAILABLE` 并完成 failed Trace；当前用户上传资料或受治理联网检索可用时继续该独立证据链 | 不回退为模型自身知识、不伪造引用；上传资料仍可被正常解读 |
+| Chat 所有医学证据入口均不可用或无法生成有效 citation | 在模型调用前完成一条不带伪造 citation 的补充信息提示，并记录 `evidence_unavailable` 安全决策 | 用户可继续补充上传资料、检查结果、用药清单或问题背景；对话不以失败中断 |
 | Chat session 已有进行中 turn | Redis lease 拒绝竞争者并返回 `CHAT_SESSION_BUSY` | 提示等待当前回复；不得终止原 turn 或污染原 Trace |
 | Memory 抽取/向量/一致性服务不可用 | fail closed 为 `CHAT_MEMORY_UNAVAILABLE`，回滚本轮画像/事实/assistant/成功 Trace | 已提交 user message保留供重试；不发送 `done`、不使用 stale 或未确认画像 |
 | 模型在公开流中断 | 返回 `CHAT_MODEL_STREAM_INTERRUPTED`，不切换模型、不持久化伪完成消息 | 已显示内容标为中断，用户使用新 Trace 明确重试 |

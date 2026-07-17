@@ -465,7 +465,7 @@ class ProductionAgentHarness:
                 evidence_results = await self._rag_module.retrieve(
                     user_message, top_k=self._settings.agent_evidence_top_k
                 )
-            except BaseException:
+            except Exception:
                 await self._emit(
                     stream_callback,
                     "tool_result",
@@ -478,7 +478,13 @@ class ProductionAgentHarness:
                         ),
                     },
                 )
-                raise
+                # A local-index outage must not make a patient's own uploaded
+                # report/image unusable, nor suppress a governed web-evidence
+                # route.  These are independent evidence sources.  If neither
+                # is present, preserve the fail-closed provider failure instead
+                # of silently falling back to model knowledge.
+                if not has_uploaded_evidence and not can_search_for_evidence:
+                    raise
             await self._emit(
                 stream_callback,
                 "tool_result",
