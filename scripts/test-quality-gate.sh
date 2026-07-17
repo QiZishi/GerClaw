@@ -18,6 +18,7 @@ expect_failure() {
 }
 
 expect_failure unknown-mode "${GATE}" deliberately-unknown
+expect_failure missing-docker-smoke-consent "${GATE}" docker-smoke
 expect_failure missing-migration-url env -u GERCLAW_TEST_DATABASE_URL "${GATE}" migration
 expect_failure unsafe-production-url env \
   GERCLAW_TEST_DATABASE_URL='postgresql+asyncpg://user:secret@127.0.0.1:5432/gerclaw' \

@@ -38,7 +38,7 @@ GerClaw 是面向老年患者与老年科医生的 Web 端 AI 双向诊疗平台
 - Skill 的自然语言修订不会自动发布、启用或执行；医疗业务 Skill 的审核发布和持续质量评测仍未完成
 - 安全风险档案当前仅接入上述三种 Chat 工具；Agent、Skill、workflow、Memory 和 RAG 数据源的上线档案、统一 red-team 语料及发布门禁仍未完成
 - 隐私策略已覆盖外部搜索、模型 prompt、FastAPI TTS/ASR 和 MinerU egress audit；字段级分类、同意、导出、生命周期、透明度及剩余出口尚未统一接入
-- 全站响应式/适老化 E2E 和最终 Docker 空卷验收
+- 全站响应式/适老化 E2E、临床 workflow E2E 与最终发布验收
 
 `apps/mvp` 是当前唯一功能性 Web 客户端，`apps/web` 仍是二阶段预留目录。任何 mock、占位内容或仅本地 UI 状态均不得作为生产能力使用；逐项完成状态以[需求矩阵](docs/REQUIREMENTS_MATRIX.md)为准。
 
@@ -187,7 +187,20 @@ docker compose -f docker-compose.yml -f docker-compose.dev.yml --profile ops run
 docker compose -f docker-compose.yml -f docker-compose.dev.yml ps
 ```
 
-当前 Docker Compose 可构建并运行 API、PostgreSQL、Redis 与 Qdrant；只有[需求矩阵](docs/REQUIREMENTS_MATRIX.md)的 `OPS-05` 完成最终空卷启动、应用 health、重启持久化和核心 E2E 后，才可声明生产容器交付完成。
+当前 Docker Compose 已通过独立空卷迁移、应用 health、受控 RAG index、非 root 与重启持久化 smoke。它证明部署运行基础，不替代临床 workflow E2E、容量验收或尚未完成的医生授权/审核闭环。
+
+空卷 smoke 使用独立的 Compose 项目和临时卷，完成后自动清理。它在空卷中构建受控的
+代表性 RAG 语料，因而会调用已配置的 embedding Provider，必须显式授权：
+
+```bash
+GERCLAW_RUN_DOCKER_SMOKE=1 \
+GERCLAW_RUN_EXTERNAL=1 \
+GERCLAW_DOCKER_SMOKE_API_PORT=18080 \
+scripts/quality-gate.sh docker-smoke
+```
+
+该 gate 验证迁移、RAG index、`/health/live`、`/health/ready`、非 root API 和 API
+重启后 readiness；它不会替代临床 workflow 的 E2E 或容量验收。
 
 容器内真实依赖测试使用独立 `test` profile，不发布数据服务端口，也不会使用业务数据库。它仍会读取根 `.env` 的 server-only 模型配置，但默认排除会实际调用 Provider 的 `external` 用例：
 
@@ -200,7 +213,7 @@ docker compose --profile test up --build --abort-on-container-exit \
 
 ## 测试与性能状态
 
-历史全量门禁数字、独立审阅与完整命令见 [Development Harness](docs/DEVELOPMENT_HARNESS.md) 和各 active exec-plan，不能因后续变更自动继承。本次近期可复现实证包括：`apps/mvp` 的 `npm test`（42 个 Node 行为/契约检查与 CGA 音频资源校验）、`npm run lint` 与 `npm run build`；`apps/api` 的 `uv run pytest --no-cov -q`（650 passed、35 skipped）、Ruff、Mypy，以及核心 Memory/Skill/RAG 定向回归。Docker Compose 的确定性安全短路报告见 [`docs/evidence/`](docs/evidence/)。全站 E2E、临床 workflow 压测与最终 Docker 验收仍需在交付前重新执行。
+历史全量门禁数字、独立审阅与完整命令见 [Development Harness](docs/DEVELOPMENT_HARNESS.md) 和各 active exec-plan，不能因后续变更自动继承。本次近期可复现实证包括：`apps/mvp` 的 `npm test`（42 个 Node 行为/契约检查与 CGA 音频资源校验）、`npm run lint` 与 `npm run build`；`apps/api` 的 `uv run pytest --no-cov -q`（650 passed、35 skipped）、Ruff、Mypy，以及核心 Memory/Skill/RAG 定向回归。Docker Compose 的确定性安全短路报告见 [`docs/evidence/`](docs/evidence/)，空卷 Docker smoke 已通过。全站 E2E、临床 workflow 压测与完整产品发布验收仍需在交付前重新执行。
 
 当前没有千级吞吐能力结论。Compose 已实际验证 10 个并发的确定性高风险安全短路 SSE（10/10 done、失败率 0、p50 153ms、p95 154ms、Trace/消息/跨访客隔离均通过）；test image 中经显式 opt-in 的合成 RAG 评测为 6/6（五个本地老年医学主题命中绑定文档，非医学问题无证据为空）。两者均不能替代模型、临床 workflow、取消/限流/幂等的统一性能报告，后者仍归属 `OPS-04/OPS-08`。
 
@@ -213,7 +226,7 @@ docker compose --profile test up --build --abort-on-container-exit \
 | IAM 仍未完整 | 本地账号会话、账户后台和 BFF HttpOnly Cookie/CSRF 已落地；医生资质、授权和跨患者访问尚未完成 | 0025、0032 |
 | 全出口 PHI/密钥泄露面未统一验证 | 核心日志/Trace/vector 有局部测试；文档、导出和临床流程尚未完整覆盖 | 0022 Privacy 与 0026 Eval/Bad Case |
 | 风险预警/慢病管理/情感陪伴尚未形成完整临床闭环 | 当前仅有本人范围告警确认、非临床测量趋势与隔离陪伴；不宣称通知、干预或医生服务 | 0023、0030、0031 后续 workflow |
-| 容量与容器恢复证据不足 | 只声明已真实验证的范围 | 0026 并发、0028 空卷 Docker 验收 |
+| 容量与临床 workflow 证据不足 | 只声明已真实验证的范围 | 0026 并发、完整临床 E2E |
 
 ## 医疗安全
 

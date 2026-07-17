@@ -37,7 +37,7 @@ apps/api (FastAPI)
 | Web | Next.js 16、React 19、TypeScript、Tailwind、Zod | `apps/mvp` 是唯一功能前端与 BFF；外部 Provider 仅由 server-only route 调用 |
 | API / Agent | FastAPI、Pydantic、AgentScope 2.0.4 | 认证、Runtime Harness、业务模块、SSE 与 Provider adapter |
 | 持久化 | PostgreSQL、Redis、Qdrant | PostgreSQL 为加密事实源；Redis 处理租约/限流/取消；Qdrant 不存 PHI 正文 |
-| 部署 | Docker Compose、Alembic、uv/npm | 基础编排可用于开发；最终应用 Docker 交付仍未完成 |
+| 部署 | Docker Compose、Alembic、uv/npm | 独立空卷迁移/RAG/health/重启/non-root smoke 已通过；完整产品 Docker 交付仍受临床 workflow E2E 与未完成授权闭环约束 |
 
 所有模型、外部 URL、密钥和协议均通过环境变量配置；实现选择应遵循“设计要求优先、AgentScope 能力优先、必要时才引入补充依赖”。
 
@@ -140,7 +140,7 @@ CGA 题干和选项按 `scale_id + definition_version` 映射至 `apps/mvp/publi
 
 应用服务以无状态请求处理为目标；持久化状态位于 PostgreSQL，短暂 ownership/限流/取消位于 Redis，向量数据位于 Qdrant，索引由独立 one-shot job 执行。会话 fencing、owner lease、有界 SSE queue、超时、预算与幂等键是横向扩展的基础，不是已经完成千级验证的证明。
 
-当前只有 Docker Compose 中 **10 并发确定性高风险短路 SSE** 的真实证据；结果不能外推到模型、RAG、临床 workflow 或千级并发。面向 1,000 活跃连接的拓扑、背压、分阶段压测和放量门槛见[容量与扩展计划](docs/design-docs/容量与扩展计划.md)：它是设计基线，不是压测结论。最终发布前仍需补齐完整 ≤10 并发场景和空卷 Docker smoke。
+当前只有 Docker Compose 中 **10 并发确定性高风险短路 SSE** 的真实性能证据；结果不能外推到模型、RAG、临床 workflow 或千级并发。独立空卷 Docker smoke 已验证迁移、受控 RAG index、健康检查、重启与非 root；它不是性能或临床 E2E 证据。面向 1,000 活跃连接的拓扑、背压、分阶段压测和放量门槛见[容量与扩展计划](docs/design-docs/容量与扩展计划.md)：它是设计基线，不是压测结论。最终发布前仍需补齐完整 ≤10 并发场景。
 
 ## 11. 验证与变更
 

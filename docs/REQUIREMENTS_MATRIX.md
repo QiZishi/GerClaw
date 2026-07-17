@@ -49,7 +49,7 @@
 | OPS-02 | metrics/feedback/eval/Bad Case | metrics/trace/feedback/eval | API、存储、回放、趋势 | 🚧 Trace/基础反馈与加密 Bad Case 已有；2026-07-18 管理员可通过 `account:admin` 读取 PHI-free 队列元数据并更新处置状态，管理员前端已实际接入，API/BFF 均不暴露 snapshot/评论/原始输入。队列查询显式不加载加密 snapshot，历史密钥不可读时仍可读取和处置。19 个合成安全/输出安全/隐私/用药规则 policy case 不回放真实输入；test image 的显式 opt-in RAG 评测对五个本地老年医学主题命中和一个无证据例均为 6/6。尚缺授权脱敏晋升、模型/临床评测、趋势与指标闭环 |
 | OPS-03 | 测试覆盖门禁 | pytest/coverage | ≥80%，负向阈值 exit 1 | ✅ 80.02%，审阅者验证负向门禁 |
 | OPS-04 | ≤10 并发 | integration/perf | 隔离、幂等、限流、取消、p50/p95 | 🚧 已有 Compose API 的 10 并发安全短路 SSE 报告（p50 153ms/p95 154ms、10/10 done、跨访客 404）；完整临床 workflow、取消/限流/幂等的统一负载仍待补齐 |
-| OPS-05 | Docker 全栈 | Dockerfiles/compose | 空卷启动、迁移、health、重启、非 root | 🚧 基础 compose/Dockerfile 有，最终应用验收未做 |
+| OPS-05 | Docker 全栈 | Dockerfiles/compose | 空卷启动、迁移、health、重启、非 root | ✅ 2026-07-18 `docker-smoke` 在独立项目、全新临时卷中实际通过：迁移、3 份受控代表性 RAG 文档的真实 embedding/index、`live`/`ready`、非 root API 与重启后 readiness；完成后容器、网络、卷均自动清理。它不外推为临床 workflow E2E 或容量验收 |
 | OPS-06 | 故障注入 | unit/integration/e2e | 断流/429/5xx/依赖中断/lost-ack/竞争/重启 | 🚧 RAG/Chat 有较强覆盖，临床/Document/HITL 缺失 |
 | OPS-07 | 供应链/SBOM | locks/CI/images | 固定版本、audit、SBOM、许可证、升级策略 | 🚧 lock/audit/CI pin 有；`security` 可从实际 production API image 生成 Python runtime CycloneDX SBOM，许可证未知项显式报告。Debian/npm runtime 清单、法务复审与发布签名仍待最终交付阶段。 |
 | OPS-08 | 千级扩展容量规划 | architecture/perf | 容量模型、背压、水平扩展、成本、压测计划 | 🚧 已有可审计的 1,000 活跃连接设计基线：无状态 BFF/API、SSE owner lease、有界队列、分 lane 准入、资源预算、分阶段压测/故障注入/放量门槛见 `docs/design-docs/容量与扩展计划.md`；实际只验证了 10 并发确定性安全短路，尚未验证模型/RAG/临床 workflow 或千级负载 |

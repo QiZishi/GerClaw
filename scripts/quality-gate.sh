@@ -124,6 +124,11 @@ docker_gate() {
   docker compose -f docker-compose.yml -f docker-compose.dev.yml build api
 }
 
+docker_smoke_gate() {
+  step "Empty-volume Docker smoke"
+  "${ROOT_DIR}/scripts/docker-smoke.sh"
+}
+
 e2e_gate() {
   : "${GERCLAW_E2E_BASE_URL:?set GERCLAW_E2E_BASE_URL to a running local frontend}"
   case "${GERCLAW_E2E_BASE_URL}" in
@@ -186,6 +191,9 @@ case "${MODE}" in
   docker)
     docker_gate
     ;;
+  docker-smoke)
+    docker_smoke_gate
+    ;;
   e2e)
     e2e_gate
     ;;
@@ -197,7 +205,7 @@ case "${MODE}" in
     security_gate
     ;;
   *)
-    echo "usage: scripts/quality-gate.sh {docs|backend|frontend|quick|security|migration|integration|external|e2e|docker|full}" >&2
+    echo "usage: scripts/quality-gate.sh {docs|backend|frontend|quick|security|migration|integration|external|e2e|docker|docker-smoke|full}" >&2
     exit 2
     ;;
 esac
