@@ -8,8 +8,8 @@
 
 | 场景 | 超时时间 | 说明 |
 |------|---------|------|
-| LLM单候选 API/完整流 | ≤60s（默认60s） | 使用独立 `GERCLAW_AGENT_MODEL_TIMEOUT_SECONDS`，配置 schema 拒绝大于 60s；首 token 或持续心跳均不能绕过完整 stream deadline，无公开输出时才切换备用模型 |
-| LLM单次输出 | ≤1024 tokens（默认1024） | `GERCLAW_AGENT_MODEL_MAX_OUTPUT_TOKENS` 配置 schema 拒绝大于 1024，并同时下发到 OpenAI/DashScope/Anthropic AgentScope adapter，另有字符硬上限 |
+| LLM单候选 API/完整流 | ≤300s（默认180s） | 使用独立 `GERCLAW_AGENT_MODEL_TIMEOUT_SECONDS`；首 token 或持续心跳均不能绕过完整 stream deadline，无公开输出时才切换备用模型。五大处方另有独立的整流程预算 `GERCLAW_PRESCRIPTION_GENERATION_TIMEOUT_SECONDS`（默认600s） |
+| LLM单次输出 | ≤32768 tokens（默认32768） | `GERCLAW_AGENT_MODEL_MAX_OUTPUT_TOKENS` 配置 schema 拒绝大于 32768，并同时下发到 OpenAI/DashScope/Anthropic AgentScope adapter；流式输出另受 `GERCLAW_AGENT_MAX_OUTPUT_CHARACTERS`（默认131072）硬上限保护 |
 | ASR语音识别 | 30s | 音频上传到识别完成，含网络传输 |
 | TTS语音合成（首包） | 10s | TTS流式首包等待10s |
 | 联网搜索（AnySearch） | 10s（可配置） | 瞬态失败最多重试一次，再切换 Tavily |
