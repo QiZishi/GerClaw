@@ -6,7 +6,7 @@ import { z } from "zod";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 import { exportToDocx, exportToMarkdown, exportToPdf } from "@/lib/export";
-import { recordedCgaQuestionAudio } from "@/lib/cga-audio";
+import { recordedCgaOptionAudio, recordedCgaQuestionAudio } from "@/lib/cga-audio";
 import { useAudioPlayer } from "@/hooks/useAudioPlayer";
 import { useAppStore } from "@/stores/appStore";
 import { toast } from "@/components/ui/toast";
@@ -170,6 +170,20 @@ export function CgaAssessment({ onExit }: CgaAssessmentProps) {
       : playQuestion(buildQuestionSpeechText(assessment.next_question));
     void playback.catch(() => {
       toast.show("题目朗读暂时不可用，请改用文字阅读后重试");
+    });
+  }, [assessment, playQuestion, playQuestionSource]);
+
+  const startOptionAudio = useCallback((optionOrdinal: number, label: string) => {
+    if (!assessment?.next_question) return;
+    const source = recordedCgaOptionAudio(
+      assessment.scale_id,
+      assessment.definition_version,
+      assessment.next_question,
+      optionOrdinal
+    );
+    const playback = source ? playQuestionSource(source) : playQuestion(label);
+    void playback.catch(() => {
+      toast.show("选项朗读暂时不可用，请改用文字阅读后重试");
     });
   }, [assessment, playQuestion, playQuestionSource]);
 
@@ -603,26 +617,49 @@ export function CgaAssessment({ onExit }: CgaAssessmentProps) {
               </div>
               {assessment.next_question.input_kind === "ordinal" && !isPsqiSupplementalQuestion ? (
                 <div className="mt-5 grid gap-3">
-                  {assessment.next_question.options.map(([value, label]) => (
-                    <Button key={value} variant="outline" className={cn("h-auto justify-start whitespace-normal px-5 py-4 text-left", actionClass)} onClick={() => void choose(value)} disabled={saving}>{label}</Button>
+                  {assessment.next_question.options.map(([value, label], optionOrdinal) => (
+                    <div className="grid grid-cols-[minmax(0,1fr)_auto] gap-2" key={value}>
+                      <Button variant="outline" className={cn("h-auto justify-start whitespace-normal px-5 py-4 text-left", actionClass)} onClick={() => void choose(value)} disabled={saving}>{label}</Button>
+                      <Button
+                        type="button"
+                        variant="outline"
+                        className={cn("min-h-11 gap-1.5 px-3", actionClass)}
+                        onClick={() => startOptionAudio(optionOrdinal, label)}
+                        disabled={saving}
+                        aria-label={`朗读选项：${label}`}
+                      >
+                        <Volume2 className="size-4" />朗读
+                      </Button>
+                    </div>
                   ))}
                 </div>
               ) : assessment.next_question.input_kind === "ordinal" ? (
                 <div className="mt-5 space-y-4">
                   <div className="grid gap-3" role="radiogroup" aria-label="影响睡眠事情发生频率">
-                    {assessment.next_question.options.map(([value, label]) => (
-                      <Button
-                        key={value}
-                        type="button"
-                        variant={selectedOrdinalScore === value ? "default" : "outline"}
-                        className={cn("h-auto justify-start whitespace-normal px-5 py-4 text-left", actionClass)}
-                        onClick={() => setSelectedOrdinalScore(value)}
-                        disabled={saving}
-                        role="radio"
-                        aria-checked={selectedOrdinalScore === value}
-                      >
-                        {label}
-                      </Button>
+                    {assessment.next_question.options.map(([value, label], optionOrdinal) => (
+                      <div className="grid grid-cols-[minmax(0,1fr)_auto] gap-2" key={value}>
+                        <Button
+                          type="button"
+                          variant={selectedOrdinalScore === value ? "default" : "outline"}
+                          className={cn("h-auto justify-start whitespace-normal px-5 py-4 text-left", actionClass)}
+                          onClick={() => setSelectedOrdinalScore(value)}
+                          disabled={saving}
+                          role="radio"
+                          aria-checked={selectedOrdinalScore === value}
+                        >
+                          {label}
+                        </Button>
+                        <Button
+                          type="button"
+                          variant="outline"
+                          className={cn("min-h-11 gap-1.5 px-3", actionClass)}
+                          onClick={() => startOptionAudio(optionOrdinal, label)}
+                          disabled={saving}
+                          aria-label={`朗读选项：${label}`}
+                        >
+                          <Volume2 className="size-4" />朗读
+                        </Button>
+                      </div>
                     ))}
                   </div>
                   <div className="rounded-lg border border-sky-200 bg-sky-50 p-4 dark:border-sky-900/50 dark:bg-sky-950/20">
