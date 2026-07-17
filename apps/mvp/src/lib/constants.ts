@@ -117,7 +117,7 @@ export const ALLOWED_IMAGE_MIME_TYPES = [
 ] as const;
 
 /** 五大处方信息补全对话轮次上限（§6.4） */
-export const PRESCRIPTION_COMPLETING_MAX_TURNS = 10;
+export const PRESCRIPTION_COMPLETING_MAX_TURNS = 5;
 
 /** 医疗安全：免责声明 */
 export const MEDICAL_DISCLAIMER =
