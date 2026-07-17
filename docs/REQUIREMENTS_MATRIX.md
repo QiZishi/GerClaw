@@ -28,11 +28,11 @@
 | CLN-02 | 五大处方后端闭环 | prescription module/API/UI | 模板 JSON、四重校验、证据、版本、审批、导出 | 🚧 真实、加密、版本化的最小信息收集与 MinerU 资料绑定已接入；没有医学审核的 JSON 模板、四重校验、证据、报告、导出或医生批准，页面不得生成处方建议 |
 | CLN-03 | 用药审查规则 | medication module/API/UI | DDI/Beers/剂量/重复、版本和来源 | 🚧 真实、加密、版本化的用药信息收集已接入；没有经医学审核的 DDI/Beers/剂量/重复用药规则、来源版本、审查结论或医生批准 |
 | CLN-04 | 健康画像产品 UI | memory API、RightPanel | 本人/授权医生读取、确认/退役、历史 | 🚧 当前访客可经受限 BFF 读取本人已确认事实，并确认/忽略待确认事实；账号、患者授权、医生跨患者读取与历史视图待完成 |
-| CLN-05 | 临床规则版本 | cga/prescription/medication/safety | 报告保存规则/模板/证据版本 | ❌ 临床后端尚未实现 |
+| CLN-05 | 临床规则版本 | cga/prescription/medication/safety | 报告保存规则/模板/证据版本 | 🚧 CGA 的量表定义与确定性计分已版本化；五大处方通用模板、证据规则、用药审查规则及其医学审核记录尚未提供，不能生成临床建议 |
 | CLN-06 | 统一风险预警闭环 | alert rules/workflow/API/患者医生 UI | 红旗/CGA/慢病/用药事件分级、通知确认、升级和紧急就医 | 🚧 Chat 红旗、CGA 即时安全与高风险随访可真实、原子地创建加密且本人范围的告警，并支持版本围栏、幂等确认。尚缺慢病/用药来源、通知升级、医生队列与前端入口 |
 | CLN-07 | 慢病管理闭环 | chronic-care workflow/API/患者医生 UI | 疾病/目标/测量/用药/生活计划、趋势、依从性、提醒、异常升级 | 🚧 已有真实、加密且 tenant/actor 隔离的自述病情与测量账本，以及不含临床含义的数值方向；没有医学审核的目标/阈值、用药或生活计划、提醒、异常升级、患者/医生授权和前端链路 |
 | CLN-08 | 安全情感陪伴 | companion agent/privacy/safety/UI | 支持性对话、痛苦识别、禁依赖/禁冒充、危机和人工升级、可关闭记忆 | 🚧 `workflow=companion` 已接入真实 Chat Harness，禁用长期健康 Memory、RAG、联网、Skill 与上传资料，只保留加密的同会话短期上下文；红旗仍在模型前短路。尚缺前端入口、用户可配置记忆偏好、人工升级与医生授权 |
-| IAM-01 | 账号注册登录 | auth/account | 患者/医生注册登录、密码哈希、刷新/退出 | 🚧 已有本地患者/医生注册、登录、scrypt 密码哈希、refresh 轮换、登出、改密、BFF HttpOnly cookie/CSRF 与账号 UI；仍缺账号标识验证、找回、MFA 和风控策略 |
+| IAM-01 | 账号注册登录 | auth/account | 患者/医生注册登录、密码哈希、刷新/退出 | 🚧 已有本地患者/医生注册、登录、scrypt 密码哈希、refresh 轮换、登出、改密与 BFF HttpOnly cookie/CSRF；尚无登录/注册页面控件，仍缺账号标识验证、找回、MFA 和风控策略 |
 | IAM-02 | 租户/主体/角色隔离 | auth/repositories | 越权 403/404、跨租户不可见 | 🚧 核心资源隔离；服务端 JWT 账号角色已进入 Runtime，医生未获 patient proof；缺医生资质、患者授权和完整 RBAC |
 | IAM-03 | 临床数据持久化加密 | DB/repositories | 文件、CGA、处方、审批、反馈、Bad Case | 🚧 会话/Memory/Skill/Trace 已有，其余缺表 |
 | IAM-04 | 环境配置安全 | config、env templates | 生产拒绝 placeholder/缺 Key/不安全 URL | ✅ FastAPI 核心配置已验证 |
@@ -59,7 +59,7 @@
 | SEC-04 | 服务端安全边界 | auth/middleware/repos | scope/tenant/role/ownership/CSRF/CORS/SSRF/rate limit | 🚧 核心 scope/tenant/SSRF 已有，角色/CSRF 待补 |
 | DATA-01 | 统一 schema/version/兼容 | domain/Zod/API | version、兼容窗口、迁移、unknown fields | 🚧 严格 schema 已有，缺统一版本兼容策略 |
 | DATA-02 | 保留/导出/删除/备份 | privacy/storage | 各数据类别生命周期与可验证删除 | 🚧 会话拥有者现可删除空闲会话，数据库级级联实际擦除会话消息、解析文档、临床收集、会话审批与检查点；健康画像、CGA、慢病、Skill、账户、备份、TTL、导出和可验证删除报告仍未实现 |
-| DATA-03 | PHI 外发最小化与透明度 | privacy/provider audit | 脱敏、目的、处理方、撤回后续处理 | 🚧 版本化 `privacy_redaction` 已真实拦截外部搜索 query 与 FastAPI TTS 正文/style；FastAPI TTS、ASR 与 `/search/query` 每次 Provider 尝试均有调用前持久化的 PHI-free egress ledger。ASR 仅记录未改写音频的固定目的/处理方/策略版本/结果和空 findings，不宣称已去标识化。缺 MinerU/模型、网页提取/AgentScope 内部搜索台账、撤回处理与用户透明度 |
+| DATA-03 | PHI 外发最小化与透明度 | privacy/provider audit | 脱敏、目的、处理方、撤回后续处理 | 🚧 版本化 `privacy_redaction` 已真实拦截外部搜索 query、FastAPI TTS 正文/style，并在模型 Provider 调用前创建独立 `external_model_prompt` 内存投影；FastAPI TTS、ASR、`/search/query` 与 MinerU BFF 均有调用前的 PHI-free egress outcome audit。ASR、MinerU 不宣称已去标识化；模型外发尚无持久化 audit/同意，网页提取/AgentScope 内部搜索台账、撤回处理与用户透明度仍缺失 |
 | DATA-04 | 字段级分类与敏感度 | schema registry/privacy policy | 字段分类绑定处理方、存储、日志、Trace/vector/export 和保留规则 | 🚧 已有 `privacy_redaction` 外发类别与 Runtime DataClass，尚缺统一字段注册表、存储/日志/导出规则绑定及全链路强制执行 |
 | DATA-05 | 假名化与受控再识别 | identity vault/privacy/RBAC/audit | 可轮换 token、隔离映射、审批再识别、重识别风险评估 | 🚧 访客伪名主体已有；缺独立映射、审批与风险评估 |
 | DATA-06 | 脱敏版本与误漏评测 | privacy/eval/bad-case | 规则/模型版本、canary/golden、FP/FN、跨文本/OCR/ASR/schema 回归 | 🚧 已有 4 条版本绑定、人工审阅的合成文本 canary，覆盖当前 search/TTS `1.1.0` 规则且不回显样例；缺 OCR/ASR/自由文本/结构化字段、检测模型、FP/FN 指标和发布阈值 |
