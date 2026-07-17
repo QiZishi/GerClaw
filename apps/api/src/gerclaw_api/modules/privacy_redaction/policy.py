@@ -13,6 +13,7 @@ from gerclaw_api.modules.privacy_redaction.models import (
 from gerclaw_api.security import redact_text
 
 PRIVACY_REDACTION_POLICY_VERSION = "1.1.0"
+MODEL_PROMPT_REDACTION_POLICY_VERSION = "1.0.0"
 
 _CONTROL = re.compile(r"[\x00-\x08\x0b\x0c\x0e-\x1f\x7f]")
 _PERSON_NAME_PATTERNS = (
@@ -70,7 +71,13 @@ def _findings(value: str) -> tuple[RedactionFinding, ...]:
 
 
 def _redact_external_text(
-    text: str, *, purpose: EgressPurpose, person_replacement: str
+    text: str,
+    *,
+    purpose: EgressPurpose,
+    person_replacement: str,
+    max_characters: int = 4_000,
+    collapse_whitespace: bool = True,
+    policy_version: str = PRIVACY_REDACTION_POLICY_VERSION,
 ) -> RedactionResult:
     """Return a bounded purpose-specific projection safe for an external provider.
 
@@ -79,19 +86,19 @@ def _redact_external_text(
     metrics or a provider-audit record.
     """
 
-    if len(text) > 4_000:
+    if len(text) > max_characters:
         raise PrivacyRedactionError("egress text exceeds the privacy policy size limit")
     findings = _findings(text)
     sanitized = redact_text(_CONTROL.sub(" ", text))
     for pattern in _PERSON_NAME_PATTERNS:
         sanitized = pattern.sub(person_replacement, sanitized)
-    normalized = " ".join(sanitized.split()).strip()
+    normalized = " ".join(sanitized.split()).strip() if collapse_whitespace else sanitized.strip()
     if not normalized:
         raise PrivacyRedactionError("egress text cannot be blank after privacy filtering")
     return RedactionResult(
         text=normalized,
         purpose=purpose,
-        policy_version=PRIVACY_REDACTION_POLICY_VERSION,
+        policy_version=policy_version,
         findings=findings,
     )
 
@@ -113,4 +120,17 @@ def redact_external_tts_text(text: str) -> RedactionResult:
         text,
         purpose=EgressPurpose.EXTERNAL_TTS,
         person_replacement="您",
+    )
+
+
+def redact_external_model_prompt(text: str) -> RedactionResult:
+    """Project one model-prompt string without collapsing its Markdown structure."""
+
+    return _redact_external_text(
+        text,
+        purpose=EgressPurpose.EXTERNAL_MODEL_PROMPT,
+        person_replacement="患者",
+        max_characters=100_000,
+        collapse_whitespace=False,
+        policy_version=MODEL_PROMPT_REDACTION_POLICY_VERSION,
     )

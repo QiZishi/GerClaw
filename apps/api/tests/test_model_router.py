@@ -1,3 +1,4 @@
+# ruff: noqa: RUF001
 """Ordered AgentScope model failover and partial-stream fencing tests."""
 
 from __future__ import annotations
@@ -20,8 +21,10 @@ from gerclaw_api.services.model_factory import build_agentscope_model, close_age
 from gerclaw_api.services.model_router import (
     FailoverChatModel,
     ModelChainExhaustedError,
+    ModelPromptPrivacyError,
     PartialModelStreamError,
     capture_model_attempts,
+    redact_model_messages,
 )
 
 
@@ -38,6 +41,7 @@ class _ScriptedModel(ChatModelBase):
     def __init__(self, name: str, actions: list[_Action]) -> None:
         self.actions = actions
         self.calls = 0
+        self.last_messages: list[Msg] = []
         super().__init__(
             credential=CredentialBase(name="test"),
             model=name,
@@ -54,8 +58,9 @@ class _ScriptedModel(ChatModelBase):
         tool_choice: ToolChoice | None = None,
         **kwargs: Any,
     ) -> ChatResponse | AsyncGenerator[ChatResponse, None]:
-        del model_name, messages, tools, tool_choice, kwargs
+        del model_name, tools, tool_choice, kwargs
         self.calls += 1
+        self.last_messages = messages
         actions = list(self.actions)
         if actions and actions[0].kind == "raise_open":
             raise RuntimeError("provider detail must not escape")
@@ -98,7 +103,11 @@ def _router(models: list[_ScriptedModel], *, timeout_seconds: float = 30.0) -> F
 
 
 async def _consume(router: FailoverChatModel) -> str:
-    response = await router([UserMsg(name="user", content="hello")])
+    return await _consume_with_messages(router, [UserMsg(name="user", content="hello")])
+
+
+async def _consume_with_messages(router: FailoverChatModel, messages: list[Msg]) -> str:
+    response = await router(messages)
     assert not isinstance(response, ChatResponse)
     text = ""
     async for chunk in response:
@@ -271,3 +280,27 @@ async def test_factory_owned_http_client_closes_idempotently() -> None:
     await close_agentscope_model(model)
     assert client.is_closed
     await close_agentscope_model(model)
+
+
+@pytest.mark.asyncio
+async def test_router_redacts_provider_bound_prompt_without_mutating_local_message() -> None:
+    model = _ScriptedModel("primary", [_Action("text", "安全回复")])
+    router = _router(
+        [
+            model,
+            _ScriptedModel("backup1", [_Action("text", "unused")]),
+            _ScriptedModel("backup2", [_Action("text", "unused")]),
+        ]
+    )
+    original = UserMsg(name="user", content="患者姓名：李雷，电话 13800138000")
+
+    assert await _consume_with_messages(router, [original]) == "安全回复"
+    provider_text = model.last_messages[0].get_text_content()
+    assert "李雷" not in provider_text
+    assert "13800138000" not in provider_text
+    assert original.get_text_content() == "患者姓名：李雷，电话 13800138000"
+
+
+def test_model_prompt_privacy_fails_closed_for_oversized_text() -> None:
+    with pytest.raises(ModelPromptPrivacyError):
+        redact_model_messages([UserMsg(name="user", content="x" * 100_001)])

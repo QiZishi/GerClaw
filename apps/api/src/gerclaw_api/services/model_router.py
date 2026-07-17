@@ -16,6 +16,10 @@ from pydantic import BaseModel
 
 from gerclaw_api.config import AgentModelConfig
 from gerclaw_api.metrics import AGENT_MODEL_ATTEMPTS
+from gerclaw_api.modules.privacy_redaction.policy import (
+    PrivacyRedactionError,
+    redact_external_model_prompt,
+)
 from gerclaw_api.services.model_factory import build_agentscope_model, close_agentscope_model
 
 
@@ -25,6 +29,10 @@ class ModelChainExhaustedError(RuntimeError):
 
 class PartialModelStreamError(RuntimeError):
     """Raised when failover would duplicate already-visible model output."""
+
+
+class ModelPromptPrivacyError(RuntimeError):
+    """Raised when model-bound prompt data cannot pass the privacy boundary."""
 
 
 @dataclass(frozen=True, slots=True)
@@ -91,6 +99,29 @@ def _commits_stream(chunk: ChatResponse) -> bool:
     return False
 
 
+def _redact_model_value(value: Any) -> Any:
+    """Redact only provider-bound string values while preserving AgentScope blocks."""
+
+    if isinstance(value, str):
+        if not value.strip():
+            return value
+        try:
+            return redact_external_model_prompt(value).text
+        except PrivacyRedactionError as error:
+            raise ModelPromptPrivacyError("model prompt cannot pass privacy policy") from error
+    if isinstance(value, list):
+        return [_redact_model_value(item) for item in value]
+    if isinstance(value, dict):
+        return {key: _redact_model_value(item) for key, item in value.items()}
+    return value
+
+
+def redact_model_messages(messages: list[Msg]) -> list[Msg]:
+    """Return provider-safe message copies without mutating local Agent state."""
+
+    return [Msg.model_validate(_redact_model_value(message.model_dump())) for message in messages]
+
+
 class FailoverChatModel(ChatModelBase):
     """Route one AgentScope model call through primary and two backups."""
 
@@ -127,6 +158,7 @@ class FailoverChatModel(ChatModelBase):
         **kwargs: Any,
     ) -> ChatResponse | AsyncGenerator[ChatResponse, None]:
         del model_name
+        safe_messages = redact_model_messages(messages)
         for index, candidate in enumerate(self._candidates):
             _record(ModelAttempt(candidate.preference, "started"))
             loop = asyncio.get_running_loop()
@@ -134,7 +166,7 @@ class FailoverChatModel(ChatModelBase):
             try:
                 async with asyncio.timeout_at(deadline):
                     response = await candidate.model(
-                        messages=messages,
+                        messages=safe_messages,
                         tools=tools,
                         tool_choice=tool_choice,
                         **kwargs,
@@ -156,7 +188,7 @@ class FailoverChatModel(ChatModelBase):
             return self._stream_with_failover(
                 index,
                 response,
-                messages,
+                safe_messages,
                 tools,
                 tool_choice,
                 kwargs,

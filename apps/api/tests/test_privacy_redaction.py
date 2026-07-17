@@ -7,8 +7,10 @@ import pytest
 
 from gerclaw_api.modules.privacy_redaction.models import EgressPurpose, RedactionCategory
 from gerclaw_api.modules.privacy_redaction.policy import (
+    MODEL_PROMPT_REDACTION_POLICY_VERSION,
     PRIVACY_REDACTION_POLICY_VERSION,
     PrivacyRedactionError,
+    redact_external_model_prompt,
     redact_external_search_query,
     redact_external_tts_text,
 )
@@ -23,8 +25,7 @@ def test_external_search_policy_redacts_identifiers_without_a_reversible_audit()
     result = redact_external_search_query(raw)
 
     assert result.text == (
-        "患者，电话 [PHONE]，邮箱 [EMAIL]，身份证 [ID_CARD]，"
-        "token=[REDACTED] 高血压指南"
+        "患者，电话 [PHONE]，邮箱 [EMAIL]，身份证 [ID_CARD]，token=[REDACTED] 高血压指南"
     )
     assert result.purpose is EgressPurpose.EXTERNAL_SEARCH_QUERY
     assert result.policy_version == PRIVACY_REDACTION_POLICY_VERSION
@@ -62,5 +63,15 @@ def test_external_tts_policy_preserves_spoken_intent_without_identifiers() -> No
 
     assert result.purpose is EgressPurpose.EXTERNAL_TTS
     assert result.text == "您，电话 [PHONE]，请尽快联系医生。"
+    assert "李雷" not in result.text
+    assert "13800138000" not in result.text
+
+
+def test_external_model_prompt_redacts_identifiers_without_flattening_markdown() -> None:
+    result = redact_external_model_prompt("# 病历\n患者姓名：李雷\n电话：13800138000")
+
+    assert result.purpose is EgressPurpose.EXTERNAL_MODEL_PROMPT
+    assert result.policy_version == MODEL_PROMPT_REDACTION_POLICY_VERSION
+    assert result.text == "# 病历\n患者\n电话：[PHONE]"
     assert "李雷" not in result.text
     assert "13800138000" not in result.text

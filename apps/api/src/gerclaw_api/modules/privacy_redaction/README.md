@@ -26,3 +26,12 @@ that the document is de-identified, safe to send, or consented. The legacy
 Next.js TTS BFF, model prompts, exports, AgentScope internal search and a
 user-facing processing ledger still require their own purpose-specific adapters
 before they can claim unified coverage.
+
+Before every AgentScope model-provider attempt, `FailoverChatModel` also creates
+an in-memory, provider-bound copy of every message and applies the distinct
+`external_model_prompt` `1.0.0` projection to each nonblank string field. This preserves
+message and tool-block structure while removing identifiers and credentials;
+oversized values fail closed. The local Agent state, encrypted history and
+document store are not mutated. Model-prompt egress decisions are not yet
+persisted in `provider_egress_events`, so this projection must not be described
+as a complete model-provider audit ledger or as consent management.

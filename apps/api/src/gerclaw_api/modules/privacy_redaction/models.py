@@ -25,6 +25,7 @@ class EgressPurpose(StrEnum):
     EXTERNAL_TTS = "external_tts"
     EXTERNAL_ASR_AUDIO = "external_asr_audio"
     EXTERNAL_DOCUMENT_PARSE = "external_document_parse"
+    EXTERNAL_MODEL_PROMPT = "external_model_prompt"
 
 
 class RedactionFinding(BaseModel):
@@ -41,7 +42,7 @@ class RedactionResult(BaseModel):
 
     model_config = ConfigDict(extra="forbid", frozen=True)
 
-    text: str = Field(min_length=1, max_length=4_000)
+    text: str = Field(min_length=1, max_length=100_000)
     purpose: EgressPurpose
     policy_version: str = Field(pattern=r"^[1-9][0-9]{0,3}\.[0-9]{1,4}\.[0-9]{1,4}$")
     findings: tuple[RedactionFinding, ...] = Field(default_factory=tuple, max_length=6)
