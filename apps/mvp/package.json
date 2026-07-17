@@ -7,6 +7,8 @@
     "build": "node scripts/with-root-env.mjs build",
     "start": "node scripts/with-root-env.mjs start",
     "lint": "eslint",
+    "test": "npm run test:unit",
+    "test:unit": "npm run test:audio && npm run test:cga-audio && npm run test:markdown && npm run test:export && npm run test:account && npm run test:guest-access && npm run test:document && npm run test:gerclaw-proxy && npm run test:feedback && npm run test:chat && npm run test:prescription-report && npm run test:search",
     "test:audio": "node --test src/lib/audioPlaybackCoordinator.test.mjs src/lib/cga-audio.test.mjs src/lib/tts-text.test.mjs src/services/voice/pcm-wav.test.mjs",
     "test:cga-audio": "node scripts/verify-cga-audio-assets.mjs",
     "test:markdown": "node --test src/lib/markdown-gfm.test.ts",

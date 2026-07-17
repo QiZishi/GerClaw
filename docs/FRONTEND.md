@@ -246,7 +246,7 @@ apps/mvp/
 - 测试文件命名：`[name].test.ts(x)` 与源文件同目录
 - 每个测试覆盖主路径（成功）+至少1条错误路径（失败/超时/降级）
 - 不追求100%覆盖率，但核心流程必须有测试
-- npm run test:unit运行单元测试，npm run test:e2e运行E2E测试
+- `npm test`（或 `npm run test:unit`）运行当前全部前端单元/契约与音频资源校验；浏览器 E2E 必须按对应 active exec-plan 使用 Playwright 实际执行并记录证据，不能以不存在的 `test:e2e` 脚本冒充通过。
 - `npm run test:audio` 验证全局朗读协调：启动新的消息/CGA 朗读会停止旧播放器，工作流退出可停止实际活跃播放器且停止操作幂等。
 
 ## 8. 环境变量规范
