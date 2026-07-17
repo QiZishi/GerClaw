@@ -7,6 +7,7 @@ from typing import Never
 
 from gerclaw_api.modules.evals.runner import (
     run_golden_cases,
+    run_medication_rule_golden_cases,
     run_output_safety_golden_cases,
     run_privacy_redaction_golden_cases,
 )
@@ -16,10 +17,17 @@ def main() -> Never:
     safety_results = run_golden_cases()
     output_safety_results = run_output_safety_golden_cases()
     privacy_redaction_results = run_privacy_redaction_golden_cases()
-    case_count = len(safety_results) + len(output_safety_results) + len(privacy_redaction_results)
+    medication_rule_results = run_medication_rule_golden_cases()
+    case_count = (
+        len(safety_results)
+        + len(output_safety_results)
+        + len(privacy_redaction_results)
+        + len(medication_rule_results)
+    )
     passed_count = sum(result.passed for result in safety_results) + sum(
         result.passed for result in output_safety_results
     ) + sum(result.passed for result in privacy_redaction_results)
+    passed_count += sum(result.passed for result in medication_rule_results)
     print(
         json.dumps(
             {
@@ -34,6 +42,9 @@ def main() -> Never:
                 ],
                 "privacy_redaction_results": [
                     result.model_dump(mode="json") for result in privacy_redaction_results
+                ],
+                "medication_rule_results": [
+                    result.model_dump(mode="json") for result in medication_rule_results
                 ],
             },
             ensure_ascii=False,

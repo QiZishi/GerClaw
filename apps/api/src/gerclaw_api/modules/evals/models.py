@@ -96,6 +96,55 @@ class PrivacyRedactionEvalCaseResult(BaseModel):
     actual_findings: tuple[RedactionFinding, ...]
 
 
+class MedicationRuleEvalCase(BaseModel):
+    """Reviewed synthetic regression case for deterministic medication rules."""
+
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    schema_version: Literal["medication-rule-case-v1"] = "medication-rule-case-v1"
+    case_id: str = Field(pattern=r"^medication-rule\.[a-z0-9_.-]{3,80}$")
+    title: str = Field(min_length=1, max_length=120)
+    synthetic_medication_list: str = Field(min_length=1, max_length=2_000)
+    patient_age: int | None = Field(default=None, ge=0, le=130)
+    expected_finding_ids: tuple[str, ...] = Field(default_factory=tuple, max_length=20)
+    expected_source_ids: tuple[str, ...] = Field(default_factory=tuple, max_length=20)
+    expected_input_error: bool = False
+    ruleset_version: Literal["medication-rules-v2"] = "medication-rules-v2"
+    provenance: Literal["synthetic_reviewed"] = "synthetic_reviewed"
+
+    @field_validator("expected_finding_ids", "expected_source_ids")
+    @classmethod
+    def _validate_unique_ids(cls, value: tuple[str, ...]) -> tuple[str, ...]:
+        if len(set(value)) != len(value) or not all(
+            item and len(item) <= 96 and item.replace("_", "").replace("-", "").isalnum()
+            for item in value
+        ):
+            raise ValueError("expected IDs must be unique bounded identifiers")
+        return value
+
+    @model_validator(mode="after")
+    def validate_error_expectation(self) -> MedicationRuleEvalCase:
+        if self.expected_input_error and (self.expected_finding_ids or self.expected_source_ids):
+            raise ValueError("input-error cases cannot expect findings or source IDs")
+        return self
+
+
+class MedicationRuleEvalCaseResult(BaseModel):
+    """PHI-free medication-rule result without the synthetic medication list."""
+
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    case_id: str
+    passed: bool
+    expected_finding_count: int = Field(ge=0)
+    actual_finding_ids: tuple[str, ...]
+    expected_source_count: int = Field(ge=0)
+    actual_source_ids: tuple[str, ...]
+    expected_input_error: bool
+    actual_input_error: bool
+    ruleset_version: str | None = None
+
+
 class RAGRetrievalEvalCase(BaseModel):
     """Reviewed synthetic retrieval expectation bound to one corpus index version."""
 

@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import uuid
 from collections.abc import Mapping
 
 from gerclaw_api.modules.agent_harness.safety import (
@@ -16,9 +17,12 @@ from gerclaw_api.modules.evals.golden_cases import (
     OUTPUT_SAFETY_GOLDEN_CASES,
     SAFETY_GOLDEN_CASES,
 )
+from gerclaw_api.modules.evals.medication_cases import MEDICATION_RULE_GOLDEN_CASES
 from gerclaw_api.modules.evals.models import (
     EvalCase,
     EvalCaseResult,
+    MedicationRuleEvalCase,
+    MedicationRuleEvalCaseResult,
     OutputSafetyEvalCase,
     OutputSafetyEvalCaseResult,
     PrivacyRedactionEvalCase,
@@ -29,6 +33,10 @@ from gerclaw_api.modules.evals.models import (
     RAGRetrievalEvalCaseResult,
 )
 from gerclaw_api.modules.evals.privacy_cases import PRIVACY_REDACTION_GOLDEN_CASES
+from gerclaw_api.modules.medication_review.rules_engine import (
+    MedicationRulesInputError,
+    review_medication_list,
+)
 from gerclaw_api.modules.privacy_redaction.models import EgressPurpose
 from gerclaw_api.modules.privacy_redaction.policy import (
     redact_external_search_query,
@@ -172,6 +180,60 @@ def run_privacy_redaction_golden_cases() -> tuple[PrivacyRedactionEvalCaseResult
     if not all(result.passed for result in results):
         failed = ", ".join(result.case_id for result in results if not result.passed)
         raise AssertionError(f"privacy redaction golden cases failed: {failed}")
+    return results
+
+
+def run_medication_rule_case(case: MedicationRuleEvalCase) -> MedicationRuleEvalCaseResult:
+    """Run a synthetic medication-list case without emitting its input text."""
+
+    try:
+        review = review_medication_list(
+            intake_id=uuid.uuid5(uuid.NAMESPACE_URL, case.case_id),
+            medication_list=case.synthetic_medication_list,
+            patient_age=case.patient_age,
+        )
+    except MedicationRulesInputError:
+        return MedicationRuleEvalCaseResult(
+            case_id=case.case_id,
+            passed=case.expected_input_error,
+            expected_finding_count=len(case.expected_finding_ids),
+            actual_finding_ids=(),
+            expected_source_count=len(case.expected_source_ids),
+            actual_source_ids=(),
+            expected_input_error=case.expected_input_error,
+            actual_input_error=True,
+        )
+
+    finding_ids = tuple(finding.finding_id for finding in review.findings)
+    source_ids = tuple(
+        sorted({source_id for finding in review.findings for source_id in finding.source_ids})
+    )
+    passed = (
+        not case.expected_input_error
+        and review.ruleset_version == case.ruleset_version
+        and finding_ids == case.expected_finding_ids
+        and source_ids == tuple(sorted(case.expected_source_ids))
+    )
+    return MedicationRuleEvalCaseResult(
+        case_id=case.case_id,
+        passed=passed,
+        expected_finding_count=len(case.expected_finding_ids),
+        actual_finding_ids=finding_ids,
+        expected_source_count=len(case.expected_source_ids),
+        actual_source_ids=source_ids,
+        expected_input_error=case.expected_input_error,
+        actual_input_error=False,
+        ruleset_version=review.ruleset_version,
+    )
+
+
+def run_medication_rule_golden_cases() -> tuple[MedicationRuleEvalCaseResult, ...]:
+    """Run the version-bound deterministic medication rule baseline."""
+
+    results = tuple(run_medication_rule_case(case) for case in MEDICATION_RULE_GOLDEN_CASES)
+    if not all(result.passed for result in results):
+        failed = ", ".join(result.case_id for result in results if not result.passed)
+        raise AssertionError(f"medication rule golden cases failed: {failed}")
     return results
 
 

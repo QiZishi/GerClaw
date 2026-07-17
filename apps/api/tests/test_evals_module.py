@@ -10,6 +10,7 @@ from pydantic import ValidationError
 
 from gerclaw_api.modules.evals.models import (
     EvalCase,
+    MedicationRuleEvalCase,
     OutputSafetyEvalCase,
     PrivacyRedactionEvalCase,
     RAGEvaluationRunConfig,
@@ -23,6 +24,8 @@ from gerclaw_api.modules.evals.rag_cli import (
 from gerclaw_api.modules.evals.runner import (
     run_case,
     run_golden_cases,
+    run_medication_rule_case,
+    run_medication_rule_golden_cases,
     run_opt_in_rag_retrieval_evaluation,
     run_output_safety_case,
     run_output_safety_golden_cases,
@@ -101,6 +104,22 @@ def test_privacy_redaction_golden_cases_pass_without_echoing_synthetic_text() ->
     assert not hasattr(results[0], "expected_redacted_text")
 
 
+def test_medication_rule_golden_cases_are_version_bound_and_do_not_echo_inputs() -> None:
+    results = run_medication_rule_golden_cases()
+
+    assert len(results) == 5
+    assert all(result.passed for result in results)
+    assert results[0].actual_finding_ids == ("ddi_nitroglycerin_sildenafil",)
+    assert results[1].actual_source_ids == (
+        "frailty_polypharmacy_2022",
+        "stable_cad_primary_care",
+    )
+    serialized = results[0].model_dump_json()
+    assert "硝酸甘油" not in serialized
+    assert "西地那非" not in serialized
+    assert not hasattr(results[0], "synthetic_medication_list")
+
+
 def test_eval_case_rejects_unknown_fields_and_unreviewed_provenance() -> None:
     with pytest.raises(ValidationError):
         EvalCase(
@@ -139,6 +158,14 @@ def test_eval_case_rejects_unknown_fields_and_unreviewed_provenance() -> None:
             minimum_expected_hits=1,
             index_version="corpus-v1",
             raw_user_query="must_not_be_stored",
+        )
+    with pytest.raises(ValidationError):
+        MedicationRuleEvalCase(
+            case_id="medication-rule.invalid_case",
+            title="invalid",
+            synthetic_medication_list="synthetic",
+            provenance="raw_user_feedback",
+            raw_trace_id="trace_should_not_be_stored",
         )
 
 
@@ -184,6 +211,21 @@ def test_privacy_redaction_eval_detects_a_policy_regression_without_echoing_text
 
     assert result.passed is False
     assert not hasattr(result, "synthetic_input")
+
+
+def test_medication_rule_eval_detects_a_regression_without_echoing_medication_list() -> None:
+    result = run_medication_rule_case(
+        MedicationRuleEvalCase(
+            case_id="medication-rule.expected_but_missing",
+            title="regression sentinel",
+            synthetic_medication_list="合成药甲 10mg 每日一次",
+            expected_finding_ids=("ddi_nitroglycerin_sildenafil",),
+        )
+    )
+
+    assert result.passed is False
+    assert result.actual_finding_ids == ()
+    assert not hasattr(result, "synthetic_medication_list")
 
 
 @pytest.mark.asyncio

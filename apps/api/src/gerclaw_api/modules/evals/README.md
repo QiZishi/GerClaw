@@ -15,6 +15,12 @@ They are deterministic text-policy regression checks only. They do not measure
 OCR, ASR, free-form structured fields, model-based detection, false-positive or
 false-negative production rates, and therefore do not prove full PHI coverage.
 
+`medication-rule-case-v1` adds five reviewed, synthetic cases that bind
+`medication-rules-v2` findings to exact rule IDs and local source IDs. The
+result never emits a medication list, patient attribute, rule text or source
+content. It guards deterministic wiring and provenance only; it is not a
+complete DDI/Beers/dose evaluation or clinical-validity evidence.
+
 Run:
 
 ```bash

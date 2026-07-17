@@ -22,6 +22,9 @@ content and has written a new canonical case.
   credentials.
 - A passing policy baseline does not prove clinical correctness, model quality,
   RAG quality, or capacity. Preserve the exact claim boundary in reports.
+- Medication-rule canaries bind a synthetic list only to expected rule/source
+  IDs and ruleset version. Results must never expose the list, patient data,
+  source content or a patient-executable recommendation.
 
 ## Change and test rules
 
