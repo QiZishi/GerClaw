@@ -6,6 +6,7 @@ import {
   sessionSkillsSchema,
   skillDefinitionSchema,
   skillListSchema,
+  type SkillDraft,
   type SkillDefinition,
   type SkillInfo,
 } from "./schemas";
@@ -47,19 +48,18 @@ export async function registerSkill(
   });
 }
 
-export async function generateSkill(description: string): Promise<SkillDefinition> {
-  const result = await gerclawRequest("skills/generate", generatedSkillSchema, {
+export async function generateSkill(description: string): Promise<SkillDraft> {
+  return gerclawRequest("skills/generate", generatedSkillSchema, {
     method: "POST",
     body: JSON.stringify({ description }),
   });
-  return result.definition;
 }
 
 export async function evolveSkill(
   skill: SkillInfo,
   changeRequest: string
-): Promise<SkillDefinition> {
-  const result = await gerclawRequest(
+): Promise<SkillDraft> {
+  return gerclawRequest(
     `skills/${encodeURIComponent(skill.skill_id)}/evolve`,
     generatedSkillSchema,
     {
@@ -70,7 +70,6 @@ export async function evolveSkill(
       }),
     }
   );
-  return result.definition;
 }
 
 export async function previewSkillUpload(file: File): Promise<SkillDefinition> {

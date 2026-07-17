@@ -10,7 +10,7 @@ import {
   setSkillEnabled,
   updateSkill,
 } from "@/services/gerclaw/skills";
-import type { SkillDefinition, SkillInfo } from "@/services/gerclaw/schemas";
+import type { SkillDefinition, SkillDraft, SkillInfo } from "@/services/gerclaw/schemas";
 
 type SkillStatus = "idle" | "loading" | "ready" | "error";
 
@@ -25,8 +25,8 @@ interface SkillState {
     origin?: "text" | "upload" | "generated"
   ) => Promise<SkillDefinition>;
   update: (skill: SkillInfo, markdown: string) => Promise<SkillDefinition>;
-  generateDraft: (description: string) => Promise<SkillDefinition>;
-  evolveDraft: (skill: SkillInfo, changeRequest: string) => Promise<SkillDefinition>;
+  generateDraft: (description: string) => Promise<SkillDraft>;
+  evolveDraft: (skill: SkillInfo, changeRequest: string) => Promise<SkillDraft>;
   inspectUpload: (file: File) => Promise<SkillDefinition>;
   toggle: (skill: SkillInfo, enabled: boolean) => Promise<SkillDefinition>;
   remove: (skill: SkillInfo) => Promise<void>;

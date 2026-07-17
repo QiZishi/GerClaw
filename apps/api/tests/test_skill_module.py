@@ -29,6 +29,7 @@ from gerclaw_api.modules.skill.loader import (
     parse_skill_markdown,
     validate_skill_params,
 )
+from gerclaw_api.modules.skill.quality import evaluate_skill_draft
 from gerclaw_api.modules.skill.registry import BuiltinSkillRegistry
 from gerclaw_api.modules.skill.security import UnsafeSkillError
 from gerclaw_api.modules.skill.skill_module import (
@@ -113,6 +114,25 @@ def test_parser_builds_bounded_object_schema_and_validates_params() -> None:
         validate_skill_params(definition, {"topic": "复诊", "hidden": True})
     with pytest.raises(SkillFormatError, match="length"):
         validate_skill_params(definition, {"topic": "a" * 101})
+
+
+def test_generated_draft_quality_report_is_deterministic_and_nonclinical() -> None:
+    incomplete = parse_skill_markdown(_markdown(), source="custom", origin="generated")
+    report = evaluate_skill_draft(incomplete)
+    assert report.review_required is True
+    assert report.missing_checks == ("red_flag", "medical_disclaimer")
+
+    complete = parse_skill_markdown(
+        _markdown(
+            instructions=(
+                "# 工作流\n\n先核对用户输入完整性，再检索本地证据并标注引用；"
+                "发现红旗或高风险症状时提示立即就医。输出仅供参考，不能替代医生诊断。"
+            )
+        ),
+        source="custom",
+        origin="generated",
+    )
+    assert evaluate_skill_draft(complete).missing_checks == ()
 
 
 def test_parser_enforces_numeric_array_and_item_bounds_at_runtime() -> None:

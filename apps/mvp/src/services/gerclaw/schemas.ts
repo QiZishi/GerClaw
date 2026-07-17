@@ -30,10 +30,20 @@ export const skillDefinitionSchema = skillInfoSchema.extend({
 });
 
 export const skillListSchema = z.array(skillInfoSchema);
+export const skillDraftQualitySchema = z
+  .object({
+    version: z.literal("skill-draft-quality-v1"),
+    review_required: z.literal(true),
+    missing_checks: z.array(
+      z.enum(["input_check", "local_evidence", "red_flag", "medical_disclaimer"])
+    ).max(4),
+  })
+  .strict();
 export const generatedSkillSchema = z
   .object({
     trace_id: z.string(),
     definition: skillDefinitionSchema,
+    quality_report: skillDraftQualitySchema,
   })
   .strict();
 export const sessionSkillsSchema = z
@@ -54,6 +64,7 @@ export const sessionSchema = z
 
 export type SkillInfo = z.infer<typeof skillInfoSchema>;
 export type SkillDefinition = z.infer<typeof skillDefinitionSchema>;
+export type SkillDraft = z.infer<typeof generatedSkillSchema>;
 
 const approvalStatusSchema = z.enum([
   "pending",

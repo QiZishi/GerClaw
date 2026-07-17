@@ -8,6 +8,7 @@ from gerclaw_api.modules.skill.models import (
     SessionSkillsRequest,
     Skill,
     SkillDefinition,
+    SkillDraftQualityReport,
     SkillDraftRequest,
     SkillEvolutionRequest,
     SkillExecuteRequest,
@@ -18,6 +19,7 @@ from gerclaw_api.modules.skill.models import (
     SkillUpdateRequest,
 )
 from gerclaw_api.modules.skill.protocols import SkillModule
+from gerclaw_api.modules.skill.quality import evaluate_skill_draft
 from gerclaw_api.modules.skill.security import UnsafeSkillError
 from gerclaw_api.modules.skill.skill_module import (
     CorruptSkillError,
@@ -36,6 +38,7 @@ __all__ = [
     "SkillConflictError",
     "SkillDefinition",
     "SkillDisabledError",
+    "SkillDraftQualityReport",
     "SkillDraftRequest",
     "SkillEvolutionRequest",
     "SkillExecuteRequest",
@@ -50,6 +53,7 @@ __all__ = [
     "SkillUpdateRequest",
     "UnsafeSkillArchiveError",
     "UnsafeSkillError",
+    "evaluate_skill_draft",
     "extract_skill_markdown",
     "parse_skill_markdown",
 ]

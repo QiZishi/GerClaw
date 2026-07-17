@@ -28,6 +28,7 @@ from gerclaw_api.modules.skill import (
     SessionSkillsRequest,
     SkillDefinition,
     SkillDisabledError,
+    SkillDraftQualityReport,
     SkillDraftRequest,
     SkillEvolutionRequest,
     SkillExecuteRequest,
@@ -37,6 +38,7 @@ from gerclaw_api.modules.skill import (
     SkillRegisterRequest,
     SkillResult,
     SkillUpdateRequest,
+    evaluate_skill_draft,
     extract_skill_markdown,
 )
 from gerclaw_api.modules.skill.generator import StructuredSkillModel
@@ -57,6 +59,7 @@ class SkillDraftRead(BaseModel):
 
     trace_id: str
     definition: SkillDefinition
+    quality_report: SkillDraftQualityReport
 
 
 class SkillExecuteRead(BaseModel):
@@ -423,7 +426,11 @@ async def generate_skill(
             skill_id=definition.skill_id,
             success=True,
         )
-        return SkillDraftRead(trace_id=trace_id, definition=definition)
+        return SkillDraftRead(
+            trace_id=trace_id,
+            definition=definition,
+            quality_report=evaluate_skill_draft(definition),
+        )
     except asyncio.CancelledError:
         await _finish_trace(
             service,
@@ -485,7 +492,11 @@ async def evolve_skill(
             success=True,
             version=definition.version,
         )
-        return SkillDraftRead(trace_id=trace_id, definition=definition)
+        return SkillDraftRead(
+            trace_id=trace_id,
+            definition=definition,
+            quality_report=evaluate_skill_draft(definition),
+        )
     except asyncio.CancelledError:
         await _finish_trace(
             service,

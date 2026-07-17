@@ -141,6 +141,33 @@ class GeneratedSkillContent(BaseModel):
     instructions: str = Field(min_length=20, max_length=8_000)
 
 
+SkillDraftCheckCode = Literal[
+    "input_check",
+    "local_evidence",
+    "red_flag",
+    "medical_disclaimer",
+]
+
+
+class SkillDraftQualityReport(BaseModel):
+    """Deterministic, non-clinical checklist for a model-generated review draft.
+
+    Passing this checklist means only that explicitly named review topics were
+    found. It does not evaluate medical validity, authorize publication, or
+    replace a human reviewer.
+    """
+
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    version: Literal["skill-draft-quality-v1"] = "skill-draft-quality-v1"
+    review_required: Literal[True] = True
+    missing_checks: tuple[SkillDraftCheckCode, ...] = Field(max_length=4)
+
+    @property
+    def ready_for_manual_review(self) -> bool:
+        return not self.missing_checks
+
+
 class SkillRegisterRequest(BaseModel):
     """Register an already reviewed Skill Markdown document."""
 

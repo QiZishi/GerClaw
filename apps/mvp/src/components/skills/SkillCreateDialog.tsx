@@ -15,7 +15,7 @@ import {
 import { Label } from "@/components/ui/label";
 import { toast } from "@/components/ui/toast";
 import { cn } from "@/lib/utils";
-import type { SkillDefinition } from "@/services/gerclaw/schemas";
+import type { SkillDefinition, SkillDraft } from "@/services/gerclaw/schemas";
 import { useSkillStore } from "@/stores/skillStore";
 
 const TEMPLATE = `---
@@ -33,6 +33,13 @@ tools:
 先核对用户目标，再检索本地证据，标注来源并生成供人工复核的草稿。
 禁止确定性诊断；发现高风险症状时提示立即就医。
 `;
+
+const DRAFT_CHECK_LABELS: Record<SkillDraft["quality_report"]["missing_checks"][number], string> = {
+  input_check: "先核对输入信息",
+  local_evidence: "说明本地证据或引用要求",
+  red_flag: "说明红旗或紧急就医处理",
+  medical_disclaimer: "加入医疗免责声明",
+};
 
 export type SkillEditorMode = "create" | "upload" | "edit" | "view";
 
@@ -86,6 +93,7 @@ export function SkillEditorDialog({
   );
   const [busy, setBusy] = useState<"generate" | "save" | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [draftQuality, setDraftQuality] = useState<SkillDraft["quality_report"] | null>(null);
   const copy = MODE_CONTENT[mode];
   const readOnly = mode === "view";
 
@@ -102,9 +110,10 @@ export function SkillEditorDialog({
     setError(null);
     try {
       const draft = await generateDraft(description.trim());
-      setMarkdown(draft.source_markdown);
+      setMarkdown(draft.definition.source_markdown);
+      setDraftQuality(draft.quality_report);
       setOrigin("generated");
-      toast.show("真实模型已生成草稿，请完整审阅后保存");
+      toast.show("真实模型已生成草稿，请根据审阅提示完整检查后保存");
     } catch (generateError) {
       setError(generateError instanceof Error ? generateError.message : "草稿生成失败");
     } finally {
@@ -141,7 +150,8 @@ export function SkillEditorDialog({
     setError(null);
     try {
       const draft = await evolveDraft(definition, changeRequest.trim());
-      setMarkdown(draft.source_markdown);
+      setMarkdown(draft.definition.source_markdown);
+      setDraftQuality(draft.quality_report);
       setOrigin("generated");
       toast.show("已生成新的待审阅修订；确认无误后再保存");
     } catch (evolutionError) {
@@ -209,6 +219,35 @@ export function SkillEditorDialog({
           </section>
         )}
 
+        {draftQuality && (
+          <section
+            className={cn(
+              "rounded-xl border px-4 py-3",
+              draftQuality.missing_checks.length
+                ? "border-amber-500/35 bg-amber-500/10"
+                : "border-emerald-600/30 bg-emerald-600/10"
+            )}
+            aria-live="polite"
+            aria-label="模型草稿审阅提示"
+          >
+            <p className={cn("font-medium", seniorMode && "text-lg")}>
+              {draftQuality.missing_checks.length
+                ? "保存前请补充或核实以下内容"
+                : "草稿已覆盖基础审阅提示，仍需人工逐字审阅"}
+            </p>
+            {draftQuality.missing_checks.length > 0 && (
+              <ul className={cn("mt-2 list-disc space-y-1 pl-5 text-sm leading-6", seniorMode && "text-lg leading-8")}>
+                {draftQuality.missing_checks.map((check) => (
+                  <li key={check}>{DRAFT_CHECK_LABELS[check]}</li>
+                ))}
+              </ul>
+            )}
+            <p className={cn("mt-2 text-xs leading-5 text-muted-foreground", seniorMode && "text-base leading-7")}>
+              这只是结构化审阅提示，不代表医学正确性、医生批准或自动发布。
+            </p>
+          </section>
+        )}
+
         {mode === "edit" && definition && (
           <section className="space-y-3 rounded-xl border border-border bg-muted/20 p-4" aria-labelledby="skill-evolution-title">
             <div>
@@ -255,7 +294,10 @@ export function SkillEditorDialog({
           </div>
           <MarkdownEditor
             value={markdown}
-            onChange={setMarkdown}
+            onChange={(value) => {
+              setMarkdown(value);
+              setDraftQuality(null);
+            }}
             readOnly={readOnly}
             seniorMode={seniorMode}
             defaultMode={readOnly ? "preview" : "source"}
