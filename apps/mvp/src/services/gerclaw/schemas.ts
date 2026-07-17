@@ -341,14 +341,20 @@ export type ChronicTrend = z.infer<typeof chronicTrendSchema>;
 export const riskAlertSchema = z
   .object({
     alert_id: z.string().uuid(),
-    kind: z.enum(["cga_immediate_safety", "cga_high_follow_up", "chat_red_flag"]),
+    kind: z.enum([
+      "cga_immediate_safety",
+      "cga_high_follow_up",
+      "chat_red_flag",
+      "medication_contraindicated",
+      "medication_major_risk",
+    ]),
     severity: z.enum(["critical", "high"]),
     title: z.string().min(1).max(120),
     message: z.string().min(1).max(500),
     action: z.string().min(1).max(300),
     status: z.enum(["active", "acknowledged"]),
     revision: z.number().int().positive(),
-    policy_version: z.literal("risk-alert-v1"),
+    policy_version: z.enum(["risk-alert-v1", "risk-alert-v2"]),
     created_at: z.string().datetime(),
     updated_at: z.string().datetime(),
     acknowledged_at: z.string().datetime().nullable(),
@@ -399,13 +405,15 @@ export const clinicalIntakeSchema = z
     definition_version: z.string().min(1).max(32),
     status: z.enum(["collecting", "information_complete_pending_governance"]),
     revision: z.number().int().positive(),
+    conversation_turns: z.number().int().min(0).max(5),
     title: z.string().min(1).max(100),
     description: z.string().min(1).max(300),
     fields: z.array(clinicalIntakeFieldSchema).min(1).max(5),
     answers: z
       .record(z.string().regex(/^[a-z][a-z0-9_]{1,63}$/), z.string())
       .refine((answers) => Object.keys(answers).length <= 3, "最多保存 3 个信息字段"),
-    document_ids: z.array(z.string().uuid()).max(5),
+    document_ids: z.array(z.string().uuid()).max(10),
+    image_evidence_ids: z.array(z.string().regex(/^ev_img[a-f0-9]{24}$/)).max(10),
     missing_required_fields: z.array(z.string().regex(/^[a-z][a-z0-9_]{1,63}$/)).max(3),
     governance_notice: z.string().min(1).max(500),
     updated_at: z.string().datetime(),
@@ -413,6 +421,16 @@ export const clinicalIntakeSchema = z
   .strict();
 
 export type ClinicalIntake = z.infer<typeof clinicalIntakeSchema>;
+
+export const prescriptionConversationTurnSchema = z
+  .object({
+    intake: clinicalIntakeSchema,
+    assistant_message: z.string().min(1).max(300),
+    ready_to_generate: z.boolean(),
+  })
+  .strict();
+
+export type PrescriptionConversationTurn = z.infer<typeof prescriptionConversationTurnSchema>;
 
 const medicationListEntrySchema = z
   .object({
@@ -465,7 +483,7 @@ const reviewedMedicationSchema = z
 const medicationReviewFindingSchema = z
   .object({
     finding_id: z.string().regex(/^[a-z][a-z0-9_]{2,95}$/),
-    kind: z.enum(["ddi", "dose", "duplicate", "polypharmacy"]),
+    kind: z.enum(["ddi", "dose", "beers", "duplicate", "polypharmacy"]),
     severity: medicationRiskLevelSchema,
     title: z.string().min(1).max(300),
     involved_generic_names: z.array(z.string().min(1)).min(1).max(4),
@@ -489,7 +507,7 @@ export const medicationReviewDraftSchema = z
       .object({
         ddi: z.literal("limited_source_traceable"),
         dose: z.literal("limited_source_traceable"),
-        beers: z.literal("not_installed_no_licensed_source"),
+        beers: z.literal("limited_source_traceable"),
       })
       .strict(),
     unrecognized_entry_count: z.number().int().min(0).max(50),
@@ -611,8 +629,10 @@ export const fivePrescriptionDraftSchema = z
     nutrition: nutritionDraftSchema,
     psychological: psychologicalDraftSchema,
     rehabilitation: rehabilitationDraftSchema,
+    medication_review: medicationReviewDraftSchema.nullable(),
     evidence_sources: z.array(prescriptionEvidenceSourceSchema).min(1).max(100),
-    uploaded_document_ids: z.array(z.string().uuid()).max(5),
+    uploaded_document_ids: z.array(z.string().uuid()).max(10),
+    uploaded_image_evidence_ids: z.array(z.string().regex(/^ev_img[a-f0-9]{24}$/)).max(10),
     disclaimer: z.literal("AI生成建议仅供参考，不能替代专业医生诊断、治疗建议或处方；如有不适请及时就医。"),
   })
   .strict();

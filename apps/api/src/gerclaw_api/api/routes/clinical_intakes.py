@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import json
 import uuid
 from time import monotonic
@@ -41,12 +42,25 @@ from gerclaw_api.modules.prescription.generator import (
     PrescriptionRedFlagError,
     StructuredPrescriptionModel,
 )
+from gerclaw_api.modules.prescription.intake_extractor import (
+    PrescriptionIntakeExtractionError,
+    PrescriptionIntakeExtractor,
+    StructuredIntakeModel,
+)
 from gerclaw_api.modules.prescription.models import (
     ClinicalIntakeRead,
     ClinicalIntakeStartRequest,
     ClinicalIntakeUpdateRequest,
     FivePrescriptionDraft,
+    PrescriptionConversationTurnRead,
+    PrescriptionConversationTurnRequest,
     PrescriptionInputReadiness,
+)
+from gerclaw_api.modules.risk_alert.service import RiskAlertService
+from gerclaw_api.modules.workflows import (
+    WorkflowContextError,
+    WorkflowId,
+    get_default_workflow_registry,
 )
 from gerclaw_api.repositories.clinical_intake import (
     ClinicalIntakeNotFoundError,
@@ -54,10 +68,12 @@ from gerclaw_api.repositories.clinical_intake import (
 )
 from gerclaw_api.repositories.conversation import SqlAlchemyConversationRepository
 from gerclaw_api.repositories.document import SqlAlchemyDocumentRepository
+from gerclaw_api.repositories.risk_alert import SqlAlchemyRiskAlertRepository
 from gerclaw_api.security import audit_hmac_digest
 from gerclaw_api.services.clinical_intake_service import (
     ClinicalIntakeConflictError,
     ClinicalIntakeService,
+    intake_definition,
 )
 from gerclaw_api.services.conversation_service import ConversationNotFoundError, ConversationService
 from gerclaw_api.services.model_egress_audit import SqlAlchemyModelPromptEgressAudit
@@ -118,7 +134,11 @@ def _module_name(kind: ClinicalIntakeKind) -> str:
 
 def _request_fingerprint(
     request: Request,
-    payload: ClinicalIntakeStartRequest | ClinicalIntakeUpdateRequest,
+    payload: (
+        ClinicalIntakeStartRequest
+        | ClinicalIntakeUpdateRequest
+        | PrescriptionConversationTurnRequest
+    ),
 ) -> str:
     """Bind retries without exposing encrypted clinical input in audit storage."""
 
@@ -135,6 +155,28 @@ def _request_fingerprint(
     )
 
 
+def _medication_alert_fingerprints(
+    request: Request,
+    *,
+    intake_id: uuid.UUID,
+    result: MedicationReviewDraft,
+) -> dict[str, str]:
+    """Deduplicate severe rule hits without storing drug details in alert rows."""
+
+    secret = request.app.state.settings.auth_jwt_secret.get_secret_value().encode()
+    return {
+        finding.finding_id: audit_hmac_digest(
+            secret,
+            (
+                f"risk-alert:v2:medication_review:{intake_id}:"
+                f"{result.ruleset_version}:{finding.finding_id}"
+            ).encode(),
+        )
+        for finding in result.findings
+        if finding.severity in {"contraindicated", "major"}
+    }
+
+
 async def _start_write_trace(
     *,
     request: Request,
@@ -143,7 +185,11 @@ async def _start_write_trace(
     session_id: uuid.UUID,
     kind: ClinicalIntakeKind,
     operation: str,
-    payload: ClinicalIntakeStartRequest | ClinicalIntakeUpdateRequest,
+    payload: (
+        ClinicalIntakeStartRequest
+        | ClinicalIntakeUpdateRequest
+        | PrescriptionConversationTurnRequest
+    ),
 ) -> tuple[str, float]:
     trace_id = str(request.state.trace_id)
     set_active_trace(request.scope, trace_id)
@@ -213,6 +259,93 @@ async def _finish_write_trace(
                 "operation": operation,
                 "result_code": result.status,
                 "version": result.definition_version,
+            },
+        ),
+        commit=False,
+    )
+
+
+async def _append_model_attempt_events(
+    *,
+    traces: TraceService,
+    tenant_id: str,
+    trace_id: str,
+    attempts: list[ModelAttempt],
+) -> None:
+    """Persist slot-only model outcomes without retaining prompts or responses."""
+
+    trace_suffix = trace_id.removeprefix("trace_")
+    for index, attempt in enumerate(attempts):
+        await traces.append_event(
+            tenant_id,
+            trace_id,
+            TraceEventCreate(
+                event_id=f"event_{trace_suffix}_model_{index}",
+                event_type=TraceEventType.MODEL_CALL,
+                status=(
+                    TraceEventStatus.SUCCEEDED
+                    if attempt.outcome == "succeeded"
+                    else TraceEventStatus.STARTED
+                    if attempt.outcome == "started"
+                    else TraceEventStatus.FAILED
+                ),
+                payload={
+                    "model": f"slot_{attempt.preference}",
+                    "outcome": attempt.outcome,
+                    "success": attempt.outcome == "succeeded",
+                    **(
+                        {"error_code": attempt.error_code.casefold()}
+                        if attempt.error_code
+                        else {}
+                    ),
+                },
+            ),
+            commit=False,
+        )
+
+
+async def _finish_conversation_failure_trace(
+    *,
+    traces: TraceService,
+    tenant_id: str,
+    trace_id: str | None,
+    started_at: float | None,
+    attempts: list[ModelAttempt],
+) -> None:
+    if trace_id is None or started_at is None:
+        return
+    await _append_model_attempt_events(
+        traces=traces, tenant_id=tenant_id, trace_id=trace_id, attempts=attempts
+    )
+    trace_suffix = trace_id.removeprefix("trace_")
+    await traces.append_event(
+        tenant_id,
+        trace_id,
+        TraceEventCreate(
+            event_id=f"event_{trace_suffix}_conversation_failed",
+            event_type=TraceEventType.SYSTEM_ERROR,
+            status=TraceEventStatus.FAILED,
+            payload={
+                "module": "prescription",
+                "operation": "conversation_turn",
+                "error_code": "prescription_intake_unavailable",
+            },
+            duration_ms=max(0, int((monotonic() - started_at) * 1_000)),
+        ),
+        commit=False,
+    )
+    await traces.finish_trace(
+        tenant_id,
+        trace_id,
+        TraceFinishRequest(
+            idempotency_key=f"finish_{trace_suffix}_conversation_turn",
+            status=TraceStatus.FAILED,
+            error_code="prescription_intake_unavailable",
+            error_summary="prescription intake extraction did not complete",
+            attributes={
+                "module": "prescription",
+                "operation": "conversation_turn",
+                "success": False,
             },
         ),
         commit=False,
@@ -358,6 +491,138 @@ async def start_intake(
     return result
 
 
+@router.post(
+    "/{intake_id}/conversation-turn",
+    response_model=PrescriptionConversationTurnRead,
+)
+async def process_prescription_conversation_turn(
+    intake_id: uuid.UUID,
+    payload: PrescriptionConversationTurnRequest,
+    request: Request,
+    session: SessionDependency,
+    identity: WriteIdentity,
+    traces: TraceServiceDependency,
+) -> PrescriptionConversationTurnRead:
+    """Use the governed model to extract one normal chat turn into intake state."""
+
+    await _enforce_rate_limit(request, identity)
+    trace_id: str | None = None
+    started_at: float | None = None
+    attempts: list[ModelAttempt] = []
+    try:
+        service = _service(session, request)
+        current = await service.get(
+            intake_id, tenant_id=identity.tenant_id, actor_id=identity.actor_id
+        )
+        if current.kind != "prescription":
+            raise ClinicalIntakeConflictError("prescription conversation is unavailable")
+        if current.conversation_turns >= 5:
+            raise ClinicalIntakeConflictError("prescription clarification turn limit reached")
+        trace_id, started_at = await _start_write_trace(
+            request=request,
+            traces=traces,
+            identity=identity,
+            session_id=current.session_id,
+            kind="prescription",
+            operation="conversation_turn",
+            payload=payload,
+        )
+        if payload.images:
+            await traces.record_private_input_artifacts(
+                identity.tenant_id,
+                trace_id,
+                {"images": [image.trace_record() for image in payload.images]},
+            )
+        prepared, documents, stored_images = await service.prepare_prescription_conversation(
+            intake_id,
+            tenant_id=identity.tenant_id,
+            actor_id=identity.actor_id,
+            document_ids=payload.document_ids,
+        )
+        if prepared.revision != payload.expected_revision:
+            raise ClinicalIntakeConflictError("intake has changed; refresh before updating")
+        model = request.app.state.agent_model
+        if model is None:
+            raise PrescriptionIntakeExtractionError("prescription intake model is unavailable")
+        with (
+            bind_model_prompt_egress_audit(
+                SqlAlchemyModelPromptEgressAudit(
+                    request.app.state.database,
+                    tenant_id=identity.tenant_id,
+                    actor_id=identity.actor_id,
+                )
+            ),
+            capture_model_attempts() as captured_attempts,
+        ):
+            try:
+                extraction = await PrescriptionIntakeExtractor(
+                    cast(StructuredIntakeModel, model)
+                ).extract(
+                    fields=intake_definition("prescription").fields,
+                    existing_answers=prepared.answers,
+                    documents=documents,
+                    images=tuple([*stored_images, *payload.images]),
+                    user_message=payload.message,
+                )
+            finally:
+                attempts = list(captured_attempts)
+        result = await service.update(
+            intake_id,
+            tenant_id=identity.tenant_id,
+            actor_id=identity.actor_id,
+            expected_revision=payload.expected_revision,
+            answers=extraction.answer_updates,
+            document_ids=payload.document_ids,
+            images=payload.images,
+            conversation_turn_increment=1,
+        )
+        await _append_model_attempt_events(
+            traces=traces, tenant_id=identity.tenant_id, trace_id=trace_id, attempts=attempts
+        )
+        await _finish_write_trace(
+            traces=traces,
+            tenant_id=identity.tenant_id,
+            trace_id=trace_id,
+            operation="conversation_turn",
+            elapsed_started_at=started_at,
+            result=result,
+        )
+        await session.commit()
+        if result.status == "information_complete_pending_governance":
+            message = "资料已整理完成，正在生成五大处方草案。"  # noqa: RUF001
+        else:
+            message = extraction.follow_up_question or "请补充与本次目标最相关的情况。"
+        return PrescriptionConversationTurnRead(
+            intake=result,
+            assistant_message=message,
+            ready_to_generate=result.status == "information_complete_pending_governance",
+        )
+    except (
+        ClinicalIntakeNotFoundError,
+        ClinicalIntakeConflictError,
+        PrescriptionIntakeExtractionError,
+        TraceConflictError,
+    ) as error:
+        try:
+            await _finish_conversation_failure_trace(
+                traces=traces,
+                tenant_id=identity.tenant_id,
+                trace_id=trace_id,
+                started_at=started_at,
+                attempts=attempts,
+            )
+            await session.commit()
+        except Exception:
+            await session.rollback()
+        error_code = (
+            "PRESCRIPTION_INPUT_NOT_READY"
+            if isinstance(error, (ClinicalIntakeNotFoundError, ClinicalIntakeConflictError))
+            else "PRESCRIPTION_INTAKE_UNAVAILABLE"
+        )
+        status_code = 409 if error_code == "PRESCRIPTION_INPUT_NOT_READY" else 503
+        raise HTTPException(status_code=status_code, detail={"code": error_code}) from error
+
+
 @router.get(
     "/{intake_id}/medication-reconciliation",
     response_model=MedicationReconciliationRead,
@@ -456,6 +721,14 @@ async def generate_medication_review_draft(
     )
     if not trace_started.created:
         raise HTTPException(status_code=409, detail={"code": "MEDICATION_REVIEW_TRACE_CONFLICT"})
+    await RiskAlertService(SqlAlchemyRiskAlertRepository(session)).sync_medication_review(
+        tenant_id=identity.tenant_id,
+        actor_id=identity.actor_id,
+        source_fingerprints=_medication_alert_fingerprints(
+            request, intake_id=intake_id, result=result
+        ),
+        review=result,
+    )
     trace_suffix = trace_id.removeprefix("trace_")
     await traces.append_event(
         identity.tenant_id,
@@ -547,6 +820,12 @@ async def generate_prescription_draft(
         prepared = await _service(session, request).prepare_prescription_input(
             intake_id, tenant_id=identity.tenant_id, actor_id=identity.actor_id
         )
+        workflow = get_default_workflow_registry().validate_context(
+            WorkflowId.PRESCRIPTION,
+            loaded_skill_count=0,
+            uploaded_file_count=len(prepared.uploaded_documents),
+            uploaded_image_count=len(prepared.uploaded_images),
+        )
         model = request.app.state.agent_model
         if model is None:
             raise PrescriptionGenerationError("prescription model is unavailable")
@@ -561,6 +840,8 @@ async def generate_prescription_draft(
                     "feature": "five_prescription",
                     "module": "prescription",
                     "operation": "generate_draft",
+                    "workflow": workflow.workflow_id.value,
+                    "workflow_version": workflow.version,
                     "version": prepared.input_template_version,
                     "request_fingerprint": audit_hmac_digest(
                         request.app.state.settings.auth_jwt_secret.get_secret_value().encode(),
@@ -576,6 +857,12 @@ async def generate_prescription_draft(
         )
         if not trace_started.created:
             raise TraceConflictError("prescription generation trace is already in use")
+        if prepared.uploaded_images:
+            await traces.record_private_input_artifacts(
+                identity.tenant_id,
+                trace_id,
+                {"images": [image.trace_record() for image in prepared.uploaded_images]},
+            )
         with (
             bind_model_prompt_egress_audit(
                 SqlAlchemyModelPromptEgressAudit(
@@ -587,10 +874,18 @@ async def generate_prescription_draft(
             capture_model_attempts() as captured_attempts,
         ):
             try:
-                draft = await EvidenceBoundPrescriptionGenerator(
-                    model=cast(StructuredPrescriptionModel, model),
-                    rag_module=request.app.state.rag_runtime.module,
-                ).generate(prepared)
+                async with asyncio.timeout(
+                    request.app.state.settings.prescription_generation_timeout_seconds
+                ):
+                    draft = await EvidenceBoundPrescriptionGenerator(
+                        model=cast(StructuredPrescriptionModel, model),
+                        rag_module=request.app.state.rag_runtime.module,
+                        online_search_module=request.app.state.search_runtime.module,
+                    ).generate(prepared)
+            except TimeoutError as error:
+                raise PrescriptionGenerationError(
+                    "prescription generation exceeded its Runtime budget"
+                ) from error
             finally:
                 attempts = list(captured_attempts)
         await traces.append_event(
@@ -631,6 +926,7 @@ async def generate_prescription_draft(
         ClinicalIntakeConflictError,
         PrescriptionGenerationError,
         TraceConflictError,
+        WorkflowContextError,
     ) as error:
         error_code = _prescription_error_code(error)
         try:
@@ -708,8 +1004,9 @@ async def update_intake(
             tenant_id=identity.tenant_id,
             actor_id=identity.actor_id,
             expected_revision=payload.expected_revision,
-            answers=payload.answers,
-            document_ids=payload.document_ids,
+        answers=payload.answers,
+        document_ids=payload.document_ids,
+        conversation_turn_increment=payload.conversation_turn_increment,
         )
     except ClinicalIntakeNotFoundError as error:
         raise HTTPException(

@@ -1,8 +1,9 @@
 import { z } from "zod";
 import { GerclawApiError, gerclawRequest } from "./client";
+import { chatDoneEventSchema } from "./chat-contract";
 import { ensureBackendSession } from "./skills";
 import { getGerclawVisitorId } from "./visitor";
-import type { Citation } from "@/types";
+import type { Citation, ImageAttachment } from "@/types";
 
 const textDeltaSchema = z.object({ content: z.string() }).passthrough();
 const thinkingSchema = z.object({ content: z.string(), status: z.string() }).passthrough();
@@ -18,36 +19,7 @@ const toolResultSchema = z
     results: z.array(z.unknown()).optional(),
   })
   .passthrough();
-const referenceSchema = z
-  .object({
-    source_id: z.string(),
-    title: z.string(),
-    locator: z.string(),
-    excerpt: z.string(),
-    score: z.number().nullable(),
-    corpus: z.enum(["local_knowledge_base", "web", "uploaded_document"]),
-  })
-  .strict();
-const safetySchema = z
-  .object({
-    reviewed: z.literal(true),
-    disclaimer_applied: z.literal(true),
-    deterministic_diagnosis_blocked: z.boolean(),
-    high_risk_escalation_checked: z.literal(true),
-    notices: z.array(z.string()).min(1).max(10),
-  })
-  .strict();
-const doneSchema = z
-  .object({
-    full_text: z.string(),
-    references: z.array(referenceSchema),
-    trace_id: z.string(),
-    session_id: z.string().uuid(),
-    safety: safetySchema,
-    replayed: z.boolean(),
-    timestamp: z.number().finite(),
-  })
-  .strict();
+type ChatReference = z.infer<typeof chatDoneEventSchema>["references"][number];
 const errorSchema = z
   .object({
     code: z.string(),
@@ -124,7 +96,7 @@ async function requestAgentCancellation(traceId: string): Promise<void> {
 }
 
 function toCitation(
-  reference: z.infer<typeof referenceSchema>,
+  reference: ChatReference,
   index: number
 ): Citation {
   return {
@@ -137,6 +109,8 @@ function toCitation(
         ? "本地知识库"
         : reference.corpus === "uploaded_document"
           ? "上传文档"
+          : reference.corpus === "uploaded_image"
+            ? "上传图片"
           : reference.locator,
   };
 }
@@ -162,6 +136,7 @@ export async function streamAgentChat(
     message: string;
     loadedSkills: string[];
     uploadedDocumentIds?: string[];
+    images?: ImageAttachment[];
     /** Companion has an isolated, no-tool backend policy. */
     workflow?: "standard" | "companion";
   },
@@ -209,6 +184,10 @@ export async function streamAgentChat(
         message: input.message,
         loaded_skills: input.loadedSkills,
         uploaded_files: input.uploadedDocumentIds ?? [],
+        images: (input.images ?? []).map((image) => ({
+          media_type: image.mimeType,
+          base64: image.base64,
+        })),
         channel: "web",
         workflow: input.workflow ?? "standard",
       }),
@@ -266,7 +245,7 @@ export async function streamAgentChat(
         const notice = safetyNoticeSchema.parse(parsed.data);
         callbacks.onSafetyNotice?.(notice);
       } else if (parsed.event === "done") {
-        const doneEvent = doneSchema.parse(parsed.data);
+        const doneEvent = chatDoneEventSchema.parse(parsed.data);
         sawTerminal = true;
         callbacks.onDone?.(
           doneEvent.full_text,

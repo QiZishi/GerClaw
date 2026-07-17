@@ -11,7 +11,10 @@ import {
   type FivePrescriptionDraft,
   type MedicationReconciliation,
   type MedicationReviewDraft,
+  type PrescriptionConversationTurn,
+  prescriptionConversationTurnSchema,
 } from "./schemas";
+import type { ImageAttachment } from "@/types";
 
 export type ClinicalIntakeKind = "prescription" | "medication_review";
 
@@ -65,11 +68,37 @@ export async function generatePrescriptionDraft(intakeId: string): Promise<FiveP
   );
 }
 
+export async function processPrescriptionConversationTurn(input: {
+  intakeId: string;
+  expectedRevision: number;
+  message: string;
+  documentIds?: string[];
+  images?: ImageAttachment[];
+}): Promise<PrescriptionConversationTurn> {
+  return gerclawRequest(
+    `clinical-intakes/${encodeURIComponent(input.intakeId)}/conversation-turn`,
+    prescriptionConversationTurnSchema,
+    {
+      method: "POST",
+      body: JSON.stringify({
+        expected_revision: input.expectedRevision,
+        message: input.message,
+        ...(input.documentIds === undefined ? {} : { document_ids: input.documentIds }),
+        images: (input.images ?? []).map((image) => ({
+          media_type: image.mimeType,
+          base64: image.base64,
+        })),
+      }),
+    }
+  );
+}
+
 export async function updateClinicalIntake(input: {
   intakeId: string;
   expectedRevision: number;
   answers: Record<string, string>;
   documentIds?: string[];
+  conversationTurnIncrement?: 1;
 }): Promise<ClinicalIntake> {
   return gerclawRequest(`clinical-intakes/${encodeURIComponent(input.intakeId)}`, clinicalIntakeSchema, {
     method: "PATCH",
@@ -77,6 +106,9 @@ export async function updateClinicalIntake(input: {
       expected_revision: input.expectedRevision,
       answers: input.answers,
       ...(input.documentIds === undefined ? {} : { document_ids: input.documentIds }),
+      ...(input.conversationTurnIncrement === undefined
+        ? {}
+        : { conversation_turn_increment: input.conversationTurnIncrement }),
     }),
   });
 }

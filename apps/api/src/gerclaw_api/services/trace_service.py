@@ -151,6 +151,30 @@ class TraceService:
             raise TraceNotFoundError(trace_id)
         return trace
 
+    async def record_private_input_artifacts(
+        self,
+        tenant_id: str,
+        trace_id: str,
+        artifacts: dict[str, Any],
+    ) -> None:
+        """Persist encrypted replay input outside searchable audit JSON.
+
+        Image base64 is deliberately retained here at the user's request for
+        Bad Case reproduction. It must never be copied into Trace attributes,
+        events, metrics, or process logs.
+        """
+
+        trace = await self._repository.get_trace(tenant_id, trace_id, for_update=True)
+        if trace is None:
+            raise TraceNotFoundError(trace_id)
+        existing = trace.private_input_artifacts or {}
+        if existing and existing != artifacts:
+            raise TraceConflictError("trace private input artifacts differ")
+        if existing:
+            return
+        trace.private_input_artifacts = artifacts
+        await self._repository.commit()
+
     async def append_event(
         self,
         tenant_id: str,

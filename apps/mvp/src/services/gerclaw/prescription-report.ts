@@ -66,6 +66,25 @@ export function fivePrescriptionDraftToMarkdown(draft: FivePrescriptionDraft): s
     ...draft.rehabilitation.training_plan.map((item) => `- ${item}`),
     "",
   ];
+  const medicationReview = draft.medication_review
+    ? [
+        "## 本次有限用药规则核对",
+        draft.medication_review.conclusion,
+        "",
+        ...draft.medication_review.findings.flatMap((finding) => [
+          `- **【${finding.severity}】${finding.title}**：${finding.conclusion}`,
+          `  - 复核建议：${finding.clinician_action}`,
+        ]),
+        "",
+        "### 规则来源",
+        ...draft.medication_review.sources.map(
+          (source) => `- ${source.title}（${source.locator}；${source.content_sha256}）`
+        ),
+        "",
+        `> ${draft.medication_review.disclaimer}`,
+        "",
+      ]
+    : [];
 
   return [
     "# 五大处方待临床复核草案",
@@ -79,16 +98,18 @@ export function fivePrescriptionDraftToMarkdown(draft: FivePrescriptionDraft): s
     ...draft.health_assessment.key_issues.map((item) => `- ${item}`),
     "",
     ...medication,
+    ...medicationReview,
     ...exercise,
     ...nutrition,
     ...psychological,
     ...rehabilitation,
-    "## 本地医学知识库证据",
+    "## 证据来源",
     ...draft.evidence_sources.map(
-      (source) => `- **${source.evidence_id}**：${source.title}（${source.locator}）`
+      (source) =>
+        `- **${source.evidence_id}** · ${source.source}：${source.title}（${source.locator}）${source.url ? ` [查看来源](${source.url})` : ""}`
     ),
     "",
-    `上传资料：本次使用 ${draft.uploaded_document_ids.length} 份上传资料作为患者输入，不作为医学知识库证据。`,
+    `上传资料：本次使用 ${draft.uploaded_document_ids.length} 份上传资料作为患者资料证据；它们不等同于本地医学知识库来源。`,
     "",
     `> ${draft.disclaimer}`,
   ].join("\n");

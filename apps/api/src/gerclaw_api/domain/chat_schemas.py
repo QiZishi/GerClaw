@@ -9,6 +9,7 @@ from typing import Literal
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
 from gerclaw_api.modules.contracts import Citation, SafetyDecision
+from gerclaw_api.modules.input_output import ImageInput
 from gerclaw_api.modules.skill.models import SkillId
 from gerclaw_api.modules.workflows import (
     WorkflowContextError,
@@ -28,6 +29,7 @@ class ChatRequest(BaseModel):
     message: str = Field(min_length=1, max_length=4_000)
     loaded_skills: list[SkillId] = Field(default_factory=list, max_length=20)
     uploaded_files: list[uuid.UUID] = Field(default_factory=list, max_length=10)
+    images: list[ImageInput] = Field(default_factory=list, max_length=10)
     channel: Literal["web"] = "web"
     workflow: WorkflowId = WorkflowId.STANDARD
 
@@ -48,6 +50,7 @@ class ChatRequest(BaseModel):
                 self.workflow,
                 loaded_skill_count=len(self.loaded_skills),
                 uploaded_file_count=len(self.uploaded_files),
+                uploaded_image_count=len(self.images),
             )
         except WorkflowContextError as error:
             raise ValueError(str(error)) from error

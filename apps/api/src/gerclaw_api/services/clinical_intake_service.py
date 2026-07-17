@@ -9,6 +9,7 @@ from typing import Literal, cast
 from gerclaw_api.database.models import ClinicalIntake
 from gerclaw_api.modules.document.models import UploadedDocumentContext
 from gerclaw_api.modules.document.service import DocumentContextError, DocumentService
+from gerclaw_api.modules.input_output import ImageInput
 from gerclaw_api.modules.input_output.clinical_intake import (
     ClinicalIntakeDefinition,
     ClinicalIntakeKind,
@@ -23,13 +24,11 @@ from gerclaw_api.modules.prescription.models import (
 )
 from gerclaw_api.repositories.clinical_intake import SqlAlchemyClinicalIntakeRepository
 
-PRESCRIPTION_GOVERNANCE_NOTICE = (
-    "信息完整后可生成带本地医学证据的五大处方待临床复核草案；它不是正式处方或诊断。"
-    "DDI、Beers 和剂量规则尚未配置，任何药物调整必须由医生或药师核对。"
-)
+PRESCRIPTION_GOVERNANCE_NOTICE = "生成结果须经医生复核。"
 MEDICATION_REVIEW_GOVERNANCE_NOTICE = (
     "可生成来源可追溯的有限规则审查结果，供医生或药师复核；它不是正式处方或诊断。"
-    "Beers 规则尚未安装，有限规则未命中不代表用药安全，任何药物调整必须由医生或药师核对。"
+    "Beers 相关核对目前只覆盖少量本地来源情境，有限规则未命中不代表用药安全，"
+    "任何药物调整必须由医生或药师核对。"
 )
 INTAKE_DEFINITIONS: dict[ClinicalIntakeKind, ClinicalIntakeDefinition] = {
     "prescription": PRESCRIPTION_INTAKE_DEFINITION,
@@ -107,11 +106,14 @@ class ClinicalIntakeService:
         expected_revision: int,
         answers: dict[str, str],
         document_ids: list[uuid.UUID] | None = None,
+        images: list[ImageInput] | None = None,
+        conversation_turn_increment: int | None = None,
     ) -> ClinicalIntakeRead:
         record = await self._repository.lock(intake_id, tenant_id=tenant_id, actor_id=actor_id)
         definition = intake_definition(cast(ClinicalIntakeKind, record.kind))
         previous = self._answers(record)
         previous_document_ids = self._document_ids(record)
+        previous_images = self._images(record)
         normalized = self._validated_answers(definition.kind, answers)
         candidate = {**previous, **normalized}
         candidate_document_ids = (
@@ -119,6 +121,18 @@ class ClinicalIntakeService:
             if document_ids is None
             else self._validated_document_ids(document_ids)
         )
+        candidate_images = (
+            previous_images
+            if not images
+            else self._validated_images([*previous_images, *images])
+        )
+        if conversation_turn_increment is not None:
+            if definition.kind != "prescription" or conversation_turn_increment != 1:
+                raise ClinicalIntakeConflictError(
+                    "conversation turn is not supported for this intake"
+                )
+            if record.conversation_turns >= 5:
+                raise ClinicalIntakeConflictError("prescription clarification turn limit reached")
         if document_ids is not None:
             if definition.kind != "prescription" and candidate_document_ids:
                 raise ClinicalIntakeConflictError(
@@ -130,12 +144,20 @@ class ClinicalIntakeService:
                 actor_id=actor_id,
                 session_id=record.session_id,
             )
-        if candidate == previous and candidate_document_ids == previous_document_ids:
+        if (
+            candidate == previous
+            and candidate_document_ids == previous_document_ids
+            and candidate_images == previous_images
+            and conversation_turn_increment is None
+        ):
             return self._read(record)
         if record.revision != expected_revision:
             raise ClinicalIntakeConflictError("intake has changed; refresh before updating")
         record.answers = candidate
         record.document_ids = candidate_document_ids
+        record.image_inputs = [image.trace_record() for image in candidate_images]
+        if conversation_turn_increment is not None:
+            record.conversation_turns += conversation_turn_increment
         record.status = (
             "information_complete_pending_governance"
             if all(
@@ -159,7 +181,9 @@ class ClinicalIntakeService:
         must either receive all selected material or fail safely.
         """
 
-        intake = await self.get(intake_id, tenant_id=tenant_id, actor_id=actor_id)
+        record = await self._repository.get(intake_id, tenant_id=tenant_id, actor_id=actor_id)
+        intake = self._read(record)
+        images = self._images(record)
         if intake.kind != "prescription":
             raise ClinicalIntakeConflictError("prescription input is unavailable for this intake")
         if intake.status != "information_complete_pending_governance":
@@ -188,7 +212,59 @@ class ClinicalIntakeService:
             definition_version=intake.definition_version,
             answers=intake.answers,
             uploaded_documents=tuple(documents),
+            uploaded_images=tuple(images),
         )
+
+    async def prepare_prescription_conversation(
+        self,
+        intake_id: uuid.UUID,
+        *,
+        tenant_id: str,
+        actor_id: str,
+        document_ids: list[uuid.UUID] | None = None,
+    ) -> tuple[ClinicalIntakeRead, tuple[UploadedDocumentContext, ...], tuple[ImageInput, ...]]:
+        """Resolve one owner-scoped chat turn before model extraction.
+
+        Unlike draft preparation, collection is allowed before all fields are
+        known.  It still rejects revoked, cross-session and over-budget material
+        rather than handing the model a partial report.
+        """
+
+        record = await self._repository.get(intake_id, tenant_id=tenant_id, actor_id=actor_id)
+        intake = self._read(record)
+        images = tuple(self._images(record))
+        if intake.kind != "prescription":
+            raise ClinicalIntakeConflictError("prescription conversation is unavailable")
+        candidate_ids = (
+            intake.document_ids
+            if document_ids is None
+            else [uuid.UUID(str(item)) for item in document_ids]
+        )
+        normalized = self._validated_document_ids(candidate_ids)
+        await self._validate_document_ownership(
+            normalized,
+            tenant_id=tenant_id,
+            actor_id=actor_id,
+            session_id=intake.session_id,
+        )
+        if not normalized:
+            return intake, (), images
+        if self._document_service is None:
+            raise ClinicalIntakeConflictError("uploaded document resolution is unavailable")
+        try:
+            documents = await self._document_service.resolve_context(
+                [uuid.UUID(item) for item in normalized],
+                tenant_id=tenant_id,
+                actor_id=actor_id,
+                session_id=intake.session_id,
+                max_characters=self._document_service.context_max_characters,
+                allow_truncation=False,
+            )
+        except DocumentContextError as error:
+            raise ClinicalIntakeConflictError(
+                "uploaded prescription input is no longer complete"
+            ) from error
+        return intake, tuple(documents), images
 
     async def prescription_input_readiness(
         self, intake_id: uuid.UUID, *, tenant_id: str, actor_id: str
@@ -203,6 +279,7 @@ class ClinicalIntakeService:
             definition_version=prepared.definition_version,
             answer_field_count=len(prepared.answers),
             uploaded_document_count=len(prepared.uploaded_documents),
+            uploaded_image_count=len(prepared.uploaded_images),
             governance_notice=PRESCRIPTION_GOVERNANCE_NOTICE,
         )
 
@@ -223,7 +300,7 @@ class ClinicalIntakeService:
             return []
         if (
             not isinstance(raw, list)
-            or len(raw) > 5
+            or len(raw) > 10
             or any(not isinstance(item, str) for item in raw)
         ):
             raise ClinicalIntakeConflictError("persisted intake document references are invalid")
@@ -240,11 +317,39 @@ class ClinicalIntakeService:
     @staticmethod
     def _validated_document_ids(document_ids: list[uuid.UUID]) -> list[str]:
         normalized = [str(item) for item in document_ids]
-        if len(normalized) > 5:
+        if len(normalized) > 10:
             raise ClinicalIntakeConflictError("too many uploaded document references")
         if len(set(normalized)) != len(normalized):
             raise ClinicalIntakeConflictError("duplicate uploaded document reference")
         return normalized
+
+    @staticmethod
+    def _validated_images(images: list[ImageInput]) -> list[ImageInput]:
+        if len(images) > 10:
+            raise ClinicalIntakeConflictError("too many uploaded images")
+        evidence_ids = [image.evidence_id for image in images]
+        if len(set(evidence_ids)) != len(evidence_ids):
+            raise ClinicalIntakeConflictError("duplicate uploaded image reference")
+        return list(images)
+
+    @staticmethod
+    def _images(record: ClinicalIntake) -> list[ImageInput]:
+        raw = record.image_inputs or []
+        if (
+            not isinstance(raw, list)
+            or len(raw) > 10
+            or any(not isinstance(item, dict) for item in raw)
+        ):
+            raise ClinicalIntakeConflictError("persisted image inputs are invalid")
+        try:
+            return [
+                ImageInput.model_validate(
+                    {"media_type": item["media_type"], "base64": item["base64"]}
+                )
+                for item in raw
+            ]
+        except (KeyError, TypeError, ValueError) as error:
+            raise ClinicalIntakeConflictError("persisted image inputs are invalid") from error
 
     async def _validate_document_ownership(
         self,
@@ -293,6 +398,7 @@ class ClinicalIntakeService:
             raise ClinicalIntakeConflictError("persisted intake definition is unsupported")
         answers = cls._answers(record)
         document_ids = cls._document_ids(record)
+        images = cls._images(record)
         missing = [
             field.id
             for field in definition.fields
@@ -310,11 +416,13 @@ class ClinicalIntakeService:
             definition_version=record.definition_version,
             status=expected_status,
             revision=record.revision,
+            conversation_turns=record.conversation_turns,
             title=definition.title,
             description=definition.description,
             fields=[ClinicalIntakeFieldRead(**field.__dict__) for field in definition.fields],
             answers=answers,
             document_ids=[uuid.UUID(item) for item in document_ids],
+            image_evidence_ids=[item.evidence_id for item in images],
             missing_required_fields=missing,
             governance_notice=governance_notice(definition.kind),
             updated_at=record.updated_at,

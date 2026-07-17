@@ -156,7 +156,10 @@ class ProviderEgressEvent(Base):
             name="valid_provider_egress_purpose",
         ),
         CheckConstraint(
-            "processor IN ('mimo_tts','mimo_asr','mineru','anysearch','tavily','model_primary','model_backup1','model_backup2')",
+            "processor IN ("
+            "'mimo_tts','mimo_asr','mineru','anysearch','tavily',"
+            "'model_primary','model_backup1','model_backup2'"
+            ")",
             name="valid_provider_egress_processor",
         ),
         CheckConstraint(
@@ -300,7 +303,7 @@ class RiskAlert(TimestampMixin, Base):
 
     __tablename__ = "risk_alerts"
     __table_args__ = (
-        CheckConstraint("source IN ('cga','chat')", name="valid_source"),
+        CheckConstraint("source IN ('cga','chat','medication_review')", name="valid_source"),
         CheckConstraint("status IN ('active','acknowledged')", name="valid_status"),
         CheckConstraint("revision > 0", name="positive_revision"),
         UniqueConstraint(
@@ -455,10 +458,17 @@ class ClinicalIntake(TimestampMixin, Base):
     definition_version: Mapped[str] = mapped_column(String(32), nullable=False)
     status: Mapped[str] = mapped_column(String(64), nullable=False, default="collecting")
     revision: Mapped[int] = mapped_column(Integer, nullable=False, default=1)
+    # Bounded server-owned count for the five-prescription clarification dialog.
+    # It is deliberately separate from revision: document binding and retries do
+    # not consume a user clarification turn.
+    conversation_turns: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
     answers: Mapped[dict[str, Any]] = mapped_column(EncryptedJSON(), default=dict, nullable=False)
     # References only: parsed document bodies remain in UploadedDocument and are
     # resolved again under the same owner/session boundary before any future workflow.
     document_ids: Mapped[list[str] | None] = mapped_column(EncryptedJSON(), default=list)
+    # Encrypted visual inputs are retained as evidence-bearing data, never in
+    # the searchable intake projection or public medical corpus.
+    image_inputs: Mapped[list[dict[str, Any]] | None] = mapped_column(EncryptedJSON(), default=list)
 
 
 class MemoryFact(TimestampMixin, Base):
@@ -776,6 +786,12 @@ class ExecutionTrace(Base):
     execution_type: Mapped[str] = mapped_column(String(64), nullable=False, index=True)
     status: Mapped[str] = mapped_column(String(16), default="running", nullable=False)
     attributes: Mapped[dict[str, Any]] = mapped_column(JSONB, default=dict, nullable=False)
+    # Encrypted replay material for Bad Case analysis. Unlike ``attributes`` and
+    # TraceEvent.payload this may contain user-provided binary encoded as base64
+    # and is never projected by Trace read APIs or operational logs.
+    private_input_artifacts: Mapped[dict[str, Any] | None] = mapped_column(
+        EncryptedJSON(), default=dict, nullable=True
+    )
     start_fingerprint: Mapped[str | None] = mapped_column(String(64), nullable=True)
     error_code: Mapped[str | None] = mapped_column(String(64), nullable=True)
     error_summary: Mapped[str | None] = mapped_column(EncryptedText(), nullable=True)

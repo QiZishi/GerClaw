@@ -10,7 +10,9 @@ from typing import Final, Literal
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 from gerclaw_api.modules.document.models import UploadedDocumentContext
+from gerclaw_api.modules.input_output import ImageInput
 from gerclaw_api.modules.input_output.clinical_intake import ClinicalIntakeKind
+from gerclaw_api.modules.medication_review.models import MedicationReviewDraft
 
 FIVE_PRESCRIPTION_TEMPLATE_VERSION: Final[Literal["five-prescription-report-v1"]] = (
     "five-prescription-report-v1"
@@ -27,7 +29,7 @@ MEDICAL_DRAFT_DISCLAIMER: Final[
 
 
 class EvidenceSource(BaseModel):
-    """One traceable evidence record; user uploads are never evidence sources."""
+    """One traceable local, online, or same-session patient evidence record."""
 
     model_config = ConfigDict(extra="forbid", frozen=True)
 
@@ -39,7 +41,7 @@ class EvidenceSource(BaseModel):
 
 
 class PrescriptionRecommendation(BaseModel):
-    """A draft recommendation that must cite reviewed local or web evidence."""
+    """A draft recommendation citing local, online, or patient evidence."""
 
     model_config = ConfigDict(extra="forbid", frozen=True)
 
@@ -146,8 +148,12 @@ class FivePrescriptionDraft(BaseModel):
     nutrition: NutritionDraft
     psychological: PsychologicalDraft
     rehabilitation: RehabilitationDraft
+    # Server-owned deterministic output.  The structured model never supplies
+    # this field or controls the rules, sources, coverage, or conclusions.
+    medication_review: MedicationReviewDraft | None = None
     evidence_sources: tuple[EvidenceSource, ...] = Field(min_length=1, max_length=100)
-    uploaded_document_ids: tuple[uuid.UUID, ...] = Field(default_factory=tuple, max_length=5)
+    uploaded_document_ids: tuple[uuid.UUID, ...] = Field(default_factory=tuple, max_length=10)
+    uploaded_image_evidence_ids: tuple[str, ...] = Field(default_factory=tuple, max_length=10)
     disclaimer: Literal[
         "AI生成建议仅供参考，不能替代专业医生诊断、治疗建议或处方；如有不适请及时就医。"
     ] = MEDICAL_DRAFT_DISCLAIMER
@@ -169,6 +175,8 @@ class FivePrescriptionDraft(BaseModel):
                 referenced.update(recommendation.evidence_ids)
         if not referenced.issubset(available):
             raise ValueError("prescription evidence references must resolve to evidence_sources")
+        if not set(self.uploaded_image_evidence_ids).issubset(available):
+            raise ValueError("uploaded image evidence must resolve to evidence_sources")
         if self.status == "needs_medical_governance" and self.uploaded_document_ids:
             # Documents are input/provenance only; their ownership must be resolved
             # by the future workflow before any reviewable draft can be emitted.
@@ -212,7 +220,38 @@ class ClinicalIntakeUpdateRequest(BaseModel):
 
     expected_revision: int = Field(ge=1)
     answers: dict[str, str] = Field(default_factory=dict, max_length=3)
-    document_ids: list[uuid.UUID] | None = Field(default=None, max_length=5)
+    document_ids: list[uuid.UUID] | None = Field(default=None, max_length=10)
+    conversation_turn_increment: Literal[1] | None = None
+
+
+class PrescriptionConversationTurnRequest(BaseModel):
+    """One bounded, chat-native turn for five-prescription information completion."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    expected_revision: int = Field(ge=1)
+    message: str = Field(min_length=1, max_length=4_000)
+    document_ids: list[uuid.UUID] | None = Field(default=None, max_length=10)
+    images: list[ImageInput] = Field(default_factory=list, max_length=10)
+
+
+class PrescriptionIntakeExtraction(BaseModel):
+    """Strict model projection; the service owns all persistence and readiness."""
+
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    answer_updates: dict[str, str] = Field(default_factory=dict, max_length=3)
+    follow_up_question: str | None = Field(default=None, min_length=1, max_length=300)
+
+
+class PrescriptionConversationTurnRead(BaseModel):
+    """Safe caller-visible result of a model-assisted intake turn."""
+
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    intake: ClinicalIntakeRead
+    assistant_message: str = Field(min_length=1, max_length=300)
+    ready_to_generate: bool
 
 
 class ClinicalIntakeRead(BaseModel):
@@ -226,11 +265,13 @@ class ClinicalIntakeRead(BaseModel):
     definition_version: str = Field(min_length=1, max_length=32)
     status: Literal["collecting", "information_complete_pending_governance"]
     revision: int = Field(ge=1)
+    conversation_turns: int = Field(ge=0, le=5)
     title: str = Field(min_length=1, max_length=100)
     description: str = Field(min_length=1, max_length=300)
     fields: list[ClinicalIntakeFieldRead] = Field(min_length=1, max_length=5)
     answers: dict[str, str] = Field(default_factory=dict, max_length=3)
-    document_ids: list[uuid.UUID] = Field(default_factory=list, max_length=5)
+    document_ids: list[uuid.UUID] = Field(default_factory=list, max_length=10)
+    image_evidence_ids: list[str] = Field(default_factory=list, max_length=10)
     missing_required_fields: list[str] = Field(default_factory=list, max_length=3)
     governance_notice: str = Field(min_length=1, max_length=500)
     updated_at: datetime
@@ -254,7 +295,8 @@ class PreparedPrescriptionInput(BaseModel):
     session_id: uuid.UUID
     definition_version: str = Field(min_length=1, max_length=32)
     answers: dict[str, str] = Field(min_length=2, max_length=3)
-    uploaded_documents: tuple[UploadedDocumentContext, ...] = Field(max_length=5)
+    uploaded_documents: tuple[UploadedDocumentContext, ...] = Field(max_length=10)
+    uploaded_images: tuple[ImageInput, ...] = Field(default_factory=tuple, max_length=10)
 
 
 class PrescriptionInputReadiness(BaseModel):
@@ -274,7 +316,8 @@ class PrescriptionInputReadiness(BaseModel):
     )
     definition_version: str = Field(min_length=1, max_length=32)
     answer_field_count: int = Field(ge=2, le=3)
-    uploaded_document_count: int = Field(ge=0, le=5)
+    uploaded_document_count: int = Field(ge=0, le=10)
+    uploaded_image_count: int = Field(default=0, ge=0, le=10)
     review_draft_enabled: Literal[True] = True
     clinical_output_enabled: Literal[False] = False
     governance_notice: str = Field(min_length=1, max_length=500)

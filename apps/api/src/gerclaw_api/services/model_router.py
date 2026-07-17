@@ -9,8 +9,8 @@ from contextvars import ContextVar
 from dataclasses import dataclass
 from typing import Any, Literal, Protocol
 
-from agentscope.message import Msg, ThinkingBlock
-from agentscope.model import ChatModelBase, ChatResponse
+from agentscope.message import Msg, TextBlock, ThinkingBlock
+from agentscope.model import ChatModelBase, ChatResponse, StructuredResponse
 from agentscope.tool import ToolChoice
 from pydantic import BaseModel
 
@@ -57,6 +57,8 @@ class ModelAttempt:
 @dataclass(frozen=True, slots=True)
 class _Candidate:
     preference: Literal["primary", "backup1", "backup2"]
+    protocol: Literal["openai", "dashscope", "anthropic"]
+    model_name: str
     model: ChatModelBase
     timeout_seconds: float
 
@@ -123,6 +125,16 @@ def _safe_error_code(error: Exception) -> str:
     return "MODEL_UNAVAILABLE"
 
 
+def _structured_error_code(error: Exception) -> str:
+    """Classify provider-safe structured-output failures without error text."""
+
+    if isinstance(error, (TimeoutError, asyncio.TimeoutError)):
+        return "MODEL_TIMEOUT"
+    if isinstance(error, (ValueError, TypeError)):
+        return "MODEL_INVALID_STRUCTURED_OUTPUT"
+    return _safe_error_code(error)
+
+
 def _commits_stream(chunk: ChatResponse) -> bool:
     """Return true once retrying could duplicate visible/tool-call output."""
 
@@ -151,6 +163,23 @@ def _redact_model_value(value: Any, decisions: list[RedactionResult]) -> Any:
     if isinstance(value, list):
         return [_redact_model_value(item, decisions) for item in value]
     if isinstance(value, dict):
+        # AgentScope DataBlock carries validated visual bytes in
+        # ``source.data``. Treating the base64 as prose would either corrupt it
+        # or exceed the text-redaction ceiling. The surrounding request schema,
+        # encrypted Trace artifact, and model-egress audit retain ownership and
+        # accountability; only the binary itself bypasses text replacement.
+        source = value.get("source")
+        if (
+            value.get("type") == "data"
+            and isinstance(source, dict)
+            and source.get("type") == "base64"
+            and isinstance(source.get("data"), str)
+        ):
+            safe_source = dict(source)
+            safe_source["data"] = source["data"]
+            safe_value = dict(value)
+            safe_value["source"] = safe_source
+            return safe_value
         return {key: _redact_model_value(item, decisions) for key, item in value.items()}
     return value
 
@@ -227,6 +256,8 @@ class FailoverChatModel(ChatModelBase):
         candidates = tuple(
             _Candidate(
                 config.preference,
+                config.protocol,
+                config.model_name,
                 build_agentscope_model(config),
                 config.timeout_seconds,
             )
@@ -241,6 +272,139 @@ class FailoverChatModel(ChatModelBase):
             max_retries=0,
             context_size=min(candidate.model.context_size for candidate in candidates),
         )
+
+    async def _call_api_with_structured_output(
+        self,
+        model_name: str,
+        messages: list[Msg],
+        structured_model: type[BaseModel] | dict[str, Any],
+        tool_choice: ToolChoice | None = None,
+        **kwargs: Any,
+    ) -> StructuredResponse:
+        """Perform structured generation per provider so schema failures can fail over.
+
+        ``ChatModelBase`` implements structured output *above* ``_call_api``.
+        Letting the inherited method wrap this router therefore hid a failed
+        tool-call parse from the failover chain: a backup could start, return
+        non-structured text, and prevent the next candidate from running.  By
+        calling each provider's structured boundary directly, every failure is
+        terminally audited and the next provider gets an independent attempt.
+        """
+
+        del model_name
+        safe_messages, decision = redact_model_messages_with_decision(messages)
+        for candidate in self._candidates:
+            _record(ModelAttempt(candidate.preference, "started"))
+            egress_handle = await _prepare_egress(candidate.preference, decision)
+            # Qwen-compatible endpoints can reject a forced named tool choice
+            # in thinking mode even when exposed through the OpenAI-compatible
+            # protocol. The structured schema remains unchanged; `auto` only
+            # avoids a provider-level retry before that schema is evaluated.
+            candidate_tool_choice = (
+                ToolChoice(mode="auto")
+                if candidate.protocol == "dashscope"
+                or candidate.model_name.casefold().startswith("qwen")
+                else tool_choice
+            )
+            try:
+                async with asyncio.timeout(candidate.timeout_seconds):
+                    response = await candidate.model.generate_structured_output(
+                        messages=safe_messages,
+                        structured_model=structured_model,
+                        tool_choice=candidate_tool_choice,
+                        **kwargs,
+                    )
+            except asyncio.CancelledError:
+                await _finish_egress(egress_handle, outcome="failed")
+                raise
+            except ModelPromptEgressAuditError:
+                raise
+            except Exception as error:
+                await _finish_egress(egress_handle, outcome="failed")
+                _record(
+                    ModelAttempt(
+                        candidate.preference,
+                        "failed",
+                        _structured_error_code(error),
+                    )
+                )
+                continue
+            await _finish_egress(egress_handle, outcome="succeeded")
+            _record(ModelAttempt(candidate.preference, "succeeded"))
+            return response
+        raise ModelChainExhaustedError("all configured model services are unavailable")
+
+    async def generate_text_output(self, messages: list[Msg]) -> str:
+        """Return hidden plain text from candidates that rejected structured tools.
+
+        This is deliberately not a public streaming route.  A caller may use it
+        only to run its own JSON/schema validation after AgentScope's provider
+        tool-based structured-output mechanism was rejected.  Reusing only
+        candidates that explicitly returned ``MODEL_INVALID_STRUCTURED_OUTPUT``
+        avoids retrying a timed-out provider and keeps the fallback bounded.
+        """
+
+        safe_messages, decision = redact_model_messages_with_decision(messages)
+        captured = _ATTEMPT_CAPTURE.get() or []
+        incompatible = {
+            attempt.preference
+            for attempt in captured
+            if attempt.outcome == "failed"
+            and attempt.error_code == "MODEL_INVALID_STRUCTURED_OUTPUT"
+        }
+        candidates = tuple(
+            candidate for candidate in self._candidates if candidate.preference in incompatible
+        )
+        if not candidates:
+            raise ModelChainExhaustedError("no compatible model is available for JSON fallback")
+
+        for candidate in candidates:
+            _record(ModelAttempt(candidate.preference, "started"))
+            egress_handle = await _prepare_egress(candidate.preference, decision)
+            try:
+                async with asyncio.timeout(candidate.timeout_seconds):
+                    response = await candidate.model(messages=safe_messages)
+                    text = await self._collect_hidden_text(response)
+            except asyncio.CancelledError:
+                await _finish_egress(egress_handle, outcome="failed")
+                raise
+            except ModelPromptEgressAuditError:
+                raise
+            except Exception as error:
+                await _finish_egress(egress_handle, outcome="failed")
+                _record(ModelAttempt(candidate.preference, "failed", _safe_error_code(error)))
+                continue
+            await _finish_egress(egress_handle, outcome="succeeded")
+            _record(ModelAttempt(candidate.preference, "succeeded"))
+            return text
+        raise ModelChainExhaustedError("all compatible model services are unavailable")
+
+    @staticmethod
+    async def _collect_hidden_text(
+        response: ChatResponse | AsyncGenerator[ChatResponse, None],
+    ) -> str:
+        """Collect text without publishing partial provider output to callers."""
+
+        def text_from(chunk: ChatResponse) -> str:
+            return "".join(
+                block.text for block in chunk.content if isinstance(block, TextBlock)
+            )
+
+        if isinstance(response, ChatResponse):
+            text = text_from(response)
+        else:
+            deltas: list[str] = []
+            final_text = ""
+            async for chunk in response:
+                chunk_text = text_from(chunk)
+                if chunk.is_last:
+                    final_text = chunk_text
+                else:
+                    deltas.append(chunk_text)
+            text = "".join(deltas) or final_text
+        if not text.strip():
+            raise ValueError("model returned no text for JSON fallback")
+        return text
 
     async def _call_api(
         self,

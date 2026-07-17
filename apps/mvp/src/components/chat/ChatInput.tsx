@@ -82,6 +82,9 @@ interface ChatInputProps {
   contextLoading?: boolean;
   /** The companion backend rejects files and Skills; keep the controls truthful. */
   companionMode?: boolean;
+  /** Five-prescription collection keeps the familiar chat composer focused on voice, text and files. */
+  prescriptionConversation?: boolean;
+  placeholderOverride?: string;
 }
 
 function WaveformBars({ audioLevel }: { audioLevel: number }) {
@@ -143,6 +146,7 @@ function FunctionButtonGroup({
   onSetChatAction,
   onPickImage,
   onPickFile,
+  prescriptionConversation,
 }: {
   disabled: boolean;
   role: "patient" | "doctor" | "visitor";
@@ -151,6 +155,7 @@ function FunctionButtonGroup({
   onSetChatAction: (action: "prescription" | "cga" | "drug-review" | "health-profile") => void;
   onPickImage: () => void;
   onPickFile: () => void;
+  prescriptionConversation: boolean;
 }) {
   const isDoctor = mounted && role === "doctor";
   return (
@@ -191,7 +196,7 @@ function FunctionButtonGroup({
         </TooltipTrigger>
         <TooltipContent>上传文件（PDF/DOCX/MD/图片）</TooltipContent>
       </Tooltip>
-      <SkillSelector showLabel={seniorMode}>
+      {!prescriptionConversation && <SkillSelector showLabel={seniorMode}>
         <Button
           variant="ghost"
           size={seniorMode ? "default" : "icon"}
@@ -199,8 +204,8 @@ function FunctionButtonGroup({
           aria-label="选择当前对话的临床技能"
           disabled={disabled}
         />
-      </SkillSelector>
-      <Tooltip>
+      </SkillSelector>}
+      {!prescriptionConversation && <Tooltip>
         <TooltipTrigger
           render={
             <Button
@@ -217,8 +222,8 @@ function FunctionButtonGroup({
           {seniorMode && <span>处方信息</span>}
         </TooltipTrigger>
         <TooltipContent>五大处方信息收集</TooltipContent>
-      </Tooltip>
-      <Tooltip>
+      </Tooltip>}
+      {!prescriptionConversation && <Tooltip>
         <TooltipTrigger
           render={
             <Button
@@ -235,8 +240,8 @@ function FunctionButtonGroup({
           {seniorMode && <span>评估</span>}
         </TooltipTrigger>
         <TooltipContent>老年综合评估</TooltipContent>
-      </Tooltip>
-      {isDoctor && (
+      </Tooltip>}
+      {!prescriptionConversation && isDoctor && (
         <Tooltip>
           <TooltipTrigger
             render={
@@ -256,7 +261,7 @@ function FunctionButtonGroup({
           <TooltipContent>用药信息收集</TooltipContent>
         </Tooltip>
       )}
-      {(isDoctor || (mounted && role === "patient")) && (
+      {!prescriptionConversation && mounted && role === "patient" && (
         <Tooltip>
           <TooltipTrigger
             render={
@@ -287,6 +292,8 @@ export function ChatInput({
   onStartAction,
   contextLoading = false,
   companionMode = false,
+  prescriptionConversation = false,
+  placeholderOverride,
 }: ChatInputProps) {
   const [mounted, setMounted] = useState(false);
   const role = useAppStore((s) => s.role);
@@ -700,7 +707,7 @@ export function ChatInput({
     });
   };
 
-  const placeholder = !mounted
+  const placeholder = placeholderOverride ?? (!mounted
     ? "描述您的健康问题…"
     : contextLoading
       ? "正在恢复当前会话的技能，请稍候…"
@@ -712,7 +719,7 @@ export function ChatInput({
         : "请输入患者病情或评估需求…"
       : seniorMode
         ? "请描述您想咨询的健康问题…"
-        : "描述您的健康问题…";
+        : "描述您的健康问题…");
   const hasUnboundParsedDocuments = pendingDocuments.some(
     (document) =>
       document.status === "done" &&
@@ -965,7 +972,7 @@ export function ChatInput({
         )}
         {!companionMode && hasUnboundParsedDocuments && (
           <p className={cn("mb-2 rounded-lg border border-primary/20 bg-primary/5 px-3 py-2 text-muted-foreground", seniorMode ? "text-lg leading-8" : "text-sm")} role="status">
-            文档已准备好。请在下方提出您想了解的问题，发送后才会安全加入本次对话。
+            资料已解析，发送即可。
           </p>
         )}
 
@@ -1020,6 +1027,7 @@ export function ChatInput({
                 onSetChatAction={handleStartAction}
                 onPickImage={handleImageSelect}
                 onPickFile={handleFileSelect}
+                prescriptionConversation={prescriptionConversation}
               />
             )}
 

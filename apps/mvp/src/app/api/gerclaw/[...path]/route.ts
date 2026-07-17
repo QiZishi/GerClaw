@@ -20,8 +20,17 @@ class ProxyContentLengthError extends Error {}
 
 function maxProxyBodyBytes(path: string): number {
   const voiceAsr = path === "voice/asr";
-  const fallback = voiceAsr ? 10 * 1024 * 1024 + 2_048 : 1_200_000;
-  const maximum = voiceAsr ? 10 * 1024 * 1024 + 2_048 : 2_097_152;
+  const visionChat = path === "chat";
+  const fallback = voiceAsr
+    ? 10 * 1024 * 1024 + 2_048
+    : visionChat
+      ? 72 * 1024 * 1024
+      : 1_200_000;
+  const maximum = voiceAsr
+    ? 10 * 1024 * 1024 + 2_048
+    : visionChat
+      ? 80 * 1024 * 1024
+      : 2_097_152;
   const parsed = z.coerce
     .number()
     .int()

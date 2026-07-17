@@ -60,6 +60,21 @@ WORKFLOW_DEFINITIONS: tuple[WorkflowDefinition, ...] = (
         accepts_uploaded_files=False,
         search_enabled=False,
     ),
+    WorkflowDefinition(
+        workflow_id=WorkflowId.PRESCRIPTION,
+        version="1.0.0",
+        owner_module="prescription",
+        description=(
+            "Evidence-bound five-prescription draft generation with private uploaded input "
+            "and mandatory clinician review."
+        ),
+        risk_level=RiskLevel.HIGH,
+        network_access=NetworkAccess.EXTERNAL,
+        data_classes=frozenset({DataClass.INTERNAL, DataClass.PHI}),
+        accepts_skills=False,
+        accepts_uploaded_files=True,
+        search_enabled=True,
+    ),
 )
 
 
@@ -107,11 +122,12 @@ class WorkflowRegistry:
         *,
         loaded_skill_count: int,
         uploaded_file_count: int,
+        uploaded_image_count: int = 0,
     ) -> WorkflowDefinition:
         definition = self.resolve(workflow_id)
         if (
             (loaded_skill_count and not definition.accepts_skills)
-            or (uploaded_file_count and not definition.accepts_uploaded_files)
+            or ((uploaded_file_count or uploaded_image_count) and not definition.accepts_uploaded_files)
         ):
             raise WorkflowContextError("workflow does not accept Skills or uploaded files")
         return definition

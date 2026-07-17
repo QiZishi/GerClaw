@@ -23,6 +23,7 @@ import { WelcomePage } from "@/components/chat/WelcomePage";
 import { SkillManager } from "@/components/skills/SkillManager";
 import { CgaAssessment } from "@/components/cga/CgaAssessment";
 import { ClinicalIntakeForm } from "@/components/prescription/ClinicalIntakeForm";
+import { PrescriptionConversation } from "@/components/prescription/PrescriptionConversation";
 import { ChronicCareLedger } from "@/components/chronic/ChronicCareLedger";
 import { RiskAlertLedger } from "@/components/risk-alert/RiskAlertLedger";
 import { useAppStore } from "@/stores/appStore";
@@ -105,11 +106,10 @@ export function ChatArea() {
     ? messagesBySession[currentSessionId] ?? []
     : [];
 
-  const currentSessionTitle = (() => {
-    if (!currentSessionId) return "";
-    const fromStore = storeSessions.find((s) => s.id === currentSessionId);
-    return fromStore?.title ?? "";
-  })();
+  const currentSession = currentSessionId
+    ? storeSessions.find((session) => session.id === currentSessionId)
+    : undefined;
+  const currentSessionTitle = currentSession?.title ?? "";
 
   /** 从消息中提取纯文本内容 */
   const getTextFromMessage = (msg: Message): string => {
@@ -390,6 +390,7 @@ export function ChatArea() {
         message: text,
         loadedSkills: workflow === "companion" ? [] : loadedSkillIds,
         uploadedDocumentIds: workflow === "companion" ? [] : uploadedDocumentIds,
+        images: workflow === "companion" ? [] : images,
         workflow,
       },
       abortControllerRef.current.signal,
@@ -645,10 +646,20 @@ export function ChatArea() {
 
   const handlePrescriptionDraftGenerated = useCallback(
     (draft: FivePrescriptionDraft) => {
-      setPanelContent(fivePrescriptionDraftToMarkdown(draft));
+      const report = fivePrescriptionDraftToMarkdown(draft);
+      // Opening a panel intentionally clears stale content.  Set its type
+      // first, then attach this validated report and persist it with the
+      // session so a clinician can return to the same draft later.
       setRightPanel("prescription");
+      setPanelContent(report);
+      if (currentSessionId) {
+        updateSession(currentSessionId, {
+          panelType: "prescription",
+          panelContent: report,
+        });
+      }
     },
-    [setPanelContent, setRightPanel]
+    [currentSessionId, setPanelContent, setRightPanel, updateSession]
   );
 
   const handleStartAction = (action: ChatActionType) => {
@@ -717,10 +728,10 @@ export function ChatArea() {
   };
 
   const actionTitles: Record<string, string> = {
-    prescription: "五大处方信息收集",
+    prescription: role === "doctor" ? "五大处方草案" : "五大处方计划",
     companion: "暖心陪伴",
     cga: "老年综合评估",
-    "drug-review": "用药信息收集",
+    "drug-review": "用药审查",
     "chronic-care": "我的慢病记录",
     "risk-alerts": "我的安全提醒",
     "health-profile": "查看健康画像",
@@ -819,16 +830,25 @@ export function ChatArea() {
         <div className="flex-1 min-h-0 overflow-y-auto">
           <CgaAssessment onExit={handleExitAction} />
         </div>
-      ) : chatAction === "prescription" || chatAction === "drug-review" ? (
+      ) : chatAction === "prescription" ? (
+        currentSessionId ? (
+          <PrescriptionConversation
+            localSessionId={currentSessionId}
+            seniorMode={seniorMode}
+            hasExistingDraft={
+              currentSession?.panelType === "prescription"
+              && Boolean(currentSession.panelContent)
+            }
+            onPrescriptionDraftGenerated={handlePrescriptionDraftGenerated}
+          />
+        ) : null
+      ) : chatAction === "drug-review" ? (
         currentSessionId ? (
           <ClinicalIntakeForm
             localSessionId={currentSessionId}
-            kind={chatAction === "prescription" ? "prescription" : "medication_review"}
+            kind="medication_review"
             seniorMode={seniorMode}
             onExit={handleExitAction}
-            onPrescriptionDraftGenerated={
-              chatAction === "prescription" ? handlePrescriptionDraftGenerated : undefined
-            }
           />
         ) : null
       ) : chatAction === "chronic-care" ? (
@@ -898,7 +918,7 @@ export function ChatArea() {
                 : exitConfirmType === 'cga-server'
                   ? "当前进度已安全保存。退出后，您下次可以从这道题继续。"
                   : exitConfirmType === 'clinical-intake'
-                    ? "已经保存的信息会保留在当前会话；尚未点击“保存信息”的新增内容不会保留。"
+                    ? "本次已提交的信息会保留在当前会话。"
                 : "退出后当前进度将不会保存，确定要退出吗？"}
           </p>
           <DialogFooter className={cn("gap-2", seniorMode && "flex-row justify-end gap-3 p-5")}>

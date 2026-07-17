@@ -65,7 +65,7 @@ class Citation(BaseModel):
     locator: str = Field(min_length=1, max_length=1_024)
     excerpt: str = Field(min_length=1, max_length=2_000)
     score: float | None = Field(default=None, ge=0)
-    corpus: Literal["local_knowledge_base", "web", "uploaded_document"]
+    corpus: Literal["local_knowledge_base", "web", "uploaded_document", "uploaded_image"]
 
 
 class SafetyDecision(BaseModel):

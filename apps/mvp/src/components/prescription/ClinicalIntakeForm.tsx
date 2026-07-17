@@ -537,7 +537,7 @@ export function ClinicalIntakeForm({
                   补充资料（可选）
                 </h2>
                 <p className={cn("leading-relaxed text-muted-foreground", seniorMode ? "text-lg" : "text-sm")}>
-                  PDF、Word、Markdown 或文本会先由 MinerU 提取文本，作为本次草案的患者输入与“上传资料依据”。它不会被当作本地医学知识库证据。
+                  PDF、Word、Markdown 或文本会先由 MinerU 提取文本，作为本次草案可追溯的患者资料证据；它不会被标作本地医学知识库来源。
                 </p>
               </div>
             </div>
@@ -552,7 +552,7 @@ export function ClinicalIntakeForm({
                 void attachDocument(event.target.files?.[0]);
                 event.target.value = "";
               }}
-              disabled={saving || documentState !== "idle" || intake.document_ids.length >= 5}
+              disabled={saving || documentState !== "idle" || intake.document_ids.length >= 10}
             />
             <div className="flex flex-wrap items-center gap-3">
               <Button
@@ -560,7 +560,7 @@ export function ClinicalIntakeForm({
                 variant="outline"
                 className={actionClass}
                 onClick={() => documentInputRef.current?.click()}
-                disabled={saving || documentState !== "idle" || intake.document_ids.length >= 5}
+                disabled={saving || documentState !== "idle" || intake.document_ids.length >= 10}
               >
                 {documentState === "parsing" || documentState === "saving" ? (
                   <span className="codex-activity-dots text-primary" aria-hidden="true">
@@ -578,7 +578,7 @@ export function ClinicalIntakeForm({
                     : "上传补充资料"}
               </Button>
               <span className={cn("text-muted-foreground", seniorMode ? "text-lg" : "text-sm")} aria-live="polite">
-                已附 {intake.document_ids.length} / 5 份资料
+                已附 {intake.document_ids.length} / 10 份资料
               </span>
             </div>
             {intake.document_ids.length > 0 && (
@@ -714,7 +714,7 @@ export function ClinicalIntakeForm({
                     </p>
                   </div>
                   <p className={cn("rounded-md border border-amber-500/40 bg-amber-50/70 p-3 text-amber-950 dark:bg-amber-950/20 dark:text-amber-100", seniorMode ? "text-lg" : "text-sm")}>
-                    Beers 筛查：尚未安装可授权、可审计的规则来源，因此本次没有执行 Beers 判断；“未命中”不等于安全。
+                    Beers 相关核对：仅覆盖本地来源可追溯的少量老年用药情境，仍不是完整 Beers 筛查；“未命中”不等于安全。
                   </p>
                   {medicationReviewDraft.unrecognized_entry_count > 0 && (
                     <p className={cn("leading-relaxed text-muted-foreground", seniorMode ? "text-lg" : "text-sm")}>
@@ -765,7 +765,7 @@ export function ClinicalIntakeForm({
         <div className="flex items-start gap-2 rounded-xl border border-primary/30 bg-primary/5 p-4">
           <CheckCircle2 className="mt-0.5 size-5 shrink-0 text-primary" />
           <p className={cn("leading-relaxed text-foreground", seniorMode ? "text-lg" : "text-sm")}>
-            信息已保存。您可以生成带本地证据的待临床复核草案；它不是正式处方或诊断，且不会给出停药、加药或剂量调整指令。
+            信息已保存。您可以生成带本地证据的待临床复核草案；它不是正式处方或诊断。
           </p>
         </div>
       )}
@@ -779,7 +779,7 @@ export function ClinicalIntakeForm({
                 五大处方待临床复核草案
               </h2>
               <p className={cn("leading-relaxed text-muted-foreground", seniorMode ? "text-lg" : "text-sm")}>
-                系统会检索本地医学知识库并结合您已保存的信息生成草案。每条建议都标有证据编号，药物部分只做核对和监测提示。
+                系统会检索本地医学知识库并结合您已保存的信息生成草案。每条建议都标有证据编号；药物候选调整仅供临床人员复核。
               </p>
             </div>
           </div>
@@ -825,7 +825,7 @@ export function ClinicalIntakeForm({
                 五大处方草案
               </h2>
               <span className={cn("rounded-full bg-amber-100 px-2.5 py-1 font-medium text-amber-950 dark:bg-amber-950/40 dark:text-amber-100", seniorMode ? "text-base" : "text-xs")}>
-                待临床复核 · 不可自行执行
+                待临床复核
               </span>
             </div>
             <p className={cn("leading-relaxed text-muted-foreground", seniorMode ? "text-lg" : "text-sm")}>
@@ -841,6 +841,33 @@ export function ClinicalIntakeForm({
             <DraftList title="已记录的用药信息（需核对）" items={draft.medication.medication_items} seniorMode={seniorMode} />
           )}
           <DraftList title="药物核对与监测重点" items={draft.medication.monitoring_requirements} seniorMode={seniorMode} />
+          {draft.medication_review && (
+            <section className="space-y-3 rounded-xl border border-amber-500/40 bg-amber-50/50 p-4 dark:bg-amber-950/15" aria-labelledby="embedded-medication-review-title">
+              <div className="space-y-1">
+                <h3 id="embedded-medication-review-title" className={cn("font-medium text-foreground", seniorMode ? "text-lg" : "text-base")}>本次有限用药规则核对</h3>
+                <p className={cn("leading-relaxed text-foreground", seniorMode ? "text-lg" : "text-sm")}>{draft.medication_review.conclusion}</p>
+                <p className={cn("leading-relaxed text-muted-foreground", seniorMode ? "text-lg" : "text-sm")}>仅使用本地、来源可追溯的有限规则；未命中不等于安全，也不是完整 Beers 筛查。</p>
+              </div>
+              {draft.medication_review.findings.length > 0 ? (
+                <ul className="space-y-2" aria-label="嵌入五大处方的用药审查发现">
+                  {draft.medication_review.findings.map((finding) => (
+                    <li key={finding.finding_id} className={cn("rounded-lg border p-3", medicationSeverityClass(finding.severity))}>
+                      <p className={cn("font-medium", seniorMode ? "text-lg" : "text-sm")}>【{medicationSeverityLabel(finding.severity)}】{finding.title}</p>
+                      <p className={cn("mt-1 leading-relaxed", seniorMode ? "text-lg" : "text-sm")}>{finding.conclusion}</p>
+                      <p className={cn("mt-2 leading-relaxed", seniorMode ? "text-lg" : "text-sm")}>复核建议：{finding.clinician_action}</p>
+                    </li>
+                  ))}
+                </ul>
+              ) : null}
+              <details className={cn("rounded-lg border border-border bg-background/70 p-3 text-muted-foreground", seniorMode ? "text-lg" : "text-sm")}>
+                <summary className="cursor-pointer font-medium text-foreground">查看规则来源与覆盖范围</summary>
+                <ul className="mt-2 space-y-1">
+                  {draft.medication_review.sources.map((source) => <li key={source.source_id}>{source.title}（{source.locator}）</li>)}
+                </ul>
+              </details>
+              <p className={cn("leading-relaxed text-muted-foreground", seniorMode ? "text-lg" : "text-sm")}>{draft.medication_review.disclaimer}</p>
+            </section>
+          )}
           <DraftSection section={draft.exercise} seniorMode={seniorMode} />
           <DraftList title="不适合运动或需先确认的情况" items={draft.exercise.contraindications} seniorMode={seniorMode} />
           <div className="space-y-2">
@@ -870,21 +897,26 @@ export function ClinicalIntakeForm({
           {draft.rehabilitation.assistive_devices.length > 0 && <DraftList title="辅助用具核对" items={draft.rehabilitation.assistive_devices} seniorMode={seniorMode} />}
 
           <div className="space-y-2 border-t border-border pt-4">
-            <h3 className={cn("font-medium text-foreground", seniorMode ? "text-lg" : "text-base")}>本地医学知识库证据</h3>
+            <h3 className={cn("font-medium text-foreground", seniorMode ? "text-lg" : "text-base")}>证据来源</h3>
             <ul className="space-y-2">
               {draft.evidence_sources.map((source) => (
                 <li key={source.evidence_id} className={cn("rounded-lg border border-border bg-muted/20 p-3 text-muted-foreground", seniorMode ? "text-lg" : "text-sm")}>
-                  <span className="font-medium text-foreground">{source.evidence_id}</span> · {source.title}（{source.locator}）
+                  <span className="font-medium text-foreground">{source.evidence_id}</span> · {source.source}：{source.title}（{source.locator}）
+                  {source.url ? (
+                    <a className="ml-2 text-teal-700 underline underline-offset-2" href={source.url} rel="noreferrer" target="_blank">
+                      查看来源
+                    </a>
+                  ) : null}
                 </li>
               ))}
             </ul>
             {draft.uploaded_document_ids.length > 0 && (
               <p className={cn("leading-relaxed text-muted-foreground", seniorMode ? "text-lg" : "text-sm")}>
-                已在本次草案中使用 {draft.uploaded_document_ids.length} 份上传资料作为患者输入；这些资料不是医学知识库证据。
+                已在本次草案中使用 {draft.uploaded_document_ids.length} 份上传资料作为患者资料证据；它们不等同于本地医学知识库来源。
               </p>
             )}
           </div>
-          <p className={cn("rounded-lg border border-amber-500/40 bg-amber-50/70 p-3 leading-relaxed text-amber-950 dark:bg-amber-950/20 dark:text-amber-100", seniorMode ? "text-lg" : "text-sm")}>{draft.disclaimer}</p>
+          <p className={cn("rounded-lg border border-amber-500/40 bg-amber-50/70 p-3 leading-relaxed text-amber-950 dark:bg-amber-950/20 dark:text-amber-100", seniorMode ? "text-lg" : "text-sm")}>{draft.disclaimer} 风险提示：本报告中的风险性候选均需由医生或药师结合完整病史、检查、过敏史和全部用药确认后执行。</p>
         </section>
       )}
 

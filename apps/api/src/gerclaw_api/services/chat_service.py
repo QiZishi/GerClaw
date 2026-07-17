@@ -8,7 +8,7 @@ import time
 import uuid
 from collections.abc import Awaitable, Callable
 from datetime import UTC, datetime
-from typing import Protocol
+from typing import Any, Protocol, cast
 
 from gerclaw_api.auth import AuthContext
 from gerclaw_api.config import Settings
@@ -168,6 +168,7 @@ class ChatService:
             payload.workflow,
             loaded_skill_count=len(payload.loaded_skills),
             uploaded_file_count=len(payload.uploaded_files),
+            uploaded_image_count=len(payload.images),
         )
         normalized = await self._input_output.normalize(
             AgentRequest(
@@ -226,6 +227,13 @@ class ChatService:
             return response
         if trace.status != TraceStatus.RUNNING.value:
             raise ChatReplayUnavailableError("failed or cancelled chat traces cannot be replayed")
+
+        if payload.images:
+            await self._traces.record_private_input_artifacts(
+                identity.tenant_id,
+                trace_id,
+                {"images": [image.trace_record() for image in payload.images]},
+            )
 
         owns_trace_execution = trace_start.created
         fencing_token: int | None = None
@@ -393,8 +401,9 @@ class ChatService:
             payload.workflow,
             loaded_skill_count=len(payload.loaded_skills),
             uploaded_file_count=len(payload.uploaded_files),
+            uploaded_image_count=len(payload.images),
         )
-        companion = is_companion_workflow(workflow.workflow_id.value)
+        companion = is_companion_workflow(cast(Any, workflow.workflow_id.value))
         if companion:
             history = await self._conversation.load_history(
                 payload.session_id,
@@ -485,10 +494,11 @@ class ChatService:
             session_summary=session_summary,
             search_module=self._search_module,
             search_enabled=workflow.search_enabled,
-            workflow=workflow.workflow_id.value,
+            workflow=cast(Any, workflow.workflow_id.value),
             agent_skills=agent_skills,
             loaded_skill_ids=payload.loaded_skills,
             uploaded_documents=uploaded_documents,
+            uploaded_images=payload.images,
             runtime_principal=_runtime_principal(identity, user_id=conversation.user_id),
             approval_callback=persist_approval,
         )

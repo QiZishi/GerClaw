@@ -66,8 +66,8 @@ class AgentModelConfig(BaseModel):
     model_name: str = Field(min_length=1, max_length=128)
     protocol: Literal["openai", "dashscope", "anthropic"]
     preference: Literal["primary", "backup1", "backup2"]
-    timeout_seconds: float = Field(default=60.0, gt=0, le=60)
-    max_output_tokens: int = Field(default=1_024, ge=256, le=1_024)
+    timeout_seconds: float = Field(default=180.0, gt=0, le=300)
+    max_output_tokens: int = Field(default=32_768, ge=256, le=32_768)
 
 
 class Settings(BaseSettings):
@@ -89,18 +89,29 @@ class Settings(BaseSettings):
     app_name: str = "GerClaw API"
     api_prefix: str = "/api/v1"
     log_level: Literal["DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"] = "INFO"
-    max_request_body_bytes: int = Field(default=1_200_000, ge=16_384, le=2_097_152)
+    # A chat may contain up to ten validated 5 MiB images encoded as base64.
+    # The stricter per-field schema still limits each visual input.
+    max_request_body_bytes: int = Field(default=72 * 1024 * 1024, ge=16_384, le=80 * 1024 * 1024)
     rate_limit_requests: int = Field(default=100, ge=1, le=10_000)
     rate_limit_window_seconds: int = Field(default=60, ge=1, le=3_600)
     max_events_per_trace: int = Field(default=10_000, ge=100, le=100_000)
     agent_max_react_iterations: int = Field(default=6, ge=1, le=20)
     agent_history_messages: int = Field(default=40, ge=2, le=200)
     agent_evidence_top_k: int = Field(default=5, ge=1, le=10)
-    agent_model_timeout_seconds: float = Field(default=60.0, gt=0, le=60)
-    agent_model_max_output_tokens: int = Field(default=1_024, ge=256, le=1_024)
-    agent_max_output_characters: int = Field(default=20_000, ge=1_000, le=50_000)
+    agent_model_timeout_seconds: float = Field(default=180.0, gt=0, le=300)
+    agent_model_max_output_tokens: int = Field(default=32_768, ge=256, le=32_768)
+    # This is the hard budget for the whole evidence-bound five-prescription
+    # workflow, not the per-provider candidate timeout.  It permits primary
+    # and fallback attempts without returning to the former 60-second limit.
+    prescription_generation_timeout_seconds: float = Field(default=600.0, gt=0, le=900)
+    # Keep the stream-side safety budget compatible with the configured model
+    # completion ceiling.  A 32k-token English completion can exceed 50k chars.
+    agent_max_output_characters: int = Field(default=131_072, ge=1_000, le=131_072)
     document_max_markdown_characters: int = Field(default=1_000_000, ge=10_000, le=2_000_000)
-    document_context_max_characters: int = Field(default=20_000, ge=1_000, le=100_000)
+    # The five-prescription conversation may combine up to ten MinerU-extracted
+    # reports.  This is a hard aggregate input budget, not a silent truncation
+    # target: the clinical workflow rejects material that does not fit.
+    document_context_max_characters: int = Field(default=273_000, ge=1_000, le=273_000)
     chat_session_lease_ttl_seconds: int = Field(default=300, ge=60, le=900)
     memory_collection_name: str = Field(
         default="gerclaw_user_memory_v1",
