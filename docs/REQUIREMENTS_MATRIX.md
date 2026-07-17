@@ -62,7 +62,7 @@
 | DATA-03 | PHI 外发最小化与透明度 | privacy/provider audit | 脱敏、目的、处理方、撤回后续处理 | 🚧 版本化 `privacy_redaction` 已真实拦截外部搜索 query、FastAPI TTS 正文/style，并在模型 Provider 调用前创建独立 `external_model_prompt` 内存投影；FastAPI TTS、ASR、`/search/query`、MinerU BFF 与每个逻辑模型槽位均有调用前的 PHI-free egress outcome audit。ASR、MinerU 不宣称已去标识化；模型/MinerU 用户同意、网页提取/AgentScope 内部搜索台账、撤回处理与用户透明度仍缺失 |
 | DATA-04 | 字段级分类与敏感度 | schema registry/privacy policy | 字段分类绑定处理方、存储、日志、Trace/vector/export 和保留规则 | 🚧 已有 `privacy_redaction` 外发类别与 Runtime DataClass，尚缺统一字段注册表、存储/日志/导出规则绑定及全链路强制执行 |
 | DATA-05 | 假名化与受控再识别 | identity vault/privacy/RBAC/audit | 可轮换 token、隔离映射、审批再识别、重识别风险评估 | 🚧 访客伪名主体已有；缺独立映射、审批与风险评估 |
-| DATA-06 | 脱敏版本与误漏评测 | privacy/eval/bad-case | 规则/模型版本、canary/golden、FP/FN、跨文本/OCR/ASR/schema 回归 | 🚧 已有 4 条版本绑定、人工审阅的合成文本 canary，覆盖当前 search/TTS `1.1.0` 规则且不回显样例；缺 OCR/ASR/自由文本/结构化字段、检测模型、FP/FN 指标和发布阈值 |
+| DATA-06 | 脱敏版本与误漏评测 | privacy/eval/bad-case | 规则/模型版本、canary/golden、FP/FN、跨文本/OCR/ASR/schema 回归 | 🚧 已有 6 条版本绑定、人工审阅的合成文本 canary：4 条覆盖 search/TTS `1.1.0`，2 条覆盖 model prompt `1.0.0`（含 Markdown 保留），且不回显样例；非文本 ASR/文档 purpose 会被 runner 拒绝，不能误称文本脱敏覆盖；仍缺 OCR/ASR/自由文本/结构化字段、检测模型、FP/FN 指标和发布阈值 |
 
 ## 发布规则
 

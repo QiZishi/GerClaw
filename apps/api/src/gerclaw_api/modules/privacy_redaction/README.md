@@ -38,3 +38,9 @@ before/after its attempt. The record contains only the logical slot,
 `external_model_prompt` policy version and category counts; it contains no
 provider identity, prompt text or model output. This audit is not consent
 management or a user-facing processing ledger.
+
+`modules/evals` has six reviewed `privacy-redaction-case-v1` synthetic canaries:
+four cover the `1.1.0` search/TTS policy and two cover the `1.0.0` model-prompt
+projection, including Markdown preservation. The runner rejects ASR and document
+purposes instead of misrepresenting their non-text egress records as text
+redaction coverage.

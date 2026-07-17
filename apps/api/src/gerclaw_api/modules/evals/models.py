@@ -79,7 +79,7 @@ class PrivacyRedactionEvalCase(BaseModel):
     purpose: EgressPurpose
     expected_redacted_text: str = Field(min_length=1, max_length=500)
     expected_findings: tuple[RedactionFinding, ...] = Field(default_factory=tuple, max_length=6)
-    policy_version: Literal["1.1.0"] = "1.1.0"
+    policy_version: Literal["1.0.0", "1.1.0"] = "1.1.0"
     provenance: Literal["synthetic_reviewed"] = "synthetic_reviewed"
 
 

@@ -39,6 +39,7 @@ from gerclaw_api.modules.medication_review.rules_engine import (
 )
 from gerclaw_api.modules.privacy_redaction.models import EgressPurpose
 from gerclaw_api.modules.privacy_redaction.policy import (
+    redact_external_model_prompt,
     redact_external_search_query,
     redact_external_tts_text,
 )
@@ -136,8 +137,14 @@ def run_privacy_redaction_case(
 
     if case.purpose is EgressPurpose.EXTERNAL_SEARCH_QUERY:
         actual = redact_external_search_query(case.synthetic_input)
-    else:
+    elif case.purpose is EgressPurpose.EXTERNAL_TTS:
         actual = redact_external_tts_text(case.synthetic_input)
+    elif case.purpose is EgressPurpose.EXTERNAL_MODEL_PROMPT:
+        actual = redact_external_model_prompt(case.synthetic_input)
+    else:
+        raise ValueError(
+            "privacy text-policy eval supports only search, TTS, and model-prompt purposes"
+        )
     return PrivacyRedactionEvalCaseResult(
         case_id=case.case_id,
         passed=(

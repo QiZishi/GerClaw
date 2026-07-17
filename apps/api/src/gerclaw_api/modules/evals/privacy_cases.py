@@ -67,4 +67,25 @@ PRIVACY_REDACTION_GOLDEN_CASES: tuple[PrivacyRedactionEvalCase, ...] = (
         purpose=EgressPurpose.EXTERNAL_TTS,
         expected_redacted_text="请慢一点朗读今天的用药提醒。",
     ),
+    PrivacyRedactionEvalCase(
+        case_id="privacy-redaction.model.markdown-identifiers",
+        title="model prompt preserves Markdown while removing identifiers",
+        synthetic_input="# 病历\n患者姓名：王欣\n电话：13700137000\n请说明跌倒预防。",
+        purpose=EgressPurpose.EXTERNAL_MODEL_PROMPT,
+        expected_redacted_text="# 病历\n患者\n电话：[PHONE]\n请说明跌倒预防。",
+        expected_findings=(
+            _finding(RedactionCategory.PERSON_NAME),
+            _finding(RedactionCategory.PHONE),
+        ),
+        policy_version="1.0.0",
+    ),
+    PrivacyRedactionEvalCase(
+        case_id="privacy-redaction.model.credential",
+        title="model prompt removes credentials without changing ordinary content",
+        synthetic_input="token=synthetic-secret 请根据上传资料整理复诊问题。",
+        purpose=EgressPurpose.EXTERNAL_MODEL_PROMPT,
+        expected_redacted_text="token=[REDACTED] 请根据上传资料整理复诊问题。",
+        expected_findings=(_finding(RedactionCategory.CREDENTIAL),),
+        policy_version="1.0.0",
+    ),
 )

@@ -95,7 +95,7 @@ def test_output_safety_golden_cases_pass_without_echoing_synthetic_text() -> Non
 def test_privacy_redaction_golden_cases_pass_without_echoing_synthetic_text() -> None:
     results = run_privacy_redaction_golden_cases()
 
-    assert len(results) == 4
+    assert len(results) == 6
     assert all(result.passed for result in results)
     serialized = results[0].model_dump_json()
     assert "赵安" not in serialized
@@ -103,6 +103,25 @@ def test_privacy_redaction_golden_cases_pass_without_echoing_synthetic_text() ->
     assert "synthetic-secret" not in serialized
     assert not hasattr(results[0], "synthetic_input")
     assert not hasattr(results[0], "expected_redacted_text")
+    model_result = next(
+        result for result in results if result.purpose is EgressPurpose.EXTERNAL_MODEL_PROMPT
+    )
+    assert model_result.policy_version == "1.0.0"
+    assert "王欣" not in model_result.model_dump_json()
+    assert "13700137000" not in model_result.model_dump_json()
+
+
+def test_privacy_redaction_eval_rejects_non_text_egress_purposes() -> None:
+    with pytest.raises(ValueError, match="supports only search, TTS, and model-prompt"):
+        run_privacy_redaction_case(
+            PrivacyRedactionEvalCase(
+                case_id="privacy-redaction.invalid-audio-purpose",
+                title="audio is not a text-policy canary",
+                synthetic_input="synthetic",
+                purpose=EgressPurpose.EXTERNAL_ASR_AUDIO,
+                expected_redacted_text="synthetic",
+            )
+        )
 
 
 def test_medication_rule_golden_cases_are_version_bound_and_do_not_echo_inputs() -> None:
