@@ -66,7 +66,7 @@ apps/api (FastAPI)
 | RAG | 本地 Markdown 白名单、内容净化、不可信证据隔离、Qdrant public payload | 当前知识库已真实进入 Chat；RAG 专项评测仍不完整 |
 | Memory | PostgreSQL 加密事实与 revision 审计；Qdrant 仅无 PHI reference vector | 生命周期删除、受控再识别与完整分类注册表未实现 |
 | 文档 | Next.js server-only MinerU BFF；FastAPI 加密会话资料登记与租户绑定 | 私有向量检索、病毒扫描、真实账号授权和 FastAPI Provider adapter 未完成 |
-| 语音 | Next.js server-only MiMo ASR/TTS BFF、请求大小/格式约束 | FastAPI Runtime adapter、PCM16 流、统一审计/故障评测未完成 |
+| 语音 | 受限 `/api/gerclaw/voice/*` BFF 唯一代理 FastAPI Voice Runtime；有请求大小/格式约束、24kHz PCM16 与浏览器 WAV 封装播放 | 真实人声的质量、取消和浏览器播放端到端评测，以及 adapter version 协商未完成 |
 | CGA | PHQ-9、SAS、PSQI 的版本化状态机、确定性计分、加密持久化与报告导出 | Mini-Cog/MMSE 人工确认、医生授权和跨时间比较未完成 |
 | 临床收集 | 五大处方/用药审查的加密、版本化最小信息收集与 MinerU 资料绑定 | 没有经医学审核的模板/规则/报告/审批；不能输出处方、药物调整或诊断结论 |
 
