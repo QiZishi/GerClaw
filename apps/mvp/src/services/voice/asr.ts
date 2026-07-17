@@ -15,11 +15,11 @@ export async function recognizeAudio(audioBlob: Blob, signal?: AbortSignal): Pro
     const { base64: wavBase64 } = await convertBlobToWavBase64(audioBlob);
     throwIfAborted(signal);
 
-    const response = await fetch("/api/voice/asr", {
+    const response = await fetch("/api/gerclaw/voice/asr", {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
-        "X-Trace-Id": traceId,
+        "X-Trace-ID": traceId,
       },
       body: JSON.stringify({
         audio: wavBase64,
@@ -35,7 +35,7 @@ export async function recognizeAudio(audioBlob: Blob, signal?: AbortSignal): Pro
         if (errorBody) {
           try {
             const errorJson = JSON.parse(errorBody);
-            errorMessage = errorJson.error || errorMessage;
+            errorMessage = errorJson.error || errorJson.detail?.message || errorMessage;
           } catch {
             errorMessage = errorBody;
           }
@@ -47,10 +47,6 @@ export async function recognizeAudio(audioBlob: Blob, signal?: AbortSignal): Pro
     }
 
     const json = await response.json();
-
-    if (json.error) {
-      throw new Error(json.error);
-    }
 
     const text = json.text;
 

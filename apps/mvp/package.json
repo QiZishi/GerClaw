@@ -7,7 +7,7 @@
     "build": "node scripts/with-root-env.mjs build",
     "start": "node scripts/with-root-env.mjs start",
     "lint": "eslint",
-    "test:audio": "node --test src/lib/audioPlaybackCoordinator.test.mjs src/lib/tts-text.test.mjs src/server/voice-request.test.mjs",
+    "test:audio": "node --test src/lib/audioPlaybackCoordinator.test.mjs src/lib/tts-text.test.mjs src/services/voice/pcm-wav.test.mjs",
     "test:cga-audio": "node scripts/verify-cga-audio-assets.mjs",
     "test:markdown": "node --test src/lib/markdown-gfm.test.ts",
     "test:document": "node --test src/server/mineru-contract.test.ts",

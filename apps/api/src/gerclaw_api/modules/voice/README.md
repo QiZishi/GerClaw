@@ -17,6 +17,10 @@ counts. ASR records only the fixed `external_asr_audio` purpose,
 `audio-egress-v1`, processor and outcome with an empty findings list; this does
 not imply that the unmodified audio was de-identified or consented.
 
-The current MVP BFF remains on its previously verified WAV endpoint while the
-frontend migration to this PCM16 stream is separately tested; the two paths are
-not mixed implicitly.
+The MVP browser path calls these FastAPI endpoints only through the restricted
+`/api/gerclaw/voice/*` BFF allowlist. The BFF preserves the authenticated
+principal and opaque trace ID; the browser wraps the trusted PCM16 response in
+a WAV container solely for native playback. This keeps the existing message
+player's pause, resume, stop and progress controls while eliminating the legacy
+direct-provider BFF route. ASR has a dedicated bounded request limit because
+base64 WAV payloads are larger than ordinary JSON requests.

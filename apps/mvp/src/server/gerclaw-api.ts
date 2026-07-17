@@ -24,6 +24,7 @@ const proxyRules: Array<{ pattern: RegExp; methods: ReadonlySet<string> }> = [
     methods: new Set(["GET", "POST"]),
   },
   { pattern: /^chat$/, methods: new Set(["POST"]) },
+  { pattern: /^voice\/(?:asr|tts)$/, methods: new Set(["POST"]) },
   { pattern: /^documents$/, methods: new Set(["POST"]) },
   {
     pattern: new RegExp(`^documents/sessions/${uuidPattern}/${uuidPattern}$`, "i"),

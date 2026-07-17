@@ -40,3 +40,10 @@ test("risk-alert proxy exposes only own-alert read and acknowledgement routes", 
   assert.equal(isAllowedGerclawProxyTarget(`risk-alerts/${alertId}/acknowledgements`, "GET"), false);
   assert.equal(isAllowedGerclawProxyTarget(`risk-alerts/${alertId}/details`, "GET"), false);
 });
+
+test("voice proxy only exposes the governed FastAPI ASR and TTS boundaries", () => {
+  assert.equal(isAllowedGerclawProxyTarget("voice/asr", "POST"), true);
+  assert.equal(isAllowedGerclawProxyTarget("voice/tts", "POST"), true);
+  assert.equal(isAllowedGerclawProxyTarget("voice/asr", "GET"), false);
+  assert.equal(isAllowedGerclawProxyTarget("voice/unknown", "POST"), false);
+});

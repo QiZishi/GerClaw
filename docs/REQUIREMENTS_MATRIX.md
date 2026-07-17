@@ -20,7 +20,7 @@
 | AI-02 | Memory/健康画像引擎 | `modules/memory` | 加密、跨会话、冲突、无 PHI vector | ✅ 2026-07-17 隔离 external/integration 用例实测模型抽取、跨会话召回、数据库密文与 Qdrant PHI-free payload；医生授权和生命周期属于后续 IAM/DATA 闭环 |
 | AI-03 | Skill 生命周期 | `modules/skill`、Skill UI | 注册/版本/隔离/viewer/安全/真实模型 | ✅ 2026-07-17 隔离 external/integration 用例实测模型草稿、复核注册、会话加载、AgentScope 查看器、本地证据事件与 Trace；医疗业务发布审核和持续质量评测仍属临床闭环 |
 | AI-04 | AnySearch→Tavily | `modules/search` | provider failover、网页隔离、引用 | ✅ 0018 独立 PASS |
-| AI-05 | Voice 后端 | `modules/input_output` 或 voice | ASR/TTS schema、PCM16 流、取消、故障 | 🚧 Next.js 服务端 BFF 已以非公开环境变量调用真实 MiMo ASR/TTS，并有 Zod/大小格式/音色约束、超时取消、安全阀和稳定错误；FastAPI 已有受限 ASR、24kHz 单声道 PCM16 TTS、文本/style 脱敏与 PHI-free TTS egress ledger。ASR 现以无文本分类的 `audio-egress-v1` 记录调用前后状态，绝不声称音频已去标识化或已获同意。缺 BFF→FastAPI 流迁移、统一 adapter 版本与完整故障评测 |
+| AI-05 | Voice 后端 | `modules/input_output` 或 voice | ASR/TTS schema、PCM16 流、取消、故障 | 🚧 浏览器现在仅经受限 `/api/gerclaw/voice/*` BFF 调用 FastAPI Voice Runtime；旧的直接 Provider BFF 已删除。TTS 的 24kHz 单声道 PCM16 在浏览器内封装为 WAV，因此消息播放器仍完整提供暂停、继续、停止与进度控制；ASR 有专用的受限 base64 音频请求体上限。2026-07-17 实际 BFF→FastAPI TTS 返回 `200 audio/L16;rate=24000;channels=1` 并记录 `/voice/tts` trace。FastAPI 仍执行受限 ASR、文本/style 脱敏与 PHI-free egress ledger；ASR 以无文本 `audio-egress-v1` 记录状态，不声称音频已去标识化或已获同意。缺真实 ASR/TTS 质量、取消和浏览器播放端到端评测，以及统一 adapter 版本协商 |
 | AI-06 | Privacy | security、harness safety | PHI/凭证、注入、诊断、红旗、自伤、免责声明 | 🚧 核心规则分散，缺独立完整模块 |
 | AI-07 | MinerU Document | document module、上传 UI | PDF/Office/MD/TXT 真实解析、轮询、重试 | 🚧 Next.js BFF 已真实完成签名上传、轮询和 Markdown 下载；FastAPI 已登记加密会话文档，删除会话会级联擦除会话消息、文档、临床收集及会话绑定审批/检查点。上传资料按当前设计是当前会话的受控输入，**不作为私有向量知识库证据**；长文档受限上下文策略、跨会话保留、医生授权与病毒扫描待完成 |
 | AI-08 | Provider capability/version | services/adapters | schema/version/能力协商与不兼容拒绝 | 🚧 AgentScope 版本固定，其他 adapter 合同未统一 |
@@ -39,7 +39,7 @@
 | IAM-05 | 患者授权生命周期 | consent/RBAC/cache | 授予/到期/撤回，缓存与链接失效 | ❌ 缺账号和授权模型 |
 | IAM-06 | 管理/审计职责分离 | auth/RBAC | 无万能 scope；服务端角色校验 | ❌ 缺生产角色/RBAC |
 | UI-01 | 三栏响应式布局 | MVP layout | 四断点浏览器证据 | 🚧 desktop 已有，完整断点 E2E 待补 |
-| UI-02 | 多模态输入框 | ChatInput | 文本/语音/图片/10文件/Skill/处方/CGA/停止 | 🚧 文本、Skill、受限临床收集、CGA、server-only MiMo ASR/TTS BFF 与 MinerU BFF 已接入；图片多模态、FastAPI Voice/Document Runtime adapter 与完整异常 E2E 待补 |
+| UI-02 | 多模态输入框 | ChatInput | 文本/语音/图片/10文件/Skill/处方/CGA/停止 | 🚧 文本、Skill、受限临床收集、CGA、FastAPI Voice Runtime BFF 与 MinerU BFF 已接入；图片多模态、Document Runtime adapter 与语音完整异常 E2E 待补 |
 | UI-03 | Runtime 状态映射 | ChatArea/MessageBubble | 全 SSE 终态、错误恢复、HITL | 🚧 Chat/取消完成，缺 HITL/临床流程 |
 | UI-04 | 适老化与无障碍 | globals/components | ≥18px/≥48px/AAA/ARIA/键盘/reduced-motion | 🚧 关键 Skill/免责声明通过，需全站审计 |
 | UI-05 | 医疗安全呈现 | Message/clinical panels | 免责声明、引用、红旗、自伤、审批优先 | 🚧 Chat 已有，临床 mock 页面待统一 |

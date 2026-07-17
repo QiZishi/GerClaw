@@ -54,9 +54,10 @@ export class ClientError extends ApiError {
 }
 
 export function generateTraceId(): string {
-  const timestamp = Date.now().toString(36);
-  const random = Math.random().toString(36).substring(2, 10);
-  return `trace_${timestamp}_${random}`;
+  // The governed BFF only forwards opaque trace IDs with this exact shape.
+  // UUID v4 supplies 128 bits of browser-generated correlation entropy without
+  // encoding timestamps or user information.
+  return `trace_${crypto.randomUUID().replaceAll("-", "")}`;
 }
 
 export async function fetchWithTimeout(

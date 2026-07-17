@@ -1,14 +1,15 @@
 import { generateTraceId, classifyError } from "../api-client";
+import { pcm16leToWav } from "./pcm-wav";
 
 export async function synthesizeSpeech(text: string, signal?: AbortSignal): Promise<Blob> {
   const traceId = generateTraceId();
 
   try {
-    const response = await fetch("/api/voice/tts", {
+    const response = await fetch("/api/gerclaw/voice/tts", {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
-        "X-Trace-Id": traceId,
+        "X-Trace-ID": traceId,
       },
       body: JSON.stringify({ text }),
       signal,
@@ -21,7 +22,7 @@ export async function synthesizeSpeech(text: string, signal?: AbortSignal): Prom
         if (errorBody) {
           try {
             const errorJson = JSON.parse(errorBody);
-            errorMessage = errorJson.error || errorMessage;
+            errorMessage = errorJson.error || errorJson.detail?.message || errorMessage;
           } catch {
             errorMessage = errorBody;
           }
@@ -32,12 +33,10 @@ export async function synthesizeSpeech(text: string, signal?: AbortSignal): Prom
       throw new Error(errorMessage);
     }
 
-    const blob = await response.blob();
-    if (blob.size === 0) {
-      throw new Error("TTS 返回音频为空");
+    if (!response.headers.get("content-type")?.toLowerCase().startsWith("audio/l16")) {
+      throw new Error("TTS 返回的音频格式不正确");
     }
-
-    return blob;
+    return pcm16leToWav(await response.arrayBuffer());
   } catch (error) {
     if (signal?.aborted) {
       throw new DOMException("Aborted", "AbortError");

@@ -18,19 +18,26 @@ interface RouteContext {
 class ProxyBodyTooLargeError extends Error {}
 class ProxyContentLengthError extends Error {}
 
-function maxProxyBodyBytes(): number {
+function maxProxyBodyBytes(path: string): number {
+  const voiceAsr = path === "voice/asr";
+  const fallback = voiceAsr ? 10 * 1024 * 1024 + 2_048 : 1_200_000;
+  const maximum = voiceAsr ? 10 * 1024 * 1024 + 2_048 : 2_097_152;
   const parsed = z.coerce
     .number()
     .int()
     .min(16_384)
-    .max(2_097_152)
-    .safeParse(process.env.GERCLAW_MAX_REQUEST_BODY_BYTES ?? "1200000");
-  return parsed.success ? parsed.data : 1_200_000;
+    .max(maximum)
+    .safeParse(
+      voiceAsr
+        ? (process.env.GERCLAW_MAX_VOICE_ASR_BODY_BYTES ?? String(fallback))
+        : (process.env.GERCLAW_MAX_REQUEST_BODY_BYTES ?? String(fallback))
+    );
+  return parsed.success ? parsed.data : fallback;
 }
 
-async function readBoundedBody(request: NextRequest): Promise<ArrayBuffer | undefined> {
+async function readBoundedBody(request: NextRequest, path: string): Promise<ArrayBuffer | undefined> {
   if (request.method === "GET" || request.body === null) return undefined;
-  const limit = maxProxyBodyBytes();
+  const limit = maxProxyBodyBytes(path);
   const declared = request.headers.get("content-length");
   if (declared !== null) {
     if (!/^\d+$/.test(declared)) throw new ProxyContentLengthError();
@@ -96,7 +103,7 @@ async function proxy(request: NextRequest, context: RouteContext): Promise<Respo
   const traceId = parsedTraceId.success ? parsedTraceId.data : null;
   let body: ArrayBuffer | undefined;
   try {
-    body = await readBoundedBody(request);
+    body = await readBoundedBody(request, path);
   } catch (error) {
     if (error instanceof ProxyBodyTooLargeError) {
       return NextResponse.json(
