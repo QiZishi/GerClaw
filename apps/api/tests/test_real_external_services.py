@@ -106,7 +106,7 @@ async def test_real_model_generates_and_agentscope_executes_reviewed_skill(
                 "custom-fall-followup-safety。它不接收参数，tools 只能包含 search_knowledge，"
                 "必须先用 search_knowledge "
                 "检索本地知识库，核对跌倒红旗征象、药物因素和就医时机，输出供医生复核的清单；"
-                "最终只输出三条短句、总字数不超过180字。不得确定性诊断、不得建议自行停换药，"
+                "不得确定性诊断、不得建议自行停换药，"
                 "并保留高风险立即就医规则。"
             )
         },
@@ -158,7 +158,6 @@ async def test_real_model_generates_and_agentscope_executes_reviewed_skill(
                 "必须先调用 Skill 工具读取我已加载的“老年跌倒复诊准备”工作流，"
                 "再按其中要求调用 search_knowledge 检索本地知识库，"
                 "为一位近期跌倒的老人生成供医生核验的复诊准备清单。"
-                "严格只输出三条短句，总字数不超过180字。"
             ),
             "loaded_skills": [skill_id],
             "channel": "web",
