@@ -5,6 +5,17 @@ import { isAllowedGerclawProxyTarget } from "./gerclaw-api.ts";
 
 const conditionId = "6cf3c10d-1d9e-4cfb-8d42-1e32fdb92911";
 const alertId = "8a3e70a1-8b3a-4a9b-9e6a-0148d6e1ef3b";
+const sessionId = "f177dc56-cf27-4c5f-8ebd-683d6a2d6e75";
+
+test("session proxy permits only the declared session lifecycle operations", () => {
+  assert.equal(isAllowedGerclawProxyTarget("sessions", "POST"), true);
+  assert.equal(isAllowedGerclawProxyTarget(`sessions/${sessionId}/messages`, "GET"), true);
+  assert.equal(isAllowedGerclawProxyTarget(`sessions/${sessionId}`, "DELETE"), true);
+  assert.equal(isAllowedGerclawProxyTarget("sessions", "GET"), false);
+  assert.equal(isAllowedGerclawProxyTarget(`sessions/${sessionId}/messages`, "POST"), false);
+  assert.equal(isAllowedGerclawProxyTarget(`sessions/${sessionId}`, "PATCH"), false);
+  assert.equal(isAllowedGerclawProxyTarget("sessions/not-a-uuid", "DELETE"), false);
+});
 
 test("chronic-care proxy only exposes the measurement ledger routes", () => {
   assert.equal(isAllowedGerclawProxyTarget("chronic-care/conditions", "GET"), true);
