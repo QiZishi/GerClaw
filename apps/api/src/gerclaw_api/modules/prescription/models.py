@@ -176,6 +176,20 @@ class FivePrescriptionDraft(BaseModel):
         return self
 
 
+class GeneratedPrescriptionContent(BaseModel):
+    """Model-owned clinical draft fields; evidence and document provenance stay server-owned."""
+
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    patient_summary: PatientSummary
+    health_assessment: HealthAssessmentDraft
+    medication: MedicationDraft
+    exercise: ExerciseDraft
+    nutrition: NutritionDraft
+    psychological: PsychologicalDraft
+    rehabilitation: RehabilitationDraft
+
+
 class ClinicalIntakeFieldRead(BaseModel):
     model_config = ConfigDict(extra="forbid")
 

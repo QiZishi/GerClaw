@@ -67,6 +67,13 @@ test("medication reconciliation proxy permits only its owner-scoped read boundar
   assert.equal(isAllowedGerclawProxyTarget(`clinical-intakes/${intakeId}/other`, "GET"), false);
 });
 
+test("prescription draft proxy permits only the caller-owned generation boundary", () => {
+  const path = `clinical-intakes/${intakeId}/prescription-draft`;
+  assert.equal(isAllowedGerclawProxyTarget(path, "POST"), true);
+  assert.equal(isAllowedGerclawProxyTarget(path, "GET"), false);
+  assert.equal(isAllowedGerclawProxyTarget(`clinical-intakes/${intakeId}/prescription-draft/export`, "POST"), false);
+});
+
 test("skill evolution proxy permits only a caller-owned review-draft request", () => {
   assert.equal(isAllowedGerclawProxyTarget("skills/safe-followup/evolve", "POST"), true);
   assert.equal(isAllowedGerclawProxyTarget("skills/safe-followup/evolve", "GET"), false);

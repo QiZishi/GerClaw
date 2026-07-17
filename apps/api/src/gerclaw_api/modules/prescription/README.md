@@ -1,6 +1,6 @@
 # Five-prescription intake
 
-This is a fail-closed intake module for the future governed five-prescription workflow. It stores only caller-provided, minimum discussion context in an encrypted record. Medication-review collection is independently owned by `modules/medication_review/`. Neither module calls an LLM, RAG, web search, rules engine or clinical tool.
+This module stores caller-provided minimum discussion context in an encrypted record and can generate one evidence-bound, clinician-review-only five-prescription draft. Medication-review collection is independently owned by `modules/medication_review/`.
 
 For the five-prescription intake, the caller may attach up to five already parsed, active documents from the same conversation. The intake stores only encrypted document IDs; the MinerU-extracted text remains in the private document store. A later medically governed report may resolve those IDs into its input template and display them as “上传资料依据” for traceability. They are never indexed into the public/local knowledge base and never satisfy the medical-evidence requirement on their own.
 
@@ -14,6 +14,25 @@ material rejects the preparation. The owner-facing
 returns only counts and the governance notice, never answer text, filenames,
 document IDs or extracted bodies. It is not report generation and performs no
 model, RAG, search or rule-engine call.
+
+## Draft generation
+
+`POST /api/v1/clinical-intakes/{intake_id}/prescription-draft` resolves the same
+owner/session-scoped `five-prescription-input-v1`, rejects red-flag input,
+retrieves local medical evidence, requests `GeneratedPrescriptionContent` from
+the configured structured model, and writes `evidence_sources` itself from the
+retrieval citation metadata. The model cannot supply source title, locator or
+document provenance. The result is always `needs_clinician_review` and contains
+the fixed medical disclaimer.
+
+Uploaded MinerU text is passed as bounded, untrusted patient input and appears
+only as owner-visible uploaded-document provenance. It never becomes a local
+knowledge-base citation. If RAG has no evidence, the endpoint fails closed.
+
+No audited DDI/Beers/dose rules are currently configured. Therefore the
+medication section may only organize the user-provided list and review/monitoring
+questions; it explicitly states that the three rule checks were not executed.
+It cannot start, stop, replace, change or dose medication.
 
 ## State
 

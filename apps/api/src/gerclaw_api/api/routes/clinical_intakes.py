@@ -5,7 +5,7 @@ from __future__ import annotations
 import json
 import uuid
 from time import monotonic
-from typing import Annotated
+from typing import Annotated, cast
 
 from fastapi import APIRouter, Depends, HTTPException, Request, status
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -19,6 +19,7 @@ from gerclaw_api.dependencies import get_database_session, get_trace_service
 from gerclaw_api.domain.enums import TraceEventStatus, TraceEventType, TraceStatus
 from gerclaw_api.domain.trace_schemas import TraceEventCreate, TraceFinishRequest, TraceStartRequest
 from gerclaw_api.middleware import set_active_trace
+from gerclaw_api.modules.agent_harness.safety import EvidenceUnavailableError
 from gerclaw_api.modules.document.service import DocumentService
 from gerclaw_api.modules.input_output.clinical_intake import ClinicalIntakeKind
 from gerclaw_api.modules.medication_review.models import MedicationReconciliationRead
@@ -26,10 +27,17 @@ from gerclaw_api.modules.medication_review.reconciliation import (
     MedicationReconciliationInputError,
     reconcile_medication_list,
 )
+from gerclaw_api.modules.prescription.generator import (
+    EvidenceBoundPrescriptionGenerator,
+    PrescriptionGenerationError,
+    PrescriptionRedFlagError,
+    StructuredPrescriptionModel,
+)
 from gerclaw_api.modules.prescription.models import (
     ClinicalIntakeRead,
     ClinicalIntakeStartRequest,
     ClinicalIntakeUpdateRequest,
+    FivePrescriptionDraft,
     PrescriptionInputReadiness,
 )
 from gerclaw_api.repositories.clinical_intake import (
@@ -44,6 +52,8 @@ from gerclaw_api.services.clinical_intake_service import (
     ClinicalIntakeService,
 )
 from gerclaw_api.services.conversation_service import ConversationNotFoundError, ConversationService
+from gerclaw_api.services.model_egress_audit import SqlAlchemyModelPromptEgressAudit
+from gerclaw_api.services.model_router import bind_model_prompt_egress_audit
 from gerclaw_api.services.rate_limit import RateLimiter
 from gerclaw_api.services.trace_service import TraceConflictError, TraceService
 
@@ -307,6 +317,114 @@ async def get_prescription_input_readiness(
     except ClinicalIntakeConflictError as error:
         raise HTTPException(
             status_code=409, detail={"code": "PRESCRIPTION_INPUT_NOT_READY"}
+        ) from error
+
+
+@router.post("/{intake_id}/prescription-draft", response_model=FivePrescriptionDraft)
+async def generate_prescription_draft(
+    intake_id: uuid.UUID,
+    request: Request,
+    session: SessionDependency,
+    identity: WriteIdentity,
+    traces: TraceServiceDependency,
+) -> FivePrescriptionDraft:
+    """Generate one evidence-bound, clinician-review-only five-prescription draft."""
+
+    await _enforce_rate_limit(request, identity)
+    try:
+        prepared = await _service(session, request).prepare_prescription_input(
+            intake_id, tenant_id=identity.tenant_id, actor_id=identity.actor_id
+        )
+        model = request.app.state.agent_model
+        if model is None:
+            raise PrescriptionGenerationError("prescription model is unavailable")
+        trace_id = str(request.state.trace_id)
+        set_active_trace(request.scope, trace_id)
+        started = monotonic()
+        trace_started = await traces.start_trace_with_status(
+            TraceStartRequest(
+                session_id=prepared.session_id,
+                execution_type="prescription.generate",
+                attributes={
+                    "feature": "five_prescription",
+                    "module": "prescription",
+                    "operation": "generate_draft",
+                    "input_template_version": prepared.input_template_version,
+                    "request_fingerprint": audit_hmac_digest(
+                        request.app.state.settings.auth_jwt_secret.get_secret_value().encode(),
+                        str(intake_id).encode(),
+                    ),
+                },
+            ),
+            str(request.state.request_id),
+            trace_id=trace_id,
+            tenant_id=identity.tenant_id,
+            actor_id=identity.actor_id,
+            commit=False,
+        )
+        if not trace_started.created:
+            raise TraceConflictError("prescription generation trace is already in use")
+        with bind_model_prompt_egress_audit(
+            SqlAlchemyModelPromptEgressAudit(
+                request.app.state.database,
+                tenant_id=identity.tenant_id,
+                actor_id=identity.actor_id,
+            )
+        ):
+            draft = await EvidenceBoundPrescriptionGenerator(
+                model=cast(StructuredPrescriptionModel, model),
+                rag_module=request.app.state.rag_runtime.module,
+            ).generate(prepared)
+        await traces.append_event(
+            identity.tenant_id,
+            trace_id,
+            TraceEventCreate(
+                event_id=f"event_{trace_id.removeprefix('trace_')}_generate_draft",
+                event_type=TraceEventType.CLINICAL_INTAKE,
+                status=TraceEventStatus.SUCCEEDED,
+                payload={
+                    "feature": "prescription",
+                    "operation": "generate_draft",
+                    "version": draft.template_version,
+                    "document_count": len(prepared.uploaded_documents),
+                    "evidence_count": len(draft.evidence_sources),
+                    "outcome": draft.status,
+                    "success": True,
+                },
+                duration_ms=max(0, int((monotonic() - started) * 1_000)),
+            ),
+            commit=False,
+        )
+        await traces.finish_trace(
+            identity.tenant_id,
+            trace_id,
+            TraceFinishRequest(
+                idempotency_key=f"finish_{trace_id.removeprefix('trace_')}",
+                status=TraceStatus.COMPLETED,
+                attributes={"module": "prescription", "operation": "generate_draft"},
+            ),
+        )
+        await session.commit()
+        return draft
+    except PrescriptionRedFlagError as error:
+        raise HTTPException(
+            status_code=409, detail={"code": "PRESCRIPTION_EMERGENCY_BLOCKED"}
+        ) from error
+    except EvidenceUnavailableError as error:
+        raise HTTPException(
+            status_code=503, detail={"code": "PRESCRIPTION_EVIDENCE_UNAVAILABLE"}
+        ) from error
+    except (ClinicalIntakeNotFoundError, ClinicalIntakeConflictError) as error:
+        raise HTTPException(
+            status_code=409, detail={"code": "PRESCRIPTION_INPUT_NOT_READY"}
+        ) from error
+    except PrescriptionGenerationError as error:
+        raise HTTPException(
+            status_code=503, detail={"code": "PRESCRIPTION_DRAFT_UNAVAILABLE"}
+        ) from error
+    except TraceConflictError as error:
+        raise HTTPException(
+            status_code=409, detail={"code": "PRESCRIPTION_TRACE_CONFLICT"}
         ) from error
 
 
