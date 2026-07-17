@@ -112,10 +112,32 @@ class AccountSessionRead(BaseModel):
     role: Literal["patient", "doctor"]
 
 
+class AccountIdentityRead(BaseModel):
+    """Verified current account identity, intentionally without credentials."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    actor_id: str = Field(pattern=r"^usr_account_[a-f0-9]{32}$")
+    role: Literal["patient", "doctor"]
+
+
 def _account_scopes() -> set[str]:
     """Account role is not a substitute for patient or clinical authorisation."""
 
     return set(_GUEST_SCOPES)
+
+
+@router.get("/session", response_model=AccountIdentityRead)
+async def read_account_session(
+    identity: Annotated[AuthContext, Depends(authenticate)],
+) -> AccountIdentityRead:
+    """Return only the verified account role needed to render the authenticated UI."""
+
+    if identity.role not in {"patient", "doctor"} or not identity.actor_id.startswith(
+        "usr_account_"
+    ):
+        raise HTTPException(status_code=403, detail={"code": "ACCOUNT_REQUIRED"})
+    return AccountIdentityRead(actor_id=identity.actor_id, role=identity.role)
 
 
 def _username_fingerprint(request: Request, username: str) -> str:

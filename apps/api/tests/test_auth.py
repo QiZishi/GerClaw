@@ -7,6 +7,7 @@ from fastapi import HTTPException, Request
 from fastapi.security import HTTPAuthorizationCredentials
 from pydantic import ValidationError
 
+from gerclaw_api.api.routes.auth import read_account_session
 from gerclaw_api.auth import (
     AuthContext,
     authenticate,
@@ -109,6 +110,30 @@ def test_auth_context_rejects_phone_or_email_identifiers() -> None:
             tenant_id="tenant_public0001",
             scopes=frozenset(),
         )
+
+
+@pytest.mark.asyncio
+async def test_account_session_read_only_accepts_verified_account_identity() -> None:
+    account = AuthContext(
+        actor_id="usr_account_0123456789abcdef0123456789abcdef",
+        tenant_id="tenant_public0001",
+        role="patient",
+        scopes=frozenset(),
+    )
+    identity = await read_account_session(account)
+    assert identity.actor_id == account.actor_id
+    assert identity.role == "patient"
+
+    with pytest.raises(HTTPException) as denied:
+        await read_account_session(
+            AuthContext(
+                actor_id="usr_guest_0123456789abcdef0123456789abcdef",
+                tenant_id="tenant_public0001",
+                role="guest",
+                scopes=frozenset(),
+            )
+        )
+    assert denied.value.status_code == 403
     with pytest.raises(ValidationError):
         AuthContext(
             actor_id="usr_patient_auth0001",

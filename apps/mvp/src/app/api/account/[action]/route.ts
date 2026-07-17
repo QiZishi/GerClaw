@@ -10,6 +10,10 @@ const ACCESS_COOKIE = "gerclaw_account_access";
 const REFRESH_COOKIE = "gerclaw_account_refresh";
 const CSRF_COOKIE = "gerclaw_account_csrf";
 const actionSchema = z.enum(["register", "login", "refresh", "logout", "password"]);
+const accountStatusSchema = z.object({
+  actor_id: z.string().regex(/^usr_account_[a-f0-9]{32}$/),
+  role: z.enum(["patient", "doctor"]),
+}).strict();
 const accountName = z.string().regex(/^[A-Za-z0-9][A-Za-z0-9_.-]{2,47}$/);
 const sessionSchema = z.object({
   access_token: z.string().min(32),
@@ -98,4 +102,30 @@ export async function POST(request: NextRequest, context: { params: Promise<{ ac
   const session = sessionSchema.safeParse(await upstream.json().catch(() => null));
   if (!session.success) return NextResponse.json({ error: { code: "ACCOUNT_RESPONSE_INVALID" } }, { status: 502 });
   return sessionResponse(session.data);
+}
+
+export async function GET(request: NextRequest, context: { params: Promise<{ action: string }> }) {
+  const { action } = await context.params;
+  // `status` deliberately reuses this dynamic segment without expanding the
+  // mutation allowlist. It has no user-controlled body or cookies exposed.
+  if (action !== "status") {
+    return NextResponse.json({ error: { code: "ACCOUNT_ACTION_INVALID" } }, { status: 404 });
+  }
+  let apiBase: string;
+  try { apiBase = getGerclawApiBaseUrl(); } catch {
+    return NextResponse.json({ error: { code: "API_NOT_CONFIGURED" } }, { status: 503 });
+  }
+  const access = request.cookies.get(ACCESS_COOKIE)?.value;
+  if (!access) return NextResponse.json({ authenticated: false }, { headers: { "Cache-Control": "no-store" } });
+  const upstream = await fetch(`${apiBase}/api/v1/auth/session`, {
+    headers: { Authorization: `Bearer ${access}`, Accept: "application/json" },
+    cache: "no-store",
+  });
+  if (upstream.status === 401 || upstream.status === 403) {
+    return NextResponse.json({ authenticated: false }, { headers: { "Cache-Control": "no-store" } });
+  }
+  if (!upstream.ok) return NextResponse.json({ error: { code: "ACCOUNT_SESSION_INVALID" } }, { status: upstream.status });
+  const identity = accountStatusSchema.safeParse(await upstream.json().catch(() => null));
+  if (!identity.success) return NextResponse.json({ error: { code: "ACCOUNT_RESPONSE_INVALID" } }, { status: 502 });
+  return NextResponse.json({ authenticated: true, ...identity.data }, { headers: { "Cache-Control": "no-store" } });
 }

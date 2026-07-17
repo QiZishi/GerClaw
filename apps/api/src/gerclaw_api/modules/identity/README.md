@@ -23,6 +23,7 @@ FastAPI 的严格 Pydantic 请求/响应契约位于
 | `POST /auth/refresh` | 消费旧 refresh token 并原子轮换 | 新会话 token |
 | `POST /auth/logout` | 幂等撤销一个 refresh token | `204` |
 | `POST /auth/password` | 已认证账户修改密码并撤销全部 refresh token | `204` |
+| `GET /auth/session` | 验证当前 access token，仅返回渲染账户界面所需身份 | opaque actor 与角色 |
 
 账号名为受限 ASCII 标识符，密码长度为 12–128。所有请求都拒绝未知字段；公开认证
 失败使用稳定错误码，不返回账号是否存在、密码验证细节或 refresh token 状态。
@@ -38,6 +39,8 @@ FastAPI 的严格 Pydantic 请求/响应契约位于
    地址或医疗内容。
 5. JWT 的 role 与 scopes 均由服务端签发。Runtime 会再次投影身份；前端角色展示或
    客户端 claim 均不能提升权限。
+6. `GET /auth/session` 只接受账户主体格式；同源 BFF 用它恢复页面状态，绝不向
+   浏览器脚本回传 access 或 refresh token。
 
 认证与限流异常会以安全错误终止。数据库事务提交失败时不会返回会话成功；refresh
 token 重放、失效或撤销均按无效会话处理。

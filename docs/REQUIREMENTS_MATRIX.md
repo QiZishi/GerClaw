@@ -32,7 +32,7 @@
 | CLN-06 | 统一风险预警闭环 | alert rules/workflow/API/患者医生 UI | 红旗/CGA/慢病/用药事件分级、通知确认、升级和紧急就医 | 🚧 Chat 红旗、CGA 即时安全与高风险随访可真实、原子地创建加密且本人范围的告警，并支持版本围栏、幂等确认。尚缺慢病/用药来源、通知升级、医生队列与前端入口 |
 | CLN-07 | 慢病管理闭环 | chronic-care workflow/API/患者医生 UI | 疾病/目标/测量/用药/生活计划、趋势、依从性、提醒、异常升级 | 🚧 已有真实、加密且 tenant/actor 隔离的自述病情与测量账本，以及不含临床含义的数值方向；没有医学审核的目标/阈值、用药或生活计划、提醒、异常升级、患者/医生授权和前端链路 |
 | CLN-08 | 安全情感陪伴 | companion agent/privacy/safety/UI | 支持性对话、痛苦识别、禁依赖/禁冒充、危机和人工升级、可关闭记忆 | 🚧 `workflow=companion` 已接入真实 Chat Harness，禁用长期健康 Memory、RAG、联网、Skill 与上传资料，只保留加密的同会话短期上下文；红旗仍在模型前短路。尚缺前端入口、用户可配置记忆偏好、人工升级与医生授权 |
-| IAM-01 | 账号注册登录 | auth/account | 患者/医生注册登录、密码哈希、刷新/退出 | 🚧 已有本地患者/医生注册、登录、scrypt 密码哈希、refresh 轮换、登出、改密与 BFF HttpOnly cookie/CSRF；尚无登录/注册页面控件，仍缺账号标识验证、找回、MFA 和风控策略 |
+| IAM-01 | 账号注册登录 | auth/account | 患者/医生注册登录、密码哈希、刷新/退出 | 🚧 已有本地患者/医生注册、登录、scrypt 密码哈希、refresh 轮换、登出、改密、服务端会话身份读取与 BFF HttpOnly cookie/CSRF；患者/医生登录注册入口已接入侧边栏，仍缺账号标识验证、找回、MFA、停用和风控策略 |
 | IAM-02 | 租户/主体/角色隔离 | auth/repositories | 越权 403/404、跨租户不可见 | 🚧 核心资源隔离；服务端 JWT 账号角色已进入 Runtime，医生未获 patient proof；缺医生资质、患者授权和完整 RBAC |
 | IAM-03 | 临床数据持久化加密 | DB/repositories | 文件、CGA、处方、审批、反馈、Bad Case | 🚧 会话/Memory/Skill/Trace 已有，其余缺表 |
 | IAM-04 | 环境配置安全 | config、env templates | 生产拒绝 placeholder/缺 Key/不安全 URL | ✅ FastAPI 核心配置已验证 |

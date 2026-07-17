@@ -57,6 +57,8 @@ import { cn } from "@/lib/utils";
 import { formatRelativeTime, groupByTime, type SessionGroup } from "@/lib/format";
 import type { Session } from "@/types";
 import { toast } from "@/components/ui/toast";
+import { AccountDialog } from "@/components/account/AccountDialog";
+import { getAccountIdentity, logoutAccount, type AccountIdentity } from "@/services/account";
 
 interface SidebarProps {
   /** 移动端用：关闭抽屉的回调 */
@@ -97,11 +99,22 @@ export function Sidebar({ onNavigate }: SidebarProps) {
   const [renameTitle, setRenameTitle] = useState("");
   const [deleteTarget, setDeleteTarget] = useState<Session | null>(null);
   const [pendingRole, setPendingRole] = useState<"visitor" | "patient" | "doctor" | null>(null);
+  const [account, setAccount] = useState<AccountIdentity | null>(null);
+  const [accountDialogOpen, setAccountDialogOpen] = useState(false);
 
   useEffect(() => {
     const frame = requestAnimationFrame(() => setMounted(true));
     return () => cancelAnimationFrame(frame);
   }, []);
+
+  useEffect(() => {
+    if (!mounted) return;
+    void getAccountIdentity().then((identity) => {
+      if (!identity) return;
+      setAccount(identity);
+      setRole(identity.role);
+    });
+  }, [mounted, setRole]);
 
   const isPatient = role === "patient";
   const isDoctor = role === "doctor";
@@ -266,11 +279,20 @@ export function Sidebar({ onNavigate }: SidebarProps) {
     onNavigate?.();
   };
 
-  const handleExit = () => {
+  const handleExit = async () => {
+    if (account) {
+      try {
+        await logoutAccount();
+      } catch {
+        toast.show("暂时无法安全退出账户，请稍后重试。");
+        return;
+      }
+      setAccount(null);
+    }
     setRole("visitor");
     setCurrentSession(null);
     closeRightPanel();
-    toast.show("已返回访客模式");
+    toast.show(account ? "已退出账户并返回访客模式" : "已返回访客模式");
     onNavigate?.();
   };
 
@@ -416,7 +438,7 @@ export function Sidebar({ onNavigate }: SidebarProps) {
               </AvatarFallback>
             </Avatar>
             <div className="flex-1 min-w-0 text-left">
-              <div className={cn("text-sm font-medium truncate", seniorMode && "text-lg")}>访客用户</div>
+              <div className={cn("text-sm font-medium truncate", seniorMode && "text-lg")}>{account ? "已登录账户" : "访客用户"}</div>
               <div className={cn("text-xs text-muted-foreground truncate", seniorMode && "text-base")}>
                 {getModeLabel()}
               </div>
@@ -424,12 +446,22 @@ export function Sidebar({ onNavigate }: SidebarProps) {
           </DropdownMenuTrigger>
           <DropdownMenuContent align="end" className={cn("w-60", seniorMode && "w-72 text-base")}>
             <DropdownMenuGroup>
-              <DropdownMenuLabel>访客用户</DropdownMenuLabel>
+              <DropdownMenuLabel>{account ? "账户身份由服务端验证" : "访客用户"}</DropdownMenuLabel>
             </DropdownMenuGroup>
             <DropdownMenuSeparator />
 
+            {!account && (
+              <>
+                <DropdownMenuItem className={cn("cursor-pointer", seniorMode && "min-h-12 text-base")} onClick={() => setAccountDialogOpen(true)}>
+                  <User className="size-4" />
+                  登录或注册账户
+                </DropdownMenuItem>
+                <DropdownMenuSeparator />
+              </>
+            )}
+
             {/* 角色选择 */}
-            <DropdownMenuGroup>
+            {!account && <DropdownMenuGroup>
               <DropdownMenuLabel className="text-xs font-normal text-muted-foreground">选择模式</DropdownMenuLabel>
               <DropdownMenuItem
                 className={cn("cursor-pointer gap-2", seniorMode && "min-h-12 text-base", isVisitor && "bg-accent")}
@@ -455,9 +487,9 @@ export function Sidebar({ onNavigate }: SidebarProps) {
                 <span>医生模式</span>
                 {isDoctor && <Check className="size-4 ml-auto" />}
               </DropdownMenuItem>
-            </DropdownMenuGroup>
+            </DropdownMenuGroup>}
 
-            <DropdownMenuSeparator />
+            {!account && <DropdownMenuSeparator />}
 
             {/* 老年模式（仅患者端）*/}
             {isPatient && (
@@ -501,9 +533,9 @@ export function Sidebar({ onNavigate }: SidebarProps) {
               </DropdownMenuItem>
             </DropdownMenuGroup>
             <DropdownMenuSeparator />
-            <DropdownMenuItem className={cn("cursor-pointer", seniorMode && "min-h-12 text-base")} onClick={handleExit}>
+            <DropdownMenuItem className={cn("cursor-pointer", seniorMode && "min-h-12 text-base")} onClick={() => void handleExit()}>
               <LogOut className="size-4" />
-              退出
+              {account ? "退出账户" : "退出"}
             </DropdownMenuItem>
           </DropdownMenuContent>
         </DropdownMenu>
@@ -598,6 +630,17 @@ export function Sidebar({ onNavigate }: SidebarProps) {
           </DialogFooter>
         </DialogContent>
       </Dialog>
+
+      <AccountDialog
+        open={accountDialogOpen}
+        onOpenChange={setAccountDialogOpen}
+        seniorMode={seniorMode}
+        onAuthenticated={(identity) => {
+          setAccount(identity);
+          setRole(identity.role);
+          toast.show(identity.role === "doctor" ? "已登录医生账户。临床权限仍需患者授权。" : "已登录患者账户");
+        }}
+      />
     </aside>
   );
 }
