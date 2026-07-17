@@ -13,6 +13,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query, Request, status
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.orm import defer
 
 from gerclaw_api.auth import (
     AuthContext,
@@ -569,7 +570,14 @@ async def list_bad_cases_for_administrator(
 ) -> BadCaseAdminListRead:
     """List bounded tenant review metadata without decrypting user snapshots."""
 
-    statement = select(BadCase).where(BadCase.tenant_id == identity.tenant_id)
+    # ``snapshot`` is intentionally excluded from the administrative queue.
+    # Besides avoiding an unnecessary decrypt of PHI, this keeps the review
+    # metadata usable when an old encrypted snapshot can no longer be read.
+    statement = (
+        select(BadCase)
+        .options(defer(BadCase.snapshot))
+        .where(BadCase.tenant_id == identity.tenant_id)
+    )
     if status_filter is not None:
         statement = statement.where(BadCase.status == status_filter)
     statement = statement.order_by(BadCase.created_at.desc(), BadCase.id.desc()).limit(limit)
@@ -589,6 +597,7 @@ async def update_bad_case_for_administrator(
 
     statement = (
         select(BadCase)
+        .options(defer(BadCase.snapshot))
         .where(BadCase.tenant_id == identity.tenant_id, BadCase.id == case_id)
         .with_for_update()
     )

@@ -517,6 +517,35 @@ async def test_real_trace_feedback_bad_case_encryption_and_readiness_flow(
         assert raw_trace.startswith("enc:v1:")
         assert raw_feedback.startswith("enc:v1:")
         assert all(snapshot.startswith("enc:v1:") for snapshot in raw_bad_cases)
+        # A historical snapshot may become unavailable after a key retirement.
+        # The admin queue is metadata-only, so it must still be readable and
+        # actionable without loading or decrypting that column.
+        await session.execute(
+            text(
+                "UPDATE bad_cases SET snapshot=:snapshot "
+                "WHERE tenant_id=:tenant AND trace_id=:trace"
+            ),
+            {
+                "snapshot": "enc:v1:retired-key-material",
+                "tenant": "tenant_public0001",
+                "trace": TRACE_ID,
+            },
+        )
+        await session.commit()
+
+    unreadable_snapshot_queue = await client.get(
+        "/api/v1/auth/admin/bad-cases",
+        headers={"Authorization": f"Bearer {administrator_token}"},
+    )
+    assert unreadable_snapshot_queue.status_code == 200
+    assert len(unreadable_snapshot_queue.json()["cases"]) == 2
+    unreadable_snapshot_update = await client.patch(
+        f"/api/v1/auth/admin/bad-cases/{unreadable_snapshot_queue.json()['cases'][0]['id']}",
+        headers={"Authorization": f"Bearer {administrator_token}"},
+        json={"status": "resolved"},
+    )
+    assert unreadable_snapshot_update.status_code == 200
+    assert unreadable_snapshot_update.json()["status"] == "resolved"
 
 
 @pytest.mark.integration
