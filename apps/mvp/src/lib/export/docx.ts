@@ -7,6 +7,7 @@ import {
 } from "docx";
 import { saveAs } from "file-saver";
 import { sanitizeFilename } from "./utils";
+import { MEDICAL_EXPORT_DISCLAIMER } from "./template";
 
 function markdownToDocxParagraphs(markdown: string): Paragraph[] {
   const paragraphs: Paragraph[] = [];
@@ -166,6 +167,14 @@ export async function exportConversationToDocx(
     children.push(...markdownToDocxParagraphs(msg.content.trim()));
     children.push(new Paragraph({ children: [] }));
   }
+  children.push(new Paragraph({ children: [] }));
+  children.push(
+    new Paragraph({
+      children: [
+        new TextRun({ text: `医疗免责声明：${MEDICAL_EXPORT_DISCLAIMER}`, italics: true, color: "666666" }),
+      ],
+    })
+  );
 
   const doc = new Document({
     sections: [

@@ -21,9 +21,19 @@ import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
 import { toast } from "@/components/ui/toast";
 import type { Message } from "@/types";
-import { exportToPng, exportToJpg, exportToPdf, exportToDocx } from "@/lib/export";
+import {
+  buildConversationPlainText,
+  exportConversationToDocx,
+  exportConversationToMarkdown,
+  exportToJpg,
+  exportToPdf,
+  exportToPng,
+  MEDICAL_EXPORT_DISCLAIMER,
+  downloadBlob,
+  sanitizeFilename,
+} from "@/lib/export";
 
-type ExportFormat = "png" | "jpg" | "pdf" | "docx" | "md";
+type ExportFormat = "png" | "jpg" | "pdf" | "docx" | "md" | "txt";
 
 interface ExportDialogProps {
   open: boolean;
@@ -35,6 +45,7 @@ interface ExportDialogProps {
 
 const FORMAT_OPTIONS: { value: ExportFormat; label: string; icon: React.ReactNode }[] = [
   { value: "md", label: "Markdown", icon: <File className="size-4" /> },
+  { value: "txt", label: "文本", icon: <File className="size-4" /> },
   { value: "png", label: "PNG", icon: <FileImage className="size-4" /> },
   { value: "jpg", label: "JPG", icon: <FileImage className="size-4" /> },
   { value: "pdf", label: "PDF", icon: <FileText className="size-4" /> },
@@ -46,32 +57,35 @@ function getMessagePreview(msg: Message): string {
   if (textBlock && "content" in textBlock) {
     return textBlock.content.slice(0, 50) + (textBlock.content.length > 50 ? "..." : "");
   }
+  const emergencyAlert = msg.blocks.find((b) => b.kind === "emergency_alert");
+  if (emergencyAlert) {
+    return emergencyAlert.data.message.slice(0, 50) + (emergencyAlert.data.message.length > 50 ? "..." : "");
+  }
   return "[空消息]";
 }
 
 function getMessageText(msg: Message): string {
-  return msg.blocks
+  const text = msg.blocks
     .filter((b) => b.kind === "text" && "content" in b)
     .map((b) => (b as { content: string }).content)
-    .join("\n");
+    .join("\n")
+    .trim();
+  if (text) return text;
+
+  // 紧急分流的内容以专门的可访问警告块渲染，而非普通文本块。导出必须
+  // 保留同一条服务端确认的就医提示，不能让用户得到“空消息”的记录。
+  return msg.blocks
+    .filter((block) => block.kind === "emergency_alert")
+    .map((block) => block.data.message)
+    .join("\n")
+    .trim();
 }
 
-function downloadMarkdown(messages: Message[], title: string) {
-  let md = `# ${title}\n\n`;
-  for (const msg of messages) {
-    const role = msg.role === "user" ? "用户" : "AI助手";
-    const time = new Date(msg.createdAt).toLocaleString("zh-CN");
-    md += `## ${role} (${time})\n\n${getMessageText(msg)}\n\n`;
-  }
-  const blob = new Blob([md], { type: "text/markdown;charset=utf-8" });
-  const url = URL.createObjectURL(blob);
-  const a = document.createElement("a");
-  a.href = url;
-  a.download = `${title}.md`;
-  document.body.appendChild(a);
-  a.click();
-  document.body.removeChild(a);
-  URL.revokeObjectURL(url);
+function exportableMessages(messages: Message[]) {
+  return messages.map((message) => ({
+    role: message.role === "user" ? "user" as const : "assistant" as const,
+    content: getMessageText(message),
+  }));
 }
 
 export function ExportDialog({
@@ -117,8 +131,15 @@ export function ExportDialog({
     try {
       switch (format) {
         case "md":
-          downloadMarkdown(selectedMessages, title);
+          exportConversationToMarkdown(title, exportableMessages(selectedMessages));
           toast.show("已导出为 Markdown");
+          break;
+        case "txt":
+          downloadBlob(
+            new Blob([buildConversationPlainText(title, exportableMessages(selectedMessages))], { type: "text/plain;charset=utf-8" }),
+            `${sanitizeFilename(title)}.txt`
+          );
+          toast.show("已导出为文本");
           break;
         case "png": {
           if (exportContainerRef.current) {
@@ -157,13 +178,7 @@ export function ExportDialog({
           break;
         }
         case "docx": {
-          let mdContent = "";
-          for (const msg of selectedMessages) {
-            const role = msg.role === "user" ? "用户" : "AI助手";
-            const time = new Date(msg.createdAt).toLocaleString("zh-CN");
-            mdContent += `## ${role} (${time})\n\n${getMessageText(msg)}\n\n`;
-          }
-          await exportToDocx(title, mdContent);
+          await exportConversationToDocx(title, exportableMessages(selectedMessages));
           toast.show("已导出为 DOCX 文档");
           break;
         }
@@ -307,6 +322,9 @@ export function ExportDialog({
             </div>
           </div>
         ))}
+        <p className="mt-6 border-t border-gray-200 pt-4 text-xs leading-relaxed text-gray-600">
+          医疗免责声明：{MEDICAL_EXPORT_DISCLAIMER}
+        </p>
       </div>
     </>
   );

@@ -10,6 +10,7 @@
     "test:audio": "node --test src/lib/audioPlaybackCoordinator.test.mjs src/lib/cga-audio.test.mjs src/lib/tts-text.test.mjs src/services/voice/pcm-wav.test.mjs",
     "test:cga-audio": "node scripts/verify-cga-audio-assets.mjs",
     "test:markdown": "node --test src/lib/markdown-gfm.test.ts",
+    "test:export": "node --test src/lib/export/template.test.mjs",
     "test:account": "node --test src/server/account-contract.test.ts",
     "test:guest-access": "node --test src/server/gerclaw-access.test.ts",
     "test:document": "node --test src/server/mineru-contract.test.ts",

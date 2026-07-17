@@ -43,7 +43,7 @@
 | UI-03 | Runtime 状态映射 | ChatArea/MessageBubble | 全 SSE 终态、错误恢复、HITL | 🚧 Chat/取消完成；2026-07-18 已修复 Next.js BFF 反向代理会使上游误判断流、返回空 200 SSE 的问题，并以真实图片流验证 `agent_start`、`text_delta`、`done`、执行时长和终态引用。仍缺 HITL/临床流程 |
 | UI-04 | 适老化与无障碍 | globals/components | ≥18px/≥48px/AAA/ARIA/键盘/reduced-motion | 🚧 关键 Skill/免责声明通过，需全站审计 |
 | UI-05 | 医疗安全呈现 | Message/clinical panels | 免责声明、引用、红旗、自伤、审批优先 | 🚧 Chat 已有，临床 mock 页面待统一 |
-| UI-06 | 多格式导出 | export libs | PDF/Word/MD/TXT 内容与布局回归 | 🚧 CGA 已从真实服务端报告导出 Markdown/PDF/Word；2026-07-17 浏览器实际下载 DOCX 并通过 Office 包完整性及免责声明内容检查。对话、五大处方和 TXT 的统一内容/布局回归仍缺 |
+| UI-06 | 多格式导出 | export libs | PDF/Word/MD/TXT 内容与布局回归 | 🚧 CGA 已从真实服务端报告导出 Markdown/PDF/Word；2026-07-17 浏览器实际下载 DOCX 并通过 Office 包完整性及免责声明内容检查。普通对话现支持 Markdown/PDF/DOCX/TXT（图片为补充格式），四种文本类导出均使用同一条医疗免责声明；2026-07-18 真实访客患者会话已实际下载 TXT，核验含原始紧急分流内容且不再出现“空消息”。五大处方与各格式的统一内容/布局回归仍缺 |
 | UI-07 | 兼容/恢复/审批/删除状态 | app UI | 不兼容、恢复、等待、撤回均可理解可操作 | ❌ 缺统一产品状态 |
 | OPS-01 | Readiness | health service | DB/Redis/Qdrant/RAG generation/配置 503 | ✅ 真实依赖套件通过 |
 | OPS-02 | metrics/feedback/eval/Bad Case | metrics/trace/feedback/eval | API、存储、回放、趋势 | 🚧 Trace/基础反馈与加密 Bad Case 已有；2026-07-18 管理员可通过 `account:admin` 读取 PHI-free 队列元数据并更新处置状态，管理员前端已实际接入，API/BFF 均不暴露 snapshot/评论/原始输入。队列查询显式不加载加密 snapshot，历史密钥不可读时仍可读取和处置。13 个合成安全/输出安全/隐私 policy case 不回放真实输入，test image 的显式 opt-in RAG 命中/无证据两例为 2/2；尚缺授权脱敏晋升、模型/临床评测、趋势与指标闭环 |
