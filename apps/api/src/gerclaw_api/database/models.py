@@ -152,11 +152,11 @@ class ProviderEgressEvent(Base):
     __table_args__ = (
         CheckConstraint(
             "purpose IN "
-            "('external_search_query','external_tts','external_asr_audio','external_document_parse')",
+            "('external_search_query','external_tts','external_asr_audio','external_document_parse','external_model_prompt')",
             name="valid_provider_egress_purpose",
         ),
         CheckConstraint(
-            "processor IN ('mimo_tts','mimo_asr','mineru','anysearch','tavily')",
+            "processor IN ('mimo_tts','mimo_asr','mineru','anysearch','tavily','model_primary','model_backup1','model_backup2')",
             name="valid_provider_egress_processor",
         ),
         CheckConstraint(

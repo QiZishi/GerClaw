@@ -23,7 +23,7 @@ owner-bound `external_document_parse` decision before the provider starts and
 finishes it after the provider outcome. Its `document-egress-v1` record has no
 filename, document text, size, page count or findings, and it does not assert
 that the document is de-identified, safe to send, or consented. The legacy
-Next.js TTS BFF, model prompts, exports, AgentScope internal search and a
+Next.js TTS BFF, exports, AgentScope internal search and a
 user-facing processing ledger still require their own purpose-specific adapters
 before they can claim unified coverage.
 
@@ -32,6 +32,9 @@ an in-memory, provider-bound copy of every message and applies the distinct
 `external_model_prompt` `1.0.0` projection to each nonblank string field. This preserves
 message and tool-block structure while removing identifiers and credentials;
 oversized values fail closed. The local Agent state, encrypted history and
-document store are not mutated. Model-prompt egress decisions are not yet
-persisted in `provider_egress_events`, so this projection must not be described
-as a complete model-provider audit ledger or as consent management.
+document store are not mutated. Each configured model slot persists an
+owner-bound `prepared → succeeded|failed` record in `provider_egress_events`
+before/after its attempt. The record contains only the logical slot,
+`external_model_prompt` policy version and category counts; it contains no
+provider identity, prompt text or model output. This audit is not consent
+management or a user-facing processing ledger.

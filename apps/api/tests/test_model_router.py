@@ -23,6 +23,7 @@ from gerclaw_api.services.model_router import (
     ModelChainExhaustedError,
     ModelPromptPrivacyError,
     PartialModelStreamError,
+    bind_model_prompt_egress_audit,
     capture_model_attempts,
     redact_model_messages,
 )
@@ -84,6 +85,19 @@ class _ScriptedModel(ChatModelBase):
             )
 
         return stream()
+
+
+class _PromptAudit:
+    def __init__(self) -> None:
+        self.events: list[tuple[str, str, object]] = []
+
+    async def prepare(self, *, preference: str, decision: object) -> object:
+        handle = object()
+        self.events.append(("prepared", preference, decision))
+        return handle
+
+    async def finish(self, handle: object, *, outcome: str) -> None:
+        self.events.append((outcome, "", handle))
 
 
 def _router(models: list[_ScriptedModel], *, timeout_seconds: float = 30.0) -> FailoverChatModel:
@@ -151,6 +165,35 @@ async def test_open_failure_falls_over_in_order() -> None:
         "started",
         "succeeded",
     ]
+
+
+@pytest.mark.asyncio
+async def test_model_provider_attempts_have_redacted_audit_lifecycle() -> None:
+    models = [
+        _ScriptedModel("primary", [_Action("raise_open")]),
+        _ScriptedModel("backup1", [_Action("text", "安全回复")]),
+        _ScriptedModel("backup2", [_Action("text", "unused")]),
+    ]
+    audit = _PromptAudit()
+    router = _router(models)
+
+    with bind_model_prompt_egress_audit(audit):
+        assert (
+            await _consume_with_messages(
+                router, [UserMsg(name="user", content="患者姓名：李雷，电话 13800138000")]
+            )
+            == "安全回复"
+        )
+
+    assert [(state, preference) for state, preference, _ in audit.events] == [
+        ("prepared", "primary"),
+        ("failed", ""),
+        ("prepared", "backup1"),
+        ("succeeded", ""),
+    ]
+    decision = audit.events[0][2]
+    assert decision.text == "[MODEL_PROMPT_REDACTED]"  # type: ignore[union-attr]
+    assert "李雷" not in repr(decision)
 
 
 @pytest.mark.asyncio

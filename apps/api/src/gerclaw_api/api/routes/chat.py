@@ -58,6 +58,8 @@ from gerclaw_api.services.conversation_service import (
     ConversationNotFoundError,
     ConversationService,
 )
+from gerclaw_api.services.model_egress_audit import SqlAlchemyModelPromptEgressAudit
+from gerclaw_api.services.model_router import bind_model_prompt_egress_audit
 from gerclaw_api.services.rate_limit import RateLimiter
 from gerclaw_api.services.session_lease import SessionLease
 from gerclaw_api.services.trace_service import TraceService
@@ -293,18 +295,23 @@ async def chat(
                         SqlAlchemyRiskAlertRepository(database_session)
                     ),
                 )
-                await service.process(
-                    payload,
-                    identity=identity,
-                    request_id=request_id,
-                    trace_id=trace_id,
-                    callback=publish,
-                    cancellation_requested=lambda: registry.is_cancel_requested(
-                        tenant_id=identity.tenant_id,
-                        actor_id=identity.actor_id,
+                with bind_model_prompt_egress_audit(
+                    SqlAlchemyModelPromptEgressAudit(
+                        database, tenant_id=identity.tenant_id, actor_id=identity.actor_id
+                    )
+                ):
+                    await service.process(
+                        payload,
+                        identity=identity,
+                        request_id=request_id,
                         trace_id=trace_id,
-                    ),
-                )
+                        callback=publish,
+                        cancellation_requested=lambda: registry.is_cancel_requested(
+                            tenant_id=identity.tenant_id,
+                            actor_id=identity.actor_id,
+                            trace_id=trace_id,
+                        ),
+                    )
         except asyncio.CancelledError:
             _force_enqueue(
                 queue,
