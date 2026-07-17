@@ -30,7 +30,9 @@ import {
 } from "@/lib/export";
 import { MarkdownRenderer } from "@/components/chat/MarkdownRenderer";
 import { toast } from "@/components/ui/toast";
-import type { ExportFormat } from "@/types";
+
+/** Export is a presentation concern; it must not depend on clinical-report types. */
+type ExportFormat = "markdown" | "png" | "jpg" | "pdf" | "docx";
 
 interface ExportButtonProps {
   className?: string;
