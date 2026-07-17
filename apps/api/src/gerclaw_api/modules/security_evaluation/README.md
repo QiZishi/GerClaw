@@ -1,0 +1,44 @@
+# Security Evaluation Module
+
+`security_evaluation` is the executable security-risk admission gate for
+Runtime assets. It uses strict Pydantic contracts and contains no patient data,
+model calls, provider calls, database writes or browser endpoint.
+
+## Current production scope
+
+The Chat Harness creates a request-local `SecurityProfileRegistry` before it
+builds the governed AgentScope toolkit. Three actual tools have reviewed
+`security-risk-profile-v1` records:
+
+| Tool | Bound Runtime properties | Required additional controls |
+|---|---|---|
+| `search_knowledge` | `1.0.0`, low risk, internal, `INTERNAL` | untrusted-data isolation, evidence provenance |
+| `search_memory` | `1.0.0`, low risk, internal, `PHI`, patient-scoped | patient ownership |
+| `web_search` | `1.0.0`, medium risk, external, `INTERNAL` | evidence provenance, server redaction proof |
+
+Registration rejects a missing, blocked or incompatible profile. Toolkit build
+also rejects external tools unless the existing Runtime call declares the
+server-owned outbound-redaction proof. This complements, rather than replaces,
+the Runtime permission engine, schema/size limits, timeout, budget and
+AgentScope permission checks.
+
+## Contract and limits
+
+`SecurityRiskProfile` binds an asset kind/name/version, owner module, risk,
+network access, data classes, bounded threat categories, executable controls
+and residual-risk statement. `SecurityEvaluationVerdict` is PHI-free and is
+only an in-process admission result.
+
+The contract can describe Agent, Skill, workflow, memory and RAG-source
+profiles, but those asset kinds are **not yet consumed by a production
+registration path**. This module therefore does not claim a completed
+application-wide threat model, full red-team suite, clinical safety validation,
+or privacy/data-retention lifecycle.
+
+Run the focused checks from `apps/api`:
+
+```bash
+uv run pytest --no-cov -q tests/test_security_evaluation.py tests/test_runtime_registry.py
+uv run ruff check src/gerclaw_api/modules/security_evaluation tests/test_security_evaluation.py
+uv run mypy src/gerclaw_api/modules/security_evaluation
+```

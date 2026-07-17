@@ -51,7 +51,7 @@ apps/api (FastAPI)
 
 ### 2.2 当前 Runtime Harness
 
-`apps/api/src/gerclaw_api/modules/runtime/` 提供版本化 Capability、`RuntimePrincipal`、Pydantic Tool 输入边界、预算、PermissionEngine 与 AgentScope `GovernedTool` 代理。执行顺序是：服务器拥有的注册表 → schema/字节数校验 → AgentScope 与 Runtime 双重授权 → 超时/输出上限 → Trace/终态。
+`apps/api/src/gerclaw_api/modules/runtime/` 提供版本化 Capability、`RuntimePrincipal`、Pydantic Tool 输入边界、预算、PermissionEngine 与 AgentScope `GovernedTool` 代理。生产 Chat Toolkit 在注册表之前还会经过 `security_evaluation` 的版本绑定风险档案门禁；执行顺序是：服务器拥有的风险档案/注册表 → schema/字节数校验 → AgentScope 与 Runtime 双重授权 → 超时/输出上限 → Trace/终态。
 
 - 未注册工具、版本不匹配、缺 scope/角色、未验证患者访问、未脱敏的敏感外发与 critical action 默认拒绝。
 - 高风险或副作用工具需要幂等键和持久化人工审批；当前临床副作用 resume executor 尚未投入业务流程。

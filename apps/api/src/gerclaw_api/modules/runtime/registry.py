@@ -22,6 +22,10 @@ from gerclaw_api.modules.runtime.models import (
     ToolInvocationRequest,
 )
 from gerclaw_api.modules.runtime.permission import RuntimePermissionEngine
+from gerclaw_api.modules.security_evaluation.evaluator import (
+    SecurityEvaluationError,
+    SecurityProfileRegistry,
+)
 
 
 class ToolRegistryError(RuntimeError):
@@ -38,6 +42,10 @@ class ToolOutputInvalidError(ToolRegistryError):
 
 class ToolExecutionTimeoutError(ToolRegistryError):
     """Tool did not finish inside its capability timeout."""
+
+
+class ToolSecurityProfileError(ToolRegistryError):
+    """A tool cannot be enabled without a compatible security-risk profile."""
 
 
 def _json_bytes(value: object) -> int:
@@ -188,8 +196,9 @@ class GovernedTool(ToolBase):
 class GovernedToolRegistry:
     """Build one request-scoped allowlisted toolkit from immutable registrations."""
 
-    def __init__(self) -> None:
+    def __init__(self, *, security_profiles: SecurityProfileRegistry | None = None) -> None:
         self._registrations: dict[str, tuple[ToolBase, ToolCapability, type[BaseModel]]] = {}
+        self._security_profiles = security_profiles
 
     def register(
         self,
@@ -201,6 +210,11 @@ class GovernedToolRegistry:
             raise ValueError(f"duplicate governed tool registration: {delegate.name}")
         if delegate.name != capability.name:
             raise ValueError("delegate and capability names differ")
+        if self._security_profiles is not None:
+            try:
+                self._security_profiles.assess_tool(capability)
+            except SecurityEvaluationError as error:
+                raise ToolSecurityProfileError(str(error)) from error
         self._registrations[delegate.name] = (delegate, capability, input_model)
 
     def capabilities(self) -> list[ToolCapability]:
@@ -217,6 +231,15 @@ class GovernedToolRegistry:
         principal: RuntimePrincipal,
         outbound_redacted_tools: frozenset[str] = frozenset(),
     ) -> list[GovernedTool]:
+        if self._security_profiles is not None:
+            for name, (_, capability, _) in self._registrations.items():
+                try:
+                    self._security_profiles.assess_tool(
+                        capability,
+                        outbound_data_redacted=name in outbound_redacted_tools,
+                    )
+                except SecurityEvaluationError as error:
+                    raise ToolSecurityProfileError(str(error)) from error
         engine = RuntimePermissionEngine(self.capabilities())
         return [
             GovernedTool(

@@ -53,7 +53,7 @@
 | OPS-06 | 故障注入 | unit/integration/e2e | 断流/429/5xx/依赖中断/lost-ack/竞争/重启 | 🚧 RAG/Chat 有较强覆盖，临床/Document/HITL 缺失 |
 | OPS-07 | 供应链/SBOM | locks/CI/images | 固定版本、audit、SBOM、许可证、升级策略 | 🚧 lock/audit/CI pin 有；`security` 可从实际 production API image 生成 Python runtime CycloneDX SBOM，许可证未知项显式报告。Debian/npm runtime 清单、法务复审与发布签名仍待最终交付阶段。 |
 | OPS-08 | 千级扩展容量规划 | architecture/perf | 容量模型、背压、水平扩展、成本、压测计划 | ❌ 仅允许声明已验证的 10 并发范围 |
-| SEC-01 | red-team 与安全 eval | security/eval/bad-case | 攻击语料、复现、回放、修复回归 | 🚧 多项对抗测试已有，缺统一语料与回放 |
+| SEC-01 | red-team 与安全 eval | security-evaluation/eval/bad-case | 攻击语料、可执行风险档案、复现、回放、修复回归 | 🚧 Chat 的 `search_knowledge`、`search_memory`、`web_search` 已在 Runtime 注册/构建时经过版本、风险、网络、数据类别与必需控制的 fail-closed 档案门禁；外网工具还需服务端脱敏证明。其余 Agent/Skill/workflow/Memory/RAG-source 尚未接入生产档案门禁，统一攻击语料与回放仍缺 |
 | SEC-02 | 全出口泄露检测 | API/SSE/export/log/trace/vector | PHI/密钥 canary 在所有出口均不出现 | 🚧 核心日志/Trace/vector 已测，导出/临床未覆盖 |
 | SEC-03 | 第三方/依赖/镜像威胁模型 | security/CI | 最小权限、固定版本、响应/替换策略 | 🚧 部分 pin/audit，缺完整威胁模型 |
 | SEC-04 | 服务端安全边界 | auth/middleware/repos | scope/tenant/role/ownership/CSRF/CORS/SSRF/rate limit | 🚧 核心 scope/tenant/SSRF 已有，角色/CSRF 待补 |

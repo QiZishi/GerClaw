@@ -92,6 +92,7 @@ from gerclaw_api.modules.search import (
     citations_from_search_results,
 )
 from gerclaw_api.modules.search.protocols import SearchModule
+from gerclaw_api.modules.security_evaluation import build_chat_tool_security_registry
 from gerclaw_api.modules.skill.agentscope_adapter import SAFE_SKILL_INSTRUCTION_TEMPLATE
 from gerclaw_api.security import JsonValue
 from gerclaw_api.services.model_router import FailoverChatModel, capture_model_attempts
@@ -559,7 +560,7 @@ class ProductionAgentHarness:
             and self._search_enabled
         ):
             raw_tools.append(build_web_search_tool(self._search_module))
-        registry = GovernedToolRegistry()
+        registry = GovernedToolRegistry(security_profiles=build_chat_tool_security_registry())
         for tool in raw_tools:
             if tool.name == "search_knowledge":
                 registry.register(
