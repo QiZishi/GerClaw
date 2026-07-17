@@ -178,6 +178,8 @@ async def integration_client(
                 "skill:write",
                 "skill:execute",
             },
+            role="patient",
+            account_role="patient",
         )
         async with AsyncClient(
             transport=ASGITransport(app=app),

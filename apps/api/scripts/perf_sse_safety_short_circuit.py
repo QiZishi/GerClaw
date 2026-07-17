@@ -30,6 +30,7 @@ import httpx
 MAX_CONCURRENCY = 10
 DEFAULT_MESSAGE = "我突然胸痛并且呼吸困难。"
 EXPECTED_CROSS_ACTOR_STATUS = 404
+EXPECTED_GUEST_HISTORY_STATUS = 403
 
 
 class WorkloadError(RuntimeError):
@@ -98,9 +99,7 @@ async def _json_response(
     return parsed
 
 
-async def _create_guest_session(
-    client: httpx.AsyncClient, *, secret: str
-) -> GuestSession:
+async def _create_guest_session(client: httpx.AsyncClient, *, secret: str) -> GuestSession:
     visitor_id = uuid.uuid4().hex
     guest = await _json_response(
         client,
@@ -127,9 +126,7 @@ async def _create_guest_session(
     return GuestSession(token=token, session_id=session_id)
 
 
-async def _consume_sse_turn(
-    client: httpx.AsyncClient, guest_session: GuestSession
-) -> TurnResult:
+async def _consume_sse_turn(client: httpx.AsyncClient, guest_session: GuestSession) -> TurnResult:
     started = time.monotonic()
     event_name: str | None = None
     terminal_event: str | None = None
@@ -191,42 +188,45 @@ def _percentile(values: list[int], percentile: float) -> int:
     return ordered[max(0, math.ceil(len(ordered) * percentile) - 1)]
 
 
-async def _verify_trace_and_messages(
+async def _verify_trace_and_guest_history(
     client: httpx.AsyncClient, guest_session: GuestSession, turn: TurnResult
-) -> None:
+) -> int:
     headers = {"Authorization": f"Bearer {guest_session.token}"}
     trace = await _json_response(client, "GET", f"/api/v1/traces/{turn.trace_id}", headers=headers)
     if trace.get("status") != "completed" or trace.get("session_id") != turn.session_id:
         raise WorkloadError("Trace was not completed for its own session")
-    messages = await _json_response(
-        client, "GET", f"/api/v1/sessions/{turn.session_id}/messages", headers=headers
-    )
-    items = messages.get("messages")
-    if not isinstance(items, list):
-        raise WorkloadError("session history did not return message list")
-    matching_assistant = [
-        item
-        for item in items
-        if isinstance(item, dict)
-        and item.get("role") == "assistant"
-        and item.get("trace_id") == turn.trace_id
-    ]
-    if not matching_assistant:
-        raise WorkloadError("completed Trace has no persisted assistant message in its session")
+    # Guest requests do persist a Trace for governed quality analysis, but their
+    # conversation history must never become a durable, replayable visitor UI.
+    # Treating a 200 here as a pass would directly violate that product rule.
+    history = await client.get(f"/api/v1/sessions/{turn.session_id}/messages", headers=headers)
+    if history.status_code != EXPECTED_GUEST_HISTORY_STATUS:
+        raise WorkloadError(
+            "guest history read returned HTTP "
+            f"{history.status_code}, expected {EXPECTED_GUEST_HISTORY_STATUS}"
+        )
+    payload = history.json()
+    if (
+        not isinstance(payload, dict)
+        or payload.get("detail", {}).get("code") != "GUEST_SESSION_HISTORY_DISABLED"
+    ):
+        raise WorkloadError("guest history denial did not return its stable error code")
+    return int(history.status_code)
 
 
-async def _verify_cross_actor_isolation(
-    client: httpx.AsyncClient, own: GuestSession, other: GuestSession
+async def _verify_cross_actor_trace_isolation(
+    client: httpx.AsyncClient, own: GuestSession, other: TurnResult
 ) -> int:
+    """Verify a different visitor cannot read another visitor's durable Trace."""
+
     response = await client.get(
-        f"/api/v1/sessions/{other.session_id}/messages",
+        f"/api/v1/traces/{other.trace_id}",
         headers={"Authorization": f"Bearer {own.token}"},
     )
     if response.status_code != EXPECTED_CROSS_ACTOR_STATUS:
         raise WorkloadError(
-            f"cross-actor session read returned HTTP {response.status_code}, expected 404"
+            f"cross-actor Trace read returned HTTP {response.status_code}, expected 404"
         )
-    return response.status_code
+    return int(response.status_code)
 
 
 async def _run(args: argparse.Namespace) -> dict[str, Any]:
@@ -246,17 +246,15 @@ async def _run(args: argparse.Namespace) -> dict[str, Any]:
         guest_sessions = await asyncio.gather(
             *(_create_guest_session(client, secret=secret) for _ in range(args.concurrency))
         )
-        turns = await asyncio.gather(
-            *(_consume_sse_turn(client, item) for item in guest_sessions)
-        )
-        await asyncio.gather(
+        turns = await asyncio.gather(*(_consume_sse_turn(client, item) for item in guest_sessions))
+        guest_history_statuses = await asyncio.gather(
             *(
-                _verify_trace_and_messages(client, item, turn)
+                _verify_trace_and_guest_history(client, item, turn)
                 for item, turn in zip(guest_sessions, turns, strict=True)
             )
         )
-        cross_actor_status = await _verify_cross_actor_isolation(
-            client, guest_sessions[0], guest_sessions[1]
+        cross_actor_status = await _verify_cross_actor_trace_isolation(
+            client, guest_sessions[0], turns[1]
         )
 
     trace_ids = [turn.trace_id for turn in turns]
@@ -264,7 +262,7 @@ async def _run(args: argparse.Namespace) -> dict[str, Any]:
         raise WorkloadError("each concurrent turn must create a unique Trace")
     latencies = [turn.latency_ms for turn in turns]
     return {
-        "schema_version": "perf-sse-safety-short-circuit-v1",
+        "schema_version": "perf-sse-safety-short-circuit-v2",
         "generated_at": datetime.now(UTC).isoformat(),
         "ok": True,
         "workload": {
@@ -288,8 +286,9 @@ async def _run(args: argparse.Namespace) -> dict[str, Any]:
         "trace": {"unique_count": len(set(trace_ids)), "completed_count": len(turns)},
         "session": {
             "created_count": len(guest_sessions),
-            "persisted_message_verified_count": len(turns),
-            "cross_actor_read_status": cross_actor_status,
+            "guest_history_read_status": min(guest_history_statuses),
+            "guest_history_denied_count": len(guest_history_statuses),
+            "cross_actor_trace_read_status": cross_actor_status,
         },
     }
 
@@ -308,7 +307,7 @@ def main() -> Never:
         result = asyncio.run(_run(args))
     except (WorkloadError, httpx.HTTPError, OSError) as error:
         failure = {
-            "schema_version": "perf-sse-safety-short-circuit-v1",
+            "schema_version": "perf-sse-safety-short-circuit-v2",
             "ok": False,
             "error": type(error).__name__,
             "message": str(error),

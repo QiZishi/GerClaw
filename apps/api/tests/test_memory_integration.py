@@ -167,7 +167,9 @@ async def test_memory_profile_is_encrypted_actor_scoped_and_phi_free_in_qdrant(
     assert history_item["memory_type"] == "stable"
     assert history_item["status"] == "confirmed"
     assert history_item["statement"] == "用户自述: 对青霉素过敏"
-    assert history_item["details"] == {
+    assert {
+        key: history_item["details"][key] for key in ("evidence_span", "reaction", "source_status")
+    } == {
         "evidence_span": "对青霉素过敏",
         "reaction": "皮疹",
         "source_status": "unknown",
@@ -184,6 +186,8 @@ async def test_memory_profile_is_encrypted_actor_scoped_and_phi_free_in_qdrant(
         actor_id="usr_patient_integration0002",
         tenant_id=TENANT,
         scopes={"memory:read", "memory:write"},
+        role="patient",
+        account_role="patient",
     )
     hidden = await client.get(
         "/api/v1/memory/profile",

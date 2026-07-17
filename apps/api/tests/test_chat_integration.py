@@ -150,6 +150,8 @@ async def test_session_api_enforces_actor_ownership(
         actor_id="usr_patient_integration0002",
         tenant_id=TENANT,
         scopes={"chat:read", "chat:write"},
+        role="patient",
+        account_role="patient",
     )
     headers = {"Authorization": f"Bearer {other_token}"}
     hidden = await client.get(f"/api/v1/sessions/{session_id}/messages", headers=headers)
@@ -160,6 +162,38 @@ async def test_session_api_enforces_actor_ownership(
     )
     assert hidden.status_code == 404
     assert conflict.status_code == 409
+
+
+@pytest.mark.integration
+@pytest.mark.asyncio
+async def test_guest_session_history_is_denied_but_the_session_can_be_created(
+    integration_client: tuple[AsyncClient, object],
+) -> None:
+    """Visitors receive patient service, never a replayable history endpoint."""
+
+    client, app = integration_client
+    session_id = uuid.uuid4()
+    guest_token = create_access_token(
+        app.state.settings,
+        actor_id="usr_guest_" + "a" * 32,
+        tenant_id=TENANT,
+        scopes={"chat:read", "chat:write"},
+        role="guest",
+        account_role="guest",
+    )
+    headers = {"Authorization": f"Bearer {guest_token}"}
+
+    created = await client.post(
+        "/api/v1/sessions", headers=headers, json={"session_id": str(session_id)}
+    )
+    listed = await client.get("/api/v1/sessions", headers=headers)
+    history = await client.get(f"/api/v1/sessions/{session_id}/messages", headers=headers)
+
+    assert created.status_code == 201, created.text
+    assert listed.status_code == 403
+    assert listed.json()["detail"]["code"] == "GUEST_SESSION_HISTORY_DISABLED"
+    assert history.status_code == 403
+    assert history.json()["detail"]["code"] == "GUEST_SESSION_HISTORY_DISABLED"
 
 
 @pytest.mark.integration
@@ -181,6 +215,7 @@ async def test_conversation_turn_is_idempotent_encrypted_and_actor_scoped(
         )
         user = await service.store_user_message(
             tenant_id=TENANT,
+            conversation=conversation,
             session_id=session_id,
             trace_id=trace_id,
             text="老年高血压需要注意什么?",
@@ -195,6 +230,7 @@ async def test_conversation_turn_is_idempotent_encrypted_and_actor_scoped(
         assert (
             await service.store_user_message(
                 tenant_id=TENANT,
+                conversation=conversation,
                 session_id=session_id,
                 trace_id=trace_id,
                 text="老年高血压需要注意什么?",
@@ -220,6 +256,7 @@ async def test_conversation_turn_is_idempotent_encrypted_and_actor_scoped(
         with pytest.raises(ConversationConflictError):
             await service.store_user_message(
                 tenant_id=TENANT,
+                conversation=conversation,
                 session_id=session_id,
                 trace_id=trace_id,
                 text="冲突内容",

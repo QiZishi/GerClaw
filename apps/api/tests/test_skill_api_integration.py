@@ -3,6 +3,8 @@
 from __future__ import annotations
 
 import asyncio
+import hashlib
+import hmac
 import json
 import uuid
 
@@ -231,7 +233,7 @@ async def test_skill_registry_revision_selection_execution_and_safe_trace(
 
 @pytest.mark.integration
 @pytest.mark.asyncio
-async def test_guest_skill_identity_isolation_and_unsafe_content_rejection(
+async def test_guest_skill_access_is_denied_and_unsafe_content_is_rejected(
     integration_client: tuple[AsyncClient, object],
 ) -> None:
     client, app = integration_client
@@ -243,20 +245,32 @@ async def test_guest_skill_identity_isolation_and_unsafe_content_rejection(
     session = await client.post("/api/v1/sessions", json={})
     session_id = session.json()["id"]
 
-    guest = await client.post("/api/v1/auth/guest")
+    visitor_id = "a" * 32
+    visitor_signature = hmac.new(
+        app.state.settings.guest_identity_secret.get_secret_value().encode(),
+        f"gerclaw-guest-bootstrap:v1:{visitor_id}".encode(),
+        hashlib.sha256,
+    ).hexdigest()
+    guest = await client.post(
+        "/api/v1/auth/guest",
+        headers={
+            "X-GerClaw-Visitor-ID": visitor_id,
+            "X-GerClaw-Visitor-Signature": visitor_signature,
+        },
+    )
     assert guest.status_code == 200, guest.text
     guest_payload = guest.json()
     assert guest_payload["actor_id"].startswith("usr_guest_")
     guest_headers = {"Authorization": f"Bearer {guest_payload['access_token']}"}
     guest_listing = await client.get("/api/v1/skills", headers=guest_headers)
-    assert guest_listing.status_code == 200, guest_listing.text
-    assert len(guest_listing.json()) == 4
+    assert guest_listing.status_code == 403, guest_listing.text
+    assert guest_listing.json()["detail"]["code"] == "AUTH_SCOPE_REQUIRED"
     assert (
         await client.get("/api/v1/skills/safe-visit-preparation", headers=guest_headers)
-    ).status_code == 404
+    ).status_code == 403
     assert (
         await client.get(f"/api/v1/skills/sessions/{session_id}/selection", headers=guest_headers)
-    ).status_code == 404
+    ).status_code == 403
 
     other_tenant_token = create_access_token(
         app.state.settings,
