@@ -78,6 +78,10 @@ const proxyRules: Array<{ pattern: RegExp; methods: ReadonlySet<string> }> = [
   },
   { pattern: /^memory\/profile$/, methods: new Set(["GET"]) },
   {
+    pattern: new RegExp(`^clinical-intakes/${uuidPattern}/prescription-drafts$`, "i"),
+    methods: new Set(["GET"]),
+  },
+  {
     pattern: new RegExp(`^memory/facts/${uuidPattern}/history$`, "i"),
     methods: new Set(["GET"]),
   },

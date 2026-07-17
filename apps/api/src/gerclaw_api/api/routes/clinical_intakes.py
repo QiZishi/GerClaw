@@ -54,6 +54,8 @@ from gerclaw_api.modules.prescription.models import (
     FivePrescriptionDraft,
     PrescriptionConversationTurnRead,
     PrescriptionConversationTurnRequest,
+    PrescriptionDraftHistoryRead,
+    PrescriptionDraftRead,
     PrescriptionInputReadiness,
 )
 from gerclaw_api.modules.risk_alert.service import RiskAlertService
@@ -68,6 +70,7 @@ from gerclaw_api.repositories.clinical_intake import (
 )
 from gerclaw_api.repositories.conversation import SqlAlchemyConversationRepository
 from gerclaw_api.repositories.document import SqlAlchemyDocumentRepository
+from gerclaw_api.repositories.prescription_draft import SqlAlchemyPrescriptionDraftRepository
 from gerclaw_api.repositories.risk_alert import SqlAlchemyRiskAlertRepository
 from gerclaw_api.security import audit_hmac_digest
 from gerclaw_api.services.clinical_intake_service import (
@@ -888,6 +891,16 @@ async def generate_prescription_draft(
                 ) from error
             finally:
                 attempts = list(captured_attempts)
+        await SqlAlchemyPrescriptionDraftRepository(session).create(
+            tenant_id=identity.tenant_id,
+            actor_id=identity.actor_id,
+            session_id=prepared.session_id,
+            clinical_intake_id=intake_id,
+            template_version=draft.template_version,
+            workflow_version=workflow.version,
+            status=draft.status,
+            content=draft.model_dump(mode="json"),
+        )
         await traces.append_event(
             identity.tenant_id,
             trace_id,
@@ -952,6 +965,46 @@ async def generate_prescription_draft(
             else 503
         )
         raise HTTPException(status_code=status_code, detail={"code": error_code}) from error
+
+
+@router.get("/{intake_id}/prescription-drafts", response_model=PrescriptionDraftHistoryRead)
+async def list_prescription_drafts(
+    intake_id: uuid.UUID,
+    request: Request,
+    session: SessionDependency,
+    identity: ReadIdentity,
+) -> PrescriptionDraftHistoryRead:
+    """Return at most twenty encrypted draft revisions owned by this caller."""
+
+    await _enforce_rate_limit(request, identity)
+    try:
+        intake = await SqlAlchemyClinicalIntakeRepository(session).get(
+            intake_id, tenant_id=identity.tenant_id, actor_id=identity.actor_id
+        )
+    except ClinicalIntakeNotFoundError as error:
+        raise HTTPException(
+            status_code=404, detail={"code": "CLINICAL_INTAKE_NOT_FOUND"}
+        ) from error
+    if intake.kind != "prescription":
+        raise HTTPException(status_code=409, detail={"code": "PRESCRIPTION_INTAKE_REQUIRED"})
+
+    records = await SqlAlchemyPrescriptionDraftRepository(session).list_for_intake(
+        intake_id=intake_id,
+        tenant_id=identity.tenant_id,
+        actor_id=identity.actor_id,
+        limit=20,
+    )
+    return PrescriptionDraftHistoryRead(
+        items=tuple(
+            PrescriptionDraftRead(
+                draft_id=record.id,
+                intake_id=record.clinical_intake_id,
+                created_at=record.created_at,
+                draft=FivePrescriptionDraft.model_validate(record.content),
+            )
+            for record in records
+        )
+    )
 
 
 @router.get("/{intake_id}", response_model=ClinicalIntakeRead)

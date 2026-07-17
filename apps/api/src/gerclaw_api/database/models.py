@@ -471,6 +471,43 @@ class ClinicalIntake(TimestampMixin, Base):
     image_inputs: Mapped[list[dict[str, Any]] | None] = mapped_column(EncryptedJSON(), default=list)
 
 
+class PrescriptionDraftRecord(TimestampMixin, Base):
+    """An encrypted, owner-scoped five-prescription draft revision.
+
+    Runtime Traces intentionally retain only operational facts.  The report
+    itself is stored separately so a caller can reopen a previously generated
+    draft without putting patient material into telemetry or browser storage.
+    """
+
+    __tablename__ = "prescription_drafts"
+    __table_args__ = (
+        CheckConstraint(
+            "status IN ('needs_clinician_review')", name="valid_prescription_draft_status"
+        ),
+        Index(
+            "ix_prescription_drafts_owner_intake_created",
+            "tenant_id",
+            "actor_id",
+            "clinical_intake_id",
+            "created_at",
+        ),
+    )
+
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    tenant_id: Mapped[str] = mapped_column(String(64), nullable=False, index=True)
+    actor_id: Mapped[str] = mapped_column(String(128), nullable=False, index=True)
+    session_id: Mapped[uuid.UUID] = mapped_column(
+        ForeignKey("sessions.id", ondelete="CASCADE"), nullable=False
+    )
+    clinical_intake_id: Mapped[uuid.UUID] = mapped_column(
+        ForeignKey("clinical_intakes.id", ondelete="CASCADE"), nullable=False
+    )
+    template_version: Mapped[str] = mapped_column(String(64), nullable=False)
+    workflow_version: Mapped[str] = mapped_column(String(32), nullable=False)
+    status: Mapped[str] = mapped_column(String(32), nullable=False)
+    content: Mapped[dict[str, Any]] = mapped_column(EncryptedJSON(), nullable=False)
+
+
 class MemoryFact(TimestampMixin, Base):
     """One encrypted, evidenced user-memory fact with a vector revision."""
 

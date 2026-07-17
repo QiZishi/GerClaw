@@ -5,6 +5,7 @@ import { ensureBackendSession } from "./skills";
 import {
   clinicalIntakeSchema,
   fivePrescriptionDraftSchema,
+  prescriptionDraftHistorySchema,
   medicationReconciliationSchema,
   medicationReviewDraftSchema,
   type ClinicalIntake,
@@ -12,6 +13,7 @@ import {
   type MedicationReconciliation,
   type MedicationReviewDraft,
   type PrescriptionConversationTurn,
+  type PrescriptionDraftHistory,
   prescriptionConversationTurnSchema,
 } from "./schemas";
 import type { ImageAttachment } from "@/types";
@@ -65,6 +67,14 @@ export async function generatePrescriptionDraft(intakeId: string): Promise<FiveP
     `clinical-intakes/${encodeURIComponent(intakeId)}/prescription-draft`,
     fivePrescriptionDraftSchema,
     { method: "POST" }
+  );
+}
+
+/** Read the newest persisted drafts belonging to this intake's current owner. */
+export async function listPrescriptionDrafts(intakeId: string): Promise<PrescriptionDraftHistory> {
+  return gerclawRequest(
+    `clinical-intakes/${encodeURIComponent(intakeId)}/prescription-drafts`,
+    prescriptionDraftHistorySchema
   );
 }
 

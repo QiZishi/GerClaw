@@ -180,6 +180,25 @@ class FivePrescriptionDraft(BaseModel):
         return self
 
 
+class PrescriptionDraftRead(BaseModel):
+    """One caller-owned persisted draft; the nested report stays encrypted at rest."""
+
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    draft_id: uuid.UUID
+    intake_id: uuid.UUID
+    created_at: datetime
+    draft: FivePrescriptionDraft
+
+
+class PrescriptionDraftHistoryRead(BaseModel):
+    """Bounded newest-first history for one owned prescription intake."""
+
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    items: tuple[PrescriptionDraftRead, ...] = Field(default_factory=tuple, max_length=20)
+
+
 class GeneratedPrescriptionContent(BaseModel):
     """Model-owned clinical draft fields; evidence and document provenance stay server-owned."""
 

@@ -639,6 +639,21 @@ export const fivePrescriptionDraftSchema = z
 
 export type FivePrescriptionDraft = z.infer<typeof fivePrescriptionDraftSchema>;
 
+export const prescriptionDraftReadSchema = z
+  .object({
+    draft_id: z.string().uuid(),
+    intake_id: z.string().uuid(),
+    created_at: z.string().datetime(),
+    draft: fivePrescriptionDraftSchema,
+  })
+  .strict();
+
+export const prescriptionDraftHistorySchema = z
+  .object({ items: z.array(prescriptionDraftReadSchema).max(20) })
+  .strict();
+
+export type PrescriptionDraftHistory = z.infer<typeof prescriptionDraftHistorySchema>;
+
 export { feedbackSubmitSchema } from "./feedback-contract";
 
 export const feedbackReadSchema = z

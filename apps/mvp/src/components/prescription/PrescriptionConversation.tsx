@@ -9,6 +9,7 @@ import { cn } from "@/lib/utils";
 import { PRESCRIPTION_COMPLETING_MAX_TURNS } from "@/lib/constants";
 import {
   generatePrescriptionDraft,
+  listPrescriptionDrafts,
   processPrescriptionConversationTurn,
   startClinicalIntake,
 } from "@/services/gerclaw/clinical-intakes";
@@ -60,10 +61,32 @@ export function PrescriptionConversation({
   useEffect(() => {
     let live = true;
     void startClinicalIntake({ localSessionId, kind: "prescription" }).then(
-      (result) => {
+      async (result) => {
         if (!live) return;
         setIntake(result);
-        setMessages([{ id: "welcome", role: "assistant", text: INITIAL_GREETING }]);
+        try {
+          const history = await listPrescriptionDrafts(result.intake_id);
+          if (!live) return;
+          const latest = history.items[0];
+          if (latest) {
+            generationStartedRef.current = true;
+            setGenerationComplete(true);
+            onPrescriptionDraftGenerated(latest.draft);
+            setMessages([
+              {
+                id: "restored",
+                role: "assistant",
+                text: "已恢复最近一次五大处方草案，您可以在右侧查看。",
+              },
+            ]);
+          } else {
+            setMessages([{ id: "welcome", role: "assistant", text: INITIAL_GREETING }]);
+          }
+        } catch (error) {
+          if (!live) return;
+          setMessages([{ id: "welcome", role: "assistant", text: INITIAL_GREETING }]);
+          toast.show(error instanceof Error ? error.message : "草案记录暂未恢复");
+        }
         setLoading(false);
       },
       (error: unknown) => {
@@ -73,7 +96,7 @@ export function PrescriptionConversation({
       },
     );
     return () => { live = false; };
-  }, [localSessionId]);
+  }, [localSessionId, onPrescriptionDraftGenerated]);
 
   useEffect(() => {
     if (!generating) return;
