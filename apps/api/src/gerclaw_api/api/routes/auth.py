@@ -13,7 +13,12 @@ from fastapi import APIRouter, Depends, HTTPException, Request, status
 from pydantic import BaseModel, ConfigDict, Field
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from gerclaw_api.auth import AuthContext, authenticate, create_access_token
+from gerclaw_api.auth import (
+    AuthContext,
+    account_access_revocation_key,
+    authenticate,
+    create_access_token,
+)
 from gerclaw_api.dependencies import get_database_session
 from gerclaw_api.modules.identity.passwords import hash_password, verify_password
 from gerclaw_api.repositories.account import (
@@ -97,6 +102,14 @@ class AccountPasswordChangeRequest(BaseModel):
 
     current_password: str = Field(min_length=1, max_length=128)
     new_password: str = Field(min_length=12, max_length=128)
+
+
+class AccountDeactivationRequest(BaseModel):
+    """Explicit password confirmation for an irreversible sign-in disablement."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    current_password: str = Field(min_length=1, max_length=128)
 
 
 class AccountSessionRead(BaseModel):
@@ -426,6 +439,74 @@ async def change_account_password(
         outcome="succeeded",
         actor_id=identity.actor_id,
         role=cast(Literal["patient", "doctor"], user.role),
+    )
+    await session.commit()
+
+
+@router.post("/deactivate", status_code=status.HTTP_204_NO_CONTENT)
+async def deactivate_account(
+    payload: AccountDeactivationRequest,
+    request: Request,
+    session: AccountSessionDependency,
+    identity: Annotated[AuthContext, Depends(authenticate)],
+) -> None:
+    """Disable the caller's local sign-in and revoke every refresh session.
+
+    This does not delete clinical data or make any data-retention promise. A
+    disabled credential cannot refresh, log in, or use a new authenticated API
+    request after the current short-lived access token expires.
+    """
+
+    if identity.role not in {"patient", "doctor"} or not identity.actor_id.startswith(
+        "usr_account_"
+    ):
+        raise HTTPException(status_code=403, detail={"code": "ACCOUNT_REQUIRED"})
+    limiter: RateLimiter = request.app.state.rate_limiter
+    await limiter.check(tenant_id=identity.tenant_id, actor_id=identity.actor_id)
+    repository = SqlAlchemyAccountRepository(session)
+    subject_fingerprint = _opaque_subject_fingerprint(
+        request, namespace="actor", value=identity.actor_id
+    )
+    try:
+        user, credential = await repository.lock_credential_by_actor(
+            tenant_id=identity.tenant_id, actor_id=identity.actor_id
+        )
+    except AccountNotFoundError as error:
+        await repository.record_security_event(
+            tenant_id=identity.tenant_id,
+            subject_fingerprint=subject_fingerprint,
+            event_type="deactivate",
+            outcome="rejected",
+            actor_id=identity.actor_id,
+        )
+        await session.commit()
+        raise HTTPException(status_code=403, detail={"code": "ACCOUNT_REQUIRED"}) from error
+    if not verify_password(payload.current_password, credential.password_hash):
+        await repository.record_security_event(
+            tenant_id=identity.tenant_id,
+            subject_fingerprint=subject_fingerprint,
+            event_type="deactivate",
+            outcome="rejected",
+            actor_id=identity.actor_id,
+            role=cast(Literal["patient", "doctor"], user.role),
+        )
+        await session.commit()
+        raise HTTPException(status_code=401, detail={"code": "ACCOUNT_PASSWORD_INVALID"})
+    await repository.revoke_all_refresh_sessions(user_id=user.id)
+    await repository.deactivate_user(user)
+    await repository.record_security_event(
+        tenant_id=identity.tenant_id,
+        subject_fingerprint=subject_fingerprint,
+        event_type="deactivate",
+        outcome="succeeded",
+        actor_id=identity.actor_id,
+        role=cast(Literal["patient", "doctor"], user.role),
+    )
+    # Account access tokens have a fixed 15-minute lifetime. Marking the
+    # caller revoked before committing the relational state makes any stale
+    # short-lived token fail closed immediately across all API routes.
+    await request.app.state.redis.set(
+        account_access_revocation_key(identity.actor_id), "1", ex=900
     )
     await session.commit()
 

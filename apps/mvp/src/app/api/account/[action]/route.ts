@@ -9,7 +9,7 @@ export const dynamic = "force-dynamic";
 const ACCESS_COOKIE = "gerclaw_account_access";
 const REFRESH_COOKIE = "gerclaw_account_refresh";
 const CSRF_COOKIE = "gerclaw_account_csrf";
-const actionSchema = z.enum(["register", "login", "refresh", "logout", "password"]);
+const actionSchema = z.enum(["register", "login", "refresh", "logout", "password", "deactivate"]);
 const accountStatusSchema = z.object({
   actor_id: z.string().regex(/^usr_account_[a-f0-9]{32}$/),
   role: z.enum(["patient", "doctor"]),
@@ -32,6 +32,9 @@ const loginSchema = registerSchema.pick({ username: true, password: true });
 const passwordSchema = z.object({
   current_password: z.string().min(1).max(128),
   new_password: z.string().min(12).max(128),
+}).strict();
+const deactivationSchema = z.object({
+  current_password: z.string().min(1).max(128),
 }).strict();
 
 function cookieOptions(maxAge: number, httpOnly: boolean) {
@@ -71,7 +74,7 @@ function clearSession(response: NextResponse) {
 export async function POST(request: NextRequest, context: { params: Promise<{ action: string }> }) {
   const action = actionSchema.safeParse((await context.params).action);
   if (!action.success) return NextResponse.json({ error: { code: "ACCOUNT_ACTION_INVALID" } }, { status: 404 });
-  if (["refresh", "logout", "password"].includes(action.data) && !csrfIsValid(request)) {
+  if (["refresh", "logout", "password", "deactivate"].includes(action.data) && !csrfIsValid(request)) {
     return NextResponse.json({ error: { code: "CSRF_INVALID" } }, { status: 403 });
   }
 
@@ -87,6 +90,8 @@ export async function POST(request: NextRequest, context: { params: Promise<{ ac
     const parsed = loginSchema.safeParse(raw); if (!parsed.success) return NextResponse.json({ error: { code: "ACCOUNT_INPUT_INVALID" } }, { status: 422 }); body = parsed.data;
   } else if (action.data === "password") {
     const parsed = passwordSchema.safeParse(raw); if (!parsed.success) return NextResponse.json({ error: { code: "ACCOUNT_INPUT_INVALID" } }, { status: 422 }); body = parsed.data;
+  } else if (action.data === "deactivate") {
+    const parsed = deactivationSchema.safeParse(raw); if (!parsed.success) return NextResponse.json({ error: { code: "ACCOUNT_INPUT_INVALID" } }, { status: 422 }); body = parsed.data;
   } else {
     const refresh = request.cookies.get(REFRESH_COOKIE)?.value;
     if (!refresh) return NextResponse.json({ error: { code: "ACCOUNT_SESSION_REQUIRED" } }, { status: 401 });
@@ -94,11 +99,11 @@ export async function POST(request: NextRequest, context: { params: Promise<{ ac
   }
   const headers: Record<string, string> = { "Content-Type": "application/json", Accept: "application/json" };
   const access = request.cookies.get(ACCESS_COOKIE)?.value;
-  if (action.data === "password" && access) headers.Authorization = `Bearer ${access}`;
+  if (["password", "deactivate"].includes(action.data) && access) headers.Authorization = `Bearer ${access}`;
   const upstream = await fetch(`${apiBase}/api/v1/auth/${action.data}`, { method: "POST", headers, body: JSON.stringify(body), cache: "no-store" });
   if (action.data === "logout" && upstream.status === 204) { const response = new NextResponse(null, { status: 204 }); clearSession(response); return response; }
   if (!upstream.ok) return NextResponse.json({ error: { code: "ACCOUNT_REQUEST_FAILED" } }, { status: upstream.status });
-  if (action.data === "password") { const response = new NextResponse(null, { status: 204 }); clearSession(response); return response; }
+  if (["password", "deactivate"].includes(action.data)) { const response = new NextResponse(null, { status: 204 }); clearSession(response); return response; }
   const session = sessionSchema.safeParse(await upstream.json().catch(() => null));
   if (!session.success) return NextResponse.json({ error: { code: "ACCOUNT_RESPONSE_INVALID" } }, { status: 502 });
   return sessionResponse(session.data);

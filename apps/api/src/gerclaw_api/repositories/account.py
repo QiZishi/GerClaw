@@ -151,12 +151,19 @@ class SqlAlchemyAccountRepository:
             .values(revoked_at=datetime.now(UTC))
         )
 
+    async def deactivate_user(self, user: User) -> None:
+        """Disable a locally authenticated account after its sessions are revoked."""
+
+        user.is_active = False
+
     async def record_security_event(
         self,
         *,
         tenant_id: str,
         subject_fingerprint: str,
-        event_type: Literal["register", "login", "refresh", "logout", "password_change"],
+        event_type: Literal[
+            "register", "login", "refresh", "logout", "password_change", "deactivate"
+        ],
         outcome: Literal["succeeded", "rejected", "ignored"],
         actor_id: str | None = None,
         role: Literal["patient", "doctor"] | None = None,

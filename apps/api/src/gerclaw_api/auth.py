@@ -18,6 +18,12 @@ from gerclaw_api.security import redact_text
 bearer_scheme = HTTPBearer(auto_error=False)
 
 
+def account_access_revocation_key(actor_id: str) -> str:
+    """Return the bounded Redis key used to invalidate account access JWTs."""
+
+    return f"gerclaw:auth:account-revoked:v1:{actor_id}"
+
+
 class AuthContext(BaseModel):
     """Identity and scopes derived only from a verified bearer token."""
 
@@ -90,12 +96,20 @@ async def authenticate(
         scope_value = claims["scope"]
         if not isinstance(scope_value, str):
             raise InvalidTokenError("scope must be a space-delimited string")
-        return AuthContext(
+        identity = AuthContext(
             actor_id=claims["sub"],
             tenant_id=claims["tenant_id"],
             scopes=frozenset(scope_value.split()),
             role=claims.get("role", "guest"),
         )
+        if identity.actor_id.startswith("usr_account_"):
+            redis = getattr(request.app.state, "redis", None)
+            revoked = redis is None or await redis.exists(
+                account_access_revocation_key(identity.actor_id)
+            )
+            if revoked:
+                raise InvalidTokenError("account access is revoked or its verifier is unavailable")
+        return identity
     except (InvalidTokenError, KeyError, ValidationError, TypeError) as error:
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,

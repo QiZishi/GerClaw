@@ -10,6 +10,7 @@ from pydantic import ValidationError
 from gerclaw_api.api.routes.auth import read_account_session
 from gerclaw_api.auth import (
     AuthContext,
+    account_access_revocation_key,
     authenticate,
     create_access_token,
     require_clinical_intake_read,
@@ -31,6 +32,14 @@ def _request() -> tuple[Request, object]:
     settings = make_settings()
     app = SimpleNamespace(state=SimpleNamespace(settings=settings))
     return Request({"type": "http", "app": app}), settings
+
+
+class _Redis:
+    def __init__(self, revoked: set[str] | None = None) -> None:
+        self.revoked = revoked or set()
+
+    async def exists(self, key: str) -> int:
+        return int(key in self.revoked)
 
 
 @pytest.mark.asyncio
@@ -140,3 +149,35 @@ async def test_account_session_read_only_accepts_verified_account_identity() -> 
             tenant_id="tenant_patient@example.com",
             scopes=frozenset(),
         )
+
+
+@pytest.mark.asyncio
+async def test_account_access_token_is_fail_closed_when_revoked_or_verifier_missing() -> None:
+    request, settings = _request()
+    actor_id = "usr_account_0123456789abcdef0123456789abcdef"
+    token = create_access_token(
+        settings,
+        actor_id=actor_id,
+        tenant_id="tenant_public0001",
+        role="patient",
+        scopes={"chat:read"},
+    )
+    request.app.state.redis = _Redis()
+    identity = await authenticate(
+        request, HTTPAuthorizationCredentials(scheme="Bearer", credentials=token)
+    )
+    assert identity.actor_id == actor_id
+
+    request.app.state.redis = _Redis({account_access_revocation_key(actor_id)})
+    with pytest.raises(HTTPException) as revoked:
+        await authenticate(
+            request, HTTPAuthorizationCredentials(scheme="Bearer", credentials=token)
+        )
+    assert revoked.value.status_code == 401
+
+    del request.app.state.redis
+    with pytest.raises(HTTPException) as missing_verifier:
+        await authenticate(
+            request, HTTPAuthorizationCredentials(scheme="Bearer", credentials=token)
+        )
+    assert missing_verifier.value.status_code == 401

@@ -108,7 +108,7 @@ class IdentitySecurityEvent(Base):
     __tablename__ = "identity_security_events"
     __table_args__ = (
         CheckConstraint(
-            "event_type IN ('register','login','refresh','logout','password_change')",
+            "event_type IN ('register','login','refresh','logout','password_change','deactivate')",
             name="valid_identity_security_event_type",
         ),
         CheckConstraint(
