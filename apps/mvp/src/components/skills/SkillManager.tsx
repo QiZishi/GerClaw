@@ -49,6 +49,7 @@ export function SkillManager() {
   const [editor, setEditor] = useState<EditorState | null>(null);
   const [deleteTarget, setDeleteTarget] = useState<SkillInfo | null>(null);
   const [busySkillId, setBusySkillId] = useState<string | null>(null);
+  const [uploading, setUploading] = useState(false);
   const uploadRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
@@ -130,14 +131,26 @@ export function SkillManager() {
 
   const handleUpload = async (file: File | undefined) => {
     if (!file) return;
+    setUploading(true);
     try {
       const definition = await inspectUpload(file);
       setEditor({ mode: "upload", definition });
-      toast.show("技能包校验通过，请完整审阅后保存");
+      toast.show("技能包已读取");
     } catch (uploadError) {
       toast.show(uploadError instanceof Error ? uploadError.message : "技能包导入失败");
     } finally {
+      setUploading(false);
       if (uploadRef.current) uploadRef.current.value = "";
+    }
+  };
+
+  const openUploadPicker = () => {
+    const input = uploadRef.current;
+    if (!input || uploading) return;
+    try {
+      input.showPicker?.();
+    } catch {
+      input.click();
     }
   };
 
@@ -178,12 +191,12 @@ export function SkillManager() {
                 accept=".md,.skill,.zip,text/markdown,application/zip"
                 className="sr-only"
                 tabIndex={-1}
-                aria-hidden="true"
+                aria-label="选择技能包"
                 onChange={(event) => void handleUpload(event.target.files?.[0])}
               />
-              <Button variant="outline" onClick={() => uploadRef.current?.click()} className={cn(seniorMode && "h-12 px-4 text-lg")}>
+              <Button variant="outline" onClick={openUploadPicker} disabled={uploading} className={cn(seniorMode && "h-12 px-4 text-lg")}>
                 <FileUp className="size-4" aria-hidden="true" />
-                导入技能包
+                {uploading ? "正在读取…" : "导入技能包"}
               </Button>
               <Button onClick={() => setEditor({ mode: "create" })} className={cn(seniorMode && "h-12 px-4 text-lg")}>
                 <Plus className="size-4" aria-hidden="true" />

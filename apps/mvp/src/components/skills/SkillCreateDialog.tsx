@@ -71,7 +71,7 @@ const MODE_CONTENT: Record<
   },
   view: {
     title: "查看临床技能",
-    description: "可在渲染预览与完整 SKILL.md 源码间切换。系统内置技能为只读。",
+    description: "在同一内容区实时编辑并渲染完整 SKILL.md；系统内置技能为只读。",
   },
 };
 
@@ -300,7 +300,6 @@ export function SkillEditorDialog({
             }}
             readOnly={readOnly}
             seniorMode={seniorMode}
-            defaultMode={readOnly ? "preview" : "source"}
             className="min-h-72"
           />
         </section>
