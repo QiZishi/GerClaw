@@ -7,6 +7,7 @@ import uuid
 from typing import Literal, cast
 
 from gerclaw_api.database.models import ClinicalIntake
+from gerclaw_api.modules.document.models import UploadedDocumentContext
 from gerclaw_api.modules.document.service import DocumentContextError, DocumentService
 from gerclaw_api.modules.input_output.clinical_intake import (
     ClinicalIntakeDefinition,
@@ -17,6 +18,8 @@ from gerclaw_api.modules.prescription.intake import PRESCRIPTION_INTAKE_DEFINITI
 from gerclaw_api.modules.prescription.models import (
     ClinicalIntakeFieldRead,
     ClinicalIntakeRead,
+    PreparedPrescriptionInput,
+    PrescriptionInputReadiness,
 )
 from gerclaw_api.repositories.clinical_intake import SqlAlchemyClinicalIntakeRepository
 
@@ -130,6 +133,64 @@ class ClinicalIntakeService:
         )
         record.revision += 1
         return self._read(record)
+
+    async def prepare_prescription_input(
+        self, intake_id: uuid.UUID, *, tenant_id: str, actor_id: str
+    ) -> PreparedPrescriptionInput:
+        """Resolve complete, owner-scoped materials for a future governed workflow.
+
+        It performs no RAG, model, rule-engine, diagnosis, or prescription
+        action. Document bodies are only resolved after the intake is complete
+        and cannot be silently truncated: a future clinician-facing workflow
+        must either receive all selected material or fail safely.
+        """
+
+        intake = await self.get(intake_id, tenant_id=tenant_id, actor_id=actor_id)
+        if intake.kind != "prescription":
+            raise ClinicalIntakeConflictError("prescription input is unavailable for this intake")
+        if intake.status != "information_complete_pending_governance":
+            raise ClinicalIntakeConflictError("prescription information is incomplete")
+
+        documents: list[UploadedDocumentContext] = []
+        if intake.document_ids:
+            if self._document_service is None:
+                raise ClinicalIntakeConflictError("uploaded document resolution is unavailable")
+            try:
+                documents = await self._document_service.resolve_context(
+                    intake.document_ids,
+                    tenant_id=tenant_id,
+                    actor_id=actor_id,
+                    session_id=intake.session_id,
+                    max_characters=self._document_service.context_max_characters,
+                    allow_truncation=False,
+                )
+            except DocumentContextError as error:
+                raise ClinicalIntakeConflictError(
+                    "uploaded prescription input is no longer complete"
+                ) from error
+        return PreparedPrescriptionInput(
+            intake_id=intake.intake_id,
+            session_id=intake.session_id,
+            definition_version=intake.definition_version,
+            answers=intake.answers,
+            uploaded_documents=tuple(documents),
+        )
+
+    async def prescription_input_readiness(
+        self, intake_id: uuid.UUID, *, tenant_id: str, actor_id: str
+    ) -> PrescriptionInputReadiness:
+        """Validate private preparation and project only safe owner-visible counts."""
+
+        prepared = await self.prepare_prescription_input(
+            intake_id, tenant_id=tenant_id, actor_id=actor_id
+        )
+        return PrescriptionInputReadiness(
+            intake_id=prepared.intake_id,
+            definition_version=prepared.definition_version,
+            answer_field_count=len(prepared.answers),
+            uploaded_document_count=len(prepared.uploaded_documents),
+            governance_notice=GOVERNANCE_NOTICE,
+        )
 
     @staticmethod
     def _answers(record: ClinicalIntake) -> dict[str, str]:

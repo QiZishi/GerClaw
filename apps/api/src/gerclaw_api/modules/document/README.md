@@ -10,6 +10,12 @@ The Document module turns an already parsed Markdown result into a revocable, en
 4. Chat accepts that UUID only if its tenant, actor and session all match. The Harness renders the bounded body as a marked, untrusted reference.
 5. Removing the attachment calls the revoke endpoint, which wipes the encrypted body and makes future chat use fail closed.
 
+`resolve_context` makes truncation an explicit server-owned choice. Ordinary
+chat may request a bounded excerpt; the five-prescription input assembler
+passes `allow_truncation=False`, so a report, PDF or other extracted input can
+never be silently treated as complete after clipping. This remains uploaded
+input/provenance only, never local-knowledge-base evidence.
+
 ## Limits and non-goals
 
 - Markdown registration is limited to 1,000,000 characters and direct Harness context is limited to 20,000 characters per turn.

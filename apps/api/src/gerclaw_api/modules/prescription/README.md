@@ -4,6 +4,17 @@ This is a fail-closed intake module for the future governed five-prescription wo
 
 For the five-prescription intake, the caller may attach up to five already parsed, active documents from the same conversation. The intake stores only encrypted document IDs; the MinerU-extracted text remains in the private document store. A later medically governed report may resolve those IDs into its input template and display them as “上传资料依据” for traceability. They are never indexed into the public/local knowledge base and never satisfy the medical-evidence requirement on their own.
 
+`ClinicalIntakeService.prepare_prescription_input` is the shared, private
+`five-prescription-input-v1` assembly boundary. It resolves a completed
+prescription intake's answers and selected documents again under the same
+tenant/actor/session boundary. Documents must fit in the configured server-side
+input ceiling **without truncation**; revoked, cross-session or oversized
+material rejects the preparation. The owner-facing
+`GET /clinical-intakes/{id}/prescription-input` route invokes this check but
+returns only counts and the governance notice, never answer text, filenames,
+document IDs or extracted bodies. It is not report generation and performs no
+model, RAG, search or rule-engine call.
+
 ## State
 
 - `collecting`: required server-defined fields are still absent.

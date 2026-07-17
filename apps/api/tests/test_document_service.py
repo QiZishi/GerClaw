@@ -135,3 +135,42 @@ async def test_document_registration_uses_configured_content_limit(
             tenant_id="tenant_public0001",
             actor_id="usr_patient_test0001",
         )
+
+
+@pytest.mark.asyncio
+async def test_document_context_can_require_complete_material_without_silent_truncation(
+    unit_settings: Settings,
+) -> None:
+    repository = _Repository()
+    service = DocumentService(repository, unit_settings)  # type: ignore[arg-type]
+    session_id = uuid.uuid4()
+    read = await service.register(
+        UploadedDocumentCreate(
+            session_id=session_id,
+            filename="complete-report.md",
+            media_type="text/markdown",
+            parse_source="mineru",
+            markdown="检查结果。" * 100,
+        ),
+        tenant_id="tenant_public0001",
+        actor_id="usr_patient_test0001",
+    )
+
+    with pytest.raises(DocumentContextError, match="exceeds the configured limit"):
+        await service.resolve_context(
+            [read.document_id],
+            tenant_id="tenant_public0001",
+            actor_id="usr_patient_test0001",
+            session_id=session_id,
+            max_characters=100,
+            allow_truncation=False,
+        )
+
+    excerpt = await service.resolve_context(
+        [read.document_id],
+        tenant_id="tenant_public0001",
+        actor_id="usr_patient_test0001",
+        session_id=session_id,
+        max_characters=100,
+    )
+    assert len(excerpt[0].content) == 100

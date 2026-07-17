@@ -30,6 +30,7 @@ from gerclaw_api.modules.prescription.models import (
     ClinicalIntakeRead,
     ClinicalIntakeStartRequest,
     ClinicalIntakeUpdateRequest,
+    PrescriptionInputReadiness,
 )
 from gerclaw_api.repositories.clinical_intake import (
     ClinicalIntakeNotFoundError,
@@ -273,6 +274,39 @@ async def get_medication_reconciliation(
     except MedicationReconciliationInputError as error:
         raise HTTPException(
             status_code=409, detail={"code": "MEDICATION_RECONCILIATION_INPUT_INVALID"}
+        ) from error
+
+
+@router.get(
+    "/{intake_id}/prescription-input",
+    response_model=PrescriptionInputReadiness,
+)
+async def get_prescription_input_readiness(
+    intake_id: uuid.UUID,
+    request: Request,
+    session: SessionDependency,
+    identity: ReadIdentity,
+) -> PrescriptionInputReadiness:
+    """Validate complete private prescription inputs without returning their text.
+
+    This is a material-readiness check, not report generation. It ensures that
+    selected MinerU/local documents still belong to this caller and session and
+    fit in the governed input budget before a future reviewed workflow may use
+    them as uploaded input/provenance.
+    """
+
+    await _enforce_rate_limit(request, identity)
+    try:
+        return await _service(session, request).prescription_input_readiness(
+            intake_id, tenant_id=identity.tenant_id, actor_id=identity.actor_id
+        )
+    except ClinicalIntakeNotFoundError as error:
+        raise HTTPException(
+            status_code=404, detail={"code": "CLINICAL_INTAKE_NOT_FOUND"}
+        ) from error
+    except ClinicalIntakeConflictError as error:
+        raise HTTPException(
+            status_code=409, detail={"code": "PRESCRIPTION_INPUT_NOT_READY"}
         ) from error
 
 

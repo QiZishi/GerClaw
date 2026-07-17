@@ -6,8 +6,16 @@ from types import SimpleNamespace
 import pytest
 from fastapi import HTTPException
 
-from gerclaw_api.api.routes.clinical_intakes import _module_name, get_medication_reconciliation
-from gerclaw_api.modules.prescription.models import ClinicalIntakeFieldRead, ClinicalIntakeRead
+from gerclaw_api.api.routes.clinical_intakes import (
+    _module_name,
+    get_medication_reconciliation,
+    get_prescription_input_readiness,
+)
+from gerclaw_api.modules.prescription.models import (
+    ClinicalIntakeFieldRead,
+    ClinicalIntakeRead,
+    PrescriptionInputReadiness,
+)
 
 
 def test_clinical_intake_trace_uses_the_actual_domain_owner() -> None:
@@ -63,3 +71,46 @@ async def test_medication_reconciliation_is_unavailable_for_prescription_intake(
             SimpleNamespace(tenant_id="tenant", actor_id="actor"),  # type: ignore[arg-type]
         )
     assert error.value.status_code == 409
+
+
+@pytest.mark.asyncio
+async def test_prescription_input_readiness_projects_counts_without_private_material(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    intake_id = uuid.uuid4()
+
+    class _Service:
+        async def prescription_input_readiness(
+            self, requested_id: uuid.UUID, **_kwargs: object
+        ) -> PrescriptionInputReadiness:
+            assert requested_id == intake_id
+            return PrescriptionInputReadiness(
+                intake_id=intake_id,
+                definition_version="clinical-intake-v1",
+                answer_field_count=2,
+                uploaded_document_count=1,
+                governance_notice="医生审核尚未启用。",
+            )
+
+    async def _no_rate_limit(*_args: object, **_kwargs: object) -> None:
+        return None
+
+    monkeypatch.setattr(
+        "gerclaw_api.api.routes.clinical_intakes._service", lambda *_args: _Service()
+    )
+    monkeypatch.setattr(
+        "gerclaw_api.api.routes.clinical_intakes._enforce_rate_limit", _no_rate_limit
+    )
+
+    result = await get_prescription_input_readiness(
+        intake_id,
+        _Request(),
+        object(),  # type: ignore[arg-type]
+        SimpleNamespace(tenant_id="tenant", actor_id="actor"),  # type: ignore[arg-type]
+    )
+
+    payload = result.model_dump_json()
+    assert result.uploaded_document_count == 1
+    assert result.clinical_output_enabled is False
+    assert "MinerU extracted report text" not in payload
+    assert "health_goal" not in payload

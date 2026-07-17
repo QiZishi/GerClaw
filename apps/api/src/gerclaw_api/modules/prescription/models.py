@@ -9,10 +9,14 @@ from typing import Final, Literal
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
+from gerclaw_api.modules.document.models import UploadedDocumentContext
 from gerclaw_api.modules.input_output.clinical_intake import ClinicalIntakeKind
 
 FIVE_PRESCRIPTION_TEMPLATE_VERSION: Final[Literal["five-prescription-report-v1"]] = (
     "five-prescription-report-v1"
+)
+PRESCRIPTION_INPUT_TEMPLATE_VERSION: Final[Literal["five-prescription-input-v1"]] = (
+    "five-prescription-input-v1"
 )
 MEDICAL_DRAFT_DISCLAIMER: Final[
     Literal["AI生成建议仅供参考，不能替代专业医生诊断、治疗建议或处方；如有不适请及时就医。"]
@@ -216,3 +220,40 @@ class ClinicalIntakeRead(BaseModel):
     missing_required_fields: list[str] = Field(default_factory=list, max_length=3)
     governance_notice: str = Field(min_length=1, max_length=500)
     updated_at: datetime
+
+
+class PreparedPrescriptionInput(BaseModel):
+    """Private, complete input for a future governed prescription workflow.
+
+    This contract deliberately has no HTTP route. It may contain the caller's
+    encrypted intake answers and MinerU/local extracted text, so a future
+    Runtime workflow must keep it inside the verified tenant/actor/session
+    boundary and must not log, trace, index, or emit it as evidence.
+    """
+
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    input_template_version: Literal["five-prescription-input-v1"] = (
+        PRESCRIPTION_INPUT_TEMPLATE_VERSION
+    )
+    intake_id: uuid.UUID
+    session_id: uuid.UUID
+    definition_version: str = Field(min_length=1, max_length=32)
+    answers: dict[str, str] = Field(min_length=2, max_length=3)
+    uploaded_documents: tuple[UploadedDocumentContext, ...] = Field(max_length=5)
+
+
+class PrescriptionInputReadiness(BaseModel):
+    """Owner-visible preparation state that exposes no intake or document text."""
+
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    intake_id: uuid.UUID
+    input_template_version: Literal["five-prescription-input-v1"] = (
+        PRESCRIPTION_INPUT_TEMPLATE_VERSION
+    )
+    definition_version: str = Field(min_length=1, max_length=32)
+    answer_field_count: int = Field(ge=2, le=3)
+    uploaded_document_count: int = Field(ge=0, le=5)
+    clinical_output_enabled: Literal[False] = False
+    governance_notice: str = Field(min_length=1, max_length=500)

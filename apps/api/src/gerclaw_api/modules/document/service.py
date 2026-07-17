@@ -43,6 +43,12 @@ class DocumentService:
         self._repository = repository
         self._settings = settings
 
+    @property
+    def context_max_characters(self) -> int:
+        """Expose the configured server-side context ceiling without exposing content."""
+
+        return self._settings.document_context_max_characters
+
     async def register(
         self,
         payload: UploadedDocumentCreate,
@@ -113,7 +119,16 @@ class DocumentService:
         actor_id: str,
         session_id: uuid.UUID,
         max_characters: int,
+        allow_truncation: bool = True,
     ) -> list[UploadedDocumentContext]:
+        """Resolve owned document text with an explicit truncation policy.
+
+        Chat can use a bounded excerpt, but a future clinical workflow must opt
+        out of truncation so it never treats a partial report as complete input.
+        """
+
+        if max_characters < 1:
+            raise DocumentContextError("uploaded document context limit is invalid")
         if len(set(document_ids)) != len(document_ids):
             raise DocumentContextError("duplicate uploaded document reference")
         try:
@@ -130,6 +145,10 @@ class DocumentService:
         for record in records:
             if remaining <= 0:
                 break
+            if not allow_truncation and len(record.content) > remaining:
+                raise DocumentContextError(
+                    "uploaded document context exceeds the configured limit"
+                )
             content = record.content[:remaining].strip()
             if not content:
                 continue

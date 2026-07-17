@@ -8,6 +8,8 @@ from datetime import UTC, datetime
 import pytest
 
 from gerclaw_api.database.models import ClinicalIntake
+from gerclaw_api.modules.document.models import UploadedDocumentContext
+from gerclaw_api.modules.document.service import DocumentContextError
 from gerclaw_api.repositories.clinical_intake import ClinicalIntakeNotFoundError
 from gerclaw_api.services.clinical_intake_service import (
     ClinicalIntakeConflictError,
@@ -61,6 +63,30 @@ class _DocumentService:
         if document_id not in self.active_document_ids:
             raise RuntimeError("not found")
         return object()
+
+
+class _PreparationDocumentService(_DocumentService):
+    context_max_characters = 500
+
+    def __init__(self, active_document_ids: set[uuid.UUID], *, oversized: bool = False) -> None:
+        super().__init__(active_document_ids)
+        self.oversized = oversized
+        self.resolve_calls: list[dict[str, object]] = []
+
+    async def resolve_context(
+        self, document_ids: list[uuid.UUID], **kwargs: object
+    ) -> list[UploadedDocumentContext]:
+        self.resolve_calls.append(kwargs)
+        if self.oversized:
+            raise DocumentContextError("document context exceeds limit")
+        return [
+            UploadedDocumentContext(
+                document_id=document_id,
+                filename="report.md",
+                content="MinerU extracted report text",
+            )
+            for document_id in document_ids
+        ]
 
 
 @pytest.mark.asyncio
@@ -252,3 +278,75 @@ async def test_medication_review_rejects_document_references_until_its_own_bound
         )
 
     assert documents.calls == []
+
+
+@pytest.mark.asyncio
+async def test_prescription_preparation_resolves_complete_same_session_documents_as_input_only(
+) -> None:
+    document_id = uuid.uuid4()
+    documents = _PreparationDocumentService({document_id})
+    service = ClinicalIntakeService(
+        _Repository(),  # type: ignore[arg-type]
+        documents,  # type: ignore[arg-type]
+    )
+    started = await service.start(
+        tenant_id="tenant_public0001",
+        actor_id="usr_patient_intake0001",
+        session_id=uuid.uuid4(),
+        kind="prescription",
+    )
+    updated = await service.update(
+        started.intake_id,
+        tenant_id="tenant_public0001",
+        actor_id="usr_patient_intake0001",
+        expected_revision=started.revision,
+        answers={"health_goal": "改善活动耐受", "current_concerns": "步行后疲劳"},
+        document_ids=[document_id],
+    )
+
+    prepared = await service.prepare_prescription_input(
+        updated.intake_id, tenant_id="tenant_public0001", actor_id="usr_patient_intake0001"
+    )
+    readiness = await service.prescription_input_readiness(
+        updated.intake_id, tenant_id="tenant_public0001", actor_id="usr_patient_intake0001"
+    )
+
+    assert prepared.answers == updated.answers
+    assert [item.document_id for item in prepared.uploaded_documents] == [document_id]
+    assert documents.resolve_calls[0]["allow_truncation"] is False
+    assert readiness.answer_field_count == 2
+    assert readiness.uploaded_document_count == 1
+    assert readiness.clinical_output_enabled is False
+
+
+@pytest.mark.asyncio
+async def test_prescription_preparation_rejects_incomplete_or_unavailable_material() -> None:
+    document_id = uuid.uuid4()
+    documents = _PreparationDocumentService({document_id}, oversized=True)
+    service = ClinicalIntakeService(
+        _Repository(),  # type: ignore[arg-type]
+        documents,  # type: ignore[arg-type]
+    )
+    started = await service.start(
+        tenant_id="tenant_public0001",
+        actor_id="usr_patient_intake0001",
+        session_id=uuid.uuid4(),
+        kind="prescription",
+    )
+    with pytest.raises(ClinicalIntakeConflictError, match="information is incomplete"):
+        await service.prepare_prescription_input(
+            started.intake_id, tenant_id="tenant_public0001", actor_id="usr_patient_intake0001"
+        )
+
+    updated = await service.update(
+        started.intake_id,
+        tenant_id="tenant_public0001",
+        actor_id="usr_patient_intake0001",
+        expected_revision=started.revision,
+        answers={"health_goal": "活动", "current_concerns": "疲劳"},
+        document_ids=[document_id],
+    )
+    with pytest.raises(ClinicalIntakeConflictError, match="no longer complete"):
+        await service.prepare_prescription_input(
+            updated.intake_id, tenant_id="tenant_public0001", actor_id="usr_patient_intake0001"
+        )
