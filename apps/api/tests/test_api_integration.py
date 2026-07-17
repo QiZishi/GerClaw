@@ -470,6 +470,22 @@ async def test_real_trace_feedback_bad_case_encryption_and_readiness_flow(
     assert administrator.status_code == 200
     assert administrator.json()["trace_id"] == TRACE_ID
 
+    bad_case_queue = await client.get(
+        "/api/v1/auth/admin/bad-cases",
+        headers={"Authorization": f"Bearer {administrator_token}"},
+    )
+    assert bad_case_queue.status_code == 200
+    assert len(bad_case_queue.json()["cases"]) == 2
+    assert "snapshot" not in bad_case_queue.json()["cases"][0]
+    reviewed_case = await client.patch(
+        f"/api/v1/auth/admin/bad-cases/{bad_case_queue.json()['cases'][0]['id']}",
+        headers={"Authorization": f"Bearer {administrator_token}"},
+        json={"status": "triaged"},
+    )
+    assert reviewed_case.status_code == 200
+    assert reviewed_case.json()["status"] == "triaged"
+    assert reviewed_case.json()["resolved_at"] is None
+
     async with app.state.database.session() as session:
         assert await session.scalar(select(func.count()).select_from(ExecutionTrace)) == 1
         assert await session.scalar(select(func.count()).select_from(TraceEvent)) == 1

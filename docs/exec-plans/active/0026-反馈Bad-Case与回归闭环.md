@@ -15,7 +15,7 @@
 
 ## 后续范围
 
-- 审核/运维专属的 Bad Case 队列、分诊、解决状态、受控 snapshot 查看和回归 golden case 需要 0025 的真实账号/RBAC；在此之前不暴露任何跨主体审计内容。
+- 管理员已可经服务端 `account:admin` scope 读取最多 100 条同 tenant 的 PHI-free Bad Case 元数据并把状态更新为 open/triaged/resolved/dismissed；API 不返回加密 snapshot、用户评论或原始输入。管理员前端队列、受控 snapshot 查看和人工去标识化为 golden case 仍待接入。
 - 评测集版本、回放预算、模型/提示词/知识索引版本比较与安全 red-team 根据 Runtime Harness 版本绑定实现，不能把用户原文直接复制为 golden case。
 
 ## 阶段 B：可重复的 ≤10 并发性能证据

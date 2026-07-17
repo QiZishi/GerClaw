@@ -11,6 +11,7 @@ from typing import Annotated, Literal, cast
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request, status
 from pydantic import BaseModel, ConfigDict, Field, model_validator
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from gerclaw_api.auth import (
@@ -20,6 +21,7 @@ from gerclaw_api.auth import (
     create_access_token,
     require_account_admin,
 )
+from gerclaw_api.database.models import BadCase
 from gerclaw_api.dependencies import get_database_session
 from gerclaw_api.modules.identity.passwords import hash_password, verify_password
 from gerclaw_api.repositories.account import (
@@ -169,6 +171,33 @@ class AccountAdminUpdateRequest(BaseModel):
         if self.role is None and self.is_active is None:
             raise ValueError("one account change is required")
         return self
+
+
+class BadCaseAdminRead(BaseModel):
+    """PHI-free review metadata; encrypted snapshots are never exposed here."""
+
+    model_config = ConfigDict(from_attributes=True, extra="forbid")
+
+    id: uuid.UUID
+    trace_id: str
+    source: Literal["execution_failure", "negative_feedback"]
+    reason_codes: list[str]
+    severity: Literal["low", "medium", "high", "critical"]
+    status: Literal["open", "triaged", "resolved", "dismissed"]
+    created_at: datetime
+    resolved_at: datetime | None
+
+
+class BadCaseAdminListRead(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    cases: list[BadCaseAdminRead]
+
+
+class BadCaseAdminUpdateRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    status: Literal["open", "triaged", "resolved", "dismissed"]
 
 
 class AccountViewRoleRequest(BaseModel):
@@ -527,6 +556,59 @@ async def update_account_for_administrator(
         is_active=user.is_active,
         created_at=user.created_at,
     )
+
+
+@router.get("/admin/bad-cases", response_model=BadCaseAdminListRead)
+async def list_bad_cases_for_administrator(
+    session: AccountSessionDependency,
+    identity: Annotated[AuthContext, Depends(require_account_admin)],
+    status_filter: Literal["open", "triaged", "resolved", "dismissed"] | None = Query(
+        default=None, alias="status"
+    ),
+    limit: int = Query(default=50, ge=1, le=100),
+) -> BadCaseAdminListRead:
+    """List bounded tenant review metadata without decrypting user snapshots."""
+
+    statement = select(BadCase).where(BadCase.tenant_id == identity.tenant_id)
+    if status_filter is not None:
+        statement = statement.where(BadCase.status == status_filter)
+    statement = statement.order_by(BadCase.created_at.desc(), BadCase.id.desc()).limit(limit)
+    entries = (await session.scalars(statement)).all()
+    return BadCaseAdminListRead(cases=[BadCaseAdminRead.model_validate(item) for item in entries])
+
+
+@router.patch("/admin/bad-cases/{case_id}", response_model=BadCaseAdminRead)
+async def update_bad_case_for_administrator(
+    case_id: uuid.UUID,
+    payload: BadCaseAdminUpdateRequest,
+    request: Request,
+    session: AccountSessionDependency,
+    identity: Annotated[AuthContext, Depends(require_account_admin)],
+) -> BadCaseAdminRead:
+    """Record bounded review state; comments/snapshots remain outside this API."""
+
+    statement = (
+        select(BadCase)
+        .where(BadCase.tenant_id == identity.tenant_id, BadCase.id == case_id)
+        .with_for_update()
+    )
+    item = await session.scalar(statement)
+    if item is None:
+        raise HTTPException(status_code=404, detail={"code": "BAD_CASE_NOT_FOUND"})
+    item.status = payload.status
+    item.resolved_at = datetime.now(UTC) if payload.status in {"resolved", "dismissed"} else None
+    await SqlAlchemyAccountRepository(session).record_security_event(
+        tenant_id=identity.tenant_id,
+        subject_fingerprint=_opaque_subject_fingerprint(
+            request, namespace="bad-case", value=str(case_id)
+        ),
+        event_type="admin_update",
+        outcome="succeeded",
+        actor_id=identity.actor_id,
+        role="admin",
+    )
+    await session.commit()
+    return BadCaseAdminRead.model_validate(item)
 
 
 @router.post("/logout", status_code=status.HTTP_204_NO_CONTENT)
