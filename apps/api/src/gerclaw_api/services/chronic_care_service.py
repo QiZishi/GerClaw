@@ -112,7 +112,10 @@ class ChronicCareService:
         )
         items = sorted(
             (self._measurement_read(record) for record in records),
-            key=lambda item: (item.measured_at, item.measurement_id),
+            # The patient UI records local datetimes at minute precision.  When
+            # two entries share that timestamp, append order is the only
+            # defensible deterministic tie-breaker; UUID order is arbitrary.
+            key=lambda item: (item.measured_at, item.created_at, item.measurement_id),
             reverse=True,
         )
         return ChronicMeasurementListRead(items=items)
@@ -133,7 +136,9 @@ class ChronicCareService:
         trends: list[ChronicTrendRead] = []
         for items in grouped.values():
             ordered = sorted(
-                items, key=lambda item: (item.measured_at, item.measurement_id), reverse=True
+                items,
+                key=lambda item: (item.measured_at, item.created_at, item.measurement_id),
+                reverse=True,
             )
             latest = ordered[0]
             previous = ordered[1] if len(ordered) > 1 else None

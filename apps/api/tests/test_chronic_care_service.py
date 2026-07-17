@@ -175,6 +175,43 @@ async def test_measurement_rejects_materially_future_timestamp() -> None:
         )
 
 
+@pytest.mark.asyncio
+async def test_same_measurement_time_uses_append_order_for_non_clinical_trend() -> None:
+    repository = _Repository()
+    service = ChronicCareService(repository)  # type: ignore[arg-type]
+    condition = await service.create_condition(
+        ChronicConditionCreateRequest(label="自述慢病"),
+        tenant_id="tenant_public0001",
+        actor_id="usr_patient_chronic0001",
+    )
+    measured_at = datetime.now(UTC).replace(second=0, microsecond=0)
+    await service.create_measurement(
+        condition.condition_id,
+        ChronicMeasurementCreateRequest(
+            metric_label="自述指标", value=120, unit="单位", measured_at=measured_at
+        ),
+        tenant_id="tenant_public0001",
+        actor_id="usr_patient_chronic0001",
+    )
+    await service.create_measurement(
+        condition.condition_id,
+        ChronicMeasurementCreateRequest(
+            metric_label="自述指标", value=130, unit="单位", measured_at=measured_at
+        ),
+        tenant_id="tenant_public0001",
+        actor_id="usr_patient_chronic0001",
+    )
+
+    trends = await service.trends(
+        condition.condition_id,
+        tenant_id="tenant_public0001",
+        actor_id="usr_patient_chronic0001",
+    )
+    assert trends.items[0].direction == "rising"
+    assert trends.items[0].latest_value == 130
+    assert trends.items[0].previous_value == 120
+
+
 def test_measurement_contract_rejects_non_finite_value() -> None:
     with pytest.raises(ValidationError):
         ChronicMeasurementCreateRequest(
