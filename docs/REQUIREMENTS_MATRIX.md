@@ -48,7 +48,7 @@
 | OPS-01 | Readiness | health service | DB/Redis/Qdrant/RAG generation/配置 503 | ✅ 真实依赖套件通过 |
 | OPS-02 | metrics/feedback/eval/Bad Case | metrics/trace/feedback/eval | API、存储、回放、趋势 | 🚧 Trace/基础反馈与加密 Bad Case 已有；2026-07-18 管理员可通过 `account:admin` 读取 PHI-free 队列元数据并更新处置状态，管理员前端已实际接入，API/BFF 均不暴露 snapshot/评论/原始输入。队列查询显式不加载加密 snapshot，历史密钥不可读时仍可读取和处置。19 个合成安全/输出安全/隐私/用药规则 policy case 不回放真实输入；test image 的显式 opt-in RAG 评测对五个本地老年医学主题命中和一个无证据例均为 6/6。尚缺授权脱敏晋升、模型/临床评测、趋势与指标闭环 |
 | OPS-03 | 测试覆盖门禁 | pytest/coverage | ≥80%，负向阈值 exit 1 | ✅ 80.02%，审阅者验证负向门禁 |
-| OPS-04 | ≤10 并发 | integration/perf | 隔离、幂等、限流、取消、p50/p95 | 🚧 2026-07-18 当前 Compose API 的 10 并发安全短路 SSE 为 10/10 done、失败率 0、p50 99ms/p95 100ms、10 个唯一 completed Trace、访客 history 10/10 为 403、跨访客 Trace 为 404；完整临床 workflow、取消/限流/幂等的统一负载仍待补齐 |
+| OPS-04 | ≤10 并发 | integration/perf | 隔离、幂等、限流、取消、p50/p95 | 🚧 2026-07-18 当前 Compose API 的安全短路 SSE 为 10/10 done、失败率 0、p50 99ms/p95 100ms、10 个唯一 completed Trace、访客 history 10/10 为 403、跨访客 Trace 为 404；同日的真实确定性用药审查 workflow 为 10/10 HTTP 200、p50 50ms/p95 53ms、规则 finding/来源 10/10、Trace 完成与跨访客 intake/Trace 404。均不代表外部模型/RAG/MinerU、完整处方、取消/限流/幂等统一负载或千级容量，后者仍待补齐 |
 | OPS-05 | Docker 全栈 | Dockerfiles/compose | 空卷启动、迁移、health、重启、非 root | ✅ 2026-07-18 `docker-smoke` 在独立项目、全新临时卷中实际通过：迁移、3 份受控代表性 RAG 文档的真实 embedding/index、`live`/`ready`、非 root API 与重启后 readiness；完成后容器、网络、卷均自动清理。它不外推为临床 workflow E2E 或容量验收 |
 | OPS-06 | 故障注入 | unit/integration/e2e | 断流/429/5xx/依赖中断/lost-ack/竞争/重启 | 🚧 RAG/Chat 有较强覆盖，临床/Document/HITL 缺失 |
 | OPS-07 | 供应链/SBOM | locks/CI/images | 固定版本、audit、SBOM、许可证、升级策略 | 🚧 lock/audit/CI pin 有；`security` 可从实际 production API image 生成 Python runtime CycloneDX SBOM，许可证未知项显式报告。Debian/npm runtime 清单、法务复审与发布签名仍待最终交付阶段。 |

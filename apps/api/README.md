@@ -26,6 +26,13 @@ docker compose -f docker-compose.yml -f docker-compose.dev.yml up -d --build
 - Alembic 由一次性 `migrate` service 执行并持有 PostgreSQL advisory lock；API 副本只直接启动 Uvicorn，不会并发执行 DDL。
 - 本地知识库从仓库同级 `../本地知识库/md` 只读挂载到 `/knowledge-base`，不得复制进镜像或 Git。
 
+已启动 Compose 栈上的确定性用药审查并发复验从 API 容器执行，避免将访客身份密钥导出到宿主机。它只使用合成输入并输出 PHI-free 聚合结果；硬上限为 10，并不衡量外部模型、RAG、MinerU 或临床正确性：
+
+```bash
+docker compose exec -T api python /app/scripts/perf_medication_review_workflow.py \
+  --base-url http://127.0.0.1:8000 --concurrency 10
+```
+
 ## 本地医学 Agentic RAG
 
 生产检索链路为：Markdown 安全解析与章节分块 → SiliconFlow `BAAI/bge-m3` dense embedding + 本地中英文 lexical sparse vector → Qdrant prefetch/RRF → SiliconFlow `BAAI/bge-reranker-v2-m3` 重排。AgentScope 通过 `search_knowledge` 工具调用同一条检索链路，不存在第二套简化实现。

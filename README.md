@@ -23,7 +23,7 @@ GerClaw 是面向老年患者与老年科医生的 Web 端 AI 双向诊疗平台
 - 用户反馈、加密 Bad Case 与 19 个合成确定性安全/输出安全/隐私/用药规则 case 基线；golden case 不回放用户原文，也不调用模型或 RAG
 - `security_evaluation` Runtime 门禁：Chat 实际启用的本地知识检索、本人记忆检索、外网搜索均有版本绑定风险档案；未匹配的风险/网络/数据类别、缺基础控制或外网缺服务端脱敏证明会拒绝加入 Toolkit
 - 版本化 `privacy_redaction`：外部搜索 query 与 FastAPI TTS 正文/style 在 Provider 调用前最小化并脱敏，审计摘要只保留类别计数
-- Docker Compose API 的 10 并发高风险安全短路 SSE 证据（仅该确定性工作负载，非模型/RAG/临床 workflow 吞吐结论）
+- Docker Compose API 的 10 并发高风险安全短路 SSE，以及 10 并发确定性用药审查 workflow 证据；两者都不是模型/RAG/MinerU、完整处方或临床有效性的吞吐结论
 
 已部分实现、但尚不能视为完整生产交付的能力：
 

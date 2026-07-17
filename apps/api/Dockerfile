@@ -19,6 +19,7 @@ WORKDIR /app
 COPY pyproject.toml uv.lock README.md alembic.ini ./
 COPY migrations ./migrations
 COPY src ./src
+COPY scripts ./scripts
 # The reviewed RAG regression case is a small, synthetic runtime artifact.
 # Keep it in the production image so the explicit, operator-run Eval CLI is
 # usable against the same graph that serves requests; test source stays in the

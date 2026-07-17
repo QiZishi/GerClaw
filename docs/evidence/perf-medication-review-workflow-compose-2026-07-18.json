@@ -1,0 +1,38 @@
+{
+  "concurrency": 10,
+  "failure_rate": 0.0,
+  "generated_at": "2026-07-17T23:57:15.918592+00:00",
+  "http_statuses": {
+    "200": 10
+  },
+  "isolation": {
+    "cross_actor_read_status": {
+      "intake": 404,
+      "trace": 404
+    }
+  },
+  "latency_ms": {
+    "max": 53,
+    "min": 49,
+    "p50": 50,
+    "p95": 53
+  },
+  "ok": true,
+  "review_contract": {
+    "reviews_with_findings": 10,
+    "reviews_with_sources": 10,
+    "ruleset_version": "medication-rules-v3"
+  },
+  "schema_version": "perf-medication-review-workflow-v1",
+  "timeout_seconds": 30.0,
+  "trace": {
+    "completed_count": 10,
+    "unique_count": 10
+  },
+  "workload": {
+    "claim_boundary": "This is not clinical validation, LLM/RAG throughput, MinerU performance, or a thousand-concurrency benchmark.",
+    "external_model_or_rag": false,
+    "kind": "deterministic_source_traceable_medication_review",
+    "timed_operation": "medication_review_draft_after_prepared_intake"
+  }
+}

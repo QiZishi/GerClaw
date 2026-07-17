@@ -41,3 +41,18 @@ Trace 和延迟外，还要求每个访客的 history 读取为 `403 GUEST_SESSI
 实际结果为 10/10 HTTP 200、10/10 SSE `done`、失败率 0、p50 99ms、p95 100ms、10 个
 唯一 completed Trace、10/10 history 拒绝 403、跨访客 Trace 读取 404。仍只覆盖无外部
 模型、无 RAG 的确定性高风险安全短路；不是临床 workflow、模型吞吐或千级容量结论。
+
+## 2026-07-18：当前镜像的 10 并发用药审查工作流
+
+证据文件：perf-medication-review-workflow-compose-2026-07-18.json
+
+`apps/api/scripts/perf_medication_review_workflow.py` 在当前 Compose API 中为 10 个独立
+访客创建独立身份、会话和已填充的合成用药审查 intake，然后仅并发计时
+`medication-review-draft` 请求。脚本要求每次返回版本化 `medication-rules-v3`、至少一条
+finding 和至少一个来源；还验证每条 Trace 为 completed，以及跨访客读取 intake 与 Trace
+都为 404。机器报告不回显合成药物文本、会话 ID 或 Trace ID。
+
+实际结果为 10/10 HTTP 200、失败率 0、p50 50ms、p95 53ms、10 个唯一 completed Trace；
+10/10 均返回规则 finding 与来源。这只证明已安装、来源可追溯的确定性规则工作流在这条
+有限路径上的并发、所有权和 Trace 行为；不构成临床正确性验证，也不代表 LLM/RAG、MinerU、
+完整五大处方或千级容量结论。
