@@ -9,7 +9,7 @@
 | DEV-03 | 证据和独立审阅 | exec-plan、`output/` | 每里程碑命令、截图、审阅 PASS、commit | ✅ 0014–0019 已执行 |
 | DEV-04 | 模块合同 | `modules/*` | Protocol+生产实现+README+测试 | 🚧 所有含实现源码的核心模块现由 docs gate 强制要求 AGENTS.md/README.md；RAG/Memory/Search/Skill 已有完整生产纵切面，其余模块仍按各自计划补齐 Protocol、生产实现或真实集成证据 |
 | DEV-05 | owner/预算/checkpoint | exec-plan、runtime | owner、预算、恢复入口、独立 reviewer | 🚧 Runtime 预算与加密 version-bound checkpoint 已实现；临床副作用 continuation executor 尚未启用 |
-| RUN-01 | AgentScope ReAct/SSE/取消 | agent_harness、chat service | 真实模型+RAG+工具+原子终态 | ✅ 0016–0019 证据 |
+| RUN-01 | AgentScope ReAct/SSE/取消 | agent_harness、chat service、orchestration | 真实模型+RAG+工具+原子终态 | ✅ Chat 的 Trace 幂等建立/回放、租约 adoption、取消/失败终态已由 `ChatTurnCoordinator` 实际协调，feature 仍持有上下文和 Agent Harness；不额外调用模型 |
 | RUN-02 | ALLOW/DENY/ASK 与 HITL | permission、approval | 三决策单测；ASK 可恢复审批 | 🚧 PermissionEngine、加密审批 API、一次性 token、pending SSE 已实现；临床副作用 resume executor 待业务模块启用 |
 | RUN-03 | 工具注册表和边界 | tools、harness | allowlist、schema、超时/大小/结果校验 | 🚧 RAG/Memory/Search/Skill 已通过 Runtime registry；初始本地 RAG 预取现以 `search_knowledge` 事件真实投影，临床写入工具待对应模块接入 |
 | RUN-04 | PHI-free Trace | trace repo/routes | 成功/失败/取消/工具/Skill 全事件 | 🚧 核心 Chat 已有，缺审批/临床模块/反馈 |

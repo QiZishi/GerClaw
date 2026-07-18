@@ -20,7 +20,6 @@ from gerclaw_api.domain.trace_schemas import (
     TraceStartRequest,
     bounded_trace_duration_ms,
 )
-from gerclaw_api.metrics import CHAT_TURN_LATENCY, CHAT_TURNS
 from gerclaw_api.modules.agent_harness import (
     ConversationHistoryMessage,
     ProductionAgentHarness,
@@ -33,6 +32,11 @@ from gerclaw_api.modules.document import DocumentService
 from gerclaw_api.modules.input_output import ProductionInputOutputModule
 from gerclaw_api.modules.memory.memory_module import ProductionMemoryModule
 from gerclaw_api.modules.memory.models import MemoryUpdateResult
+from gerclaw_api.modules.orchestration import (
+    ChatCancellationFinalizationError,
+    ChatReplayUnavailableError,
+    ChatTurnCoordinator,
+)
 from gerclaw_api.modules.rag import HybridRAGModule
 from gerclaw_api.modules.risk_alert.service import RiskAlertService
 from gerclaw_api.modules.runtime.models import (
@@ -55,6 +59,12 @@ StreamCallback = Callable[[StreamEvent], Awaitable[None]]
 CancellationProbe = Callable[[], Awaitable[bool]]
 ActiveSkillCall = tuple[float, str, str | None]
 
+__all__ = [
+    "ChatCancellationFinalizationError",
+    "ChatReplayUnavailableError",
+    "ChatService",
+]
+
 
 class MemoryModuleFactory(Protocol):
     """Build a principal- and turn-isolated Memory graph."""
@@ -68,14 +78,6 @@ class MemoryModuleFactory(Protocol):
         session_id: uuid.UUID,
         trace_id: str,
     ) -> ProductionMemoryModule: ...
-
-
-class ChatReplayUnavailableError(RuntimeError):
-    """Raised when a terminal Trace has no successful replayable response."""
-
-
-class ChatCancellationFinalizationError(RuntimeError):
-    """Raised when cancellation cannot be durably published as a terminal Trace."""
 
 
 def _fingerprint(payload: ChatRequest, settings: Settings) -> str:
@@ -185,10 +187,66 @@ class ChatService:
             )
         )
         payload = payload.model_copy(update={"message": normalized.text})
-        started = time.monotonic()
         request_fingerprint = _fingerprint(payload, self._settings)
-        trace_start = await self._traces.start_trace_with_status(
-            TraceStartRequest(
+        active_skill_calls: dict[str, ActiveSkillCall] = {}
+        skill_audit_events: list[TraceEventCreate] = []
+
+        async def read_replay() -> AgentResponse | None:
+            stored = await self._conversation.get_replayed_assistant(
+                tenant_id=identity.tenant_id,
+                trace_id=trace_id,
+                session_id=payload.session_id,
+            )
+            return self._conversation.to_agent_response(stored) if stored is not None else None
+
+        async def emit_replay(response: AgentResponse) -> None:
+            await self._emit_replay(
+                response,
+                trace_id=trace_id,
+                session_id=payload.session_id,
+                callback=callback,
+            )
+
+        async def run_owned_turn(lease_guard: SessionLeaseGuard) -> AgentResponse:
+            return await self._process_owned_turn(
+                payload,
+                identity=identity,
+                request_id=request_id,
+                trace_id=trace_id,
+                request_fingerprint=request_fingerprint,
+                lease_guard=lease_guard,
+                callback=callback,
+                cancellation_requested=cancellation_requested,
+                active_skill_calls=active_skill_calls,
+                skill_audit_events=skill_audit_events,
+            )
+
+        async def finalize_failure(
+            status: TraceStatus,
+            code: str,
+            fencing_token: int | None,
+            lease_guard: SessionLeaseGuard | None,
+        ) -> bool:
+            return await self._finish_failure(
+                payload,
+                identity=identity,
+                trace_id=trace_id,
+                status=status,
+                code=code,
+                request_fingerprint=request_fingerprint,
+                fencing_token=fencing_token,
+                lease_guard=lease_guard,
+                active_skill_calls=active_skill_calls,
+                skill_audit_events=skill_audit_events,
+            )
+
+        coordinator = ChatTurnCoordinator(
+            conversation=self._conversation,
+            traces=self._traces,
+            lease=self._lease,
+        )
+        return await coordinator.execute(
+            start_request=TraceStartRequest(
                 session_id=payload.session_id,
                 execution_type="agent.chat",
                 attributes={
@@ -202,145 +260,23 @@ class ChatService:
                     "workflow_owner_module": workflow.owner_module,
                 },
             ),
-            request_id,
+            request_id=request_id,
             trace_id=trace_id,
             tenant_id=identity.tenant_id,
             actor_id=identity.actor_id,
+            session_id=payload.session_id,
+            private_input_artifacts=(
+                {"images": [image.trace_record() for image in payload.images]}
+                if payload.images
+                else None
+            ),
+            read_replay=read_replay,
+            emit_replay=emit_replay,
+            run_owned_turn=run_owned_turn,
+            finalize_failure=finalize_failure,
+            error_code=self.error_code,
+            cancellation_requested=cancellation_requested,
         )
-        trace = trace_start.trace
-        if trace.status == TraceStatus.COMPLETED.value:
-            stored = await self._conversation.get_replayed_assistant(
-                tenant_id=identity.tenant_id,
-                trace_id=trace_id,
-                session_id=payload.session_id,
-            )
-            if stored is None:
-                raise ChatReplayUnavailableError("completed chat trace has no stored response")
-            response = self._conversation.to_agent_response(stored)
-            await self._emit_replay(
-                response,
-                trace_id=trace_id,
-                session_id=payload.session_id,
-                callback=callback,
-            )
-            CHAT_TURNS.labels(outcome="replayed").inc()
-            CHAT_TURN_LATENCY.observe(time.monotonic() - started)
-            return response
-        if trace.status != TraceStatus.RUNNING.value:
-            raise ChatReplayUnavailableError("failed or cancelled chat traces cannot be replayed")
-
-        if payload.images:
-            await self._traces.record_private_input_artifacts(
-                identity.tenant_id,
-                trace_id,
-                {"images": [image.trace_record() for image in payload.images]},
-            )
-
-        owns_trace_execution = trace_start.created
-        fencing_token: int | None = None
-        lease_guard: SessionLeaseGuard | None = None
-        failure_handled = False
-        active_skill_calls: dict[str, ActiveSkillCall] = {}
-        skill_audit_events: list[TraceEventCreate] = []
-        try:
-            fencing_token = await self._conversation.next_fencing_token()
-            async with self._lease.acquire(
-                tenant_id=identity.tenant_id,
-                session_id=payload.session_id,
-                fencing_token=fencing_token,
-            ) as acquired_guard:
-                lease_guard = acquired_guard
-                # A retry may safely adopt a previously running Trace only after it
-                # proves that no other replica owns the session lease.
-                owns_trace_execution = True
-                try:
-                    response = await self._process_owned_turn(
-                        payload,
-                        identity=identity,
-                        request_id=request_id,
-                        trace_id=trace_id,
-                        request_fingerprint=request_fingerprint,
-                        lease_guard=lease_guard,
-                        callback=callback,
-                        cancellation_requested=cancellation_requested,
-                        active_skill_calls=active_skill_calls,
-                        skill_audit_events=skill_audit_events,
-                    )
-                except asyncio.CancelledError as cancellation_error:
-                    cancellation_persisted = await self._finish_failure(
-                        payload,
-                        identity=identity,
-                        trace_id=trace_id,
-                        status=TraceStatus.CANCELLED,
-                        code="CHAT_CANCELLED",
-                        request_fingerprint=request_fingerprint,
-                        fencing_token=fencing_token,
-                        lease_guard=lease_guard,
-                        active_skill_calls=active_skill_calls,
-                        skill_audit_events=skill_audit_events,
-                    )
-                    failure_handled = True
-                    if not cancellation_persisted:
-                        raise ChatCancellationFinalizationError(
-                            "cancelled Trace could not be durably finalized"
-                        ) from cancellation_error
-                    raise
-                except Exception as error:
-                    await self._finish_failure(
-                        payload,
-                        identity=identity,
-                        trace_id=trace_id,
-                        status=TraceStatus.FAILED,
-                        code=self.error_code(error),
-                        request_fingerprint=request_fingerprint,
-                        fencing_token=fencing_token,
-                        lease_guard=lease_guard,
-                        active_skill_calls=active_skill_calls,
-                        skill_audit_events=skill_audit_events,
-                    )
-                    failure_handled = True
-                    raise
-                CHAT_TURNS.labels(outcome="completed").inc()
-                CHAT_TURN_LATENCY.observe(time.monotonic() - started)
-                return response
-        except asyncio.CancelledError as cancellation_error:
-            if owns_trace_execution and not failure_handled:
-                cancellation_persisted = await self._finish_failure(
-                    payload,
-                    identity=identity,
-                    trace_id=trace_id,
-                    status=TraceStatus.CANCELLED,
-                    code="CHAT_CANCELLED",
-                    request_fingerprint=request_fingerprint,
-                    fencing_token=fencing_token,
-                    lease_guard=lease_guard,
-                    active_skill_calls=active_skill_calls,
-                    skill_audit_events=skill_audit_events,
-                )
-                if not cancellation_persisted:
-                    raise ChatCancellationFinalizationError(
-                        "cancelled Trace could not be durably finalized"
-                    ) from cancellation_error
-            CHAT_TURNS.labels(outcome="cancelled").inc()
-            CHAT_TURN_LATENCY.observe(time.monotonic() - started)
-            raise
-        except Exception as error:
-            if owns_trace_execution and not failure_handled:
-                await self._finish_failure(
-                    payload,
-                    identity=identity,
-                    trace_id=trace_id,
-                    status=TraceStatus.FAILED,
-                    code=self.error_code(error),
-                    request_fingerprint=request_fingerprint,
-                    fencing_token=fencing_token,
-                    lease_guard=lease_guard,
-                    active_skill_calls=active_skill_calls,
-                    skill_audit_events=skill_audit_events,
-                )
-            CHAT_TURNS.labels(outcome="failed").inc()
-            CHAT_TURN_LATENCY.observe(time.monotonic() - started)
-            raise
 
     async def _process_owned_turn(
         self,

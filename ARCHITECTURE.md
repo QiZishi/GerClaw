@@ -118,6 +118,7 @@ apps/api
 | 模块 | 当前真实能力 | 关键限制 |
 |---|---|---|
 | `agent_harness` | AgentScope ReAct、SSE、模型 failover、取消、医疗安全后处理 | 多智能体临床复核与临床副作用 workflow 未接入 |
+| `orchestration` | Chat Trace 幂等建立/回放、会话租约、取消/失败单一终态与指标协调；以回调保留领域工作在原 feature | 不读取临床内容、不执行模型或工具；临床 checkpoint 恢复、补偿和批准后执行未接入 |
 | `workflows` | Chat workflow 的版本、责任模块、允许上下文和 workflow 风险档案注册 | 不是工作流执行器；临床副作用恢复、补偿与批准后执行未接入 |
 | `runtime` | Capability registry、ALLOW/DENY/ASK、预算、审批与 checkpoint 契约 | 临床恢复 executor 未启用 |
 | `validation` | `public-chat-sse-v1` 的严格 Harness 与浏览器 SSE 事件契约（生产端双重校验）；`local-rag-evidence-v1` 约束 Hybrid RAG 产出、AgentScope adapter、引用与 Eval 的同一 provenance | HTTP、模型、工具、memory、voice 和 export 边界尚未统一迁移 |

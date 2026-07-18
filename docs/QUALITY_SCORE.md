@@ -42,6 +42,6 @@
 |------|---------|---------|------|---------|
 | 安全性 | 4 | 4+ | Runtime Permission、证据安全、红旗短路、SSRF/注入边界、加密存储、PHI-free Trace、风险档案门禁与安全回归已落实 | 完整患者授权、临床规则治理、全出口泄露/红队覆盖仍待补齐 |
 | 可靠性 | 4 | 4+ | 模型/搜索 failover、预算、取消、幂等、租约 fencing、health/readiness、可观察降级均有实现 | 临床 workflow 恢复、跨进程副作用执行与全依赖故障注入待补齐 |
-| 可维护性 | 4 | 4+ | 现有模块契约、AGENTS、README、tests、exec-plan、CI 与严格 Pydantic/Zod 边界均已实际使用；`observability_feedback` 已把 PHI-free Bad Case 聚合从路由逻辑收敛为独立模块 | 需继续收敛分散的 orchestration 与其余 validation 边界 |
+| 可维护性 | 4 | 4+ | 现有模块契约、AGENTS、README、tests、exec-plan、CI 与严格 Pydantic/Zod 边界均已实际使用；`observability_feedback` 收敛 PHI-free Bad Case 聚合，`orchestration` 收敛 Chat 终态协调 | 需继续收敛其余 validation 边界与临床 workflow 恢复 |
 | 可观测性 | 4 | 4+ | Trace、metrics、反馈、Bad Case、管理员 PHI-free 队列、聚合处置指标与合成 eval 均有真实链路 | 缺时间趋势、授权脱敏晋升和完整模型/临床评测闭环 |
 | 整体架构 | 4 | 4+ | FastAPI + AgentScope + PostgreSQL/Redis/Qdrant + Next.js BFF 的分层边界及 Docker 基础编排均已落地 | 空卷 Docker 最终验收、千级容量计划和剩余业务闭环未完成 |
