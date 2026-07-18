@@ -16,13 +16,17 @@ depends_on: str | Sequence[str] | None = None
 
 
 def upgrade() -> None:
-    op.drop_constraint("valid_identity_security_event_type", "identity_security_events", type_="check")
+    op.drop_constraint(
+        "valid_identity_security_event_type", "identity_security_events", type_="check"
+    )
     op.create_check_constraint(
         "valid_identity_security_event_type",
         "identity_security_events",
         "event_type IN ('register','login','refresh','logout','password_change','deactivate','admin_update','bootstrap')",
     )
-    op.drop_constraint("valid_identity_security_event_role", "identity_security_events", type_="check")
+    op.drop_constraint(
+        "valid_identity_security_event_role", "identity_security_events", type_="check"
+    )
     op.create_check_constraint(
         "valid_identity_security_event_role",
         "identity_security_events",
@@ -31,13 +35,17 @@ def upgrade() -> None:
 
 
 def downgrade() -> None:
-    op.drop_constraint("valid_identity_security_event_role", "identity_security_events", type_="check")
+    op.drop_constraint(
+        "valid_identity_security_event_role", "identity_security_events", type_="check"
+    )
     op.create_check_constraint(
         "valid_identity_security_event_role",
         "identity_security_events",
         "role IS NULL OR role IN ('patient','doctor')",
     )
-    op.drop_constraint("valid_identity_security_event_type", "identity_security_events", type_="check")
+    op.drop_constraint(
+        "valid_identity_security_event_type", "identity_security_events", type_="check"
+    )
     op.create_check_constraint(
         "valid_identity_security_event_type",
         "identity_security_events",

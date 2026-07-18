@@ -31,118 +31,48 @@ MVP阶段代码位于 `apps/mvp/`：
 ```
 apps/mvp/
 ├── src/
-│   ├── app/                    # Next.js App Router页面
-│   │   ├── layout.tsx          # 根布局（三栏结构、主题Provider）
-│   │   ├── page.tsx            # 主页面（角色路由分发）
-│   │   ├── (patient)/          # 患者端路由组
-│   │   │   └── page.tsx
-│   │   └── (doctor)/           # 医生端路由组
-│   │       └── page.tsx
-│   ├── components/             # React组件
-│   │   ├── ui/                 # shadcn/ui基础组件（Button/Input/Card/Dialog等）
-│   │   ├── layout/             # 布局组件
-│   │   │   ├── Sidebar.tsx     # 左侧边栏（导航、会话列表）
-│   │   │   ├── ChatArea.tsx    # 中间主聊天区
-│   │   │   └── RightPanel.tsx  # 右侧动态面板
-│   │   ├── chat/               # 对话相关组件
-│   │   │   ├── MessageList.tsx
-│   │   │   ├── MessageBubble.tsx
-│   │   │   ├── ThinkingBlock.tsx
-│   │   │   ├── ToolCallCard.tsx
-│   │   │   └── ChatInput.tsx
-│   │   ├── voice/              # 语音交互组件
-│   │   │   ├── MicButton.tsx
-│   │   │   ├── WaveformVisualizer.tsx
-│   │   │   ├── AudioPlayer.tsx
-│   │   │   └── TTSPlayer.tsx
-│   │   ├── prescription/       # 五大处方组件
-│   │   │   ├── PrescriptionPanel.tsx
-│   │   │   ├── PrescriptionCard.tsx
-│   │   │   └── PrescriptionExport.tsx
-│   │   ├── cga/                # CGA评估组件
-│   │   │   ├── ScaleSelector.tsx
-│   │   │   ├── CGAConversation.tsx
-│   │   │   ├── CGAReport.tsx
-│   │   │   └── DoctorCGAWorkspace.tsx
-│   │   ├── drug-review/        # 用药审查组件
-│   │   │   ├── DrugInput.tsx
-│   │   │   └── DrugReviewResult.tsx
-│   │   ├── search/             # 联网搜索组件（工具可视化，无独立页面）
-│   │   │   ├── SearchResultCard.tsx
-│   │   │   └── CitationPopover.tsx
-│   │   ├── skills/             # 技能管理组件
-│   │   │   ├── SkillSelector.tsx
-│   │   │   ├── SkillManager.tsx
-│   │   │   └── SkillTag.tsx
-│   │   ├── document/           # 文档解析组件（工具可视化，无独立页面）
-│   │   │   ├── FileUpload.tsx
-│   │   │   └── DocumentPreview.tsx
-│   │   ├── theme/              # 主题切换
-│   │   │   └── ThemeToggle.tsx
-│   │   ├── role/               # 角色切换
-│   │   │   └── RoleSwitcher.tsx
-│   │   ├── settings/           # 设置（模型配置、API Key等）
-│   │   │   └── SettingsPanel.tsx
-│   │   └── export/             # 导出功能组件
-│   │       └── ExportDialog.tsx
-│   ├── hooks/                  # 自定义Hooks
-│   │   ├── useChat.ts          # 对话逻辑（封装Vercel AI SDK useChat）
-│   │   ├── useVoice.ts         # 录音/ASR/TTS语音逻辑
-│   │   ├── useModelConfig.ts   # 模型配置管理（环境变量+运行时配置）
-│   │   ├── useSession.ts       # localStorage会话管理
-│   │   ├── useTheme.ts         # 主题切换
-│   │   ├── useRole.ts          # 医生/患者角色状态
-│   │   └── useSeniorMode.ts    # 老年模式状态
-│   ├── services/               # API Client层（统一封装外部API）
-│   │   ├── llm/                # LLM API封装（openai/dashscope/anthropic协议）
-│   │   ├── voice/              # ASR/TTS API封装
-│   │   ├── search/             # AnySearch/Tavily搜索封装
-│   │   ├── document/           # MinerU文档解析封装
-│   │   └── api-client.ts       # 统一API客户端基类（超时/重试/降级/熔断）
-│   ├── lib/                    # 工具函数/常量/配置加载
-│   │   ├── storage.ts          # localStorage封装
-│   │   ├── utils.ts            # 通用工具（cn等）
-│   │   ├── audio.ts            # 音频处理（PCM解码、WAV编码、Web Audio播放）
-│   │   ├── export.ts           # 导出PDF/DOCX/Markdown
-│   │   ├── markdown.ts         # Markdown处理
-│   │   ├── retry.ts            # 重试/熔断/降级逻辑
-│   │   ├── format.ts           # 格式化（日期、文件大小等）
-│   │   ├── security.ts         # 医疗安全工具函数
-│   │   └── constants.ts        # 常量（尺寸、超时时间、默认值）
-│   ├── context/                # React Context（主题/角色/老年模式等UI状态）
-│   │   ├── ThemeProvider.tsx
-│   │   └── AppProvider.tsx
-│   ├── stores/                 # Zustand状态 stores（可序列化状态）
-│   │   ├── appStore.ts         # 应用状态（侧边栏/右侧面板/角色/老年模式）
-│   │   ├── chatStore.ts        # 对话状态（会话/消息）
-│   │   └── sessionStore.ts     # 会话持久化（localStorage中间件）
-│   ├── types/                  # TypeScript类型定义
-│   │   ├── chat.ts             # 消息、会话、模型配置类型
-│   │   ├── api.ts              # API请求/响应类型
-│   │   ├── prescription.ts     # 五大处方类型
-│   │   ├── cga.ts              # CGA量表、评估结果类型
-│   │   ├── drug.ts             # 用药审查类型
-│   │   └── voice.ts            # 音频/语音类型
-│   ├── prompts/                # 系统Prompt模板
-│   │   ├── system-doctor.md    # 老年专科医生系统prompt
-│   │   ├── cga.md              # CGA评估prompt
-│   │   ├── prescription.md     # 五大处方生成prompt
-│   │   └── drug-review.md      # 用药审查prompt
-│   ├── data/                   # 静态数据
-│   │   ├── scales/             # CGA量表题目数据（5个量表JSON）
-│   │   ├── skills/             # 预置技能定义
-│   │   ├── beers-criteria.ts   # Beers标准数据（简化版内置）
-│   │   └── mock/               # Mock数据（仅第一阶段使用，第二阶段删除）
-│   └── styles/                 # 全局样式/Tailwind配置
-├── public/                     # 静态文件
-├── next.config.js              # Next.js配置（静态导出output: 'export'）
-├── tailwind.config.ts          # Tailwind配置（主题色、老年模式字号）
+│   ├── app/                    # 根页面及同源 BFF Route Handlers
+│   │   ├── api/account/        # 登录、注册、账号配置代理
+│   │   ├── api/gerclaw/        # FastAPI REST/SSE 统一代理
+│   │   ├── api/mineru/         # MinerU 限流、审计与解析代理
+│   │   ├── layout.tsx
+│   │   └── page.tsx            # 强制登录入口与患者/医生工作台
+│   ├── components/
+│   │   ├── account/            # 登录、账号及管理员后台
+│   │   ├── layout/             # Sidebar、ChatArea、RightPanel、DoctorHome
+│   │   ├── chat/               # 消息、输入、流式步骤和导出
+│   │   ├── prescription/       # 五大处方信息收集与生成对话
+│   │   ├── cga/                # 患者 CGA 评估
+│   │   ├── consent/            # 医生端患者资料工作区
+│   │   ├── chronic/            # 慢病随访台账
+│   │   ├── health/             # 健康档案
+│   │   ├── risk-alert/         # 风险预警
+│   │   ├── skills/             # Skill 生成、导入与管理
+│   │   ├── editor/             # 单栏实时 Markdown 编辑/渲染
+│   │   ├── document/           # 文档上传、解析和工具状态
+│   │   ├── search/             # 联网与本地证据引用
+│   │   ├── settings/           # 通用设置和账号级模型配置
+│   │   ├── help/               # 按角色分离的帮助教程
+│   │   └── ui/                 # 实际使用的基础组件
+│   ├── context/                # 应用初始化和主题 Provider
+│   ├── hooks/                  # 录音、播放、reduced-motion Hooks
+│   ├── services/
+│   │   ├── gerclaw/            # 后端功能域 API Client 与 Zod Schema
+│   │   ├── voice/              # ASR/TTS 与音频转换
+│   │   ├── document/           # MinerU 客户端
+│   │   └── model-configuration.ts
+│   ├── server/                 # 仅服务端身份、BFF 与 MinerU 契约
+│   ├── stores/                 # app/chat/skill Zustand 状态
+│   ├── lib/                    # 存储、导出、格式化与通用工具
+│   └── types/                  # API、对话、用药、语音类型
+├── public/                     # Logo、图标和量表预录音频
+├── next.config.ts              # Next.js 安全头、代理与构建配置
 ├── tsconfig.json               # TypeScript配置
 ├── package.json                # 依赖和脚本
-└── .env.example                # 环境变量模板
+└── Dockerfile                  # 非 root 生产镜像
 ```
 
-当前可运行的 Web 前端以 `apps/mvp/` 为唯一实现入口，并通过同源 BFF 整合 `apps/api/`；`apps/web/` 仍为空的二阶段预留目录，未承载任何产品功能，禁止复制一套模拟页面到其中。
+Web 前端以 `apps/mvp/` 为唯一实现入口，并通过同源 BFF 整合 `apps/api/`。已移除从未承载产品功能的空 `apps/web/` 预留目录，禁止再复制一套模拟页面。
 
 ## 3. 组件规范
 
@@ -240,8 +170,8 @@ apps/mvp/
 ## 7. 测试规范
 
 - 单元测试：utils/（音频处理、重试逻辑、格式化、导出功能）
-- 组件测试：关键交互组件（ChatInput、MicButton、MessageBubble、RoleSwitcher）使用React Testing Library
-- Hook测试：useChat/useVoice/useModelConfig核心逻辑
+- 组件与契约测试：覆盖 ChatInput、消息流、处方报告、账号会话、反馈和语音协调等关键交互
+- Hook测试：覆盖录音、播放和 reduced-motion 的核心状态转换
 - E2E测试：核心用户旅程（发送文本消息→AI回复→播放TTS→导出PDF）使用Playwright
 - 测试文件命名：`[name].test.ts(x)` 与源文件同目录
 - 每个测试覆盖主路径（成功）+至少1条错误路径（失败/超时/降级）

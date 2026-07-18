@@ -6,7 +6,7 @@
 
 ## 1. 设计目标
 
-基于Next.js 15 + Tailwind CSS 4 + shadcn/ui构建纯前端静态导出的UI布局框架与视觉设计系统，满足以下设计目标：
+基于 Next.js 16 + Tailwind CSS 4 + shadcn/ui 构建连接 FastAPI 的动态 Web 工作台与视觉设计系统，满足以下设计目标：
 
 1. **Trae Work级布局体验**：实现三栏可折叠布局（左侧边栏270px↔64px、中间弹性聊天区、右侧动态面板380px可拖拽320-500px），对齐Trae Work的交互逻辑和视觉体验
 2. **CSS变量主题系统**：基于Tailwind CSS 4的`@theme`指令定义设计Token（颜色、字体、间距、圆角、阴影），通过CSS变量实现深浅双主题无闪烁切换，支持`prefers-color-scheme`系统主题跟随
@@ -19,8 +19,8 @@
 约束：
 - 严格遵循gerclaw设计要求.md第3节界面设计规范、第13节UI/UX视觉设计系统
 - 对齐Trae Work交互体验（三栏布局、面板展开/收起、折叠侧边栏Tooltip）
-- MVP纯前端实现，无后端依赖，所有状态本地持久化
-- 二阶段迁移时布局框架无需重构，仅需接入后端用户偏好存储
+- 前端通过同源 BFF 调用 FastAPI；医疗事实、账号数据和会话记录均以服务端为准
+- localStorage 仅保存无敏感信息的界面偏好；游客历史不能跨浏览器会话恢复
 
 ## 2. 架构设计
 
@@ -36,21 +36,14 @@
 
 | 组件 | 职责 | 文件位置（预期） |
 |------|------|----------------|
-| **ThemeProvider** | 主题Context，管理light/dark/system模式，解析实际生效主题，注入CSS变量类名到html根元素，监听系统主题变化 | `components/layout/theme-provider.tsx` |
-| **LayoutProvider** | 布局全局Context，管理侧边栏折叠状态、右侧面板开关/内容/宽度、当前断点、用户角色、老年模式开关，提供useLayout hook | `components/layout/layout-context.tsx` |
-| **AppLayout** | 根布局容器组件，组合Sidebar+ChatArea+RightPanel，处理响应式className切换 | `components/layout/app-layout.tsx` |
-| **Sidebar** | 左侧边栏容器：处理展开/折叠宽度动画、折叠状态Tooltip、响应式抽屉模式 | `components/layout/sidebar.tsx` |
-| **SidebarHeader** | 侧边栏顶部：Logo区域、折叠/汉堡按钮、新建对话按钮、搜索框 | `components/layout/sidebar-header.tsx` |
-| **SidebarNav** | 侧边栏导航/会话列表：历史会话分组（今天/昨天/最近7天/更早）、会话项、技能管理入口 | `components/layout/sidebar-nav.tsx` |
-| **SidebarFooter** | 侧边栏底部：用户头像、角色切换（仅访客）、老年模式开关（仅患者）、主题切换按钮 | `components/layout/sidebar-footer.tsx` |
-| **SidebarToggle** | 侧边栏折叠/展开按钮：桌面端≡图标，手机端汉堡菜单 | `components/layout/sidebar-toggle.tsx` |
-| **ThemeToggle** | 主题切换按钮：太阳/月亮图标，点击切换light/dark，长按/右键可选择system | `components/layout/theme-toggle.tsx` |
-| **ElderlyModeToggle** | 老年模式开关：仅患者端显示，切换大字体/大按钮/高对比度 | `components/layout/elderly-mode-toggle.tsx` |
-| **RoleSwitch** | 医生/患者模式切换：访客模式可用，切换后刷新页面 | `components/layout/role-switch.tsx` |
-| **ChatArea** | 中间主聊天区容器：弹性宽度，承载欢迎页/消息列表/输入框，两侧面板变化时平滑过渡 | `components/layout/chat-area.tsx` |
-| **RightPanel** | 右侧动态面板容器：展开/滑入动画、拖拽手柄、关闭按钮、内容滚动区 | `components/layout/right-panel.tsx` |
-| **RightPanelResizeHandle** | 右侧面板拖拽手柄：鼠标按下开始拖拽，mousemove更新宽度，mouseup结束，限制320-500px范围 | `components/layout/right-panel-resize-handle.tsx` |
-| **PanelContentRenderer** | 右侧面板内容分发器：根据`rightPanelContentType`渲染对应模块内容（技能/处方/CGA/文件/引用） | `components/layout/panel-content-renderer.tsx` |
+| **ThemeProvider** | 管理 light/dark/system 模式；主题入口位于设置面板，不设置重复的浮动按钮 | `context/ThemeProvider.tsx` |
+| **AppProvider** | 根据账号身份初始化患者、医生或管理员工作台，并协调游客会话生命周期 | `context/AppProvider.tsx` |
+| **Sidebar** | 左侧导航与账号历史；患者窄屏通过“菜单”抽屉展开，游客不显示可恢复历史 | `components/layout/Sidebar.tsx` |
+| **ChatArea** | 患者聊天、欢迎页、CGA、五大处方及实时文档编辑主区域 | `components/layout/ChatArea.tsx` |
+| **DoctorHome** | 站在医生服务视角组织患者资料、CGA、处方审核、用药审查和风险台账 | `components/layout/DoctorHome.tsx` |
+| **RightPanel** | 引用、设置、帮助等辅助内容；窄屏全屏覆盖，宽屏可调宽 | `components/layout/RightPanel.tsx` |
+| **SettingsPanel** | 主题、适老化、朗读和模型配置入口 | `components/settings/SettingsPanel.tsx` |
+| **LoginPage** | 强制入口；允许无账号进入患者端，账号角色限制工作台，管理员可切换角色 | `components/account/LoginPage.tsx` |
 | **TooltipProvider** | Tooltip全局Provider：基于shadcn/ui Tooltip，延迟300ms显示，折叠侧边栏图标必须有Tooltip | `components/ui/tooltip.tsx`（shadcn） |
 | **useViewport** | 自定义Hook：监听window resize，防抖150ms，返回当前viewportWidth和breakpoint | `hooks/use-viewport.ts` |
 | **useLocalStorage** | 自定义Hook：localStorage读写封装，异常降级为内存状态，支持默认值 | `hooks/use-local-storage.ts` |
@@ -353,7 +346,7 @@ idle ──mousedown on resize handle──→ dragging
   - 开发模式下无效props（如rightPanelWidth超出范围）控制台warn提示
 
 - **告警**：
-  - MVP纯前端无服务端告警
+  - 服务端异常进入结构化日志与 Trace/bad-case 闭环；前端不记录医疗正文或密钥
   - 关键布局错误（如ErrorBoundary捕获面板崩溃）显示用户可见的错误提示卡片，提供重试按钮
 
 ## 9. 技术选型说明

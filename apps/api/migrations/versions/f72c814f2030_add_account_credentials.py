@@ -29,12 +29,24 @@ def upgrade() -> None:
         sa.Column("username", EncryptedText(), nullable=False),
         sa.Column("password_hash", sa.String(length=512), nullable=False),
         sa.Column("password_version", sa.Integer(), nullable=False),
-        sa.Column("created_at", sa.DateTime(timezone=True), server_default=sa.text("now()"), nullable=False),
-        sa.Column("updated_at", sa.DateTime(timezone=True), server_default=sa.text("now()"), nullable=False),
+        sa.Column(
+            "created_at",
+            sa.DateTime(timezone=True),
+            server_default=sa.text("now()"),
+            nullable=False,
+        ),
+        sa.Column(
+            "updated_at",
+            sa.DateTime(timezone=True),
+            server_default=sa.text("now()"),
+            nullable=False,
+        ),
         sa.CheckConstraint("password_version > 0", name="positive_password_version"),
         sa.ForeignKeyConstraint(["user_id"], ["users.id"], ondelete="CASCADE"),
         sa.PrimaryKeyConstraint("id"),
-        sa.UniqueConstraint("tenant_id", "username_fingerprint", name="uq_account_credentials_name"),
+        sa.UniqueConstraint(
+            "tenant_id", "username_fingerprint", name="uq_account_credentials_name"
+        ),
         sa.UniqueConstraint("tenant_id", "user_id", name="uq_account_credentials_user"),
     )
     op.create_index("ix_account_credentials_tenant_id", "account_credentials", ["tenant_id"])
@@ -49,14 +61,26 @@ def upgrade() -> None:
         sa.Column("expires_at", sa.DateTime(timezone=True), nullable=False),
         sa.Column("revoked_at", sa.DateTime(timezone=True), nullable=True),
         sa.Column("replaced_by_id", postgresql.UUID(as_uuid=True), nullable=True),
-        sa.Column("created_at", sa.DateTime(timezone=True), server_default=sa.text("now()"), nullable=False),
-        sa.Column("updated_at", sa.DateTime(timezone=True), server_default=sa.text("now()"), nullable=False),
+        sa.Column(
+            "created_at",
+            sa.DateTime(timezone=True),
+            server_default=sa.text("now()"),
+            nullable=False,
+        ),
+        sa.Column(
+            "updated_at",
+            sa.DateTime(timezone=True),
+            server_default=sa.text("now()"),
+            nullable=False,
+        ),
         sa.CheckConstraint("token_version > 0", name="positive_token_version"),
         sa.ForeignKeyConstraint(["user_id"], ["users.id"], ondelete="CASCADE"),
         sa.PrimaryKeyConstraint("id"),
         sa.UniqueConstraint("token_fingerprint", name="uq_account_refresh_sessions_token"),
     )
-    op.create_index("ix_account_refresh_sessions_tenant_id", "account_refresh_sessions", ["tenant_id"])
+    op.create_index(
+        "ix_account_refresh_sessions_tenant_id", "account_refresh_sessions", ["tenant_id"]
+    )
     op.create_index("ix_account_refresh_sessions_user_id", "account_refresh_sessions", ["user_id"])
 
 

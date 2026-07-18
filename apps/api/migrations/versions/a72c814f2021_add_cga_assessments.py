@@ -30,10 +30,22 @@ def upgrade() -> None:
         sa.Column("revision", sa.Integer(), nullable=False, server_default="1"),
         sa.Column("answers", sa.Text(), nullable=False),
         sa.Column("report", sa.Text(), nullable=True),
-        sa.Column("created_at", sa.DateTime(timezone=True), nullable=False, server_default=sa.text("now()")),
-        sa.Column("updated_at", sa.DateTime(timezone=True), nullable=False, server_default=sa.text("now()")),
+        sa.Column(
+            "created_at",
+            sa.DateTime(timezone=True),
+            nullable=False,
+            server_default=sa.text("now()"),
+        ),
+        sa.Column(
+            "updated_at",
+            sa.DateTime(timezone=True),
+            nullable=False,
+            server_default=sa.text("now()"),
+        ),
         sa.CheckConstraint("status IN ('active','completed','abandoned')", name="valid_status"),
-        sa.CheckConstraint("current_position >= 1 AND current_position <= 9", name="valid_position"),
+        sa.CheckConstraint(
+            "current_position >= 1 AND current_position <= 9", name="valid_position"
+        ),
         sa.CheckConstraint("revision > 0", name="positive_revision"),
         sa.PrimaryKeyConstraint("id"),
     )

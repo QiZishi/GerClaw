@@ -7,12 +7,10 @@
 import { create } from "zustand";
 import type { Message, Session, SimpleStepData } from "@/types";
 import { toast } from "@/components/ui/toast";
-import type { FrontendModelId } from "@/config/models";
 
 const STORAGE_KEYS = {
   sessions: "gerclaw_sessions",
   messages: "gerclaw_messages",
-  selectedModel: "gerclaw_selected_model",
 } as const;
 
 const MAX_MESSAGES_PER_SESSION = 50;
@@ -126,10 +124,6 @@ interface ChatState {
   isGenerating: boolean;
   setGenerating: (generating: boolean) => void;
 
-  // === 模型选择 ===
-  selectedModelId: FrontendModelId;
-  setSelectedModelId: (id: FrontendModelId) => void;
-
   // === 便捷方法 ===
   createSession: (role?: Session["role"]) => string;
   clearAllData: () => void;
@@ -137,7 +131,6 @@ interface ChatState {
 
 const initialSessions = loadFromStorage<Session[]>(STORAGE_KEYS.sessions, []);
 const initialMessages = loadFromStorage<Record<string, Message[]>>(STORAGE_KEYS.messages, {});
-const initialSelectedModel = loadFromStorage<FrontendModelId>(STORAGE_KEYS.selectedModel, "auto");
 
 export const useChatStore = create<ChatState>()((set, get) => ({
   // === 会话列表 ===
@@ -602,13 +595,6 @@ export const useChatStore = create<ChatState>()((set, get) => ({
   isGenerating: false,
   setGenerating: (isGenerating) => set({ isGenerating }),
 
-  // === 模型选择 ===
-  selectedModelId: initialSelectedModel,
-  setSelectedModelId: (id) => {
-    set({ selectedModelId: id });
-    saveToStorage(STORAGE_KEYS.selectedModel, id);
-  },
-
   // === 便捷方法 ===
   createSession: (role = "patient") => {
     const id = crypto.randomUUID();
@@ -640,11 +626,10 @@ export const useChatStore = create<ChatState>()((set, get) => ({
       try {
         window.localStorage.removeItem(STORAGE_KEYS.sessions);
         window.localStorage.removeItem(STORAGE_KEYS.messages);
-        window.localStorage.removeItem(STORAGE_KEYS.selectedModel);
       } catch {
         // ignore
       }
     }
-    set({ sessions: [], messagesBySession: {}, selectedModelId: "auto" });
+    set({ sessions: [], messagesBySession: {} });
   },
 }));

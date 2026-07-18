@@ -8,9 +8,8 @@ Create Date: 2026-07-17
 from collections.abc import Sequence
 
 import sqlalchemy as sa
-from sqlalchemy.dialects import postgresql
-
 from alembic import op
+from sqlalchemy.dialects import postgresql
 
 revision: str = "b93c814f2032"
 down_revision: str | Sequence[str] | None = "f82c814f2031"
@@ -29,7 +28,12 @@ def upgrade() -> None:
         sa.Column("policy_version", sa.String(length=32), nullable=False),
         sa.Column("findings", postgresql.JSONB(astext_type=sa.Text()), nullable=False),
         sa.Column("outcome", sa.String(length=16), nullable=False),
-        sa.Column("created_at", sa.DateTime(timezone=True), server_default=sa.text("now()"), nullable=False),
+        sa.Column(
+            "created_at",
+            sa.DateTime(timezone=True),
+            server_default=sa.text("now()"),
+            nullable=False,
+        ),
         sa.CheckConstraint(
             "purpose IN ('external_search_query','external_tts')",
             name="valid_provider_egress_purpose",

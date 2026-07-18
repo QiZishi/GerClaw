@@ -8,7 +8,18 @@ from pathlib import Path
 
 import pytest
 
-ROOT = Path(__file__).resolve().parents[3]
+ROOT = next(
+    (
+        parent
+        for parent in Path(__file__).resolve().parents
+        if (parent / ".env.example").is_file() and (parent / "apps/mvp").is_dir()
+    ),
+    None,
+)
+pytestmark = pytest.mark.skipif(
+    ROOT is None,
+    reason="repository-level configuration is not included in the isolated API test image",
+)
 MODEL_KEYS = {
     "AGENT_PRIMARY_MODEL",
     "AGENT_BACKUP1_MODEL",
@@ -21,6 +32,7 @@ MODEL_KEYS = {
 
 
 def _example_model_ids() -> set[str]:
+    assert ROOT is not None
     values: set[str] = set()
     for raw_line in (ROOT / ".env.example").read_text(encoding="utf-8").splitlines():
         line = raw_line.strip()
@@ -33,6 +45,7 @@ def _example_model_ids() -> set[str]:
 
 
 def test_provider_model_ids_are_not_hard_coded_in_production_sources() -> None:
+    assert ROOT is not None
     source_roots = (
         ROOT / "apps/api/src",
         ROOT / "apps/mvp/src",
@@ -52,6 +65,7 @@ def test_provider_model_ids_are_not_hard_coded_in_production_sources() -> None:
 
 
 def test_cga_audio_generator_requires_environment_model_and_voice() -> None:
+    assert ROOT is not None
     script = ROOT / "apps/mvp/scripts/generate_cga_audio_assets.py"
     spec = importlib.util.spec_from_file_location("generate_cga_audio_assets_contract", script)
     assert spec is not None and spec.loader is not None

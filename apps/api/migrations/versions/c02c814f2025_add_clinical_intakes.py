@@ -8,8 +8,8 @@ Create Date: 2026-07-16
 from collections.abc import Sequence
 
 import sqlalchemy as sa
-
 from alembic import op
+
 from gerclaw_api.encryption import EncryptedJSON
 
 revision: str = "c02c814f2025"
@@ -30,9 +30,21 @@ def upgrade() -> None:
         sa.Column("status", sa.String(length=64), nullable=False),
         sa.Column("revision", sa.Integer(), nullable=False),
         sa.Column("answers", EncryptedJSON(), nullable=False),
-        sa.Column("created_at", sa.DateTime(timezone=True), server_default=sa.text("now()"), nullable=False),
-        sa.Column("updated_at", sa.DateTime(timezone=True), server_default=sa.text("now()"), nullable=False),
-        sa.CheckConstraint("kind IN ('prescription','medication_review')", name="valid_clinical_intake_kind"),
+        sa.Column(
+            "created_at",
+            sa.DateTime(timezone=True),
+            server_default=sa.text("now()"),
+            nullable=False,
+        ),
+        sa.Column(
+            "updated_at",
+            sa.DateTime(timezone=True),
+            server_default=sa.text("now()"),
+            nullable=False,
+        ),
+        sa.CheckConstraint(
+            "kind IN ('prescription','medication_review')", name="valid_clinical_intake_kind"
+        ),
         sa.CheckConstraint(
             "status IN ('collecting','information_complete_pending_governance')",
             name="valid_clinical_intake_status",

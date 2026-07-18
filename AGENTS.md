@@ -8,7 +8,7 @@
 
 **读取顺序**（必读→按需）：
 1. **⚠️ 最高权威** `docs/references/gerclaw设计要求.md` — 产品设计的根本依据，所有设计和实现必须符合此文件要求，与其他文档冲突时以此为准
-2. `docs/长期规划.md` — 当前进度、已完成、风险点
+2. `docs/PLANS.md` — 当前阶段、活跃计划与后续顺序
 3. `docs/exec-plans/active/` — 当前活跃执行计划（找编号最小的未完成任务）
 4. `ARCHITECTURE.md` — 系统架构和分层约束
 5. `docs/PRODUCT_SENSE.md` — 产品直觉和好坏判断
@@ -42,7 +42,7 @@
 5. git commit（使用conventional commits）
 6. 提交变更汇报给审阅者
 7. 审阅者独立审查+测试+判定
-8. 若审阅通过：审阅者回写长期规划，任务移入completed
+8. 若审阅通过：审阅者回写 `docs/PLANS.md`，任务移入 completed
 9. 若不通过：修复后回到步骤3
 ```
 

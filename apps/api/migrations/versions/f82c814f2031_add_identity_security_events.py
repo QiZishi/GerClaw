@@ -27,7 +27,12 @@ def upgrade() -> None:
         sa.Column("event_type", sa.String(length=32), nullable=False),
         sa.Column("outcome", sa.String(length=16), nullable=False),
         sa.Column("role", sa.String(length=16), nullable=True),
-        sa.Column("created_at", sa.DateTime(timezone=True), server_default=sa.text("now()"), nullable=False),
+        sa.Column(
+            "created_at",
+            sa.DateTime(timezone=True),
+            server_default=sa.text("now()"),
+            nullable=False,
+        ),
         sa.CheckConstraint(
             "event_type IN ('register','login','refresh','logout','password_change')",
             name="valid_identity_security_event_type",
@@ -42,7 +47,9 @@ def upgrade() -> None:
         ),
         sa.PrimaryKeyConstraint("id"),
     )
-    op.create_index("ix_identity_security_events_tenant_id", "identity_security_events", ["tenant_id"])
+    op.create_index(
+        "ix_identity_security_events_tenant_id", "identity_security_events", ["tenant_id"]
+    )
     op.create_index(
         "ix_identity_security_events_tenant_subject_created",
         "identity_security_events",

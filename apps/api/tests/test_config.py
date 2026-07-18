@@ -4,9 +4,24 @@ from pathlib import Path
 
 import pytest
 from pydantic import ValidationError
+from pydantic_settings import BaseSettings, PydanticBaseSettingsSource
 
 from gerclaw_api.config import Settings
 from gerclaw_api.modules.rag.runtime import create_rag_runtime
+
+
+class _IsolatedSettings(Settings):
+    @classmethod
+    def settings_customise_sources(
+        cls,
+        settings_cls: type[BaseSettings],
+        init_settings: PydanticBaseSettingsSource,
+        env_settings: PydanticBaseSettingsSource,
+        dotenv_settings: PydanticBaseSettingsSource,
+        file_secret_settings: PydanticBaseSettingsSource,
+    ) -> tuple[PydanticBaseSettingsSource, ...]:
+        del cls, settings_cls, env_settings, dotenv_settings, file_secret_settings
+        return (init_settings,)
 
 
 def _values() -> dict[str, object]:
@@ -76,9 +91,9 @@ def _values() -> dict[str, object]:
 
 
 def _settings(values: dict[str, object]) -> Settings:
-    """Validate one isolated payload without allowing the root env to fill omissions."""
+    """Validate one isolated payload without allowing process env to fill omissions."""
 
-    return Settings(_env_file=None, **values)  # type: ignore[arg-type]
+    return _IsolatedSettings(**values)  # type: ignore[arg-type]
 
 
 def test_production_settings_accept_explicit_safe_endpoints() -> None:

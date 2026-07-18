@@ -8,8 +8,8 @@ Create Date: 2026-07-18
 from collections.abc import Sequence
 
 import sqlalchemy as sa
-
 from alembic import op
+
 from gerclaw_api.encryption import EncryptedText
 
 revision: str = "b51c814f2046"

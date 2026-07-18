@@ -7,6 +7,7 @@ x-api-base: &api-base
     target: production
     args:
       PYTHON_IMAGE: ${PYTHON_IMAGE}
+      PYTHON_PACKAGE_INDEX: ${PYTHON_PACKAGE_INDEX:-https://pypi.tuna.tsinghua.edu.cn/simple}
   env_file:
     - path: ./.env
       required: false
@@ -94,6 +95,7 @@ services:
       target: test
       args:
         PYTHON_IMAGE: ${PYTHON_IMAGE}
+        PYTHON_PACKAGE_INDEX: ${PYTHON_PACKAGE_INDEX:-https://pypi.tuna.tsinghua.edu.cn/simple}
     depends_on:
       test-db-init:
         condition: service_completed_successfully

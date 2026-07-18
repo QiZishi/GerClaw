@@ -11,8 +11,7 @@ export function formatDateTime(timestamp: number): string {
   )}:${pad(d.getMinutes())}`;
 }
 
-/** 格式化日期：YYYY-MM-DD */
-export function formatDate(timestamp: number): string {
+function formatDate(timestamp: number): string {
   const d = new Date(timestamp);
   const pad = (n: number) => String(n).padStart(2, "0");
   return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
@@ -59,12 +58,6 @@ export function formatFileSize(bytes: number): string {
 export function formatDuration(ms: number): string {
   if (ms < 1000) return `${ms}ms`;
   return `${(ms / 1000).toFixed(1)}s`;
-}
-
-/** 截断文本 */
-export function truncate(text: string, maxLen: number): string {
-  if (text.length <= maxLen) return text;
-  return text.slice(0, maxLen) + "…";
 }
 
 /** 生成唯一 ID */

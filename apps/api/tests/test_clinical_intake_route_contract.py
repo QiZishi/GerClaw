@@ -3,6 +3,7 @@
 import asyncio
 import uuid
 from datetime import UTC, datetime
+from time import monotonic
 from types import SimpleNamespace
 
 import pytest
@@ -202,7 +203,7 @@ async def test_prescription_failure_trace_keeps_slot_only_attempts() -> None:
         traces=traces,  # type: ignore[arg-type]
         tenant_id="tenant",
         trace_id="trace_" + "a" * 32,
-        started_at=0.0,
+        started_at=monotonic() - 90_000,
         attempts=[
             ModelAttempt(
                 "primary",
@@ -256,7 +257,7 @@ async def test_prescription_cancellation_finishes_without_private_input() -> Non
         traces=traces,  # type: ignore[arg-type]
         tenant_id="tenant",
         trace_id="trace_" + "a" * 32,
-        started_at=0.0,
+        started_at=monotonic() - 90_000,
     )
 
     assert len(traces.events) == 1

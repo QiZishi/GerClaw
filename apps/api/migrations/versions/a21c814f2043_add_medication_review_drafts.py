@@ -8,8 +8,8 @@ Create Date: 2026-07-18
 from collections.abc import Sequence
 
 import sqlalchemy as sa
-
 from alembic import op
+
 from gerclaw_api.encryption import EncryptedJSON
 
 revision: str = "a21c814f2043"
@@ -30,14 +30,26 @@ def upgrade() -> None:
         sa.Column("ruleset_version", sa.String(length=64), nullable=False),
         sa.Column("status", sa.String(length=32), nullable=False),
         sa.Column("content", EncryptedJSON(), nullable=False),
-        sa.Column("created_at", sa.DateTime(timezone=True), server_default=sa.text("now()"), nullable=False),
-        sa.Column("updated_at", sa.DateTime(timezone=True), server_default=sa.text("now()"), nullable=False),
+        sa.Column(
+            "created_at",
+            sa.DateTime(timezone=True),
+            server_default=sa.text("now()"),
+            nullable=False,
+        ),
+        sa.Column(
+            "updated_at",
+            sa.DateTime(timezone=True),
+            server_default=sa.text("now()"),
+            nullable=False,
+        ),
         sa.CheckConstraint(
             "status IN ('needs_clinician_review')",
             name="valid_medication_review_draft_status",
         ),
         sa.ForeignKeyConstraint(["session_id"], ["sessions.id"], ondelete="CASCADE"),
-        sa.ForeignKeyConstraint(["clinical_intake_id"], ["clinical_intakes.id"], ondelete="CASCADE"),
+        sa.ForeignKeyConstraint(
+            ["clinical_intake_id"], ["clinical_intakes.id"], ondelete="CASCADE"
+        ),
         sa.PrimaryKeyConstraint("id"),
     )
     op.create_index(

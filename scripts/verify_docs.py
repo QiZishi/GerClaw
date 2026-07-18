@@ -111,15 +111,6 @@ REQUIRED_FILES = {
             "## 已完成生产里程碑",
         ],
     },
-    "docs/长期规划.md": {
-        "min_lines": 20,
-        "required_sections": [
-            "## 一、项目长期目标",
-            "## 二、产品原则",
-            "## 三、模块交付追踪日志",
-            "## 四、进度总览表",
-        ],
-    },
     "docs/design-docs/index.md": {
         "min_lines": 5,
         "required_sections": ["## 模块设计文档"],
@@ -234,7 +225,6 @@ def check_required_dirs(workspace: Path) -> list:
         "docs/exec-plans/active",
         "docs/exec-plans/completed",
         "docs/references",
-        "docs/generated",
         "scripts",
     ]
     missing = []

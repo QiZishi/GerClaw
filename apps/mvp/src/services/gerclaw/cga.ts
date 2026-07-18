@@ -34,10 +34,6 @@ export async function startCgaAssessment(scaleId: CgaScaleId): Promise<CgaAssess
   });
 }
 
-export async function startPhq9Assessment(): Promise<CgaAssessment> {
-  return startCgaAssessment("phq9");
-}
-
 export async function getCgaAssessment(assessmentId: string): Promise<CgaAssessment> {
   const parsedId = assessmentIdSchema.parse(assessmentId);
   return gerclawRequest(`cga/assessments/${encodeURIComponent(parsedId)}`, cgaAssessmentSchema);

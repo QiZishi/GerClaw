@@ -8,9 +8,8 @@ Create Date: 2026-07-16
 from collections.abc import Sequence
 
 import sqlalchemy as sa
-from sqlalchemy.dialects import postgresql
-
 from alembic import op
+from sqlalchemy.dialects import postgresql
 
 revision: str = "a82c814f2022"
 down_revision: str | None = "a72c814f2021"
@@ -36,8 +35,18 @@ def upgrade() -> None:
         sa.Column("status", sa.String(length=16), nullable=False, server_default="active"),
         sa.Column("content", sa.Text(), nullable=False),
         sa.Column("content_characters", sa.Integer(), nullable=False),
-        sa.Column("created_at", sa.DateTime(timezone=True), nullable=False, server_default=sa.text("now()")),
-        sa.Column("updated_at", sa.DateTime(timezone=True), nullable=False, server_default=sa.text("now()")),
+        sa.Column(
+            "created_at",
+            sa.DateTime(timezone=True),
+            nullable=False,
+            server_default=sa.text("now()"),
+        ),
+        sa.Column(
+            "updated_at",
+            sa.DateTime(timezone=True),
+            nullable=False,
+            server_default=sa.text("now()"),
+        ),
         sa.CheckConstraint("status IN ('active','revoked')", name="valid_status"),
         sa.CheckConstraint("content_characters > 0", name="positive_content_characters"),
         sa.PrimaryKeyConstraint("id"),

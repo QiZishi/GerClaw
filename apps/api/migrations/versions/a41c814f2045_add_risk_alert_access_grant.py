@@ -9,7 +9,9 @@ depends_on = None
 
 
 def upgrade() -> None:
-    op.drop_constraint("valid_patient_access_grant_resource_scope", "patient_access_grants", type_="check")
+    op.drop_constraint(
+        "valid_patient_access_grant_resource_scope", "patient_access_grants", type_="check"
+    )
     op.create_check_constraint(
         "valid_patient_access_grant_resource_scope",
         "patient_access_grants",
@@ -18,7 +20,9 @@ def upgrade() -> None:
 
 
 def downgrade() -> None:
-    op.drop_constraint("valid_patient_access_grant_resource_scope", "patient_access_grants", type_="check")
+    op.drop_constraint(
+        "valid_patient_access_grant_resource_scope", "patient_access_grants", type_="check"
+    )
     op.create_check_constraint(
         "valid_patient_access_grant_resource_scope",
         "patient_access_grants",

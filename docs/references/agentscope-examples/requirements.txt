@@ -1,0 +1,39 @@
+# AgentScope GerClaw 示例依赖
+# 安装: pip install -r requirements.txt
+# 注意: AgentScope需单独安装, 见下方说明
+
+# ===== 核心依赖（必须） =====
+agentscope>=2.0.3
+dashscope>=1.20.0
+
+# ===== RAG相关（05_rag模块需要） =====
+# qdrant-client>=1.7.0       # 向量数据库，MVP阶段可用InMemoryStore替代
+# sentence-transformers      # 本地Embedding（推荐用DashScope Embedding替代）
+
+# ===== REST API相关（08_deployment/12_rest_api模块需要） =====
+fastapi>=0.104.0
+uvicorn[standard]>=0.24.0
+httpx>=0.25.0
+# sse-starlette>=1.8.0      # SSE流式（AgentScope内部已集成）
+
+# ===== 记忆相关（01_medical_memory模块需要） =====
+# mem0ai>=0.1.0             # Mem0长期记忆（可选，有mock模式）
+
+# ===== 持久化相关（14_health_profile模块需要） =====
+redis>=5.0.0
+# fakeredis>=2.20.0         # Redis mock（测试用）
+
+# ===== MCP相关（17_mcp_tools模块需要） =====
+# mcp>=1.0.0                # MCP协议SDK
+
+# ===== 语音相关（11_voice模块需要） =====
+# soundfile>=0.12.0
+# numpy>=1.24.0
+# pyaudio                   # 麦克风输入（可选）
+
+# ===== 搜索相关（04_web_search模块需要） =====
+# tavily-python>=0.3.0      # Tavily搜索（或自定义搜索Tool）
+
+# ===== 开发工具（可选） =====
+# pytest>=7.4.0
+# pytest-asyncio>=0.21.0

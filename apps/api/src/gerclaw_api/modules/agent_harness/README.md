@@ -26,7 +26,7 @@
 `agent_start → thinking → tool_call/tool_result（按需）→ text_delta → done`
 
 - `thinking` 只是“正在检索/正在整理”等安全状态，由内部 `reasoning_summary` 投影；绝不发送 `ThinkingBlock` 或原始 Chain-of-Thought。
-- `done.references` 是后端验证过的本地知识库 citation；`done` 只在消息和 Trace 已提交后出现。
+- `done.references` 是后端验证过的本地知识库、联网检索和上传资料 citation；`done` 只在消息和 Trace 已提交后出现。
 - 错误统一为 `event: error` 的稳定 `CHAT_*` code，不返回 provider 响应正文、URL、模型真实名称或凭据。
 - 队列有界并提供 heartbeat；客户端断开会取消 turn，并将本请求拥有的 Trace 标记为 cancelled。
 

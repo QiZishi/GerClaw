@@ -713,7 +713,7 @@ async def test_web_search_tool_projects_structured_results_and_web_citation(
     assert context.tool_names[-1] == "web_search"
     events: list[StreamEvent] = []
     response = await harness.process_message(
-        "请搜索最新健康老龄化指南",
+        "请调用 web_search 搜索 WHO healthy ageing，只列出一个联网来源 [W1]。",
         "108815d7-05bf-4c2a-a977-cd034f390fab",
         context,
         events.append,
@@ -728,7 +728,8 @@ async def test_web_search_tool_projects_structured_results_and_web_citation(
     results = cast(list[dict[str, Any]], result_event.data["results"])
     assert results[0]["authority_level"] == "S"
     assert results[0]["provider"] == "anysearch"
-    assert {item.corpus for item in response.citations} == {"local_knowledge_base", "web"}
+    assert response.medical_content is False
+    assert {item.corpus for item in response.citations} == {"web"}
     assert any(item.source_id == "web_1234567890abcdef" for item in response.citations)
 
 

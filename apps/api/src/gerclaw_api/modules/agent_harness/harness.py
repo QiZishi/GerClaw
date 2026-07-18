@@ -997,16 +997,12 @@ class ProductionAgentHarness:
         safe_tool_names: list[JsonValue] = list(dict.fromkeys(tool_names.values()))
         response = AgentResponse(
             text=final_text,
-            citations=(
-                citations
-                if (
-                    medical_content
-                    or document_focused
-                    or self._uploaded_documents
-                    or self._uploaded_images
-                )
-                else []
-            ),
+            # Tool-produced evidence remains auditable even when a turn is not
+            # classified as medical (for example an explicit English-language
+            # WHO web search).  Hiding those citations would disconnect the
+            # public answer from an external tool result already present in the
+            # same trace.
+            citations=citations,
             safety=safety_decision(
                 high_risk_codes,
                 deterministic_diagnosis_blocked=buffer.deterministic_diagnosis_blocked,

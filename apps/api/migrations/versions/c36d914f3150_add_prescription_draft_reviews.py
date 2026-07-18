@@ -8,9 +8,8 @@ Create Date: 2026-07-18
 from collections.abc import Sequence
 
 import sqlalchemy as sa
-from sqlalchemy.dialects import postgresql
-
 from alembic import op
+from sqlalchemy.dialects import postgresql
 
 revision: str = "c36d914f3150"
 down_revision: str | Sequence[str] | None = "b26c814f2041"
@@ -50,9 +49,7 @@ def upgrade() -> None:
             "decision IN ('approved','returned')",
             name="valid_prescription_draft_review_decision",
         ),
-        sa.CheckConstraint(
-            "revision > 0", name="positive_prescription_draft_review_revision"
-        ),
+        sa.CheckConstraint("revision > 0", name="positive_prescription_draft_review_revision"),
         sa.ForeignKeyConstraint(
             ["prescription_draft_id"], ["prescription_drafts.id"], ondelete="CASCADE"
         ),

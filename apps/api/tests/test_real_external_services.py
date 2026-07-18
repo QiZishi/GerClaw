@@ -364,7 +364,10 @@ async def test_real_chat_agentscope_web_search_results_citations_and_trace(
     references = events[-1][1]["references"]
     assert isinstance(references, list)
     assert any(isinstance(item, dict) and item.get("corpus") == "web" for item in references)
-    assert any(
+    # This turn explicitly requests a web search and is intentionally classified
+    # as non-medical, so local RAG should not run merely to manufacture a second
+    # citation source.  The web evidence itself must remain visible and traceable.
+    assert not any(
         isinstance(item, dict) and item.get("corpus") == "local_knowledge_base"
         for item in references
     )

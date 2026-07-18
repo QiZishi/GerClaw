@@ -5,11 +5,14 @@ FROM ${PYTHON_IMAGE} AS runtime
 # The final runtime is explicitly dropped back to the unprivileged gerclaw account.
 USER root
 
+ARG PYTHON_PACKAGE_INDEX=https://pypi.tuna.tsinghua.edu.cn/simple
+
 ENV PYTHONDONTWRITEBYTECODE=1 \
     PYTHONUNBUFFERED=1 \
-    PATH="/app/.venv/bin:$PATH"
+    PATH="/app/.venv/bin:$PATH" \
+    UV_DEFAULT_INDEX="${PYTHON_PACKAGE_INDEX}"
 
-RUN pip install --no-cache-dir uv==0.11.17
+RUN pip install --no-cache-dir --index-url "${PYTHON_PACKAGE_INDEX}" uv==0.11.17
 
 ENV UV_HTTP_RETRIES=5 \
     UV_HTTP_TIMEOUT=120 \

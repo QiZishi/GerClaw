@@ -14,10 +14,13 @@ htmlcov/
 !.env.example
 *.log
 .DS_Store
-docs/references/agentscope-examples/
-docs/references/agentscope参考/
-docs/references/问卷量表/
-docs/references/hzj_case.json
+*.tsbuildinfo
+test-results/
+playwright-report/
+output/
+tmp/
+docs/evidence/
+
 
 # 工具和配置文件夹
 .trae/
