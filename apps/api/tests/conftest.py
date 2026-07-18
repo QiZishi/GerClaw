@@ -149,6 +149,7 @@ async def integration_client(
             await connection.execute(
                 text(
                     "TRUNCATE provider_egress_events, runtime_checkpoints, runtime_approvals, "
+                    "prescription_draft_reviews, patient_access_grants, "
                     "bad_cases, user_feedback, "
                     "trace_events, messages, "
                     "skill_definition_revisions, session_skills, skill_definitions, "
