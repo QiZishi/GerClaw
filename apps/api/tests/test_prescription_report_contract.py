@@ -139,6 +139,29 @@ def test_five_prescription_draft_rejects_a_sleep_prescription_substitution() -> 
         )
 
 
+def test_rehabilitation_rejects_sleep_type_and_training_without_dose() -> None:
+    payload = _draft().rehabilitation.model_dump()
+    payload["rehabilitation_type"] = "睡眠处方"
+    with pytest.raises(ValidationError, match="rehabilitation_type"):
+        RehabilitationDraft.model_validate(payload)
+
+    payload["rehabilitation_type"] = "肢体功能康复"
+    payload["training_plan"] = ["进行下肢训练"]
+    with pytest.raises(ValidationError, match="frequency and duration/intensity"):
+        RehabilitationDraft.model_validate(payload)
+
+
+def test_rehabilitation_accepts_concrete_dose_or_explicit_pending_assessment() -> None:
+    payload = _draft().rehabilitation.model_dump()
+    payload["training_plan"] = ["下肢抗阻训练 15分钟/次, 每周3次, 强度从可耐受水平开始"]
+    concrete = RehabilitationDraft.model_validate(payload)
+    assert concrete.training_plan[0].startswith("下肢抗阻训练")
+
+    payload["training_plan"] = ["完成评估后由康复专业人员制定训练频次、时长和强度"]
+    pending = RehabilitationDraft.model_validate(payload)
+    assert "完成评估后" in pending.training_plan[0]
+
+
 def test_five_prescription_draft_rejects_untraceable_evidence() -> None:
     with pytest.raises(ValidationError, match="evidence references"):
         _draft(

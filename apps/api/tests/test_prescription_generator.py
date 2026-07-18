@@ -445,3 +445,8 @@ async def test_generator_returns_explicit_safe_baseline_when_all_model_formats_f
     assert "基础待审核草案" in draft.health_assessment.summary
     assert draft.medication.evidence_ids == (draft.evidence_sources[0].evidence_id,)
     assert draft.medication.medication_items[0].startswith("尚未提供")
+    assert draft.rehabilitation.rehabilitation_type == "综合功能康复评估阶段"
+    assert "Barthel ADL" in draft.rehabilitation.functional_assessment
+    assert "每周频次" in draft.rehabilitation.training_plan[0]
+    assert draft.rehabilitation.assistive_devices
+    assert len(draft.rehabilitation.safety_precautions) == 2

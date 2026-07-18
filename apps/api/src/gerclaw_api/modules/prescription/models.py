@@ -118,7 +118,7 @@ class PsychologicalDraft(PrescriptionSection):
 
 
 class RehabilitationDraft(PrescriptionSection):
-    """Required rehabilitation fields from the supplied five-prescription template."""
+    """Evidence-bound rehabilitation assessment, dose plan, aids and safety contract."""
 
     kind: Literal["rehabilitation"] = "rehabilitation"
     title: Literal["康复处方"] = "康复处方"
@@ -127,6 +127,54 @@ class RehabilitationDraft(PrescriptionSection):
     training_plan: tuple[str, ...] = Field(min_length=1, max_length=20)
     assistive_devices: tuple[str, ...] = Field(default_factory=tuple, max_length=20)
     safety_precautions: tuple[str, ...] = Field(min_length=1, max_length=20)
+
+    @model_validator(mode="after")
+    def validate_rehabilitation_plan(self) -> RehabilitationDraft:
+        """Reject renamed categories and non-actionable one-line training slogans.
+
+        A concrete training item needs a frequency plus duration or intensity.
+        When the patient evidence is insufficient, the model may instead state
+        exactly which professional assessment must precede dose design.  This
+        preserves an honest, useful rehabilitation section without inventing a
+        Barthel/Berg/6MWT score or silently replacing rehabilitation with sleep.
+        """
+
+        if self.rehabilitation_type.strip() in {
+            "药物处方",
+            "运动处方",
+            "营养处方",
+            "心理处方",
+            "睡眠处方",
+        }:
+            raise ValueError(
+                "rehabilitation_type must describe rehabilitation, not another section"
+            )
+
+        collections = (
+            self.training_plan,
+            self.assistive_devices,
+            self.safety_precautions,
+        )
+        if any(any(not item.strip() for item in items) for items in collections):
+            raise ValueError("rehabilitation list items must not be blank")
+        if any(len(set(items)) != len(items) for items in collections):
+            raise ValueError("rehabilitation list items must be unique")
+
+        pending_markers = ("待评估", "评估后", "完成评估", "专业人员制定", "康复人员制定")
+        frequency_markers = ("每日", "每天", "每周", "每月", "次/", "次／", "频次")
+        duration_markers = ("分钟", "小时", "秒", "时长")
+        intensity_markers = ("强度", "心率", "RPE", "RM", "可耐受", "抗阻", "助力")
+        for item in self.training_plan:
+            if any(marker in item for marker in pending_markers):
+                continue
+            has_frequency = any(marker in item for marker in frequency_markers)
+            has_dose = any(marker in item for marker in duration_markers + intensity_markers)
+            if not (has_frequency and has_dose):
+                raise ValueError(
+                    "rehabilitation training items require frequency and duration/intensity, "
+                    "or an explicit pending assessment"
+                )
+        return self
 
 
 class PatientSummary(BaseModel):

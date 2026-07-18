@@ -103,7 +103,9 @@ Write operations also emit an atomic, PHI-free Runtime Trace. The trace contains
 `models.FivePrescriptionDraft` 是 `five-prescription-report-v1` 的严格、仅供
 审核的报告结构：药物、运动、营养、心理、康复五章均为必填；每项建议和章节必须
 引用同一报告中的可解析循证 ID，康复章强制包含康复类型、功能评估、训练计划、
-辅助器具与安全注意事项。报告固定附带医疗免责声明，药物与心理章节固定要求临床
+辅助器具与安全注意事项。康复训练的具体项目必须同时给出频次以及时长或强度；资料
+不足时必须明确列出待完成的功能评估，不得虚构 Barthel、Berg、6MWT 等量表分数，
+也不得用睡眠处方或普通运动建议替代康复处方。报告固定附带医疗免责声明，药物与心理章节固定要求临床
 复核。
 
 该契约只固化 `docs/references/五大处方报告模板.md` 的**通用结构**。其中的原始
