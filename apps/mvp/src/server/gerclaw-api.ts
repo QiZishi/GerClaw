@@ -8,7 +8,10 @@ const uuidPattern = "[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-
 
 const proxyRules: Array<{ pattern: RegExp; methods: ReadonlySet<string> }> = [
   {
-    pattern: /^skills(?:\/[a-z][a-z0-9_.-]{1,63})?(?:\/execute)?$/,
+    // Keep named collection endpoints out of the generic ``{skill_id}``
+    // matcher: otherwise e.g. GET skills/preview-upload is accidentally
+    // accepted as a Skill read although that endpoint is POST-only.
+    pattern: /^skills(?:\/(?!(?:upload|preview-upload|generate|sessions)(?:\/|$))[a-z][a-z0-9_.-]{1,63})?(?:\/execute)?$/,
     methods: new Set(["GET", "POST", "PATCH", "DELETE"]),
   },
   {
