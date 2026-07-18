@@ -306,4 +306,5 @@ export type RightPanelType =
   | "drug-review"
   | "doc-editor"
   | "settings"
+  | "help"
   | null;

@@ -22,6 +22,7 @@ import { toast } from "@/components/ui/toast";
 import type { FileTag as FileTagData, RightPanelType, Role } from "@/types";
 import { useReducedMotion } from "@/hooks/useReducedMotion";
 import { SettingsPanel } from "@/components/settings/SettingsPanel";
+import { HelpPanel } from "@/components/help/HelpPanel";
 import { HealthProfilePanel } from "@/components/health/HealthProfilePanel";
 import { LAYOUT } from "@/lib/constants";
 
@@ -34,6 +35,7 @@ const PANEL_TITLES: Record<NonNullable<RightPanelType>, string> = {
   "health-profile": "健康画像",
   "drug-review": "用药审查报告",
   settings: "设置",
+  help: "使用教程",
   "doc-editor": "文档编辑",
 };
 
@@ -352,6 +354,9 @@ function PanelContent({
 
     case "settings":
       return <SettingsPanel />;
+
+    case "help":
+      return <HelpPanel role={role} />;
 
     case "doc-editor":
       return (

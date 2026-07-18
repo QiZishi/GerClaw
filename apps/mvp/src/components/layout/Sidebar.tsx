@@ -310,7 +310,7 @@ export function Sidebar({ onNavigate }: SidebarProps) {
   };
 
   const handleShowHelp = () => {
-    toast.show("帮助中心正在整理中；您可以先选择患者模式或医生模式开始咨询。");
+    setRightPanel("help");
     onNavigate?.();
   };
 
