@@ -342,16 +342,16 @@ export function Sidebar({ onNavigate }: SidebarProps) {
 
   const isAdministrator = account?.account_role === "admin";
 
-  async function copyDoctorReviewCode() {
+  async function copyReviewCode(kind: "医生" | "患者") {
     if (!account || !navigator.clipboard) {
-      toast.show("暂时无法复制复核代码");
+      toast.show(`暂时无法复制${kind}代码`);
       return;
     }
     try {
       await navigator.clipboard.writeText(account.actor_id);
-      toast.show("医生复核代码已复制");
+      toast.show(`${kind}代码已复制`);
     } catch {
-      toast.show("暂时无法复制复核代码");
+      toast.show(`暂时无法复制${kind}代码`);
     }
   }
 
@@ -569,6 +569,12 @@ export function Sidebar({ onNavigate }: SidebarProps) {
                   医生复核授权
                 </DropdownMenuItem>
               )}
+              {account?.account_role === "patient" && (
+                <DropdownMenuItem className={cn("cursor-pointer", seniorMode && "min-h-12 text-base")} onClick={() => void copyReviewCode("患者")}>
+                  <Copy className="size-4" />
+                  复制我的患者代码
+                </DropdownMenuItem>
+              )}
               {account?.account_role === "doctor" && (
                 <DropdownMenuItem className={cn("cursor-pointer", seniorMode && "min-h-12 text-base")} onClick={() => setDoctorPrescriptionReviewOpen(true)}>
                   <ShieldCheck className="size-4" />
@@ -576,7 +582,7 @@ export function Sidebar({ onNavigate }: SidebarProps) {
                 </DropdownMenuItem>
               )}
               {account?.account_role === "doctor" && (
-                <DropdownMenuItem className={cn("cursor-pointer", seniorMode && "min-h-12 text-base")} onClick={() => void copyDoctorReviewCode()}>
+                <DropdownMenuItem className={cn("cursor-pointer", seniorMode && "min-h-12 text-base")} onClick={() => void copyReviewCode("医生")}>
                   <Copy className="size-4" />
                   复制我的复核代码
                 </DropdownMenuItem>

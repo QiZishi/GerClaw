@@ -10,6 +10,7 @@ const baseSection = { goal: "共同目标", recommendations: recommendation, pre
 
 const draft: FivePrescriptionDraft = {
   template_version: "five-prescription-report-v1",
+  model_output_schema_version: "five-prescription-model-output-v1",
   status: "needs_clinician_review",
   patient_summary: { age: 72, sex: "female", health_goals: ["改善耐力"], current_concerns: ["近期跌倒"] },
   health_assessment: { summary: "评估摘要", key_issues: ["重点问题"], risk_factors: ["跌倒风险"], clinician_review_required: true },

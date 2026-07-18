@@ -647,6 +647,7 @@ const rehabilitationDraftSchema = prescriptionSectionSchema
 export const fivePrescriptionDraftSchema = z
   .object({
     template_version: z.literal("five-prescription-report-v1"),
+    model_output_schema_version: z.literal("five-prescription-model-output-v1"),
     status: z.literal("needs_clinician_review"),
     patient_summary: z
       .object({
