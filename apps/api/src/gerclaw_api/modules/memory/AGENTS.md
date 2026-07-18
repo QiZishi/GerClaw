@@ -13,6 +13,10 @@ This module owns encrypted, revisioned health facts, profiles, bounded conversat
 - Model extraction accepts only strict `memory-extraction-model-output-v1` via
   the shared versioned output contract; missing, stale or extra provider fields
   must fail before any candidate reaches evidence or persistence logic.
+- `health_memory` must pass its server-owned `security_evaluation` asset
+  profile, including patient-ownership control, at construction. This is
+  additive to repository isolation and never accepts a browser-provided
+  profile.
 
 ## Change and test rules
 

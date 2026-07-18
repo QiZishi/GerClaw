@@ -171,6 +171,20 @@ class ProductionMemoryModule:
         retrieval_top_k: int,
         retrieval_candidates: int,
     ) -> None:
+        # This import stays at the construction boundary.  Importing the
+        # security registry while modules are merely being discovered would
+        # otherwise create a package cycle through Runtime's tool registry.
+        from gerclaw_api.modules.security_evaluation import (
+            CORE_RUNTIME_ASSET_VERSION,
+            MEMORY_ASSET_NAME,
+            build_core_runtime_asset_security_registry,
+        )
+
+        build_core_runtime_asset_security_registry().assess_memory(
+            name=MEMORY_ASSET_NAME,
+            version=CORE_RUNTIME_ASSET_VERSION,
+            owner_module="memory",
+        )
         self._repository = repository
         self._extractor = extractor
         self._compressor = compressor

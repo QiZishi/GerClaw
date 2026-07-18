@@ -44,6 +44,19 @@ class HybridRAGModule:
         min_rerank_score: float,
         capability_version: str = "rag-capabilities-v1",
     ) -> None:
+        # Keep the risk-gate import at the actual construction boundary so
+        # discovery of the RAG public surface cannot cycle through Runtime.
+        from gerclaw_api.modules.security_evaluation import (
+            CORE_RUNTIME_ASSET_VERSION,
+            LOCAL_MEDICAL_CORPUS_ASSET_NAME,
+            build_core_runtime_asset_security_registry,
+        )
+
+        build_core_runtime_asset_security_registry().assess_rag_source(
+            name=LOCAL_MEDICAL_CORPUS_ASSET_NAME,
+            version=CORE_RUNTIME_ASSET_VERSION,
+            owner_module="rag",
+        )
         self._parser = parser
         self._embedding_model = embedding_model
         self._reranker = reranker

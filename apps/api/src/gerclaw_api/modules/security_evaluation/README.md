@@ -30,6 +30,15 @@ external workflows need egress redaction; and search-enabled workflows need
 evidence provenance. A matching profile that omits any applicable control
 fails closed before Chat constructs a Runtime execution.
 
+The server also admits the actual `gerclaw_geriatric_specialist` and
+`gerclaw_emotional_companion` Agents, encrypted `health_memory`, and
+`local_medical_corpus` before their constructors expose them to a request. The
+medical Agent requires ownership, egress-redaction and evidence-provenance
+controls; companion requires egress redaction; Memory requires ownership; and
+the local corpus requires evidence provenance. These checks use server-owned
+versioned profiles and cannot be supplied or weakened by a browser, model,
+Skill, or retrieved text.
+
 ## Contract and limits
 
 `SecurityRiskProfile` binds an asset kind/name/version, owner module, risk,
@@ -37,11 +46,10 @@ network access, data classes, bounded threat categories, executable controls
 and residual-risk statement. `SecurityEvaluationVerdict` is PHI-free and is
 only an in-process admission result.
 
-The contract can also describe Agent, Skill, memory and RAG-source profiles,
-but those asset kinds are **not yet consumed by a production registration
-path**. This module therefore does not claim a completed application-wide
-threat model, full red-team suite, clinical safety validation, or
-privacy/data-retention lifecycle.
+The contract can also describe Skill profiles, but Skills are **not yet
+consumed by a production registration path**. This module therefore does not
+claim a completed application-wide threat model, full red-team suite, clinical
+safety validation, or privacy/data-retention lifecycle.
 
 Run the focused checks from `apps/api`:
 

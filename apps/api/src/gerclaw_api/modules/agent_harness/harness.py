@@ -101,7 +101,13 @@ from gerclaw_api.modules.search import (
     citations_from_search_results,
 )
 from gerclaw_api.modules.search.protocols import SearchModule
-from gerclaw_api.modules.security_evaluation import build_chat_tool_security_registry
+from gerclaw_api.modules.security_evaluation import (
+    COMPANION_AGENT_ASSET_NAME,
+    CORE_RUNTIME_ASSET_VERSION,
+    GERIATRIC_AGENT_ASSET_NAME,
+    build_chat_tool_security_registry,
+    build_core_runtime_asset_security_registry,
+)
 from gerclaw_api.modules.skill.agentscope_adapter import SAFE_SKILL_INSTRUCTION_TEMPLATE
 from gerclaw_api.modules.validation import validate_harness_stream_event
 from gerclaw_api.security import JsonValue
@@ -277,6 +283,20 @@ class ProductionAgentHarness:
         execution_budget: ExecutionBudget | None = None,
         approval_callback: ApprovalCallback | None = None,
     ) -> None:
+        companion = is_companion_workflow(workflow)
+        build_core_runtime_asset_security_registry().assess_agent(
+            name=COMPANION_AGENT_ASSET_NAME if companion else GERIATRIC_AGENT_ASSET_NAME,
+            version=CORE_RUNTIME_ASSET_VERSION,
+            owner_module="agent_harness",
+            risk_level=RiskLevel.MEDIUM,
+            network_access=NetworkAccess.EXTERNAL,
+            data_classes=(
+                frozenset({DataClass.INTERNAL})
+                if companion
+                else frozenset({DataClass.INTERNAL, DataClass.PHI})
+            ),
+            evidence_backed=not companion,
+        )
         self._settings = settings
         self._model = model
         self._rag_module = rag_module

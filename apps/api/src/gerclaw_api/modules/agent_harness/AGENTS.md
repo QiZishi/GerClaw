@@ -13,6 +13,9 @@ This module owns the production, one-turn AgentScope ReAct orchestration and saf
 - `workflow=companion` is a policy-owned exception to medical retrieval: it has
   no long-term Memory, RAG, web search, Skill or uploaded-document context, but
   still runs deterministic high-risk short-circuiting before any model call.
+- The concrete geriatric and companion Agent implementations must pass the
+  server-owned `security_evaluation` profile gate before construction. Do not
+  move this admission decision into prompts, browser code, or model output.
 
 ## Change and test rules
 

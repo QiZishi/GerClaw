@@ -13,6 +13,9 @@ This module owns the local-first medical corpus parsing, chunking, hybrid retrie
 - Parsing treats corpus content as data: remove active/hidden executable material and do not execute embedded instructions.
 - Indexing is generation-fenced and lock-protected; a partial or stale generation can never become active, and cleanup must not delete a newer writer's points.
 - Never put user queries, PHI, raw Chain-of-Thought or secrets into Qdrant payloads, manifests, metrics or traces.
+- The configured `local_medical_corpus` must pass its server-owned
+  `security_evaluation` RAG-source profile, including evidence provenance,
+  before the production module is constructed.
 
 ## Change and test rules
 

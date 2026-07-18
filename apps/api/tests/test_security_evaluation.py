@@ -17,6 +17,11 @@ from gerclaw_api.modules.runtime import (
 from gerclaw_api.modules.runtime.models import ActorRole, RuntimePrincipal
 from gerclaw_api.modules.runtime.registry import ToolSecurityProfileError
 from gerclaw_api.modules.security_evaluation import (
+    COMPANION_AGENT_ASSET_NAME,
+    CORE_RUNTIME_ASSET_VERSION,
+    GERIATRIC_AGENT_ASSET_NAME,
+    LOCAL_MEDICAL_CORPUS_ASSET_NAME,
+    MEMORY_ASSET_NAME,
     SecurityAssetKind,
     SecurityControl,
     SecurityEvaluationError,
@@ -24,7 +29,9 @@ from gerclaw_api.modules.security_evaluation import (
     SecurityRiskProfile,
     SecurityThreat,
     build_chat_tool_security_registry,
+    build_core_runtime_asset_security_registry,
 )
+from gerclaw_api.modules.security_evaluation.profiles import CORE_RUNTIME_ASSET_SECURITY_PROFILES
 from gerclaw_api.modules.workflows import WORKFLOW_DEFINITIONS, WorkflowId
 from gerclaw_api.modules.workflows.profiles import WORKFLOW_SECURITY_PROFILES
 
@@ -118,6 +125,59 @@ def test_profile_with_missing_required_runtime_control_fails_closed() -> None:
                 network_access=NetworkAccess.INTERNAL,
                 data_classes=frozenset({DataClass.INTERNAL}),
             )
+        )
+
+
+def test_core_runtime_assets_require_version_bound_security_profiles() -> None:
+    profiles = build_core_runtime_asset_security_registry()
+
+    assert profiles.assess_agent(
+        name=GERIATRIC_AGENT_ASSET_NAME,
+        version=CORE_RUNTIME_ASSET_VERSION,
+        owner_module="agent_harness",
+        risk_level=RiskLevel.MEDIUM,
+        network_access=NetworkAccess.EXTERNAL,
+        data_classes=frozenset({DataClass.INTERNAL, DataClass.PHI}),
+        evidence_backed=True,
+    ).allowed
+    assert profiles.assess_agent(
+        name=COMPANION_AGENT_ASSET_NAME,
+        version=CORE_RUNTIME_ASSET_VERSION,
+        owner_module="agent_harness",
+        risk_level=RiskLevel.MEDIUM,
+        network_access=NetworkAccess.EXTERNAL,
+        data_classes=frozenset({DataClass.INTERNAL}),
+        evidence_backed=False,
+    ).allowed
+    assert profiles.assess_memory(
+        name=MEMORY_ASSET_NAME,
+        version=CORE_RUNTIME_ASSET_VERSION,
+        owner_module="memory",
+    ).allowed
+    assert profiles.assess_rag_source(
+        name=LOCAL_MEDICAL_CORPUS_ASSET_NAME,
+        version=CORE_RUNTIME_ASSET_VERSION,
+        owner_module="rag",
+    ).allowed
+
+
+def test_core_memory_profile_missing_patient_ownership_fails_closed() -> None:
+    profiles = tuple(
+        profile.model_copy(
+            update={
+                "required_controls": profile.required_controls - {SecurityControl.PATIENT_OWNERSHIP}
+            }
+        )
+        if profile.asset_name == MEMORY_ASSET_NAME
+        else profile
+        for profile in CORE_RUNTIME_ASSET_SECURITY_PROFILES
+    )
+
+    with pytest.raises(SecurityEvaluationError, match="patient-ownership"):
+        SecurityProfileRegistry(profiles).assess_memory(
+            name=MEMORY_ASSET_NAME,
+            version=CORE_RUNTIME_ASSET_VERSION,
+            owner_module="memory",
         )
 
 

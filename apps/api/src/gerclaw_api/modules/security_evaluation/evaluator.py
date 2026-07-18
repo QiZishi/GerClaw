@@ -37,6 +37,15 @@ _BASE_WORKFLOW_CONTROLS = frozenset(
     }
 )
 
+_BASE_RUNTIME_ASSET_CONTROLS = frozenset(
+    {
+        SecurityControl.INPUT_SCHEMA,
+        SecurityControl.OUTPUT_BOUNDARY,
+        SecurityControl.EXECUTION_BUDGET,
+        SecurityControl.UNTRUSTED_DATA_ISOLATION,
+    }
+)
+
 
 class SecurityEvaluationError(ValueError):
     """A Runtime asset has no compatible, active reviewed profile."""
@@ -206,5 +215,130 @@ class SecurityProfileRegistry:
         if search_enabled and SecurityControl.EVIDENCE_PROVENANCE not in profile.required_controls:
             raise SecurityEvaluationError(
                 f"search-enabled workflow {name} omits evidence-provenance control"
+            )
+        return verdict
+
+    def assess_agent(
+        self,
+        *,
+        name: str,
+        version: str,
+        owner_module: str,
+        risk_level: RiskLevel,
+        network_access: NetworkAccess,
+        data_classes: frozenset[DataClass],
+        evidence_backed: bool,
+    ) -> SecurityEvaluationVerdict:
+        """Admit one server-owned Agent implementation before it can run."""
+
+        return self._assess_runtime_asset(
+            asset_kind=SecurityAssetKind.AGENT,
+            name=name,
+            version=version,
+            owner_module=owner_module,
+            risk_level=risk_level,
+            network_access=network_access,
+            data_classes=data_classes,
+            require_patient_ownership=DataClass.PHI in data_classes,
+            require_egress_redaction=network_access is NetworkAccess.EXTERNAL,
+            require_evidence_provenance=evidence_backed,
+        )
+
+    def assess_memory(
+        self,
+        *,
+        name: str,
+        version: str,
+        owner_module: str,
+    ) -> SecurityEvaluationVerdict:
+        """Admit the encrypted, patient-scoped Memory implementation."""
+
+        return self._assess_runtime_asset(
+            asset_kind=SecurityAssetKind.MEMORY,
+            name=name,
+            version=version,
+            owner_module=owner_module,
+            risk_level=RiskLevel.LOW,
+            network_access=NetworkAccess.INTERNAL,
+            data_classes=frozenset({DataClass.PHI}),
+            require_patient_ownership=True,
+            require_egress_redaction=False,
+            require_evidence_provenance=False,
+        )
+
+    def assess_rag_source(
+        self,
+        *,
+        name: str,
+        version: str,
+        owner_module: str,
+    ) -> SecurityEvaluationVerdict:
+        """Admit the configured local corpus before retrieval can be built."""
+
+        return self._assess_runtime_asset(
+            asset_kind=SecurityAssetKind.RAG_SOURCE,
+            name=name,
+            version=version,
+            owner_module=owner_module,
+            risk_level=RiskLevel.LOW,
+            network_access=NetworkAccess.INTERNAL,
+            data_classes=frozenset({DataClass.INTERNAL}),
+            require_patient_ownership=False,
+            require_egress_redaction=False,
+            require_evidence_provenance=True,
+        )
+
+    def _assess_runtime_asset(
+        self,
+        *,
+        asset_kind: SecurityAssetKind,
+        name: str,
+        version: str,
+        owner_module: str,
+        risk_level: RiskLevel,
+        network_access: NetworkAccess,
+        data_classes: frozenset[DataClass],
+        require_patient_ownership: bool,
+        require_egress_redaction: bool,
+        require_evidence_provenance: bool,
+    ) -> SecurityEvaluationVerdict:
+        profile = self.profile_for(asset_kind, name)
+        if profile is None:
+            raise SecurityEvaluationError(
+                f"{asset_kind.value} {name} has no server-owned security risk profile"
+            )
+        verdict = self.assess_asset(
+            asset_kind=asset_kind,
+            asset_name=name,
+            asset_version=version,
+            owner_module=owner_module,
+            risk_level=risk_level,
+            network_access=network_access,
+            data_classes=data_classes,
+        )
+        if not _BASE_RUNTIME_ASSET_CONTROLS.issubset(profile.required_controls):
+            raise SecurityEvaluationError(
+                f"{asset_kind.value} {name} profile omits a mandatory Runtime control"
+            )
+        if (
+            require_patient_ownership
+            and SecurityControl.PATIENT_OWNERSHIP not in profile.required_controls
+        ):
+            raise SecurityEvaluationError(
+                f"{asset_kind.value} {name} omits patient-ownership control"
+            )
+        if (
+            require_egress_redaction
+            and SecurityControl.EXTERNAL_EGRESS_REDACTION not in profile.required_controls
+        ):
+            raise SecurityEvaluationError(
+                f"external {asset_kind.value} {name} omits egress-redaction control"
+            )
+        if (
+            require_evidence_provenance
+            and SecurityControl.EVIDENCE_PROVENANCE not in profile.required_controls
+        ):
+            raise SecurityEvaluationError(
+                f"evidence-backed {asset_kind.value} {name} omits evidence-provenance control"
             )
         return verdict
