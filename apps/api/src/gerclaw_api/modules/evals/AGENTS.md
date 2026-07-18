@@ -33,6 +33,9 @@ content and has written a new canonical case.
   reviewed synthetic input and in-memory synthetic structured output only.
   Results may expose category/status/action but must never expose input,
   entity, statement, evidence span, candidate details, or model content.
+- Runtime security-profile canaries exercise production Agent, Memory and local
+  RAG admission gates using asset identity/version/control mutations only. They
+  must never carry a profile's residual-risk text, user data, or request payload.
 
 ## Change and test rules
 

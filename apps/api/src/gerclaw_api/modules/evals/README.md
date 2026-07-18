@@ -38,6 +38,14 @@ guard version; it never emits input, entity, statement, evidence span or model
 content. Passing it verifies these deterministic evidence guards only, not
 clinical correctness or extraction-model quality.
 
+`runtime-security-profile-case-v1` adds twelve content-free admission checks
+for the production Agent, encrypted Memory and local RAG-source profile gates:
+the reviewed profile admits, while version drift and removal of the execution
+budget control reject. The CLI emits only an asset kind, case ID and allowed
+outcome; it never emits profile controls, residual-risk wording, request data,
+or user content. Passing it proves only this deterministic pre-enable gate, not
+clinical validity, privacy completeness or model quality.
+
 Run:
 
 ```bash

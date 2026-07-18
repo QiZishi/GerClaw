@@ -18,6 +18,7 @@ from gerclaw_api.modules.evals.models import (
     RAGEvaluationRunConfig,
     RAGRetrievalEvalCase,
     RAGRetrievalEvalCaseSet,
+    RuntimeSecurityProfileEvalCase,
     SkillDraftEvalCase,
 )
 from gerclaw_api.modules.evals.rag_cli import (
@@ -37,8 +38,13 @@ from gerclaw_api.modules.evals.runner import (
     run_output_safety_golden_cases,
     run_privacy_redaction_case,
     run_privacy_redaction_golden_cases,
+    run_runtime_security_profile_case,
+    run_runtime_security_profile_golden_cases,
     run_skill_draft_case,
     run_skill_draft_golden_cases,
+)
+from gerclaw_api.modules.evals.runtime_security_profile_cases import (
+    RUNTIME_SECURITY_PROFILE_GOLDEN_CASES,
 )
 from gerclaw_api.modules.privacy_redaction.models import EgressPurpose
 from gerclaw_api.modules.rag.protocols import RetrievalResult
@@ -157,6 +163,30 @@ def test_skill_draft_golden_cases_are_version_bound_and_never_echo_instructions(
     assert "Synthetic Skill Review" not in serialized
     assert "先核对用户输入" not in serialized
     assert not hasattr(results[0], "synthetic_instructions")
+
+
+def test_runtime_security_profile_golden_cases_admit_only_versioned_complete_profiles() -> None:
+    results = run_runtime_security_profile_golden_cases()
+
+    assert len(results) == 12
+    assert all(result.passed for result in results)
+    assert sum(result.actual_allowed for result in results) == 4
+    assert "required_controls" not in results[0].model_dump_json()
+    assert "residual_risk" not in results[0].model_dump_json()
+
+
+def test_runtime_security_profile_case_rejects_non_core_asset_kind_and_reports_regression() -> None:
+    source_case = RUNTIME_SECURITY_PROFILE_GOLDEN_CASES[0]
+    with pytest.raises(ValidationError, match="only Agent, Memory, and RAG source"):
+        RuntimeSecurityProfileEvalCase(
+            **{**source_case.model_dump(mode="python"), "asset_kind": "skill"}
+        )
+
+    result = run_runtime_security_profile_case(
+        source_case.model_copy(update={"expected_allowed": False})
+    )
+    assert result.passed is False
+    assert result.actual_allowed is True
 
 
 def test_skill_draft_eval_case_rejects_unreviewed_or_duplicate_expectations() -> None:

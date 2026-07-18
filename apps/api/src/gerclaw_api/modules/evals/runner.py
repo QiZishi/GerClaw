@@ -37,10 +37,15 @@ from gerclaw_api.modules.evals.models import (
     RAGEvaluationRunReport,
     RAGRetrievalEvalCase,
     RAGRetrievalEvalCaseResult,
+    RuntimeSecurityProfileEvalCase,
+    RuntimeSecurityProfileEvalCaseResult,
     SkillDraftEvalCase,
     SkillDraftEvalCaseResult,
 )
 from gerclaw_api.modules.evals.privacy_cases import PRIVACY_REDACTION_GOLDEN_CASES
+from gerclaw_api.modules.evals.runtime_security_profile_cases import (
+    RUNTIME_SECURITY_PROFILE_GOLDEN_CASES,
+)
 from gerclaw_api.modules.evals.skill_cases import SKILL_DRAFT_GOLDEN_CASES
 from gerclaw_api.modules.medication_review.rules_engine import (
     MedicationRulesInputError,
@@ -54,6 +59,12 @@ from gerclaw_api.modules.privacy_redaction.policy import (
     redact_external_tts_text,
 )
 from gerclaw_api.modules.rag.protocols import RAGModule
+from gerclaw_api.modules.security_evaluation import (
+    SecurityControl,
+    SecurityEvaluationError,
+    SecurityProfileRegistry,
+    build_core_runtime_asset_security_registry,
+)
 from gerclaw_api.modules.skill.models import SkillDefinition
 from gerclaw_api.modules.skill.quality import evaluate_skill_draft
 from gerclaw_api.modules.validation import (
@@ -285,6 +296,79 @@ def run_skill_draft_golden_cases() -> tuple[SkillDraftEvalCaseResult, ...]:
     if not all(result.passed for result in results):
         failed = ", ".join(result.case_id for result in results if not result.passed)
         raise AssertionError(f"skill-draft golden cases failed: {failed}")
+    return results
+
+
+def run_runtime_security_profile_case(
+    case: RuntimeSecurityProfileEvalCase,
+) -> RuntimeSecurityProfileEvalCaseResult:
+    """Exercise the real core Runtime profile gate without any user content."""
+
+    source_registry = build_core_runtime_asset_security_registry()
+    profile = source_registry.profile_for(case.asset_kind, case.asset_name)
+    if profile is None:  # pragma: no cover - committed cases bind production assets
+        raise AssertionError(f"missing committed core Runtime profile: {case.asset_name}")
+    asset_version = profile.asset_version
+    registry = source_registry
+    if case.mutation == "version_mismatch":
+        asset_version = "1.0.1"
+    elif case.mutation == "missing_execution_budget":
+        registry = SecurityProfileRegistry(
+            (
+                profile.model_copy(
+                    update={
+                        "required_controls": profile.required_controls
+                        - frozenset({SecurityControl.EXECUTION_BUDGET})
+                    }
+                ),
+            )
+        )
+
+    try:
+        if case.asset_kind.value == "agent":
+            registry.assess_agent(
+                name=profile.asset_name,
+                version=asset_version,
+                owner_module=profile.owner_module,
+                risk_level=profile.risk_level,
+                network_access=profile.network_access,
+                data_classes=profile.data_classes,
+                evidence_backed=SecurityControl.EVIDENCE_PROVENANCE in profile.required_controls,
+            )
+        elif case.asset_kind.value == "memory":
+            registry.assess_memory(
+                name=profile.asset_name,
+                version=asset_version,
+                owner_module=profile.owner_module,
+            )
+        else:
+            registry.assess_rag_source(
+                name=profile.asset_name,
+                version=asset_version,
+                owner_module=profile.owner_module,
+            )
+        actual_allowed = True
+    except SecurityEvaluationError:
+        actual_allowed = False
+    return RuntimeSecurityProfileEvalCaseResult(
+        case_id=case.case_id,
+        passed=actual_allowed is case.expected_allowed,
+        expected_allowed=case.expected_allowed,
+        actual_allowed=actual_allowed,
+        asset_kind=case.asset_kind,
+        profile_version=case.profile_version,
+    )
+
+
+def run_runtime_security_profile_golden_cases() -> tuple[RuntimeSecurityProfileEvalCaseResult, ...]:
+    """Run the production profile admission baseline in deterministic order."""
+
+    results = tuple(
+        run_runtime_security_profile_case(case) for case in RUNTIME_SECURITY_PROFILE_GOLDEN_CASES
+    )
+    if not all(result.passed for result in results):
+        failed = ", ".join(result.case_id for result in results if not result.passed)
+        raise AssertionError(f"Runtime security-profile golden cases failed: {failed}")
     return results
 
 

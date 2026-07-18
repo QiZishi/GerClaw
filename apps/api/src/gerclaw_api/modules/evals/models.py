@@ -12,6 +12,7 @@ from gerclaw_api.modules.privacy_redaction.models import (
     EgressPurpose,
     RedactionFinding,
 )
+from gerclaw_api.modules.security_evaluation.models import SecurityAssetKind
 from gerclaw_api.modules.skill.models import SkillDraftCheckCode
 
 EVAL_CASE_SCHEMA_VERSION: Final = "eval-case-v1"
@@ -199,6 +200,45 @@ class SkillDraftEvalCaseResult(BaseModel):
     expected_missing_checks: tuple[SkillDraftCheckCode, ...]
     actual_missing_checks: tuple[SkillDraftCheckCode, ...]
     quality_version: str
+
+
+class RuntimeSecurityProfileEvalCase(BaseModel):
+    """Reviewed, content-free regression case for a core Runtime profile gate."""
+
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    schema_version: Literal["runtime-security-profile-case-v1"] = "runtime-security-profile-case-v1"
+    case_id: str = Field(pattern=r"^runtime-security-profile\.[a-z0-9_.-]{3,80}$")
+    title: str = Field(min_length=1, max_length=120)
+    asset_kind: SecurityAssetKind
+    asset_name: str = Field(pattern=r"^[a-z][a-z0-9_.-]{1,63}$")
+    mutation: Literal["none", "version_mismatch", "missing_execution_budget"] = "none"
+    expected_allowed: bool
+    profile_version: Literal["1.0.0"] = "1.0.0"
+    provenance: Literal["synthetic_reviewed"] = "synthetic_reviewed"
+
+    @model_validator(mode="after")
+    def validate_core_asset_kind(self) -> RuntimeSecurityProfileEvalCase:
+        if self.asset_kind not in {
+            SecurityAssetKind.AGENT,
+            SecurityAssetKind.MEMORY,
+            SecurityAssetKind.RAG_SOURCE,
+        }:
+            raise ValueError("Runtime profile cases cover only Agent, Memory, and RAG source")
+        return self
+
+
+class RuntimeSecurityProfileEvalCaseResult(BaseModel):
+    """PHI-free Runtime profile result without profile or request payloads."""
+
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    case_id: str
+    passed: bool
+    expected_allowed: bool
+    actual_allowed: bool
+    asset_kind: SecurityAssetKind
+    profile_version: str
 
 
 class MemoryExtractionEvalOutcome(BaseModel):

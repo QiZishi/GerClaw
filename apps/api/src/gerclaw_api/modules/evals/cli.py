@@ -12,6 +12,7 @@ from gerclaw_api.modules.evals.runner import (
     run_memory_extraction_golden_cases,
     run_output_safety_golden_cases,
     run_privacy_redaction_golden_cases,
+    run_runtime_security_profile_golden_cases,
     run_skill_draft_golden_cases,
 )
 
@@ -22,6 +23,7 @@ def main() -> Never:
     privacy_redaction_results = run_privacy_redaction_golden_cases()
     medication_rule_results = run_medication_rule_golden_cases()
     skill_draft_results = run_skill_draft_golden_cases()
+    runtime_security_profile_results = run_runtime_security_profile_golden_cases()
     memory_extraction_results = asyncio.run(run_memory_extraction_golden_cases())
     case_count = (
         len(safety_results)
@@ -29,6 +31,7 @@ def main() -> Never:
         + len(privacy_redaction_results)
         + len(medication_rule_results)
         + len(skill_draft_results)
+        + len(runtime_security_profile_results)
         + len(memory_extraction_results)
     )
     passed_count = (
@@ -38,6 +41,7 @@ def main() -> Never:
     )
     passed_count += sum(result.passed for result in medication_rule_results)
     passed_count += sum(result.passed for result in skill_draft_results)
+    passed_count += sum(result.passed for result in runtime_security_profile_results)
     passed_count += sum(result.passed for result in memory_extraction_results)
     print(
         json.dumps(
@@ -59,6 +63,9 @@ def main() -> Never:
                 ],
                 "skill_draft_results": [
                     result.model_dump(mode="json") for result in skill_draft_results
+                ],
+                "runtime_security_profile_results": [
+                    result.model_dump(mode="json") for result in runtime_security_profile_results
                 ],
                 "memory_extraction_results": [
                     result.model_dump(mode="json") for result in memory_extraction_results
