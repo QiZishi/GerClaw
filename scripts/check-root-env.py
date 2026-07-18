@@ -73,15 +73,21 @@ def main() -> int:
         print("以下非密钥变量值不一致：" + "、".join(mismatches), file=sys.stderr)
         return 1
 
-    lines = example_path.read_text(encoding="utf-8").splitlines()
-    for index, raw_line in enumerate(lines):
-        line = raw_line.strip()
-        if not line or line.startswith("#") or "=" not in line:
-            continue
-        comment = lines[index - 1].strip() if index else ""
-        if not comment.startswith("#") or not any("\u4e00" <= char <= "\u9fff" for char in comment):
-            print(f"{line.split('=', 1)[0]} 缺少紧邻的中文配置说明。", file=sys.stderr)
-            return 1
+    for environment_path in (actual_path, example_path):
+        lines = environment_path.read_text(encoding="utf-8").splitlines()
+        for index, raw_line in enumerate(lines):
+            line = raw_line.strip()
+            if not line or line.startswith("#") or "=" not in line:
+                continue
+            comment = lines[index - 1].strip() if index else ""
+            has_chinese = any("\u4e00" <= char <= "\u9fff" for char in comment)
+            if not comment.startswith("#") or not has_chinese:
+                key = line.split("=", 1)[0]
+                print(
+                    f"{environment_path.name} 中的 {key} 缺少紧邻的中文配置说明。",
+                    file=sys.stderr,
+                )
+                return 1
 
     print(f"根环境配置契约通过：{len(actual)} 个变量，未发现子目录环境文件。")
     return 0
