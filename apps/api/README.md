@@ -28,7 +28,7 @@ docker compose -f docker-compose.yml -f docker-compose.dev.yml up -d --build
 - `test` profile 的 `test-api` 使用单独的 `gerclaw-api-test` 镜像、`gerclaw_test` 数据库和 Redis DB 15，默认只运行 `not external`。它不会覆盖运行中的生产 API 镜像或业务数据库：`docker compose --profile test up --build --abort-on-container-exit --exit-code-from test-api test-api`。
 - Redis 强制密码，Qdrant server/client 使用同一个 API Key；匿名 Redis/Qdrant 请求会被拒绝。
 - Alembic 由一次性 `migrate` service 执行并持有 PostgreSQL advisory lock；API 副本只直接启动 Uvicorn，不会并发执行 DDL。
-- 本地知识库从仓库同级 `../本地知识库/md` 只读挂载到 `/knowledge-base`，不得复制进镜像或 Git。
+- 本地知识库由 `GERCLAW_KNOWLEDGE_BASE_HOST_PATH` 指向宿主机目录（默认仓库同级 `../本地知识库/md`），并只读挂载到 `/knowledge-base`，不得复制进镜像或 Git。外部根目录沿用当前“主题子目录/Markdown 文档”的可递归结构；扩充或替换资料后运行一次 `rag-index`，无需重建 API 镜像。
 
 已启动 Compose 栈上的确定性用药审查并发复验从 API 容器执行，避免将访客身份密钥导出到宿主机。它只使用合成输入并输出 PHI-free 聚合结果；硬上限为 10，并不衡量外部模型、RAG、MinerU 或临床正确性：
 
