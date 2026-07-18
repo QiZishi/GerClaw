@@ -1,191 +1,244 @@
-# GerClaw 架构
+# GerClaw 系统架构
 
-本文描述已运行并经验证的架构边界。产品需求以 [设计要求](docs/references/gerclaw设计要求.md) 为最高权威；每项是否真正完成以 [需求矩阵](docs/REQUIREMENTS_MATRIX.md) 与可复现执行证据为准。目录、UI 或 README 本身不是功能完成证据。
+本文描述 GerClaw AI 辅助诊疗平台的系统上下文、运行组件、数据流、部署拓扑和扩展约束。产品功能与交互以 [GerClaw 设计要求](docs/references/gerclaw设计要求.md) 为最高依据。
 
 ## 1. 系统目标
 
-GerClaw 将适老化患者服务、医生辅助工作台与可追溯的 Agent Runtime 组合为同一条受治理链路。它提供证据绑定的辅助信息和待临床复核草案，而不替代医生判断、急救服务或正式处方系统。
+GerClaw 的架构目标是把适老化交互、医生专业工作流和可追溯 AI Runtime 组合成一套可私有部署、可配置、可审计的 Web 应用。
 
-### 运行拓扑
+核心设计目标：
+
+1. 支持文本、语音、图片和文档的多模态输入。
+2. 让医学建议、处方草案和用药审查结果关联可回溯证据。
+3. 隔离患者、医生、管理员和访客数据，避免跨账户读取。
+4. 将 LLM、搜索、语音、MinerU、Embedding 与 Rerank 封装为可替换 Provider。
+5. 为长时间模型任务提供稳定状态、取消、失败恢复和终态一致性。
+6. 通过外部知识库挂载、独立数据卷和容器化运行支持私有部署。
+
+## 2. 架构总览
 
 ```text
 患者 / 医生 / 管理员浏览器
-        │ 浏览器安全请求体、HttpOnly 会话 cookie
+        │ HTTPS、HttpOnly 会话 Cookie、版本化 JSON/SSE
         ▼
-apps/mvp ─ Next.js 16 页面 + server-only BFF ─ Zod
-        │ 短期 JWT；不暴露 Provider/DB key
-        ▼
-apps/api ─ FastAPI + Pydantic + AgentScope 2.0.4
-  ├─ API routes：认证、HTTP/SSE、错误映射、依赖注入
-  ├─ services：聊天、会话、临床收集、账户、Trace、限流
-  ├─ modules：可替换的领域能力与严格契约
-  ├─ repositories：SQLAlchemy 加密事实源
-  ├─ PostgreSQL：账户、会话、消息、事实、草案、授权、Trace
-  ├─ Redis：限流、session lease、取消
-  ├─ Qdrant：公共医学语料与无 PHI Memory reference vector
-  └─ server-only providers：LLM、Embedding/Rerank、Search、ASR/TTS、MinerU
+┌──────────────────────────────────────────────────────┐
+│ Next.js Web + server-only BFF                        │
+│ 页面、适老化交互、Zod 校验、Cookie、流式响应转发       │
+└───────────────────────┬──────────────────────────────┘
+                        │ 内部 HTTP
+                        ▼
+┌──────────────────────────────────────────────────────┐
+│ FastAPI + AgentScope Runtime                         │
+│ 认证授权、业务编排、Agent Harness、领域模块、Provider   │
+└───────┬────────────────┬─────────────────┬───────────┘
+        │                │                 │
+        ▼                ▼                 ▼
+ PostgreSQL           Redis             Qdrant
+ 加密事实源            lease/限流/取消     RAG/Memory 向量
+        │
+        └────────────── Server-side Provider adapters ──────┐
+                                                            ▼
+                   LLM / Search / ASR / TTS / MinerU /
+                   Embedding / Rerank
 ```
 
-`apps/mvp` 是唯一运行前端。`apps/web` 仍是预留目录，禁止复制一套平行 BFF 或业务客户端。根 `app.py` 是本地启动入口；Docker Compose 运行 migration、API、PostgreSQL、Redis、Qdrant 和可选 RAG index。
+浏览器只访问 Next.js BFF，不直接获取 Provider、数据库或向量库凭据。`apps/mvp` 是唯一 Web 前端；`apps/api` 是统一 API 与 Agent Runtime。
 
-## 2. 分层规则
+## 3. 技术栈
+
+| 层级 | 技术 | 职责 |
+|---|---|---|
+| Web | Next.js 16、React 19、TypeScript、Tailwind CSS | 页面、角色工作台、适老化交互、音频控制、实时文档渲染 |
+| BFF | Next.js Route Handlers、Zod | Cookie 会话、请求校验、受限 API 转发、SSE 代理 |
+| API | FastAPI、Pydantic、SQLAlchemy、Alembic | 认证、业务服务、领域 API、持久化、迁移 |
+| Agent | AgentScope 2.0.4 | Agent 生命周期、模型调用、工具编排和结构化输出 |
+| 数据 | PostgreSQL 16、Redis 7、Qdrant | 事实数据、并发协调、向量检索 |
+| AI 服务 | OpenAI-compatible/DashScope、SiliconFlow、AnySearch、Tavily、MiMo、MinerU | LLM、RAG、搜索、语音和文档解析 |
+| 部署 | Docker、Docker Compose、非 root 容器 | 构建、启动、迁移、索引、健康检查和数据卷 |
+
+Provider URL、API Key、模型名、协议、超时和能力声明均由环境变量或账户级加密配置提供。
+
+## 4. 核心数据流
+
+### 4.1 对话与多模态输入
 
 ```text
-React component
-  → apps/mvp/src/services                 # 唯一浏览器业务 client
-  → apps/mvp/app/api                      # server-only BFF + Zod
-  → apps/api/api/routes                   # HTTP/SSE + principal + DI
-  → apps/api/services                     # 业务编排
-  → apps/api/modules + repositories       # 能力契约 / 数据存取
-  → PostgreSQL / Redis / Qdrant / provider adapters
+文本 / 音频 / 图片 / 已解析文档
+  → BFF 输入校验与身份绑定
+  → FastAPI 会话服务
+  → Trace + session lease + fencing token
+  → RAG / Memory / Skill / Search / model router
+  → evidence 与公开输出校验
+  → 消息、引用、Trace 原子提交
+  → SSE 状态、文本、引用、done
 ```
 
-- 组件不得内嵌 Provider URL、密钥、临床规则或绕过 services 调用 BFF。
-- 路由不得拥有业务状态机；它们只做认证、请求/响应映射和依赖注入。
-- `modules/` 负责单一能力、Protocol/Pydantic 契约和独立测试；`services/` 负责跨模块工作流；`repositories/` 负责持久化。
-- 模型、工具、搜索、文件、图片和数据库回读均为不可信边界。未知字段、尺寸超限、版本不符或所有权不符必须受控失败，不能静默修补。
+音频先由 ASR 转写；图片作为原生 multimodal content block 发送给声明支持 image input 的模型；文档由 MinerU 转为 Markdown 后，以用户资料身份进入当前会话。图片和文档都会获得 evidence ID。图片 base64 被写入受控 Trace 输入，用于授权范围内的 Bad Case 分析。
 
-## 3. 推荐技术栈
+### 4.2 五大处方
 
-| 层级 | 当前技术 | 使用边界 |
-|---|---|---|
-| Web | Next.js 16、React 19、TypeScript、Tailwind、Zod | `apps/mvp` 是唯一功能前端与 BFF；外部 Provider 只由 server-only 路由调用 |
-| API / Agent | FastAPI、Pydantic、AgentScope 2.0.4 | 认证、Runtime Harness、业务模块、SSE 与 Provider adapter |
-| 持久化 | PostgreSQL、Redis、Qdrant | PostgreSQL 是加密事实源；Redis 处理 lease/限流/取消；Qdrant 不存 PHI 正文 |
-| 部署 | Docker Compose、Alembic、uv/npm | 已通过空卷迁移/RAG/health/重启/non-root smoke；不是高可用拓扑证明 |
+五大处方使用聊天式 intake：
 
-所有模型、外部 URL、密钥和协议均通过环境变量配置；实现遵循“设计要求优先、AgentScope 能力优先、必要时才引入补充依赖”。
+1. 接收用户文字、语音、图片和最多 10 份文档。
+2. MinerU 提取文档正文，输入上下文总上限为 273k 字符。
+3. 服务端依据五大处方输入模板计算缺失字段。
+4. Agent 最多用 5 轮对话补齐必要信息。
+5. 模型生成结构化草案，并关联本地 RAG、联网结果和用户资料 evidence。
+6. 前端在单页单栏中实时编辑、实时渲染，并支持导出。
 
-## 4. 身份、数据与授权
+产物状态为 `needs_clinician_review`。草案可以包含有依据的诊断方向、剂量调整和治疗候选，但不能自动签署或执行。
 
-### 3.1 主体
+### 4.3 CGA 与语音
 
-- 登录入口默认显示；用户可选择无账号进入一次性患者服务。访客在当前浏览器会话内可用，但历史不会在下次进入复现。
-- 服务端 JWT 生成 tenant/actor/role/scope；前端不能自报医生、患者、管理员或权限。
-- PostgreSQL 是加密事实源。Redis lease 与 PostgreSQL fencing token 共同保证同一会话 turn 只有一个写入者。
+CGA 的问卷版本、题目、选项、计分和报告由服务端状态机管理。预录音频按量表版本绑定，Web 端使用全局音频协调器保证任一时刻只有一个题目或回答播放，并支持暂停、继续、停止与进度展示。
 
-### 3.2 患者授权
+Mini-Cog 和 MMSE 涉及动作、绘图、书写、阅读等内容时，报告明确保留人工专业审核边界。
 
-`consent` 的事实模型为：**患者 → 指定医生 → 单一 resource scope → 到期时间 → revision**。有效授权仅允许以下受限投影：
+### 4.4 RAG
 
-| scope | 医生可见 | 明确排除 |
-|---|---|---|
-| `health_profile_read` | 已确认健康事实 | pending/inactive 事实、聊天、附件、Trace |
-| `cga_report_read` | 已完成 CGA 摘要 | 原始答案、活动评估 |
-| `prescription_draft_review` | 草案与自己的复核意见 | 可执行处方、其他医生意见、附件/Trace |
-| `medication_review_read` | input revision、finding、规则来源 | 用药原文、会话、附件、Trace |
-| `risk_alert_read` | 当前 alert ledger | 聊天、量表答案、用药详情、附件、Trace |
+```text
+外部 Markdown 知识库（只读挂载）
+  → 文件发现与内容哈希
+  → 结构化切分
+  → Embedding
+  → Qdrant staging generation
+  → PostgreSQL manifest activation
+  → Hybrid retrieval + RRF + Rerank
+  → local-rag-evidence-v1 引用
+```
 
-consumer 在每次读取前都查询有效 grant；撤回、过期、跨 tenant、角色不符和未知患者均 fail closed 且不允许枚举。
+索引器采用 generation fencing 和 staging-to-active 切换，避免并发索引或中断更新污染当前集合。患者上传资料不进入公共 RAG collection。
+
+### 4.5 Memory 与 Skill
+
+Memory 从会话中提取高置信度健康事实，正文加密保存在 PostgreSQL；Qdrant 只保存不含 PHI 正文的 reference vector。检索前按 tenant、actor 和状态过滤。
+
+Skill 支持内置 Skill、Markdown/ZIP 导入、自然语言生成和递增 SemVer 修订。模型产物先进入待审阅状态，不会自动发布、启用或调用工具。
 
 ## 5. 分层依赖
 
-依赖必须从上向下单向流动：React component → 前端 services → server-only BFF/Zod → FastAPI routes → services → modules/repositories → 数据源或 provider adapter。模块不得反向依赖 UI、HTTP route 或具体浏览器状态；跨模块业务流程只能在 `services/` 中编排。
-
-### 对话与 Agent Runtime
+依赖方向保持单向：
 
 ```text
-POST /api/v1/chat
-  → principal / rate limit / input_output normalization
-  → Trace replay 或 Redis lease + PostgreSQL fencing
-  → workflow registry + security profile admission
-  → request-scoped AgentState / governed Toolkit
-  → red-flag short circuit 或 RAG / Memory / Skill / Search / model router
-  → evidence and public-output validation
-  → atomic message + audit + terminal Trace commit
-  → SSE done
+React Component
+  → apps/mvp/src/services
+  → apps/mvp/app/api（server-only BFF）
+  → apps/api/api/routes
+  → apps/api/services
+  → apps/api/modules + repositories
+  → PostgreSQL / Redis / Qdrant / Provider adapters
 ```
 
-- `AgentState` 只属于当前 turn。历史由加密 PostgreSQL 会话恢复，不能由模型临时状态代替。
-- `orchestration.ChatTurnCoordinator` 统一处理 replay、lease、取消/失败终态和指标，不读取临床正文，也不发起第二次模型调用。
-- `runtime` 是唯一工具治理边界：capability、schema、大小、timeout、budget、permission、permit 和审计均由服务端决定。
-- SSE 只发送公开状态摘要、工具状态、文本、引用与 done；不发送隐藏推理、provider body、密钥或原始图片。`done` 仅在原子提交后发送。
-- 主/备用模型只在尚未产生可见文本或工具调用时切换。模型最大输出配置为 32,768；处方 workflow 的整流程预算为 600 秒。
-
-### 医疗输出策略
-
-本地知识库、受治理联网结果、用户文档和图片都可以成为 evidence。没有可追溯 evidence 的临床结论或调药候选不能进入临床产物；有 evidence 时可以输出带条件和依据的建议。患者端只在整段末尾显示一次复核提示；医生端直接显示建议、条件与证据。红旗症状仍优先输出立即就医信息。
+- React 组件不直接拼接 Provider URL、临床规则或数据库请求。
+- 前端业务调用集中在 `apps/mvp/src/services`，BFF 使用 Zod 校验浏览器边界。
+- API route 负责认证、请求映射、依赖注入和错误语义，不承载跨模块状态机。
+- `services` 负责业务编排、事务边界、重试、取消和多模块协调。
+- `modules` 提供可替换领域能力、Protocol 与 Pydantic 合同。
+- `repositories` 负责数据访问、所有权过滤和加密字段读写。
+- 外部 AI 调用统一经过 server-side adapter，不从浏览器直连。
 
 ## 6. 数据边界
 
-浏览器请求、上传文件、图像、MinerU/ASR/TTS/LLM Provider 响应、检索片段、网页内容、工具输入输出及数据库回读都是不可信输入。它们均须先经过身份、schema/version、大小和所有权校验，再进入下游；PHI 只按 tenant/actor/session 最小化处理，不能写入前端 bundle、公共向量正文或非必要日志。
+### 6.1 身份与角色
 
-### 知识、记忆、文档和图片
+- 登录页是统一入口，同时允许访客进入患者端。
+- 患者账户只能访问患者端，医生账户只能访问医生端，管理员可切换两端视角。
+- 访客使用临时身份；数据进入后台分析链路，但前端会话结束后不恢复访客历史。
+- 医生和患者之间没有聊天、通知或消息通信链路。
+- 服务端根据签发的 principal 决定 tenant、actor、role 和 scope，前端不能自报角色。
 
-### RAG
+### 6.2 数据存储
 
-`rag` 以 Markdown→heading chunk→dense+sparse→RRF→rerank 实现本地优先检索。每个结果必须满足 `local-rag-evidence-v1`，包含真实相对路径、章节、chunk、来源类型和分数。索引写入使用 PostgreSQL advisory lock、generation fencing、staging→activate、撤回清理；API 副本不会在启动时索引。
+| 数据 | 存储 | 约束 |
+|---|---|---|
+| 账户、会话、消息、临床产物 | PostgreSQL | tenant/actor 隔离，敏感正文加密 |
+| Trace、反馈、Bad Case | PostgreSQL | 最小化、加密、访问受限，不保存模型隐藏推理 |
+| 限流、session lease、取消 | Redis | 有 TTL，不作为长期事实源 |
+| 公共医学知识向量 | Qdrant | 来自外部只读 Markdown 语料 |
+| Memory reference vector | Qdrant | 不包含 PHI 正文，通过 PostgreSQL reference 回读 |
+| 图片 | 模型上下文 + 加密 Trace 输入 | evidence ID 绑定，base64 不写普通应用日志 |
+| 用户文档 | PostgreSQL 加密资料 | 不进入公共 RAG，不跨账户共享 |
 
-### Memory
+### 6.3 证据边界
 
-`memory` 保存加密、版本化健康事实；抽取结果可确认、拒绝、否定或失效。Qdrant 只保存无 PHI 的 reference vector。医生投影排除 `pending`/`inactive`；每次用户决定使用 `expected_revision`，避免最后写入覆盖。
+本地知识库、受治理联网搜索和用户上传资料都属于证据来源。临床建议、诊断方向、调药候选和用药审查结论必须关联可追溯 evidence；缺乏证据的高风险内容不能进入临床产物。有证据时保留完整建议和条件，患者端只在全文末尾显示一次风险提示，医生端不做机械屏蔽。
 
-### Document 与 Image
+### 6.4 并发与一致性
 
-MinerU 只由同源 Next.js BFF 发送到 provider，FastAPI 将解析 Markdown 加密登记为当前 session 的输入。五大处方输入不可静默截断；普通聊天的截断由服务端明确决定。上传图片作为模型的多模态输入和 evidence，trace 记录 base64 输入；资料的文字/影像内容可分析，但不能改变权限或执行外部指令。上传资料不是公共 RAG 语料。
+会话 turn 使用 Redis owner lease 与 PostgreSQL fencing token。assistant 消息、审计事件和 Trace 终态在同一事务提交；已完成请求可以按 trace replay，避免重复模型调用和重复写入。
 
 ## 7. Agent-Legible Invariants
 
-1. 浏览器只连 BFF；外部 Provider 只能由服务端 service/provider adapter 调用。
-2. 不可信输入先验证、限长、隔离；未知字段和风险不明的外发失败时受控终止。
-3. 未通过 schema 与 Runtime policy 的模型输出不得调用工具、写入数据库/Memory 或展示为医疗结论。
-4. 临床高风险操作没有 evidence、授权或所需人工批准时，不得升级为可执行系统动作。
-5. Trace、日志、评测和向量库不保存不必要的 PHI、凭据、用户原文或隐藏推理。
-6. 目录、静态 UI、mock 或文档不构成完成证据；每项能力须有消费链路、测试和运行证据。
+1. 浏览器只访问 BFF；Provider 凭据、数据库连接和内部 API 不进入客户端 bundle。
+2. 上传、模型、工具、检索、搜索和数据库回读均是不可信边界，必须先经过 schema、大小、版本、所有权和权限校验。
+3. 图片可以被模型解读并作为证据，但图片内容不能更改系统权限、工具许可或执行控制。
+4. 本地 RAG、联网搜索和用户资料都是合法 evidence source；缺少证据时才阻止高风险临床结论进入产物。
+5. 患者与医生数据按 tenant/actor 隔离；不存在患者和医生之间的消息通信通道。
+6. PostgreSQL 是事实源；Redis 和 Qdrant 的数据必须能通过稳定 ID 回到事实记录。
+7. AgentState 只属于当前 turn；长期状态通过会话、Memory 和版本化临床产物恢复。
+8. SSE 的 `done` 只能在消息与终态提交成功后发出；失败、取消和超时必须形成明确终态。
+9. 模型 fallback 接收同一任务上下文、证据和输出 schema；产生可见输出后不得切换到另一模型拼接回答。
+10. 五大处方、Skill、Memory 和工具参数必须通过版本化结构合同；未知版本或未知字段不能静默兼容。
+11. Trace 不保存 Chain-of-Thought、凭据或无必要的 Provider 原始响应；图片 base64 进入专用加密字段而不是普通日志。
+12. 患者上传文档和图片不能写入公共医学知识库。
 
-### 临床与交互模块
-
-| 模块 | 运行能力 | 关键限制 |
-|---|---|---|
-| `cga` | PHQ-9、SAS、PSQI、Mini-Cog、MMSE；版本化题目、计分、报告、导出、音频 | 不验证动作、书写或图画；不替代专业评估 |
-| `prescription` | 聊天式补充、10 份资料、273k 上限、evidence-bound 草案、Markdown/PDF/DOCX | `needs_clinician_review` 不是处方，不能发布或执行 |
-| `medication_review` | reconciliation、`medication-rules-v4`、来源绑定 artifact、严重命中 alert | 有限规则未命中不代表安全，不是完整 Beers/DDI 审方 |
-| `risk_alert` | Chat/CGA/严重用药信号的加密 ledger 与 acknowledgement | acknowledgement 不解除风险；没有通知/dispatch |
-| `chronic_care` | 自述病情、测量账本、最近两值算术趋势 | 无阈值、目标、诊断或治疗解释 |
-| `companion` | 受隔离的当前会话陪伴 | 无 Memory/RAG/Search/Skill/文档；红旗短路保留 |
-| `voice` | FastAPI ASR、24kHz PCM16 TTS、浏览器本地播放控制 | 未验证真实人声质量或 provider 端暂停 |
-| `skill` | 注册、导入、加载、生成、递增 SemVer 修订草稿 | 不自动保存、发布、启用或执行 |
-
-## 8. 模块维护契约
-
-`apps/api/src/gerclaw_api/modules/` 有 25 个实际模块。每个目录都必须同时含 `AGENTS.md` 和 `README.md`。README 的“维护与演进”章节是交接契约，必须说明：
-
-1. 哪些改善可安全实施，及其所需的 schema/迁移/消费者同步；
-2. 哪些所有权、版本、数据最小化、授权、终态或 provider 边界不可破坏；
-3. 精确的单元/集成/并发和 p95 验收标准。
-
-修改模块时先读模块 `AGENTS.md`，再读 README；不要以增加文件、mock 或静态 UI 代替真实 API/Runtime 消费链路。
-
-## 9. 可观测性、Bad Case 与评测
-
-- Trace 记录最小的 PHI-free 状态、workflow/version、受控工具和 terminal outcome；不保存 Chain-of-Thought。
-- 负反馈产生 tenant-scoped、加密 Bad Case。管理员工作台只接收 SQL 聚合，不读取 case snapshot、图片、正文、Trace 或身份。
-- `evals` 仅运行人工审核的合成 case；真实用户数据不能直接回放。RAG retrieval、Memory extraction、Skill draft、隐私 policy、规则与 Runtime profile 都有确定性基线。
-
-## 10. 部署与性能
+## 8. 部署架构
 
 ```text
-Docker Compose
-  postgres (encrypted fact source)
-  redis    (lease / rate-limit / cancellation)
-  qdrant   (vectors)
-  migrate  (one-shot Alembic)
-  api      (non-root FastAPI)
-  rag-index (optional one-shot job)
+Reverse Proxy / TLS
+        │
+        ▼
+Web container ── edge network ── API container
+                                  │
+                                  └── internal data network
+                                      ├── PostgreSQL volume
+                                      ├── Redis volume
+                                      └── Qdrant volume
+
+Read-only host knowledge base ── mount ── API / RAG index job
 ```
 
-已验证的性能边界仅限两条真实 Compose、最多 10 并发确定性 workload：安全短路 SSE 为 10/10 done、p50/p95 322/323ms；来源可追溯用药审查为 10/10、p50/p95 52/55ms。二者均验证 cross-actor 拒绝和唯一 completed Trace，均不包含外部模型、RAG、MinerU、完整五大处方或千级容量。
+Compose 的服务职责：
 
-空卷 Docker smoke 已验证 migration、3 份受控文档 RAG index、health、重启和 non-root。生产高可用仍应拆分数据服务、provider egress、secret 管理、监控、备份和容量演练。
+| 服务 | 生命周期 | 职责 |
+|---|---|---|
+| `web` | 常驻 | Next.js 页面与 BFF |
+| `api` | 常驻 | FastAPI 与 Agent Runtime |
+| `migrate` | 一次性 | 启动前执行 Alembic migration |
+| `postgres` | 常驻 | 事实数据和事务 |
+| `redis` | 常驻 | lease、限流、取消和短期协调 |
+| `qdrant` | 常驻 | RAG 与 Memory reference vectors |
+| `rag-index` | 按需 | 增量索引外挂 Markdown 语料 |
+| `test-api` | 按需 | 隔离测试数据库中的集成测试 |
 
-## 11. 验证顺序
+`web` 只连接 edge network；数据库、Redis 和 Qdrant 位于 internal data network，默认不映射宿主机公网端口。Web 与 API 镜像使用多阶段构建和非 root 用户运行。知识库使用只读 bind mount，业务数据使用命名卷。
 
-```bash
-scripts/quality-gate.sh quick
-docker compose --profile test run --rm test-api
-cd apps/mvp && npm test
-GERCLAW_E2E_BASE_URL=http://127.0.0.1:3000 scripts/quality-gate.sh e2e
-GERCLAW_RUN_DOCKER_SMOKE=1 GERCLAW_RUN_EXTERNAL=1 scripts/quality-gate.sh docker-smoke
-```
+生产环境建议：
 
-外部 Provider 测试与空卷索引会产生真实请求，必须显式同意。任何运行失败必须保留稳定错误、停止向下游扩大影响，并如实写入 evidence/exec-plan；不得以“应当可用”替代运行结果。
+- 在 Web 前部署 TLS 反向代理或云负载均衡器。
+- 使用 Secret Manager 注入 JWT、加密密钥和 Provider Key。
+- 将 PostgreSQL、Redis、Qdrant 替换为带备份和监控的托管或高可用服务。
+- 为 API 配置多副本、共享 Redis/Qdrant/PostgreSQL，并保持 migration 为单次任务。
+- 对外部 Provider 配置出口白名单、超时、预算、熔断和告警。
+- 定期备份 PostgreSQL 与 Qdrant，并进行恢复演练。
+
+## 9. 可观测性与质量
+
+系统使用结构化日志、健康检查、Prometheus 指标、Trace、用户反馈和去标识化 Bad Case 观察运行质量。
+
+- `/health/live` 表示 API 进程可服务。
+- `/health/ready` 检查 PostgreSQL、Redis、Qdrant、知识库、RAG index、Memory、搜索和 AgentScope。
+- Trace 记录 workflow/version、工具事件、证据引用、终态和有界错误码。
+- Provider egress 在外发前登记最小化审计事件，普通日志不写用户正文、音频、图片或密钥。
+- 管理端只查看聚合统计；真实 Bad Case 需去标识化并人工审核后才能进入 Eval。
+
+## 10. 模块扩展契约
+
+`apps/api/src/gerclaw_api/modules` 中每个实际模块都带有 `AGENTS.md` 和 README。修改模块前应先阅读两份文件，其中定义：
+
+1. 当前 Protocol、实现、消费者和错误语义。
+2. 可以安全扩展的方向和所需 schema/migration 同步。
+3. 不可破坏的身份、版本、数据最小化、授权和终态约束。
+4. 单元、集成、并发与性能验收标准。
+
+新增领域能力应先定义 versioned contract，再实现 module 和 service 编排，最后接入 route、BFF 与前端消费者。不得通过复制前端、建立平行业务客户端或在组件中直接调用 Provider 扩展系统。

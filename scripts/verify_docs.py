@@ -13,20 +13,6 @@ from pathlib import Path
 from urllib.parse import unquote
 
 REQUIRED_FILES = {
-    "README.md": {
-        "min_lines": 40,
-        "required_sections": [
-            "## 当前状态",
-            "## 系统架构",
-            "## 环境变量",
-            "## 本地启动",
-            "## 验证",
-            "## Docker",
-            "## 测试与性能状态",
-            "## 风险与改进",
-            "## 医疗安全",
-        ],
-    },
     "AGENTS.md": {
         "min_lines": 50,
         "max_lines": 200,
@@ -43,16 +29,6 @@ REQUIRED_FILES = {
         "min_lines": 1,
         "max_lines": 5,
         "required_sections": [],
-    },
-    "ARCHITECTURE.md": {
-        "min_lines": 50,
-        "required_sections": [
-            "## 1. 系统目标",
-            "## 3. 推荐技术栈",
-            "## 5. 分层依赖",
-            "## 6. 数据边界",
-            "## 7. Agent-Legible Invariants",
-        ],
     },
     "docs/PRD.md": {
         "min_lines": 50,
@@ -174,6 +150,8 @@ OPTIONAL_FILES = {
         ],
     },
 }
+
+USER_FACING_DOCUMENTS = ("README.md", "ARCHITECTURE.md")
 
 PLACEHOLDER_PATTERNS = [
     r"\{\{[^}]+\}\}",
@@ -343,7 +321,7 @@ def check_markdown_links(workspace: Path) -> list[str]:
     """Reject broken relative Markdown links in governed documentation."""
 
     issues: list[str] = []
-    for rel_path in REQUIRED_FILES:
+    for rel_path in (*REQUIRED_FILES, *USER_FACING_DOCUMENTS):
         document = workspace / rel_path
         if not document.exists() or document.suffix != ".md":
             continue

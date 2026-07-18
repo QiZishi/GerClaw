@@ -7,7 +7,7 @@
 | DEV-01 | 统一开发门禁 | 根脚本、CI、docs verifier | 一条命令跑 docs/format/lint/type/test/build/security | ✅ quality modes 与 CI workflow 已实现 |
 | DEV-02 | 分层测试和隔离依赖 | `apps/api/tests` | unit/integration/external/e2e；独立 DB/Redis/Qdrant | ✅ marker 与隔离 fixture 已有 |
 | DEV-03 | 证据和独立审阅 | exec-plan、`output/` | 每里程碑命令、截图、审阅 PASS、commit | ✅ 0014–0019 已执行 |
-| DEV-04 | 模块合同 | `modules/*` | Protocol+生产实现+README+测试 | 🚧 所有含实现源码的核心模块现由 docs gate 强制要求 AGENTS.md/README.md；RAG/Memory/Search/Skill 已有完整生产纵切面，其余模块仍按各自计划补齐 Protocol、生产实现或真实集成证据 |
+| DEV-04 | 模块合同 | `modules/*` | Protocol+生产实现+README+测试 | 🚧 模块维护文档作为工程约定保留，不再绑定根 README/ARCHITECTURE 的章节门禁；RAG/Memory/Search/Skill 已有完整生产纵切面，其余模块仍按各自计划补齐 Protocol、生产实现或真实集成证据 |
 | DEV-05 | owner/预算/checkpoint | exec-plan、runtime | owner、预算、恢复入口、独立 reviewer | 🚧 Runtime 预算与加密 version-bound checkpoint 已实现；临床副作用 continuation executor 尚未启用 |
 | RUN-01 | AgentScope ReAct/SSE/取消 | agent_harness、chat service、orchestration | 真实模型+RAG+工具+原子终态 | ✅ Chat 的 Trace 幂等建立/回放、租约 adoption、取消/失败终态已由 `ChatTurnCoordinator` 实际协调，feature 仍持有上下文和 Agent Harness；不额外调用模型 |
 | RUN-02 | ALLOW/DENY/ASK 与 HITL | permission、approval | 三决策单测；ASK 可恢复审批 | 🚧 PermissionEngine、加密审批 API、一次性 token、pending SSE 已实现；临床副作用 resume executor 待业务模块启用 |
@@ -47,7 +47,7 @@
 | UI-07 | 兼容/恢复/审批/删除状态 | app UI | 不兼容、恢复、等待、撤回均可理解可操作 | 🚧 健康档案及 CGA 目录/历史读取已复用低频 `InlineLoadingState`，避免文字提示闪烁和整页跳动；审批、恢复、删除及跨模块错误状态仍未统一 |
 | OPS-01 | Readiness | health service | DB/Redis/Qdrant/RAG generation/配置 503 | ✅ 真实依赖套件通过 |
 | OPS-02 | metrics/feedback/eval/Bad Case | metrics/trace/feedback/eval | API、存储、回放、趋势 | 🚧 Trace/基础反馈与加密 Bad Case 已有；2026-07-18 管理员可通过 `account:admin` 读取 PHI-free 队列元数据并更新处置状态，管理员前端已实际接入，API/BFF 均不暴露 snapshot/评论/原始输入。队列查询显式不加载加密 snapshot，历史密钥不可读也不会阻断队列；新增 `observability_feedback` 只接收数据库分组的 source/severity/status/count，并在管理员端低密度展示待处理、高优先级、负反馈和已处置，不能接触快照、图片、反馈正文或用户标识。28 个合成安全/输出安全/隐私/用药规则/Skill 草稿/Memory 提取 policy case 不回放真实输入；test image 的显式 opt-in RAG 评测对五个本地老年医学主题命中和一个无证据例均为 6/6。尚缺授权脱敏晋升、模型/临床评测、时间趋势与指标闭环 |
-| OPS-03 | 测试覆盖门禁 | pytest/coverage | ≥80%，负向阈值 exit 1 | ✅ 当前 `quick` gate 为 698 passed、36 skipped、coverage 80.46%，Harness 负向门禁通过 |
+| OPS-03 | 测试覆盖门禁 | pytest/coverage | ≥80%，负向阈值 exit 1 | ✅ 当前 `quick` gate 为 747 passed、38 skipped、coverage 80.18%，Harness 负向门禁通过 |
 | OPS-04 | ≤10 并发 | integration/perf | 隔离、幂等、限流、取消、p50/p95 | 🚧 2026-07-18 当前 Compose API 的安全短路 SSE 为 10/10 done、失败率 0、p50 99ms/p95 100ms、10 个唯一 completed Trace、访客 history 10/10 为 403、跨访客 Trace 为 404；同日的真实确定性用药审查 workflow 为 10/10 HTTP 200、p50 50ms/p95 53ms、规则 finding/来源 10/10、Trace 完成与跨访客 intake/Trace 404。均不代表外部模型/RAG/MinerU、完整处方、取消/限流/幂等统一负载或千级容量，后者仍待补齐 |
 | OPS-05 | Docker 全栈 | Dockerfiles/compose | 空卷启动、迁移、health、重启、非 root | ✅ 2026-07-18 `docker-smoke` 在独立项目、全新临时卷中实际通过：迁移、3 份受控代表性 RAG 文档的真实 embedding/index、`live`/`ready`、非 root API 与重启后 readiness；完成后容器、网络、卷均自动清理。它不外推为临床 workflow E2E 或容量验收 |
 | OPS-06 | 故障注入 | unit/integration/e2e | 断流/429/5xx/依赖中断/lost-ack/竞争/重启 | 🚧 RAG/Chat 有较强覆盖，临床/Document/HITL 缺失 |
