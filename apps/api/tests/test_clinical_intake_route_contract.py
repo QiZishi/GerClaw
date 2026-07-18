@@ -128,7 +128,12 @@ async def test_prescription_failure_trace_keeps_slot_only_attempts() -> None:
         trace_id="trace_" + "a" * 32,
         started_at=0.0,
         attempts=[
-            ModelAttempt("primary", "failed", "MODEL_TIMEOUT"),
+            ModelAttempt(
+                "primary",
+                "failed",
+                "MODEL_TIMEOUT",
+                "model-capabilities-v1",
+            ),
             ModelAttempt("backup1", "started"),
         ],
         error_code="PRESCRIPTION_DRAFT_UNAVAILABLE",
@@ -140,6 +145,7 @@ async def test_prescription_failure_trace_keeps_slot_only_attempts() -> None:
     assert [event.payload for event in model_events] == [
         {
             "model": "slot_primary",
+            "capability_version": "model-capabilities-v1",
             "outcome": "failed",
             "success": False,
             "error_code": "model_timeout",

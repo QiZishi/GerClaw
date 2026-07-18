@@ -68,6 +68,18 @@ class AgentModelConfig(BaseModel):
     preference: Literal["primary", "backup1", "backup2"]
     timeout_seconds: float = Field(default=180.0, gt=0, le=300)
     max_output_tokens: int = Field(default=32_768, ge=256, le=32_768)
+    # This is a server-owned declaration about the adapter contract, not a
+    # provider response.  It makes failover selection explainable and prevents
+    # an image/tool/structured task from being sent to an incompatible slot.
+    capability_version: str = Field(
+        default="model-capabilities-v1",
+        min_length=3,
+        max_length=64,
+        pattern=r"^[a-z][a-z0-9_.-]+$",
+    )
+    supports_image_input: bool = True
+    supports_tool_calling: bool = True
+    supports_structured_output: bool = True
 
 
 class Settings(BaseSettings):
@@ -100,6 +112,12 @@ class Settings(BaseSettings):
     agent_evidence_top_k: int = Field(default=5, ge=1, le=10)
     agent_model_timeout_seconds: float = Field(default=180.0, gt=0, le=300)
     agent_model_max_output_tokens: int = Field(default=32_768, ge=256, le=32_768)
+    agent_model_capability_version: str = Field(
+        default="model-capabilities-v1",
+        min_length=3,
+        max_length=64,
+        pattern=r"^[a-z][a-z0-9_.-]+$",
+    )
     # This is the hard budget for the whole evidence-bound five-prescription
     # workflow, not the per-provider candidate timeout.  It permits primary
     # and fallback attempts without returning to the former 60-second limit.
@@ -228,6 +246,25 @@ class Settings(BaseSettings):
             "GERCLAW_AGENT_PRIMARY_PREFERENCE", "AGENT_PRIMARY_PREFERENCE"
         ),
     )
+    agent_primary_supports_image_input: bool = Field(
+        default=True,
+        validation_alias=AliasChoices(
+            "GERCLAW_AGENT_PRIMARY_SUPPORTS_IMAGE_INPUT", "AGENT_PRIMARY_SUPPORTS_IMAGE_INPUT"
+        ),
+    )
+    agent_primary_supports_tool_calling: bool = Field(
+        default=True,
+        validation_alias=AliasChoices(
+            "GERCLAW_AGENT_PRIMARY_SUPPORTS_TOOL_CALLING", "AGENT_PRIMARY_SUPPORTS_TOOL_CALLING"
+        ),
+    )
+    agent_primary_supports_structured_output: bool = Field(
+        default=True,
+        validation_alias=AliasChoices(
+            "GERCLAW_AGENT_PRIMARY_SUPPORTS_STRUCTURED_OUTPUT",
+            "AGENT_PRIMARY_SUPPORTS_STRUCTURED_OUTPUT",
+        ),
+    )
 
     agent_backup1_url: AnyHttpUrl | None = Field(
         default=None,
@@ -263,6 +300,25 @@ class Settings(BaseSettings):
             "GERCLAW_AGENT_BACKUP1_PREFERENCE", "AGENT_BACKUP1_PREFERENCE"
         ),
     )
+    agent_backup1_supports_image_input: bool = Field(
+        default=True,
+        validation_alias=AliasChoices(
+            "GERCLAW_AGENT_BACKUP1_SUPPORTS_IMAGE_INPUT", "AGENT_BACKUP1_SUPPORTS_IMAGE_INPUT"
+        ),
+    )
+    agent_backup1_supports_tool_calling: bool = Field(
+        default=True,
+        validation_alias=AliasChoices(
+            "GERCLAW_AGENT_BACKUP1_SUPPORTS_TOOL_CALLING", "AGENT_BACKUP1_SUPPORTS_TOOL_CALLING"
+        ),
+    )
+    agent_backup1_supports_structured_output: bool = Field(
+        default=True,
+        validation_alias=AliasChoices(
+            "GERCLAW_AGENT_BACKUP1_SUPPORTS_STRUCTURED_OUTPUT",
+            "AGENT_BACKUP1_SUPPORTS_STRUCTURED_OUTPUT",
+        ),
+    )
 
     agent_backup2_url: AnyHttpUrl | None = Field(
         default=None,
@@ -296,6 +352,25 @@ class Settings(BaseSettings):
         default="backup2",
         validation_alias=AliasChoices(
             "GERCLAW_AGENT_BACKUP2_PREFERENCE", "AGENT_BACKUP2_PREFERENCE"
+        ),
+    )
+    agent_backup2_supports_image_input: bool = Field(
+        default=True,
+        validation_alias=AliasChoices(
+            "GERCLAW_AGENT_BACKUP2_SUPPORTS_IMAGE_INPUT", "AGENT_BACKUP2_SUPPORTS_IMAGE_INPUT"
+        ),
+    )
+    agent_backup2_supports_tool_calling: bool = Field(
+        default=True,
+        validation_alias=AliasChoices(
+            "GERCLAW_AGENT_BACKUP2_SUPPORTS_TOOL_CALLING", "AGENT_BACKUP2_SUPPORTS_TOOL_CALLING"
+        ),
+    )
+    agent_backup2_supports_structured_output: bool = Field(
+        default=True,
+        validation_alias=AliasChoices(
+            "GERCLAW_AGENT_BACKUP2_SUPPORTS_STRUCTURED_OUTPUT",
+            "AGENT_BACKUP2_SUPPORTS_STRUCTURED_OUTPUT",
         ),
     )
 
@@ -479,6 +554,23 @@ class Settings(BaseSettings):
                 raise ValueError("production database must use postgresql+asyncpg")
             if len(self.agent_model_configs) != 3:
                 raise ValueError("production requires primary, backup1, and backup2 agent models")
+            capability_declarations = {
+                "agent_model_capability_version",
+                "agent_primary_supports_image_input",
+                "agent_primary_supports_tool_calling",
+                "agent_primary_supports_structured_output",
+                "agent_backup1_supports_image_input",
+                "agent_backup1_supports_tool_calling",
+                "agent_backup1_supports_structured_output",
+                "agent_backup2_supports_image_input",
+                "agent_backup2_supports_tool_calling",
+                "agent_backup2_supports_structured_output",
+            }
+            if not capability_declarations.issubset(self.model_fields_set):
+                raise ValueError(
+                    "production requires explicit capability declarations "
+                    "for every agent model slot"
+                )
             required_external = {
                 "mimo_api_key": self.mimo_api_key,
                 "mimo_asr_url": self.mimo_asr_url,
@@ -590,6 +682,9 @@ class Settings(BaseSettings):
                 self.agent_primary_model,
                 self.agent_primary_protocol,
                 self.agent_primary_preference,
+                self.agent_primary_supports_image_input,
+                self.agent_primary_supports_tool_calling,
+                self.agent_primary_supports_structured_output,
             ),
             (
                 "backup1",
@@ -598,6 +693,9 @@ class Settings(BaseSettings):
                 self.agent_backup1_model,
                 self.agent_backup1_protocol,
                 self.agent_backup1_preference,
+                self.agent_backup1_supports_image_input,
+                self.agent_backup1_supports_tool_calling,
+                self.agent_backup1_supports_structured_output,
             ),
             (
                 "backup2",
@@ -606,10 +704,23 @@ class Settings(BaseSettings):
                 self.agent_backup2_model,
                 self.agent_backup2_protocol,
                 self.agent_backup2_preference,
+                self.agent_backup2_supports_image_input,
+                self.agent_backup2_supports_tool_calling,
+                self.agent_backup2_supports_structured_output,
             ),
         )
         configured: list[AgentModelConfig] = []
-        for name, url, api_key, model, protocol, preference in slots:
+        for (
+            name,
+            url,
+            api_key,
+            model,
+            protocol,
+            preference,
+            supports_image_input,
+            supports_tool_calling,
+            supports_structured_output,
+        ) in slots:
             values = (url, api_key, model, protocol)
             if not any(value is not None for value in values):
                 continue
@@ -624,6 +735,10 @@ class Settings(BaseSettings):
                     preference=preference,
                     timeout_seconds=self.agent_model_timeout_seconds,
                     max_output_tokens=self.agent_model_max_output_tokens,
+                    capability_version=self.agent_model_capability_version,
+                    supports_image_input=supports_image_input,
+                    supports_tool_calling=supports_tool_calling,
+                    supports_structured_output=supports_structured_output,
                 )
             )
         return tuple(configured)

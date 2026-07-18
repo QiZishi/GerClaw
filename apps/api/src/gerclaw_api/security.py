@@ -57,6 +57,7 @@ SENSITIVE_KEYS = frozenset(
 ALLOWED_AUDIT_KEYS = frozenset(
     {
         "cache_hit",
+        "capability_version",
         "categories",
         "channel",
         "chunk_ids",

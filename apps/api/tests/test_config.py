@@ -25,14 +25,24 @@ def _values() -> dict[str, object]:
         "agent_primary_api_key": "strong-primary-secret",
         "agent_primary_model": "primary-model",
         "agent_primary_protocol": "openai",
+        "agent_primary_supports_image_input": True,
+        "agent_primary_supports_tool_calling": True,
+        "agent_primary_supports_structured_output": True,
         "agent_backup1_url": "https://backup1.example.com/v1",
         "agent_backup1_api_key": "strong-backup-one-secret",
         "agent_backup1_model": "backup1-model",
         "agent_backup1_protocol": "dashscope",
+        "agent_backup1_supports_image_input": True,
+        "agent_backup1_supports_tool_calling": True,
+        "agent_backup1_supports_structured_output": True,
         "agent_backup2_url": "https://backup2.example.com/v1",
         "agent_backup2_api_key": "strong-backup-two-secret",
         "agent_backup2_model": "backup2-model",
         "agent_backup2_protocol": "anthropic",
+        "agent_backup2_supports_image_input": True,
+        "agent_backup2_supports_tool_calling": True,
+        "agent_backup2_supports_structured_output": True,
+        "agent_model_capability_version": "model-capabilities-v1",
         "mimo_api_key": "strong-mimo-secret-value",
         "mimo_asr_url": "https://voice.example.com/v1",
         "mimo_tts_url": "https://voice.example.com/v1",
@@ -63,6 +73,9 @@ def test_production_settings_accept_explicit_safe_endpoints() -> None:
     ]
     assert {item.max_output_tokens for item in settings.agent_model_configs} == {32_768}
     assert {item.timeout_seconds for item in settings.agent_model_configs} == {180.0}
+    assert {item.capability_version for item in settings.agent_model_configs} == {
+        "model-capabilities-v1"
+    }
     assert settings.prescription_generation_timeout_seconds == 600.0
 
 
@@ -179,3 +192,25 @@ def test_partial_agent_model_configuration_is_rejected_on_access() -> None:
 
     with pytest.raises(ValueError, match="partially configured"):
         _ = settings.agent_model_configs
+
+
+def test_model_slot_capabilities_are_loaded_from_server_configuration() -> None:
+    values = _values()
+    values["agent_backup1_supports_image_input"] = False
+    values["agent_backup1_supports_tool_calling"] = False
+    values["agent_model_capability_version"] = "model-capabilities-v2"
+
+    settings = Settings.model_validate(values)
+
+    backup = settings.agent_model_configs[1]
+    assert backup.capability_version == "model-capabilities-v2"
+    assert backup.supports_image_input is False
+    assert backup.supports_tool_calling is False
+
+
+def test_production_rejects_implicit_model_capability_defaults() -> None:
+    values = _values()
+    values.pop("agent_backup2_supports_image_input")
+
+    with pytest.raises(ValidationError, match="capability declarations"):
+        Settings.model_validate(values)

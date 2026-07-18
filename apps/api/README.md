@@ -12,6 +12,8 @@ GerClaw 二阶段生产后端。当前已提供真实 PostgreSQL、Redis、Qdran
 
 Trace/feedback/metrics 均要求已验证 JWT scope，tenant/actor 只从 token claims 派生。Trace JSONB 只接受枚举事件和 allowlist 审计元数据；自由文本敏感列使用 AES-256-GCM envelope encryption，禁止存储原始 Chain-of-Thought。
 
+三模型链的每个 slot 还必须在服务端声明是否支持图片、工具调用和结构化输出；Router 会先根据请求内容筛选候选，跳过不兼容模型并把无 PHI 的 capability version/原因写入审计，而不是把图片或 JSON 任务错误交给文本模型。能力声明的版本为 `GERCLAW_AGENT_MODEL_CAPABILITY_VERSION`，各 slot 的 `AGENT_*_SUPPORTS_*` 配置见根 `.env.example`。
+
 ## Docker 运行
 
 ```bash

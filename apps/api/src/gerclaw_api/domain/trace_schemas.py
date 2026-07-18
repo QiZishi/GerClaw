@@ -60,6 +60,7 @@ EVENT_AUDIT_KEYS: dict[TraceEventType, frozenset[str]] = {
     ),
     TraceEventType.MODEL_CALL: frozenset(
         {
+            "capability_version",
             "duration_ms",
             "error_code",
             "input_tokens",

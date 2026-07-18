@@ -45,6 +45,10 @@ class ModelPromptEgressAuditError(RuntimeError):
     """Raised when the required model-provider audit boundary is unavailable."""
 
 
+class ModelCapabilityUnavailableError(RuntimeError):
+    """Raised when no configured model can safely handle the requested capability set."""
+
+
 @dataclass(frozen=True, slots=True)
 class ModelAttempt:
     """Safe audit record containing slots and reason codes, never provider text."""
@@ -52,6 +56,7 @@ class ModelAttempt:
     preference: Literal["primary", "backup1", "backup2"]
     outcome: Literal["started", "succeeded", "failed", "failed_partial"]
     error_code: str | None = None
+    capability_version: str | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -61,6 +66,10 @@ class _Candidate:
     model_name: str
     model: ChatModelBase
     timeout_seconds: float
+    capability_version: str
+    supports_image_input: bool
+    supports_tool_calling: bool
+    supports_structured_output: bool
 
 
 class ModelPromptEgressAudit(Protocol):
@@ -146,6 +155,28 @@ def _commits_stream(chunk: ChatResponse) -> bool:
             continue
         return True
     return False
+
+
+def _messages_include_image_input(messages: list[Msg]) -> bool:
+    """Detect validated AgentScope base64 image blocks without inspecting their bytes."""
+
+    def contains_image(value: object) -> bool:
+        if isinstance(value, list):
+            return any(contains_image(item) for item in value)
+        if not isinstance(value, dict):
+            return False
+        source = value.get("source")
+        if (
+            value.get("type") == "data"
+            and isinstance(source, dict)
+            and source.get("type") == "base64"
+            and isinstance(source.get("media_type"), str)
+            and source["media_type"].startswith("image/")
+        ):
+            return True
+        return any(contains_image(item) for item in value.values())
+
+    return any(contains_image(message.model_dump()) for message in messages)
 
 
 def _redact_model_value(value: Any, decisions: list[RedactionResult]) -> Any:
@@ -260,6 +291,10 @@ class FailoverChatModel(ChatModelBase):
                 config.model_name,
                 build_agentscope_model(config),
                 config.timeout_seconds,
+                config.capability_version,
+                config.supports_image_input,
+                config.supports_tool_calling,
+                config.supports_structured_output,
             )
             for config in configs
         )
@@ -272,6 +307,48 @@ class FailoverChatModel(ChatModelBase):
             max_retries=0,
             context_size=min(candidate.model.context_size for candidate in candidates),
         )
+
+    @staticmethod
+    def _attempt(
+        candidate: _Candidate,
+        outcome: Literal["started", "succeeded", "failed", "failed_partial"],
+        error_code: str | None = None,
+    ) -> ModelAttempt:
+        return ModelAttempt(
+            candidate.preference,
+            outcome,
+            error_code,
+            candidate.capability_version,
+        )
+
+    def _capable_candidates(
+        self,
+        messages: list[Msg],
+        *,
+        requires_tool_calling: bool,
+        requires_structured_output: bool,
+    ) -> tuple[_Candidate, ...]:
+        """Choose only declared-compatible slots and make skipped slots auditable."""
+
+        requires_image_input = _messages_include_image_input(messages)
+        eligible: list[_Candidate] = []
+        for candidate in self._candidates:
+            error_code: str | None = None
+            if requires_image_input and not candidate.supports_image_input:
+                error_code = "MODEL_IMAGE_INPUT_UNSUPPORTED"
+            elif requires_tool_calling and not candidate.supports_tool_calling:
+                error_code = "MODEL_TOOL_CALLING_UNSUPPORTED"
+            elif requires_structured_output and not candidate.supports_structured_output:
+                error_code = "MODEL_STRUCTURED_OUTPUT_UNSUPPORTED"
+            if error_code is not None:
+                _record(self._attempt(candidate, "failed", error_code))
+                continue
+            eligible.append(candidate)
+        if not eligible:
+            raise ModelCapabilityUnavailableError(
+                "no configured model declares the capabilities required by this request"
+            )
+        return tuple(eligible)
 
     async def _call_api_with_structured_output(
         self,
@@ -293,8 +370,13 @@ class FailoverChatModel(ChatModelBase):
 
         del model_name
         safe_messages, decision = redact_model_messages_with_decision(messages)
-        for candidate in self._candidates:
-            _record(ModelAttempt(candidate.preference, "started"))
+        candidates = self._capable_candidates(
+            safe_messages,
+            requires_tool_calling=False,
+            requires_structured_output=True,
+        )
+        for candidate in candidates:
+            _record(self._attempt(candidate, "started"))
             egress_handle = await _prepare_egress(candidate.preference, decision)
             # Qwen-compatible endpoints can reject a forced named tool choice
             # in thinking mode even when exposed through the OpenAI-compatible
@@ -322,15 +404,11 @@ class FailoverChatModel(ChatModelBase):
             except Exception as error:
                 await _finish_egress(egress_handle, outcome="failed")
                 _record(
-                    ModelAttempt(
-                        candidate.preference,
-                        "failed",
-                        _structured_error_code(error),
-                    )
+                    self._attempt(candidate, "failed", _structured_error_code(error))
                 )
                 continue
             await _finish_egress(egress_handle, outcome="succeeded")
-            _record(ModelAttempt(candidate.preference, "succeeded"))
+            _record(self._attempt(candidate, "succeeded"))
             return response
         raise ModelChainExhaustedError("all configured model services are unavailable")
 
@@ -353,13 +431,19 @@ class FailoverChatModel(ChatModelBase):
             and attempt.error_code == "MODEL_INVALID_STRUCTURED_OUTPUT"
         }
         candidates = tuple(
-            candidate for candidate in self._candidates if candidate.preference in incompatible
+            candidate
+            for candidate in self._capable_candidates(
+                safe_messages,
+                requires_tool_calling=False,
+                requires_structured_output=False,
+            )
+            if candidate.preference in incompatible
         )
         if not candidates:
             raise ModelChainExhaustedError("no compatible model is available for JSON fallback")
 
         for candidate in candidates:
-            _record(ModelAttempt(candidate.preference, "started"))
+            _record(self._attempt(candidate, "started"))
             egress_handle = await _prepare_egress(candidate.preference, decision)
             try:
                 async with asyncio.timeout(candidate.timeout_seconds):
@@ -372,10 +456,10 @@ class FailoverChatModel(ChatModelBase):
                 raise
             except Exception as error:
                 await _finish_egress(egress_handle, outcome="failed")
-                _record(ModelAttempt(candidate.preference, "failed", _safe_error_code(error)))
+                _record(self._attempt(candidate, "failed", _safe_error_code(error)))
                 continue
             await _finish_egress(egress_handle, outcome="succeeded")
-            _record(ModelAttempt(candidate.preference, "succeeded"))
+            _record(self._attempt(candidate, "succeeded"))
             return text
         raise ModelChainExhaustedError("all compatible model services are unavailable")
 
@@ -414,8 +498,13 @@ class FailoverChatModel(ChatModelBase):
     ) -> ChatResponse | AsyncGenerator[ChatResponse, None]:
         del model_name
         safe_messages, decision = redact_model_messages_with_decision(messages)
-        for index, candidate in enumerate(self._candidates):
-            _record(ModelAttempt(candidate.preference, "started"))
+        candidates = self._capable_candidates(
+            safe_messages,
+            requires_tool_calling=bool(tools),
+            requires_structured_output=False,
+        )
+        for index, candidate in enumerate(candidates):
+            _record(self._attempt(candidate, "started"))
             egress_handle = await _prepare_egress(candidate.preference, decision)
             loop = asyncio.get_running_loop()
             deadline = loop.time() + candidate.timeout_seconds
@@ -436,19 +525,20 @@ class FailoverChatModel(ChatModelBase):
                 raise
             except Exception as error:
                 await _finish_egress(egress_handle, outcome="failed")
-                _record(ModelAttempt(candidate.preference, "failed", _safe_error_code(error)))
+                _record(self._attempt(candidate, "failed", _safe_error_code(error)))
                 continue
 
             if isinstance(response, ChatResponse):
                 if _commits_stream(response):
                     await _finish_egress(egress_handle, outcome="succeeded")
-                    _record(ModelAttempt(candidate.preference, "succeeded"))
+                    _record(self._attempt(candidate, "succeeded"))
                     return response
                 await _finish_egress(egress_handle, outcome="failed")
-                _record(ModelAttempt(candidate.preference, "failed", "MODEL_EMPTY_RESPONSE"))
+                _record(self._attempt(candidate, "failed", "MODEL_EMPTY_RESPONSE"))
                 continue
             return self._stream_with_failover(
                 index,
+                candidates,
                 response,
                 safe_messages,
                 tools,
@@ -463,6 +553,7 @@ class FailoverChatModel(ChatModelBase):
     async def _stream_with_failover(
         self,
         start_index: int,
+        candidates: tuple[_Candidate, ...],
         initial: AsyncGenerator[ChatResponse, None],
         messages: list[Msg],
         tools: list[dict[str, Any]] | None,
@@ -474,8 +565,8 @@ class FailoverChatModel(ChatModelBase):
     ) -> AsyncGenerator[ChatResponse, None]:
         current_index = start_index
         stream = initial
-        while current_index < len(self._candidates):
-            candidate = self._candidates[current_index]
+        while current_index < len(candidates):
+            candidate = candidates[current_index]
             committed = False
             try:
                 async with asyncio.timeout_at(deadline):
@@ -495,10 +586,10 @@ class FailoverChatModel(ChatModelBase):
                     raise TimeoutError("model stream exceeded its total deadline")
                 if committed:
                     await _finish_egress(egress_handle, outcome="succeeded")
-                    _record(ModelAttempt(candidate.preference, "succeeded"))
+                    _record(self._attempt(candidate, "succeeded"))
                     return
                 await _finish_egress(egress_handle, outcome="failed")
-                _record(ModelAttempt(candidate.preference, "failed", "MODEL_EMPTY_RESPONSE"))
+                _record(self._attempt(candidate, "failed", "MODEL_EMPTY_RESPONSE"))
             except asyncio.CancelledError:
                 await _finish_egress(egress_handle, outcome="failed")
                 raise
@@ -508,19 +599,19 @@ class FailoverChatModel(ChatModelBase):
                 code = _safe_error_code(error)
                 if committed:
                     await _finish_egress(egress_handle, outcome="failed")
-                    _record(ModelAttempt(candidate.preference, "failed_partial", code))
+                    _record(self._attempt(candidate, "failed_partial", code))
                     raise PartialModelStreamError(
                         "model stream failed after visible output; automatic replay is unsafe"
                     ) from error
-                _record(ModelAttempt(candidate.preference, "failed", code))
+                _record(self._attempt(candidate, "failed", code))
                 await _finish_egress(egress_handle, outcome="failed")
 
             while True:
                 current_index += 1
-                if current_index >= len(self._candidates):
+                if current_index >= len(candidates):
                     raise ModelChainExhaustedError("all configured model services are unavailable")
-                next_candidate = self._candidates[current_index]
-                _record(ModelAttempt(next_candidate.preference, "started"))
+                next_candidate = candidates[current_index]
+                _record(self._attempt(next_candidate, "started"))
                 egress_handle = await _prepare_egress(next_candidate.preference, decision)
                 loop = asyncio.get_running_loop()
                 deadline = loop.time() + next_candidate.timeout_seconds
@@ -542,25 +633,17 @@ class FailoverChatModel(ChatModelBase):
                 except Exception as error:
                     await _finish_egress(egress_handle, outcome="failed")
                     _record(
-                        ModelAttempt(
-                            next_candidate.preference,
-                            "failed",
-                            _safe_error_code(error),
-                        )
+                        self._attempt(next_candidate, "failed", _safe_error_code(error))
                     )
                     continue
                 if isinstance(next_response, ChatResponse):
                     if _commits_stream(next_response):
                         await _finish_egress(egress_handle, outcome="succeeded")
-                        _record(ModelAttempt(next_candidate.preference, "succeeded"))
+                        _record(self._attempt(next_candidate, "succeeded"))
                         yield next_response
                         return
                     _record(
-                        ModelAttempt(
-                            next_candidate.preference,
-                            "failed",
-                            "MODEL_EMPTY_RESPONSE",
-                        )
+                        self._attempt(next_candidate, "failed", "MODEL_EMPTY_RESPONSE")
                     )
                     await _finish_egress(egress_handle, outcome="failed")
                     continue

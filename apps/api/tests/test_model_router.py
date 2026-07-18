@@ -11,7 +11,7 @@ from unittest.mock import patch
 
 import pytest
 from agentscope.credential import CredentialBase
-from agentscope.message import Msg, TextBlock, ThinkingBlock, UserMsg
+from agentscope.message import Base64Source, DataBlock, Msg, TextBlock, ThinkingBlock, UserMsg
 from agentscope.model import ChatModelBase, ChatResponse, ChatUsage, StructuredResponse
 from agentscope.tool import ToolChoice
 from pydantic import BaseModel
@@ -21,6 +21,7 @@ from gerclaw_api.services import model_router
 from gerclaw_api.services.model_factory import build_agentscope_model, close_agentscope_model
 from gerclaw_api.services.model_router import (
     FailoverChatModel,
+    ModelCapabilityUnavailableError,
     ModelChainExhaustedError,
     ModelPromptPrivacyError,
     PartialModelStreamError,
@@ -141,6 +142,9 @@ def _router(
         "backup1-model",
         "backup2-model",
     ),
+    supports_image_input: tuple[bool, bool, bool] = (True, True, True),
+    supports_tool_calling: tuple[bool, bool, bool] = (True, True, True),
+    supports_structured_output: tuple[bool, bool, bool] = (True, True, True),
 ) -> FailoverChatModel:
     configs = tuple(
         AgentModelConfig(
@@ -150,6 +154,9 @@ def _router(
             protocol=protocols[index],
             preference=preference,
             timeout_seconds=timeout_seconds,
+            supports_image_input=supports_image_input[index],
+            supports_tool_calling=supports_tool_calling[index],
+            supports_structured_output=supports_structured_output[index],
         )
         for index, preference in enumerate(("primary", "backup1", "backup2"))
     )
@@ -205,6 +212,58 @@ async def test_open_failure_falls_over_in_order() -> None:
         "failed",
         "started",
         "succeeded",
+    ]
+
+
+@pytest.mark.asyncio
+async def test_image_request_skips_models_that_do_not_declare_vision_support() -> None:
+    models = [
+        _ScriptedModel("primary", [_Action("text", "must not run")]),
+        _ScriptedModel("backup1", [_Action("text", "看到了图片")]),
+        _ScriptedModel("backup2", [_Action("text", "must not run")]),
+    ]
+    router = _router(models, supports_image_input=(False, True, False))
+    message = UserMsg(
+        name="user",
+        content=[
+            DataBlock(source=Base64Source(media_type="image/png", data="aGVsbG8=")),
+            TextBlock(text="请解读这张图片"),
+        ],
+    )
+
+    with capture_model_attempts() as attempts:
+        assert await _consume_with_messages(router, [message]) == "看到了图片"
+
+    assert [model.calls for model in models] == [0, 1, 0]
+    assert [(item.preference, item.error_code) for item in attempts] == [
+        ("primary", "MODEL_IMAGE_INPUT_UNSUPPORTED"),
+        ("backup2", "MODEL_IMAGE_INPUT_UNSUPPORTED"),
+        ("backup1", None),
+        ("backup1", None),
+    ]
+    assert {item.capability_version for item in attempts} == {"model-capabilities-v1"}
+
+
+@pytest.mark.asyncio
+async def test_request_without_a_declared_capable_model_fails_before_provider_egress() -> None:
+    models = [
+        _ScriptedModel("primary", [_Action("text", "must not run")]),
+        _ScriptedModel("backup1", [_Action("text", "must not run")]),
+        _ScriptedModel("backup2", [_Action("text", "must not run")]),
+    ]
+    router = _router(models, supports_structured_output=(False, False, False))
+
+    with capture_model_attempts() as attempts, pytest.raises(ModelCapabilityUnavailableError):
+        await router.generate_structured_output(
+            [UserMsg(name="user", content="生成严格 JSON")],
+            {"type": "object", "properties": {"result": {"type": "string"}}},
+        )
+
+    assert [model.calls for model in models] == [0, 0, 0]
+    assert [item.error_code for item in attempts] == [
+        "MODEL_STRUCTURED_OUTPUT_UNSUPPORTED",
+        "MODEL_STRUCTURED_OUTPUT_UNSUPPORTED",
+        "MODEL_STRUCTURED_OUTPUT_UNSUPPORTED",
     ]
 
 
