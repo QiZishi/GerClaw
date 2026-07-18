@@ -227,6 +227,7 @@ docker compose --profile test up --build --abort-on-container-exit \
 | 全出口 PHI/密钥泄露面未统一验证 | 核心日志/Trace/vector 有局部测试；文档、导出和临床流程尚未完整覆盖 | 0022 Privacy 与 0026 Eval/Bad Case |
 | 风险预警/慢病管理/情感陪伴尚未形成完整临床闭环 | 当前仅有本人范围告警确认、非临床测量趋势与隔离陪伴；不宣称通知、干预或医生服务 | 0023、0030、0031 后续 workflow |
 | 容量与临床 workflow 证据不足 | 只声明已真实验证的范围 | 0026 并发、完整临床 E2E |
+| 前端 `next` 传递依赖的 PostCSS 中危告警 | 当前 `npm audit --omit=dev --audit-level=high` 不阻断；尚无兼容的非 breaking 修复 | 跟踪 Next/PostCSS 上游修复，发布前复审并更新 lockfile |
 
 ## 医疗安全
 
