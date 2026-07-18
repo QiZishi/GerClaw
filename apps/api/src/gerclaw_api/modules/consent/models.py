@@ -8,14 +8,18 @@ from typing import Literal
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 
-ResourceScope = Literal["health_profile_read", "cga_report_read"]
+ResourceScope = Literal[
+    "health_profile_read",
+    "cga_report_read",
+    "prescription_draft_review",
+]
 
 
 class PatientAccessGrantCreate(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     doctor_actor_id: str = Field(pattern=r"^usr_account_[a-f0-9]{32}$")
-    resource_scopes: tuple[ResourceScope, ...] = Field(min_length=1, max_length=2)
+    resource_scopes: tuple[ResourceScope, ...] = Field(min_length=1, max_length=3)
     expires_at: datetime
 
     @field_validator("resource_scopes")

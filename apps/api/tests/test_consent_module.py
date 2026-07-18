@@ -14,6 +14,7 @@ from pydantic import ValidationError
 from gerclaw_api.api.routes import consent as consent_routes
 from gerclaw_api.auth import AuthContext
 from gerclaw_api.modules.consent.models import PatientAccessGrantCreate, PatientAccessGrantRevoke
+from gerclaw_api.modules.prescription.models import PrescriptionDraftReviewRequest
 from gerclaw_api.repositories.consent import (
     PatientAccessGrantConflictError,
     PatientAccessGrantNotFoundError,
@@ -188,3 +189,76 @@ async def test_doctor_projections_fail_closed_without_current_grant(
                 await endpoint(PATIENT, SimpleNamespace(), doctor)
         assert denied.value.status_code == 404
         assert denied.value.detail["code"] == "PATIENT_ACCESS_NOT_FOUND"
+
+
+@pytest.mark.asyncio
+async def test_doctor_review_is_patient_grant_bound_and_append_only(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    draft_id = uuid.uuid4()
+    review = SimpleNamespace(
+        id=uuid.uuid4(),
+        prescription_draft_id=draft_id,
+        doctor_actor_id=DOCTOR,
+        decision="approved",
+        review_note="已核对证据, 建议结合线下检查结果执行后续随访。",
+        revision=1,
+        reviewed_at=datetime.now(UTC),
+    )
+
+    class MissingGrantRepository:
+        def __init__(self, _session: object) -> None:
+            pass
+
+        async def require_active_grant(self, **_kwargs: object) -> None:
+            raise PatientAccessGrantNotFoundError("hidden")
+
+    monkeypatch.setattr(
+        consent_routes, "SqlAlchemyPatientAccessGrantRepository", MissingGrantRepository
+    )
+    doctor = _identity(role="doctor", scopes=frozenset({"clinical_intake:read"}))
+    payload = PrescriptionDraftReviewRequest(decision="approved", review_note=review.review_note)
+    with pytest.raises(HTTPException) as denied:
+        await consent_routes.append_authorized_prescription_review(
+            PATIENT, draft_id, payload, SimpleNamespace(), doctor
+        )
+    assert denied.value.status_code == 404
+    assert denied.value.detail["code"] == "PATIENT_ACCESS_NOT_FOUND"
+
+    append_calls: list[dict[str, object]] = []
+
+    class ActiveGrantRepository(MissingGrantRepository):
+        async def require_active_grant(self, **_kwargs: object) -> None:
+            return None
+
+    class FakeDraftRepository:
+        def __init__(self, _session: object) -> None:
+            pass
+
+        async def append_review(self, **kwargs: object) -> SimpleNamespace:
+            append_calls.append(kwargs)
+            return review
+
+    monkeypatch.setattr(
+        consent_routes, "SqlAlchemyPatientAccessGrantRepository", ActiveGrantRepository
+    )
+    monkeypatch.setattr(
+        consent_routes, "SqlAlchemyPrescriptionDraftRepository", FakeDraftRepository
+    )
+    session = SimpleNamespace(commit=AsyncMock())
+    result = await consent_routes.append_authorized_prescription_review(
+        PATIENT, draft_id, payload, session, doctor
+    )
+    assert result.decision == "approved"
+    assert result.review_note == review.review_note
+    assert append_calls == [
+        {
+            "draft_id": draft_id,
+            "tenant_id": "tenant_public0001",
+            "patient_actor_id": PATIENT,
+            "doctor_actor_id": DOCTOR,
+            "decision": "approved",
+            "review_note": review.review_note,
+        }
+    ]
+    session.commit.assert_awaited_once()

@@ -285,9 +285,7 @@ class PatientAccessGrant(Base):
             "resource_scope IN ('health_profile_read','cga_report_read')",
             name="valid_patient_access_grant_resource_scope",
         ),
-        CheckConstraint(
-            "status IN ('active','revoked')", name="valid_patient_access_grant_status"
-        ),
+        CheckConstraint("status IN ('active','revoked')", name="valid_patient_access_grant_status"),
         CheckConstraint("revision > 0", name="positive_patient_access_grant_revision"),
         UniqueConstraint(
             "tenant_id",
@@ -553,6 +551,52 @@ class PrescriptionDraftRecord(TimestampMixin, Base):
     workflow_version: Mapped[str] = mapped_column(String(32), nullable=False)
     status: Mapped[str] = mapped_column(String(32), nullable=False)
     content: Mapped[dict[str, Any]] = mapped_column(EncryptedJSON(), nullable=False)
+
+
+class PrescriptionDraftReview(Base):
+    """Append-only clinician review bound to one encrypted draft revision.
+
+    A review records a professional's decision on the displayed AI draft. It
+    is not an electronic prescription, credential verification, or permission
+    to execute a treatment change.
+    """
+
+    __tablename__ = "prescription_draft_reviews"
+    __table_args__ = (
+        CheckConstraint(
+            "decision IN ('approved','returned')",
+            name="valid_prescription_draft_review_decision",
+        ),
+        CheckConstraint("revision > 0", name="positive_prescription_draft_review_revision"),
+        UniqueConstraint(
+            "tenant_id",
+            "prescription_draft_id",
+            "doctor_actor_id",
+            "revision",
+            name="uq_prescription_draft_reviews_draft_doctor_revision",
+        ),
+        Index(
+            "ix_prescription_draft_reviews_patient_created",
+            "tenant_id",
+            "patient_actor_id",
+            "reviewed_at",
+        ),
+    )
+
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    tenant_id: Mapped[str] = mapped_column(String(64), nullable=False, index=True)
+    prescription_draft_id: Mapped[uuid.UUID] = mapped_column(
+        ForeignKey("prescription_drafts.id", ondelete="CASCADE"), nullable=False, index=True
+    )
+    patient_actor_id: Mapped[str] = mapped_column(String(128), nullable=False, index=True)
+    doctor_actor_id: Mapped[str] = mapped_column(String(128), nullable=False, index=True)
+    draft_content_sha256: Mapped[str] = mapped_column(String(64), nullable=False)
+    decision: Mapped[str] = mapped_column(String(16), nullable=False)
+    review_note: Mapped[str] = mapped_column(EncryptedText(), nullable=False)
+    revision: Mapped[int] = mapped_column(Integer, nullable=False)
+    reviewed_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), nullable=False
+    )
 
 
 class MemoryFact(TimestampMixin, Base):

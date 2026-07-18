@@ -223,6 +223,41 @@ class PrescriptionDraftHistoryRead(BaseModel):
     items: tuple[PrescriptionDraftRead, ...] = Field(default_factory=tuple, max_length=20)
 
 
+class PrescriptionDraftReviewRequest(BaseModel):
+    """A doctor's review decision, never an executable treatment order."""
+
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    decision: Literal["approved", "returned"]
+    review_note: str = Field(min_length=1, max_length=5_000)
+
+
+class PrescriptionDraftReviewRead(BaseModel):
+    """Owner- and reviewer-visible encrypted review projection."""
+
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    review_id: uuid.UUID
+    draft_id: uuid.UUID
+    doctor_actor_id: str = Field(pattern=r"^usr_account_[a-f0-9]{32}$")
+    decision: Literal["approved", "returned"]
+    review_note: str = Field(min_length=1, max_length=5_000)
+    revision: int = Field(ge=1)
+    reviewed_at: datetime
+
+
+class DoctorPrescriptionDraftRead(PrescriptionDraftRead):
+    """A specifically consented doctor's bounded draft-review projection."""
+
+    reviews: tuple[PrescriptionDraftReviewRead, ...] = Field(default_factory=tuple, max_length=100)
+
+
+class DoctorPrescriptionDraftListRead(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    items: tuple[DoctorPrescriptionDraftRead, ...] = Field(default_factory=tuple, max_length=20)
+
+
 class GeneratedPrescriptionContent(BaseModel):
     """Model-owned clinical draft fields; evidence and document provenance stay server-owned."""
 

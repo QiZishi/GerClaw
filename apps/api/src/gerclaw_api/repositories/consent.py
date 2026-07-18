@@ -11,7 +11,11 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from gerclaw_api.database.models import PatientAccessGrant, User
 
-ResourceScope = Literal["health_profile_read", "cga_report_read"]
+ResourceScope = Literal[
+    "health_profile_read",
+    "cga_report_read",
+    "prescription_draft_review",
+]
 
 
 class PatientAccessGrantNotFoundError(RuntimeError):
