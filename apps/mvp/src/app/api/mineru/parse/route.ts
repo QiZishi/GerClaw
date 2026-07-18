@@ -1,3 +1,4 @@
+import { createHmac } from "node:crypto";
 import { NextRequest } from "next/server";
 import { z } from "zod";
 import {
@@ -49,7 +50,18 @@ interface ParseResponse {
   fileName: string;
 }
 
+interface MinerUProviderConfig {
+  baseUrl: string;
+  allowedHosts: Set<string>;
+  apiKey: string;
+}
+
 const preparedEgressSchema = z.object({ egress_id: z.string().uuid() }).strict();
+const mineruRuntimeSchema = z.object({
+  configured: z.boolean(),
+  url: z.string().url().nullable(),
+  api_key: z.string().min(1).nullable(),
+}).strict();
 
 function errorResponse(error: string, fileName: string, status: number) {
   return Response.json(
@@ -117,7 +129,7 @@ async function finishMineruEgress(
   return resolvedAccess;
 }
 
-function getProviderConfig() {
+function deploymentProviderConfig(): MinerUProviderConfig {
   const baseUrl = (process.env.MINERU_URL ?? process.env.MINERU_API_BASE_URL ?? "")
     .trim()
     .replace(/\/$/, "");
@@ -132,6 +144,36 @@ function getProviderConfig() {
     allowedHosts,
     apiKey: (process.env.MINERU_API_KEY ?? "").trim(),
   };
+}
+
+async function getProviderConfig(request: NextRequest, access: GerclawAccess): Promise<MinerUProviderConfig> {
+  const deployment = deploymentProviderConfig();
+  if (!hasGerclawAccountAccess(request)) return deployment;
+  const secret = process.env.GERCLAW_GUEST_IDENTITY_SECRET;
+  if (!secret) return deployment;
+  try {
+    const actor = access.accessToken.split(".")[1];
+    if (!actor) return deployment;
+    // The API checks this HMAC against the authenticated token's actor ID. The
+    // browser never sees this response or the account-specific provider key.
+    const payload = JSON.parse(Buffer.from(actor, "base64url").toString("utf8")) as { sub?: string };
+    if (!payload.sub) return deployment;
+    const signature = createHmac("sha256", secret).update(`gerclaw-bff-mineru:v1:${payload.sub}`).digest("hex");
+    const response = await fetch(`${getGerclawApiBaseUrl()}/api/v1/auth/model-configuration/mineru-runtime`, {
+      method: "POST",
+      headers: { Authorization: `Bearer ${access.accessToken}`, "X-GerClaw-BFF-Signature": signature, Accept: "application/json" },
+      cache: "no-store",
+    });
+    const runtime = mineruRuntimeSchema.safeParse(await response.json().catch(() => null));
+    if (!response.ok || !runtime.success || !runtime.data.configured || !runtime.data.url || !runtime.data.api_key) return deployment;
+    const url = new URL(runtime.data.url);
+    // Account overrides may use a provider's own HTTPS domain, but never a raw
+    // IP address or localhost target. Follow-up URLs remain allowlisted below.
+    if (url.protocol !== "https:" || url.hostname === "localhost" || /^\d{1,3}(?:\.\d{1,3}){3}$/.test(url.hostname)) return deployment;
+    return { baseUrl: runtime.data.url.replace(/\/$/, ""), allowedHosts: new Set([...deployment.allowedHosts, url.hostname.toLowerCase()]), apiKey: runtime.data.api_key };
+  } catch {
+    return deployment;
+  }
 }
 
 function providerHeaders(apiKey: string): HeadersInit {
@@ -229,13 +271,13 @@ export async function POST(request: NextRequest): Promise<Response> {
       return errorResponse("文件为空或超过 10MB 限制", fileName, 413);
     }
 
-    const config = getProviderConfig();
+    access = await resolveGerclawAccess(request);
+    const config = await getProviderConfig(request, access);
     if (!config.baseUrl || config.allowedHosts.size === 0) {
       return errorResponse("文档解析服务暂时不可用，请稍后重试；图片仍可直接上传", fileName, 503);
     }
     assertAllowedProviderUrl(config.baseUrl, config.allowedHosts);
 
-    access = await resolveGerclawAccess(request);
     const prepared = await prepareMineruEgress(request, access);
     access = prepared.access;
     egressId = prepared.egressId;
@@ -275,7 +317,7 @@ export async function POST(request: NextRequest): Promise<Response> {
 async function parseWithMinerU(
   file: File,
   providerFileName: string,
-  config: ReturnType<typeof getProviderConfig>,
+  config: MinerUProviderConfig,
   requestSignal?: AbortSignal,
 ): Promise<string> {
   throwIfAborted(requestSignal);
@@ -310,7 +352,7 @@ async function parseWithMinerU(
 
 async function pollForResult(
   taskId: string,
-  config: ReturnType<typeof getProviderConfig>,
+  config: MinerUProviderConfig,
   requestSignal?: AbortSignal,
 ): Promise<string> {
   const deadline = Date.now() + REQUEST_TIMEOUT_MS;

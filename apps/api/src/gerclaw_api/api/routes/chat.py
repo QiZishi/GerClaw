@@ -38,7 +38,9 @@ from gerclaw_api.modules.agent_harness import StreamEvent
 from gerclaw_api.modules.document import DocumentService
 from gerclaw_api.modules.memory.memory_module import ProductionMemoryModule
 from gerclaw_api.modules.memory.runtime import create_memory_module
+from gerclaw_api.modules.rag.runtime import RAGRuntime, create_rag_runtime
 from gerclaw_api.modules.risk_alert.service import RiskAlertService
+from gerclaw_api.modules.search.runtime import SearchRuntime, create_search_runtime
 from gerclaw_api.modules.skill import ProductionSkillModule
 from gerclaw_api.modules.validation import validate_public_chat_stream_event
 from gerclaw_api.repositories.account_model_override import SqlAlchemyAccountModelOverrideRepository
@@ -53,7 +55,11 @@ from gerclaw_api.repositories.prescription_draft import SqlAlchemyPrescriptionDr
 from gerclaw_api.repositories.risk_alert import SqlAlchemyRiskAlertRepository
 from gerclaw_api.repositories.skill import SqlAlchemySkillRepository
 from gerclaw_api.repositories.trace import SqlAlchemyTraceRepository
-from gerclaw_api.services.account_model_configuration import resolve_effective_configs
+from gerclaw_api.services.account_model_configuration import (
+    has_service_override,
+    resolve_effective_configs,
+    resolve_effective_settings,
+)
 from gerclaw_api.services.chat_cancellation import (
     ChatCancellationRegistry,
     ChatCancellationUnavailable,
@@ -288,17 +294,31 @@ async def chat(
             async with database.session() as database_session:
                 model = request.app.state.agent_model
                 request_owned_model: FailoverChatModel | None = None
+                request_owned_rag: RAGRuntime | None = None
+                request_owned_search: SearchRuntime | None = None
+                effective_settings = request.app.state.settings
+                rag_runtime = request.app.state.rag_runtime
+                search_runtime = request.app.state.search_runtime
                 if identity.account_role != "guest":
                     override = await SqlAlchemyAccountModelOverrideRepository(database_session).get(
                         tenant_id=identity.tenant_id, actor_id=identity.actor_id
                     )
                     if override is not None:
+                        effective_settings = resolve_effective_settings(
+                            request.app.state.settings, override.configuration
+                        )
                         request_owned_model = FailoverChatModel(
-                            resolve_effective_configs(
-                                request.app.state.settings, override.configuration
-                            )
+                            resolve_effective_configs(effective_settings, override.configuration)
                         )
                         model = request_owned_model
+                        if has_service_override(override.configuration, "vector"):
+                            request_owned_rag = create_rag_runtime(
+                                effective_settings, request.app.state.qdrant
+                            )
+                            rag_runtime = request_owned_rag
+                        if has_service_override(override.configuration, "search"):
+                            request_owned_search = create_search_runtime(effective_settings)
+                            search_runtime = request_owned_search
                 memory_repository = SqlAlchemyMemoryRepository(database_session)
 
                 def memory_factory(
@@ -310,10 +330,10 @@ async def chat(
                     trace_id: str,
                 ) -> ProductionMemoryModule:
                     return create_memory_module(
-                        settings=request.app.state.settings,
+                        settings=effective_settings,
                         repository=memory_repository,
                         model=model,
-                        embedding_model=request.app.state.rag_runtime.embedding_model,
+                        embedding_model=rag_runtime.embedding_model,
                         vector_store=request.app.state.memory_store,
                         tenant_id=tenant_id,
                         actor_id=actor_id,
@@ -323,32 +343,32 @@ async def chat(
                     )
 
                 service = ChatService(
-                    settings=request.app.state.settings,
+                    settings=effective_settings,
                     conversation=ConversationService(
                         SqlAlchemyConversationRepository(database_session)
                     ),
                     traces=TraceService(
                         SqlAlchemyTraceRepository(database_session),
-                        max_events_per_trace=request.app.state.settings.max_events_per_trace,
+                        max_events_per_trace=effective_settings.max_events_per_trace,
                     ),
                     lease=SessionLease(
                         request.app.state.redis,
-                        ttl_seconds=(request.app.state.settings.chat_session_lease_ttl_seconds),
+                        ttl_seconds=(effective_settings.chat_session_lease_ttl_seconds),
                     ),
                     model=model,
-                    rag_module=request.app.state.rag_runtime.module,
+                    rag_module=rag_runtime.module,
                     memory_factory=memory_factory,
-                    search_module=request.app.state.search_runtime.module,
+                    search_module=search_runtime.module,
                     skill_module=ProductionSkillModule(
                         repository=SqlAlchemySkillRepository(database_session),
                         tenant_id=identity.tenant_id,
                         actor_id=identity.actor_id,
                         model=model,
-                        allowed_tools=frozenset(request.app.state.settings.skill_allowed_tools),
+                        allowed_tools=frozenset(effective_settings.skill_allowed_tools),
                     ),
                     approval_repository=SqlAlchemyApprovalRepository(database_session),
                     document_service=DocumentService(
-                        SqlAlchemyDocumentRepository(database_session), request.app.state.settings
+                        SqlAlchemyDocumentRepository(database_session), effective_settings
                     ),
                     risk_alert_service=RiskAlertService(
                         SqlAlchemyRiskAlertRepository(database_session)
@@ -373,6 +393,10 @@ async def chat(
                             ),
                         )
                     finally:
+                        if request_owned_search is not None:
+                            await request_owned_search.aclose()
+                        if request_owned_rag is not None:
+                            await request_owned_rag.aclose()
                         if request_owned_model is not None:
                             await request_owned_model.aclose()
         except asyncio.CancelledError:

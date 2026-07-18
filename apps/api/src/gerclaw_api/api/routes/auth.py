@@ -9,7 +9,7 @@ import uuid
 from datetime import UTC, datetime, timedelta
 from typing import Annotated, Literal, cast
 
-from fastapi import APIRouter, Depends, HTTPException, Query, Request, status
+from fastapi import APIRouter, Depends, Header, HTTPException, Query, Request, status
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 from sqlalchemy import Date, func, select
 from sqlalchemy import cast as sql_cast
@@ -47,8 +47,13 @@ from gerclaw_api.security import audit_hmac_digest
 from gerclaw_api.services.account_model_configuration import (
     AccountModelSlotRead,
     AccountModelSlotWrite,
+    AccountServiceOverridesRead,
+    AccountServiceOverridesWrite,
+    has_service_override,
+    read_services,
     read_slots,
-    serialize_slots,
+    resolve_effective_settings,
+    serialize_configuration,
 )
 from gerclaw_api.services.rate_limit import RateLimiter
 
@@ -160,12 +165,13 @@ class AccountIdentityRead(BaseModel):
 
 
 class AccountModelConfigurationUpdate(BaseModel):
-    """Replace account-owned model slots using an optimistic revision fence."""
+    """Replace account-owned model and external-service settings atomically."""
 
     model_config = ConfigDict(extra="forbid")
 
     expected_revision: int = Field(ge=0)
     slots: list[AccountModelSlotWrite] = Field(max_length=3)
+    services: AccountServiceOverridesWrite = Field(default_factory=AccountServiceOverridesWrite)
 
     @model_validator(mode="after")
     def unique_preferences(self) -> AccountModelConfigurationUpdate:
@@ -175,12 +181,23 @@ class AccountModelConfigurationUpdate(BaseModel):
 
 
 class AccountModelConfigurationRead(BaseModel):
-    """Read model override metadata without returning an API key or default secrets."""
+    """Read override metadata without returning credentials or default secrets."""
 
     model_config = ConfigDict(extra="forbid")
 
     revision: int = Field(ge=0)
     slots: list[AccountModelSlotRead]
+    services: AccountServiceOverridesRead = Field(default_factory=AccountServiceOverridesRead)
+
+
+class MinerURuntimeRead(BaseModel):
+    """Server-to-server MinerU credentials; never returned by the browser BFF."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    configured: bool
+    url: str | None = None
+    api_key: str | None = Field(default=None, repr=False)
 
 
 class AccountAdminRead(BaseModel):
@@ -310,11 +327,12 @@ async def read_model_configuration(
         return AccountModelConfigurationRead(revision=0, slots=[])
     try:
         slots = list(read_slots(record.configuration))
+        services = read_services(record.configuration)
     except ValueError as error:
         raise HTTPException(
             status_code=409, detail={"code": "MODEL_CONFIGURATION_INVALID"}
         ) from error
-    return AccountModelConfigurationRead(revision=record.revision, slots=slots)
+    return AccountModelConfigurationRead(revision=record.revision, slots=slots, services=services)
 
 
 @router.put("/model-configuration", response_model=AccountModelConfigurationRead)
@@ -334,7 +352,7 @@ async def replace_model_configuration(
         record = await repository.replace(
             tenant_id=identity.tenant_id,
             actor_id=identity.actor_id,
-            configuration=serialize_slots(tuple(payload.slots)),
+            configuration=serialize_configuration(tuple(payload.slots), payload.services),
             expected_revision=payload.expected_revision,
         )
         await session.commit()
@@ -344,7 +362,45 @@ async def replace_model_configuration(
             status_code=409, detail={"code": "MODEL_CONFIGURATION_CONFLICT"}
         ) from error
     return AccountModelConfigurationRead(
-        revision=record.revision, slots=list(read_slots(record.configuration))
+        revision=record.revision,
+        slots=list(read_slots(record.configuration)),
+        services=read_services(record.configuration),
+    )
+
+
+@router.post("/model-configuration/mineru-runtime", response_model=MinerURuntimeRead)
+async def resolve_mineru_runtime(
+    request: Request,
+    session: AccountSessionDependency,
+    identity: Annotated[AuthContext, Depends(authenticate)],
+    bff_signature: Annotated[str | None, Header(alias="X-GerClaw-BFF-Signature")] = None,
+) -> MinerURuntimeRead:
+    """Give the same-origin BFF an account's MinerU key for one server-side call.
+
+    The browser cannot read this response: it requires a signature made with the
+    server-only guest identity secret as well as the caller's account JWT.
+    """
+
+    _require_persistent_account(identity)
+    expected = hmac.new(
+        request.app.state.settings.guest_identity_secret.get_secret_value().encode(),
+        f"gerclaw-bff-mineru:v1:{identity.actor_id}".encode(),
+        hashlib.sha256,
+    ).hexdigest()
+    if bff_signature is None or not hmac.compare_digest(expected, bff_signature):
+        raise HTTPException(status_code=403, detail={"code": "BFF_SIGNATURE_REQUIRED"})
+    record = await SqlAlchemyAccountModelOverrideRepository(session).get(
+        tenant_id=identity.tenant_id, actor_id=identity.actor_id
+    )
+    if record is None or not has_service_override(record.configuration, "mineru"):
+        return MinerURuntimeRead(configured=False)
+    settings = resolve_effective_settings(request.app.state.settings, record.configuration)
+    if settings.mineru_url is None or settings.mineru_api_key is None:
+        raise HTTPException(status_code=409, detail={"code": "MINERU_CONFIGURATION_INVALID"})
+    return MinerURuntimeRead(
+        configured=True,
+        url=str(settings.mineru_url),
+        api_key=settings.mineru_api_key.get_secret_value(),
     )
 
 

@@ -26,7 +26,12 @@ from gerclaw_api.modules.voice.models import (
     VoiceASRResponse,
     VoiceTTSRequest,
 )
+from gerclaw_api.repositories.account_model_override import SqlAlchemyAccountModelOverrideRepository
 from gerclaw_api.repositories.provider_egress import SqlAlchemyProviderEgressRepository
+from gerclaw_api.services.account_model_configuration import (
+    has_service_override,
+    resolve_effective_settings,
+)
 from gerclaw_api.services.rate_limit import RateLimiter
 
 router = APIRouter(prefix="/voice", tags=["voice"])
@@ -40,17 +45,30 @@ async def _enforce_rate_limit(request: Request, identity: AuthContext) -> None:
     await limiter.check(tenant_id=identity.tenant_id, actor_id=identity.actor_id)
 
 
-def _module(request: Request) -> MiMoVoiceModule:
+async def _module(
+    request: Request, identity: AuthContext, session: AsyncSession
+) -> tuple[MiMoVoiceModule, bool]:
+    """Resolve a request-owned adapter only when this account overrides voice."""
+
     module = getattr(request.app.state, "voice_module", None)
+    if identity.account_role != "guest" and identity.actor_id.startswith("usr_account_"):
+        override = await SqlAlchemyAccountModelOverrideRepository(session).get(
+            tenant_id=identity.tenant_id, actor_id=identity.actor_id
+        )
+        if override is not None and has_service_override(override.configuration, "voice"):
+            from gerclaw_api.modules.voice import create_voice_module
+
+            module = create_voice_module(
+                resolve_effective_settings(request.app.state.settings, override.configuration)
+            )
+            if module is not None:
+                return module, True
     if module is None:
         raise HTTPException(
             status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
             detail={"code": "VOICE_UNAVAILABLE", "message": "voice service is unavailable"},
         )
-    return cast(MiMoVoiceModule, module)
-
-
-VoiceModuleDependency = Annotated[MiMoVoiceModule, Depends(_module)]
+    return cast(MiMoVoiceModule, module), False
 
 
 def _decode_audio(value: str) -> bytes:
@@ -70,7 +88,9 @@ def _decode_audio(value: str) -> bytes:
 
 
 async def _prepend_first_chunk(
-    stream: AsyncGenerator[bytes, None], first_chunk: bytes
+    stream: AsyncGenerator[bytes, None],
+    first_chunk: bytes,
+    owned_module: MiMoVoiceModule | None = None,
 ) -> AsyncGenerator[bytes, None]:
     """Keep the verified first PCM16 chunk while releasing a cancelled provider stream."""
 
@@ -80,6 +100,8 @@ async def _prepend_first_chunk(
             yield chunk
     finally:
         await stream.aclose()
+        if owned_module is not None:
+            await owned_module.aclose()
 
 
 @router.post("/asr", response_model=VoiceASRResponse)
@@ -89,12 +111,12 @@ async def transcribe(
     http_response: Response,
     identity: VoiceIdentity,
     session: SessionDependency,
-    module: VoiceModuleDependency,
 ) -> VoiceASRResponse:
     """Recognise one bounded WAV/MP3 payload without persisting it or its text."""
 
     await _enforce_rate_limit(request, identity)
     audio = _decode_audio(payload.audio)
+    module, request_owned_module = await _module(request, identity, session)
     egress = SqlAlchemyProviderEgressRepository(session)
     event = await egress.record_prepared_asr_audio(
         tenant_id=identity.tenant_id,
@@ -113,6 +135,9 @@ async def transcribe(
         raise HTTPException(
             status_code=502, detail={"code": "VOICE_ASR_INVALID_RESPONSE"}
         ) from error
+    finally:
+        if request_owned_module:
+            await module.aclose()
     await egress.set_outcome(event, outcome="succeeded")
     await session.commit()
     http_response.headers["X-GerClaw-Voice-Contract"] = VOICE_ASR_RESPONSE_SCHEMA_VERSION
@@ -125,11 +150,11 @@ async def synthesize(
     request: Request,
     identity: VoiceIdentity,
     session: SessionDependency,
-    module: VoiceModuleDependency,
 ) -> StreamingResponse:
     """Stream 24 kHz mono PCM16LE; clients own playback, pause and cancellation."""
 
     await _enforce_rate_limit(request, identity)
+    module, request_owned_module = await _module(request, identity, session)
     voice = payload.voice or module.default_voice
     text_decision = redact_external_tts_text(payload.text.strip())
     style_decision = redact_external_tts_text(payload.style) if payload.style is not None else None
@@ -154,23 +179,29 @@ async def synthesize(
     except VoiceProviderUnavailable as error:
         await egress.set_outcome(event, outcome="failed")
         await session.commit()
+        if request_owned_module:
+            await module.aclose()
         raise HTTPException(status_code=503, detail={"code": "VOICE_TTS_UNAVAILABLE"}) from error
     except VoiceProviderInvalidResponse as error:
         await egress.set_outcome(event, outcome="failed")
         await session.commit()
+        if request_owned_module:
+            await module.aclose()
         raise HTTPException(
             status_code=502, detail={"code": "VOICE_TTS_INVALID_RESPONSE"}
         ) from error
     except StopAsyncIteration as error:
         await egress.set_outcome(event, outcome="failed")
         await session.commit()
+        if request_owned_module:
+            await module.aclose()
         raise HTTPException(
             status_code=502, detail={"code": "VOICE_TTS_INVALID_RESPONSE"}
         ) from error
     await egress.set_outcome(event, outcome="succeeded")
     await session.commit()
     return StreamingResponse(
-        _prepend_first_chunk(stream, first_chunk),
+        _prepend_first_chunk(stream, first_chunk, module if request_owned_module else None),
         media_type="audio/L16;rate=24000;channels=1",
         headers={
             "Cache-Control": "no-store",

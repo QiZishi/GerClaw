@@ -3,6 +3,8 @@
 from __future__ import annotations
 
 import asyncio
+import hashlib
+import hmac
 import json
 
 import pytest
@@ -120,7 +122,11 @@ async def test_account_model_configuration_is_encrypted_owner_scoped_and_revisio
 
     initial = await client.get("/api/v1/auth/model-configuration", headers=account_headers)
     assert initial.status_code == 200, initial.text
-    assert initial.json() == {"revision": 0, "slots": []}
+    assert initial.json() == {
+        "revision": 0,
+        "slots": [],
+        "services": {"search": None, "vector": None, "voice": None, "mineru": None},
+    }
 
     payload = {
         "expected_revision": 0,
@@ -136,6 +142,30 @@ async def test_account_model_configuration_is_encrypted_owner_scoped_and_revisio
                 "supports_structured_output": True,
             }
         ],
+        "services": {
+            "search": {
+                "anysearch_url": "https://search.example.test",
+                "anysearch_api_key": "test-search-key-is-never-returned",
+            },
+            "vector": {
+                "url": "https://vectors.example.test/v1",
+                "api_key": "test-vector-key-is-never-returned",
+                "embedding_model": "test-embedding",
+                "rerank_model": "test-reranker",
+            },
+            "voice": {
+                "api_key": "test-voice-key-is-never-returned",
+                "asr_url": "https://voice.example.test/v1",
+                "asr_model": "test-asr",
+                "tts_url": "https://voice.example.test/v1",
+                "tts_model": "test-tts",
+                "tts_voice": "冰糖",
+            },
+            "mineru": {
+                "url": "https://mineru.example.test/api/v1",
+                "api_key": "test-mineru-key-is-never-returned",
+            },
+        },
     }
     saved = await client.put(
         "/api/v1/auth/model-configuration", json=payload, headers=account_headers
@@ -145,6 +175,34 @@ async def test_account_model_configuration_is_encrypted_owner_scoped_and_revisio
     assert saved.json()["slots"][0]["preference"] == "primary"
     assert "api_key" not in saved.json()["slots"][0]
     assert saved.json()["slots"][0]["api_key_configured"] is True
+    assert saved.json()["services"]["search"]["anysearch_api_key_configured"] is True
+    assert saved.json()["services"]["vector"]["api_key_configured"] is True
+    assert saved.json()["services"]["voice"]["api_key_configured"] is True
+    assert saved.json()["services"]["mineru"]["api_key_configured"] is True
+    assert "test-search-key-is-never-returned" not in saved.text
+    assert "test-vector-key-is-never-returned" not in saved.text
+    assert "test-voice-key-is-never-returned" not in saved.text
+    assert "test-mineru-key-is-never-returned" not in saved.text
+
+    mineru_denied = await client.post(
+        "/api/v1/auth/model-configuration/mineru-runtime", headers=account_headers
+    )
+    assert mineru_denied.status_code == 403
+    signature = hmac.new(
+        app.state.settings.guest_identity_secret.get_secret_value().encode(),
+        b"gerclaw-bff-mineru:v1:usr_account_0123456789abcdef0123456789abcdef",
+        hashlib.sha256,
+    ).hexdigest()
+    mineru_runtime = await client.post(
+        "/api/v1/auth/model-configuration/mineru-runtime",
+        headers={**account_headers, "X-GerClaw-BFF-Signature": signature},
+    )
+    assert mineru_runtime.status_code == 200, mineru_runtime.text
+    assert mineru_runtime.json() == {
+        "configured": True,
+        "url": "https://mineru.example.test/api/v1",
+        "api_key": "test-mineru-key-is-never-returned",
+    }
 
     stale = await client.put(
         "/api/v1/auth/model-configuration", json=payload, headers=account_headers
@@ -165,7 +223,11 @@ async def test_account_model_configuration_is_encrypted_owner_scoped_and_revisio
         headers={"Authorization": f"Bearer {other_token}"},
     )
     assert other.status_code == 200, other.text
-    assert other.json() == {"revision": 0, "slots": []}
+    assert other.json() == {
+        "revision": 0,
+        "slots": [],
+        "services": {"search": None, "vector": None, "voice": None, "mineru": None},
+    }
 
 
 @pytest.mark.integration
