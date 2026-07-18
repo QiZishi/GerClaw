@@ -26,7 +26,7 @@ from gerclaw_api.repositories.clinical_intake import SqlAlchemyClinicalIntakeRep
 
 PRESCRIPTION_GOVERNANCE_NOTICE = "生成结果须经医生复核。"
 MEDICATION_REVIEW_GOVERNANCE_NOTICE = (
-    "结果附规则来源；有限规则未命中不等于安全。"
+    "有限规则审查结果附规则来源；Beers 相关核对目前只覆盖少量本地来源情境，未命中不代表用药安全。"
 )
 INTAKE_DEFINITIONS: dict[ClinicalIntakeKind, ClinicalIntakeDefinition] = {
     "prescription": PRESCRIPTION_INTAKE_DEFINITION,
