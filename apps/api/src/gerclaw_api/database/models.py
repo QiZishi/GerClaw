@@ -656,6 +656,51 @@ class PrescriptionDraftReview(Base):
     )
 
 
+class MedicationReviewDraftReview(Base):
+    """Append-only clinician review bound to a deterministic review artifact.
+
+    The decision documents a clinician's review of the displayed limited-rule
+    result. It never publishes a prescription or authorizes a treatment change.
+    """
+
+    __tablename__ = "medication_review_draft_reviews"
+    __table_args__ = (
+        CheckConstraint(
+            "decision IN ('approved','returned')",
+            name="valid_medication_review_draft_review_decision",
+        ),
+        CheckConstraint("revision > 0", name="positive_medication_review_draft_review_revision"),
+        UniqueConstraint(
+            "tenant_id",
+            "medication_review_draft_id",
+            "doctor_actor_id",
+            "revision",
+            name="uq_medication_review_draft_reviews_draft_doctor_revision",
+        ),
+        Index(
+            "ix_medication_review_draft_reviews_patient_created",
+            "tenant_id",
+            "patient_actor_id",
+            "reviewed_at",
+        ),
+    )
+
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    tenant_id: Mapped[str] = mapped_column(String(64), nullable=False, index=True)
+    medication_review_draft_id: Mapped[uuid.UUID] = mapped_column(
+        ForeignKey("medication_review_drafts.id", ondelete="CASCADE"), nullable=False, index=True
+    )
+    patient_actor_id: Mapped[str] = mapped_column(String(128), nullable=False, index=True)
+    doctor_actor_id: Mapped[str] = mapped_column(String(128), nullable=False, index=True)
+    draft_content_sha256: Mapped[str] = mapped_column(String(64), nullable=False)
+    decision: Mapped[str] = mapped_column(String(16), nullable=False)
+    review_note: Mapped[str] = mapped_column(EncryptedText(), nullable=False)
+    revision: Mapped[int] = mapped_column(Integer, nullable=False)
+    reviewed_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), nullable=False
+    )
+
+
 class MemoryFact(TimestampMixin, Base):
     """One encrypted, evidenced user-memory fact with a vector revision."""
 

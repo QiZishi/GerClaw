@@ -17,7 +17,7 @@ from gerclaw_api.auth import (
     require_memory_read,
     require_risk_alert_read,
 )
-from gerclaw_api.database.models import PrescriptionDraftReview
+from gerclaw_api.database.models import MedicationReviewDraftReview, PrescriptionDraftReview
 from gerclaw_api.dependencies import get_database_session
 from gerclaw_api.modules.cga.models import CgaHistoryRead
 from gerclaw_api.modules.consent.models import (
@@ -33,6 +33,8 @@ from gerclaw_api.modules.medication_review.models import (
     DoctorMedicationReviewDraftListRead,
     MedicationReviewDraft,
     MedicationReviewDraftRead,
+    MedicationReviewDraftReviewRead,
+    MedicationReviewDraftReviewRequest,
 )
 from gerclaw_api.modules.memory.models import HealthProfileRead
 from gerclaw_api.modules.memory.runtime import create_memory_module
@@ -52,6 +54,7 @@ from gerclaw_api.repositories.consent import (
     SqlAlchemyPatientAccessGrantRepository,
 )
 from gerclaw_api.repositories.medication_review_draft import (
+    MedicationReviewDraftNotFoundError,
     SqlAlchemyMedicationReviewDraftRepository,
 )
 from gerclaw_api.repositories.memory import SqlAlchemyMemoryRepository
@@ -99,6 +102,20 @@ def _review_read(record: PrescriptionDraftReview) -> PrescriptionDraftReviewRead
     return PrescriptionDraftReviewRead(
         review_id=record.id,
         draft_id=record.prescription_draft_id,
+        doctor_actor_id=record.doctor_actor_id,
+        decision=record.decision,
+        review_note=record.review_note,
+        revision=record.revision,
+        reviewed_at=record.reviewed_at,
+    )
+
+
+def _medication_review_read(
+    record: MedicationReviewDraftReview,
+) -> MedicationReviewDraftReviewRead:
+    return MedicationReviewDraftReviewRead(
+        review_id=record.id,
+        draft_id=record.medication_review_draft_id,
         doctor_actor_id=record.doctor_actor_id,
         decision=record.decision,
         review_note=record.review_note,
@@ -361,11 +378,22 @@ async def list_authorized_medication_review_drafts(
         )
     except PatientAccessGrantNotFoundError as error:
         raise _not_found() from error
-    records = await SqlAlchemyMedicationReviewDraftRepository(session).list_for_patient(
+    drafts_repository = SqlAlchemyMedicationReviewDraftRepository(session)
+    records = await drafts_repository.list_for_patient(
         tenant_id=identity.tenant_id,
         patient_actor_id=patient_actor_id,
         limit=20,
     )
+    reviews = await drafts_repository.list_reviews_for_drafts(
+        tenant_id=identity.tenant_id,
+        draft_ids=tuple(record.id for record in records),
+        doctor_actor_id=identity.actor_id,
+    )
+    reviews_by_draft: dict[uuid.UUID, list[MedicationReviewDraftReviewRead]] = {}
+    for review in reviews:
+        reviews_by_draft.setdefault(review.medication_review_draft_id, []).append(
+            _medication_review_read(review)
+        )
     return DoctorMedicationReviewDraftListRead(
         items=tuple(
             MedicationReviewDraftRead(
@@ -374,6 +402,7 @@ async def list_authorized_medication_review_drafts(
                 intake_revision=record.clinical_intake_revision,
                 created_at=record.created_at,
                 draft=MedicationReviewDraft.model_validate(record.content),
+                reviews=tuple(reviews_by_draft.get(record.id, ())),
             )
             for record in records
         )
@@ -448,3 +477,39 @@ async def append_authorized_prescription_review(
         raise _not_found() from error
     await session.commit()
     return _review_read(review)
+
+
+@router.post(
+    "/patients/{patient_actor_id}/medication-review-drafts/{draft_id}/reviews",
+    response_model=MedicationReviewDraftReviewRead,
+    status_code=status.HTTP_201_CREATED,
+)
+async def append_authorized_medication_review(
+    patient_actor_id: PatientActorId,
+    draft_id: uuid.UUID,
+    payload: MedicationReviewDraftReviewRequest,
+    session: SessionDependency,
+    identity: DoctorPrescriptionIdentity,
+) -> MedicationReviewDraftReviewRead:
+    """Record a doctor's review without publishing or executing a medication change."""
+
+    _require_doctor(identity)
+    try:
+        await SqlAlchemyPatientAccessGrantRepository(session).require_active_grant(
+            tenant_id=identity.tenant_id,
+            patient_actor_id=patient_actor_id,
+            doctor_actor_id=identity.actor_id,
+            resource_scope="medication_review_read",
+        )
+        review = await SqlAlchemyMedicationReviewDraftRepository(session).append_review(
+            draft_id=draft_id,
+            tenant_id=identity.tenant_id,
+            patient_actor_id=patient_actor_id,
+            doctor_actor_id=identity.actor_id,
+            decision=payload.decision,
+            review_note=payload.review_note,
+        )
+    except (PatientAccessGrantNotFoundError, MedicationReviewDraftNotFoundError) as error:
+        raise _not_found() from error
+    await session.commit()
+    return _medication_review_read(review)

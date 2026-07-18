@@ -14,6 +14,7 @@ from pydantic import ValidationError
 from gerclaw_api.api.routes import consent as consent_routes
 from gerclaw_api.auth import AuthContext
 from gerclaw_api.modules.consent.models import PatientAccessGrantCreate, PatientAccessGrantRevoke
+from gerclaw_api.modules.medication_review.models import MedicationReviewDraftReviewRequest
 from gerclaw_api.modules.memory.models import HealthProfileRead
 from gerclaw_api.modules.memory.protocols import MemoryFactView
 from gerclaw_api.modules.prescription.models import PrescriptionDraftReviewRequest
@@ -288,6 +289,10 @@ async def test_authorized_doctor_can_read_only_saved_medication_review_artifacts
             calls.append(kwargs)
             return [record]
 
+        async def list_reviews_for_drafts(self, **kwargs: object) -> list[SimpleNamespace]:
+            calls.append(kwargs)
+            return []
+
     class FakeDraft:
         @classmethod
         def model_validate(cls, value: object) -> object:
@@ -330,6 +335,11 @@ async def test_authorized_doctor_can_read_only_saved_medication_review_artifacts
             "tenant_id": "tenant_public0001",
             "patient_actor_id": PATIENT,
             "limit": 20,
+        },
+        {
+            "tenant_id": "tenant_public0001",
+            "draft_ids": (record.id,),
+            "doctor_actor_id": DOCTOR,
         },
     ]
 
@@ -534,6 +544,81 @@ async def test_doctor_review_is_patient_grant_bound_and_append_only(
             "patient_actor_id": PATIENT,
             "doctor_actor_id": DOCTOR,
             "decision": "approved",
+            "review_note": review.review_note,
+        }
+    ]
+    session.commit.assert_awaited_once()
+
+
+@pytest.mark.asyncio
+async def test_doctor_medication_review_is_patient_grant_bound_and_append_only(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    draft_id = uuid.uuid4()
+    review = SimpleNamespace(
+        id=uuid.uuid4(),
+        medication_review_draft_id=draft_id,
+        doctor_actor_id=DOCTOR,
+        decision="returned",
+        review_note="请补充近期肾功能与完整用药清单后再次复核。",
+        revision=1,
+        reviewed_at=datetime.now(UTC),
+    )
+
+    class MissingGrantRepository:
+        def __init__(self, _session: object) -> None:
+            pass
+
+        async def require_active_grant(self, **_kwargs: object) -> None:
+            raise PatientAccessGrantNotFoundError("hidden")
+
+    monkeypatch.setattr(
+        consent_routes, "SqlAlchemyPatientAccessGrantRepository", MissingGrantRepository
+    )
+    doctor = _identity(role="doctor", scopes=frozenset({"clinical_intake:read"}))
+    payload = MedicationReviewDraftReviewRequest(
+        decision="returned", review_note=review.review_note
+    )
+    with pytest.raises(HTTPException) as denied:
+        await consent_routes.append_authorized_medication_review(
+            PATIENT, draft_id, payload, SimpleNamespace(), doctor
+        )
+    assert denied.value.status_code == 404
+    assert denied.value.detail["code"] == "PATIENT_ACCESS_NOT_FOUND"
+
+    append_calls: list[dict[str, object]] = []
+
+    class ActiveGrantRepository(MissingGrantRepository):
+        async def require_active_grant(self, **_kwargs: object) -> None:
+            return None
+
+    class FakeDraftRepository:
+        def __init__(self, _session: object) -> None:
+            pass
+
+        async def append_review(self, **kwargs: object) -> SimpleNamespace:
+            append_calls.append(kwargs)
+            return review
+
+    monkeypatch.setattr(
+        consent_routes, "SqlAlchemyPatientAccessGrantRepository", ActiveGrantRepository
+    )
+    monkeypatch.setattr(
+        consent_routes, "SqlAlchemyMedicationReviewDraftRepository", FakeDraftRepository
+    )
+    session = SimpleNamespace(commit=AsyncMock())
+    result = await consent_routes.append_authorized_medication_review(
+        PATIENT, draft_id, payload, session, doctor
+    )
+    assert result.decision == "returned"
+    assert result.review_note == review.review_note
+    assert append_calls == [
+        {
+            "draft_id": draft_id,
+            "tenant_id": "tenant_public0001",
+            "patient_actor_id": PATIENT,
+            "doctor_actor_id": DOCTOR,
+            "decision": "returned",
             "review_note": review.review_note,
         }
     ]

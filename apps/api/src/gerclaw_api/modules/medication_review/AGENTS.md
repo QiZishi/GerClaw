@@ -2,7 +2,7 @@
 
 ## Responsibility
 
-This module owns the versioned, encrypted intake definition, owner-scoped medication-list reconciliation, and deterministic medication-rule review artifact. Generated artifacts are persisted as encrypted, intake-revision-bound records and can be reopened by their original tenant/actor. A named doctor may additionally receive the narrow, read-only `medication_review_read` projection only after the patient's active explicit grant; it exposes the artifact, input revision and rule sources, never the chat, Trace or uploaded files. The installed `rules/core-v1.json` currently carries the `medication-rules-v4` artifact. It provides only rules with source metadata, a corpus fingerprint, and a precise locator. It produces source-bound clinical review conclusions, never a diagnosis or a treatment order without attributable evidence.
+This module owns the versioned, encrypted intake definition, owner-scoped medication-list reconciliation, and deterministic medication-rule review artifact. Generated artifacts are persisted as encrypted, intake-revision-bound records and can be reopened by their original tenant/actor. A named doctor may additionally receive the narrow `medication_review_read` projection only after the patient's active explicit grant; it exposes the artifact, input revision and rule sources, never the chat, Trace or uploaded files. That doctor can append its own encrypted `approved` or `returned` review record, bound to the exact artifact-content hash and a per-doctor revision; it cannot alter the artifact or execute a treatment change. The installed `rules/core-v1.json` currently carries the `medication-rules-v4` artifact. It provides only rules with source metadata, a corpus fingerprint, and a precise locator. It produces source-bound clinical review conclusions, never a diagnosis or a treatment order without attributable evidence.
 
 ## Invariants
 
@@ -19,7 +19,7 @@ This module owns the versioned, encrypted intake definition, owner-scoped medica
   asks for urgent clinician/pharmacist review and does not itself constitute a treatment order.
 - No medication list, reaction description, identifier, or raw request body may enter logs, Trace payloads, vector indexes, model prompts, or public contracts.
 - A historical artifact must retain the exact ruleset and intake revision used to create it. Do not overwrite an earlier result when the intake changes; it must be visibly identified as historical on recovery.
-- Doctor projections must call the consent repository immediately before loading an artifact and must not append a review decision, mutate the artifact, or expose any additional patient resource under `medication_review_read`.
+- Doctor projections and review writes must call the consent repository immediately before loading or appending to an artifact. A doctor may append only its own encrypted `approved`/`returned` record after that check; it must not mutate the artifact, overwrite a prior record, or expose any additional patient resource under `medication_review_read`.
 - Any additional rules engine must be versioned, source-traceable, medically reviewed, and governed by Runtime/HITL before it can emit a clinical fact. Update the coverage contract whenever a source is added, removed, or expires.
 
 ## Change and test rules

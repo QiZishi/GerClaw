@@ -136,6 +136,32 @@ class MedicationReviewDraftRead(BaseModel):
     intake_revision: int = Field(ge=1)
     created_at: datetime
     draft: MedicationReviewDraft
+    reviews: tuple[MedicationReviewDraftReviewRead, ...] = Field(
+        default_factory=tuple, max_length=100
+    )
+
+
+class MedicationReviewDraftReviewRequest(BaseModel):
+    """A doctor's non-executable review of one saved medication-review artifact."""
+
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    decision: Literal["approved", "returned"]
+    review_note: str = Field(min_length=1, max_length=5_000)
+
+
+class MedicationReviewDraftReviewRead(BaseModel):
+    """Owner- and reviewer-visible encrypted review projection."""
+
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    review_id: uuid.UUID
+    draft_id: uuid.UUID
+    doctor_actor_id: str = Field(pattern=r"^usr_account_[a-f0-9]{32}$")
+    decision: Literal["approved", "returned"]
+    review_note: str = Field(min_length=1, max_length=5_000)
+    revision: int = Field(ge=1)
+    reviewed_at: datetime
 
 
 class MedicationReviewDraftHistoryRead(BaseModel):

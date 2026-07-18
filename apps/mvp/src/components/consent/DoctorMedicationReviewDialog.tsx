@@ -2,12 +2,12 @@
 
 import { useEffect, useState } from "react";
 import { Button } from "@/components/ui/button";
-import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog";
+import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { InlineLoadingState } from "@/components/ui/inline-loading-state";
 import { cn } from "@/lib/utils";
-import { listAuthorizedMedicationReviewDrafts } from "@/services/gerclaw/doctor-medication-review";
+import { listAuthorizedMedicationReviewDrafts, submitMedicationReviewDraftReview } from "@/services/gerclaw/doctor-medication-review";
 import type { DoctorMedicationReviewDraftList, MedicationReviewDraft } from "@/services/gerclaw/schemas";
 
 const accountIdPattern = /^usr_account_[a-f0-9]{32}$/;
@@ -33,7 +33,9 @@ export function DoctorMedicationReviewDialog({
 }) {
   const [patientActorId, setPatientActorId] = useState("");
   const [result, setResult] = useState<DoctorMedicationReviewDraftList | null>(null);
+  const [notes, setNotes] = useState<Record<string, string>>({});
   const [loading, setLoading] = useState(false);
+  const [pendingDraftId, setPendingDraftId] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const textClass = seniorMode ? "text-lg leading-8" : "text-sm leading-6";
 
@@ -41,6 +43,7 @@ export function DoctorMedicationReviewDialog({
     if (!nextOpen) {
       setPatientActorId("");
       setResult(null);
+      setNotes({});
       setError(null);
     }
     onOpenChange(nextOpen);
@@ -63,6 +66,31 @@ export function DoctorMedicationReviewDialog({
     const patientId = patientActorId.trim();
     if (loading || !accountIdPattern.test(patientId)) return;
     await fetchDrafts(patientId);
+  }
+
+  async function submit(draftId: string, decision: "approved" | "returned") {
+    const reviewNote = notes[draftId]?.trim() ?? "";
+    if (!result || !reviewNote || pendingDraftId) return;
+    setPendingDraftId(draftId);
+    setError(null);
+    try {
+      const review = await submitMedicationReviewDraftReview({
+        patientActorId,
+        draftId,
+        decision,
+        reviewNote,
+      });
+      setResult((current) => current && {
+        items: current.items.map((draft) => draft.draft_id === draftId
+          ? { ...draft, reviews: [review, ...draft.reviews] }
+          : draft),
+      });
+      setNotes((current) => ({ ...current, [draftId]: "" }));
+    } catch {
+      setError("复核意见未保存，请稍后重试。");
+    } finally {
+      setPendingDraftId(null);
+    }
   }
 
   useEffect(() => {
@@ -131,6 +159,24 @@ export function DoctorMedicationReviewDialog({
                     {record.draft.sources.map((source) => <li key={source.source_id}>{source.source_id} · {source.title}（{source.publisher}，{source.locator}）</li>)}
                   </ul>
                 </details>
+                {record.reviews.length > 0 && <div className={cn("mt-3 rounded-lg bg-muted/50 p-3", textClass)}>
+                  <p className="font-medium">我的最近意见</p>
+                  <p className="mt-1">{record.reviews[0].decision === "approved" ? "已通过" : "已退回"}：{record.reviews[0].review_note}</p>
+                </div>}
+                <div className="mt-3 grid gap-2">
+                  <Label htmlFor={`medication-review-note-${record.draft_id}`} className={cn(seniorMode && "text-lg")}>复核意见</Label>
+                  <textarea
+                    id={`medication-review-note-${record.draft_id}`}
+                    value={notes[record.draft_id] ?? ""}
+                    onChange={(event) => setNotes((current) => ({ ...current, [record.draft_id]: event.target.value.slice(0, 5_000) }))}
+                    maxLength={5_000}
+                    className={cn("min-h-24 rounded-md border border-input bg-background p-3", seniorMode && "min-h-32 text-lg")}
+                  />
+                  <DialogFooter className={cn("gap-2", seniorMode && "flex-row justify-end gap-3")}>
+                    <Button type="button" variant="outline" disabled={!notes[record.draft_id]?.trim() || pendingDraftId !== null} onClick={() => void submit(record.draft_id, "returned")} className={cn(seniorMode && "min-h-12 text-lg")}>退回补充</Button>
+                    <Button type="button" disabled={!notes[record.draft_id]?.trim() || pendingDraftId !== null} onClick={() => void submit(record.draft_id, "approved")} className={cn(seniorMode && "min-h-12 text-lg")}>{pendingDraftId === record.draft_id ? "正在保存…" : "记录通过"}</Button>
+                  </DialogFooter>
+                </div>
               </article>
             ))}
           </div>
