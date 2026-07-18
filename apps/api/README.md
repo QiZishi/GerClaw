@@ -14,6 +14,8 @@ Trace/feedback/metrics 均要求已验证 JWT scope，tenant/actor 只从 token 
 
 三模型链的每个 slot 还必须在服务端声明是否支持图片、工具调用和结构化输出；Router 会先根据请求内容筛选候选，跳过不兼容模型并把无 PHI 的 capability version/原因写入审计，而不是把图片或 JSON 任务错误交给文本模型。能力声明的版本为 `GERCLAW_AGENT_MODEL_CAPABILITY_VERSION`，各 slot 的 `AGENT_*_SUPPORTS_*` 配置见根 `.env.example`。
 
+Search、RAG 与 MinerU 同样使用显式 Provider capability：`search-capabilities-v1` 要求结构化结果、`rag-capabilities-v1` 要求批量 embedding 与 relevance-score rerank、`mineru-capabilities-v1` 要求异步解析和 Markdown 导出。不兼容时，Search/RAG Runtime 或 MinerU egress 许可会在网络调用前拒绝；Search/RAG readiness 与 MinerU PHI-free egress 审计分别保留对应版本。
+
 ## Docker 运行
 
 ```bash

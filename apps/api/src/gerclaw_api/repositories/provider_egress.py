@@ -117,9 +117,14 @@ class SqlAlchemyProviderEgressRepository:
         return event
 
     async def record_prepared_document_parse(
-        self, *, tenant_id: str, actor_id: str
+        self, *, tenant_id: str, actor_id: str, capability_version: str
     ) -> ProviderEgressEvent:
-        """Record one MinerU parse without persisting file metadata or content."""
+        """Record one MinerU parse without persisting file metadata or content.
+
+        The configured adapter capability is PHI-free operational provenance. It
+        lets a bad case be tied to the exact MinerU contract without retaining a
+        filename, byte count, Markdown or document identifier.
+        """
 
         event = ProviderEgressEvent(
             tenant_id=tenant_id,
@@ -127,7 +132,7 @@ class SqlAlchemyProviderEgressRepository:
             purpose="external_document_parse",
             processor="mineru",
             policy_version="document-egress-v1",
-            findings=[],
+            findings=[{"field": "capability_version", "value": capability_version}],
             outcome="prepared",
         )
         self._session.add(event)

@@ -794,8 +794,21 @@ async def test_search_runtime_builds_from_settings_and_closes(unit_settings: Set
     runtime = create_search_runtime(unit_settings)
     assert runtime.status().ready
     assert runtime.status().primary_configured
+    assert runtime.status().capability_version == unit_settings.search_capability_version
     await runtime.aclose()
 
     missing = unit_settings.model_copy(update={"anysearch_url": None})
     with pytest.raises(ValueError, match="AnySearch URL"):
         create_search_runtime(missing)
+
+    unsupported_primary = unit_settings.model_copy(
+        update={"anysearch_supports_structured_results": False}
+    )
+    with pytest.raises(ValueError, match="structured-results capability"):
+        create_search_runtime(unsupported_primary)
+
+    unsupported_fallback = unit_settings.model_copy(
+        update={"tavily_supports_structured_results": False}
+    )
+    with pytest.raises(ValueError, match="structured-results capability"):
+        create_search_runtime(unsupported_fallback)

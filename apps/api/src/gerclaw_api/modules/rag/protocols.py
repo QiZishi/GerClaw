@@ -69,6 +69,7 @@ class RAGStatus(BaseModel):
     source_documents: int = Field(ge=0)
     indexed_documents: int = Field(ge=0)
     indexed_chunks: int = Field(ge=0)
+    capability_version: str = Field(default="rag-capabilities-v1", pattern=r"^[a-z][a-z0-9_.-]+$")
     embedding_model: str
     rerank_model: str
     retrieval_mode: Literal["agentic_hybrid_rrf_rerank"] = "agentic_hybrid_rrf_rerank"

@@ -91,8 +91,16 @@ async def prepare_mineru_egress(
     """Prepare an owner-bound MinerU audit record before the BFF calls the provider."""
 
     await _enforce_rate_limit(request, identity)
+    settings = request.app.state.settings
+    if not settings.mineru_supports_async_parse or not settings.mineru_supports_markdown_export:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail={"code": "MINERU_CAPABILITY_UNAVAILABLE"},
+        )
     event = await SqlAlchemyProviderEgressRepository(session).record_prepared_document_parse(
-        tenant_id=identity.tenant_id, actor_id=identity.actor_id
+        tenant_id=identity.tenant_id,
+        actor_id=identity.actor_id,
+        capability_version=settings.mineru_capability_version,
     )
     await session.commit()
     return DocumentParseEgressPrepared(egress_id=event.id)

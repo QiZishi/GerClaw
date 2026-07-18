@@ -118,7 +118,9 @@ async def test_document_parse_egress_is_owner_bound_and_phi_free() -> None:
     assert event.purpose == "external_document_parse"
     assert event.processor == "mineru"
     assert event.policy_version == "document-egress-v1"
-    assert event.findings == []
+    assert event.findings == [
+        {"field": "capability_version", "value": settings.mineru_capability_version}
+    ]
     assert event.outcome == "succeeded"
 
 
@@ -139,4 +141,27 @@ async def test_document_parse_egress_requires_document_write_scope() -> None:
         response = await client.post("/api/v1/documents/provider-egress/mineru")
 
     assert response.status_code == 403
+    assert egress_session.events == []
+
+
+@pytest.mark.asyncio
+async def test_document_parse_egress_rejects_incompatible_mineru_before_audit_or_provider_use() -> (
+    None
+):
+    settings = make_settings().model_copy(update={"mineru_supports_markdown_export": False})
+    app = create_app(settings)
+    app.state.rate_limiter = _RateLimiter()
+    egress_session = _EgressSession()
+    _with_egress_session(app, egress_session)
+    token = _token(settings, "usr_patient_document0001", {"document:write"})
+
+    async with AsyncClient(
+        transport=ASGITransport(app=app),
+        base_url="http://testserver",
+        headers={"Authorization": f"Bearer {token}"},
+    ) as client:
+        response = await client.post("/api/v1/documents/provider-egress/mineru")
+
+    assert response.status_code == 503
+    assert response.json()["detail"]["code"] == "MINERU_CAPABILITY_UNAVAILABLE"
     assert egress_session.events == []

@@ -149,6 +149,14 @@ class Settings(BaseSettings):
         default=2 * 1024 * 1024, ge=64 * 1024, le=8 * 1024 * 1024
     )
     search_max_content_characters: int = Field(default=50_000, ge=1_000, le=100_000)
+    # Provider capability declarations are owned by deployment configuration.
+    # A configured endpoint is not evidence that its response contract remains
+    # compatible with the Runtime adapter.
+    search_capability_version: str = Field(
+        default="search-capabilities-v1", pattern=r"^[a-z][a-z0-9_.-]+$"
+    )
+    anysearch_supports_structured_results: bool = True
+    tavily_supports_structured_results: bool = True
     skill_max_markdown_characters: int = Field(default=10_000, ge=1_000, le=10_000)
     skill_max_archive_bytes: int = Field(default=262_144, ge=16_384, le=1_048_576)
     skill_max_loaded: int = Field(default=10, ge=1, le=10)
@@ -207,6 +215,11 @@ class Settings(BaseSettings):
     rag_retrieval_candidates: int = Field(default=30, ge=5, le=100)
     rag_rerank_candidates: int = Field(default=20, ge=5, le=100)
     rag_min_rerank_score: float = Field(default=0.05, ge=0, le=1)
+    rag_capability_version: str = Field(
+        default="rag-capabilities-v1", pattern=r"^[a-z][a-z0-9_.-]+$"
+    )
+    embedding_supports_batch: bool = True
+    rerank_supports_relevance_scores: bool = True
 
     cors_origins: list[AnyHttpUrl] = Field(min_length=1)
     agentscope_required_version: str = Field(default="2.0.4", pattern=r"^\d+\.\d+\.\d+$")
@@ -463,6 +476,11 @@ class Settings(BaseSettings):
             "GERCLAW_MINERU_API_KEY", "MINERU_API_KEY", "NEXT_PUBLIC_MINERU_API_KEY"
         ),
     )
+    mineru_capability_version: str = Field(
+        default="mineru-capabilities-v1", pattern=r"^[a-z][a-z0-9_.-]+$"
+    )
+    mineru_supports_async_parse: bool = True
+    mineru_supports_markdown_export: bool = True
 
     @model_validator(mode="before")
     @classmethod
@@ -573,6 +591,15 @@ class Settings(BaseSettings):
                 "voice_capability_version",
                 "voice_supports_streaming_asr",
                 "voice_supports_pcm16_tts",
+                "search_capability_version",
+                "anysearch_supports_structured_results",
+                "tavily_supports_structured_results",
+                "rag_capability_version",
+                "embedding_supports_batch",
+                "rerank_supports_relevance_scores",
+                "mineru_capability_version",
+                "mineru_supports_async_parse",
+                "mineru_supports_markdown_export",
             }
             if not capability_declarations.issubset(self.model_fields_set):
                 raise ValueError(

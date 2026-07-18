@@ -42,6 +42,7 @@ class HybridRAGModule:
         retrieval_candidates: int,
         rerank_candidates: int,
         min_rerank_score: float,
+        capability_version: str = "rag-capabilities-v1",
     ) -> None:
         self._parser = parser
         self._embedding_model = embedding_model
@@ -51,6 +52,7 @@ class HybridRAGModule:
         self._retrieval_candidates = retrieval_candidates
         self._rerank_candidates = rerank_candidates
         self._min_rerank_score = min_rerank_score
+        self._capability_version = capability_version
 
     async def retrieve(
         self,
@@ -140,6 +142,7 @@ class HybridRAGModule:
             source_documents=sources,
             indexed_documents=documents,
             indexed_chunks=chunks,
+            capability_version=self._capability_version,
             embedding_model=self._embedding_model.model,
             rerank_model=self._reranker.model,
         )

@@ -82,6 +82,9 @@ class SearchStatus(BaseModel):
     model_config = ConfigDict(extra="forbid", frozen=True)
 
     ready: bool
+    capability_version: str = Field(
+        default="search-capabilities-v1", pattern=r"^[a-z][a-z0-9_.-]+$"
+    )
     primary: Literal["anysearch"] = "anysearch"
     fallback: Literal["tavily"] = "tavily"
     primary_configured: bool

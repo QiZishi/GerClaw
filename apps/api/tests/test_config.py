@@ -6,6 +6,7 @@ import pytest
 from pydantic import ValidationError
 
 from gerclaw_api.config import Settings
+from gerclaw_api.modules.rag.runtime import create_rag_runtime
 
 
 def _values() -> dict[str, object]:
@@ -52,6 +53,12 @@ def _values() -> dict[str, object]:
         "voice_capability_version": "voice-capabilities-v1",
         "voice_supports_streaming_asr": True,
         "voice_supports_pcm16_tts": True,
+        "search_capability_version": "search-capabilities-v1",
+        "anysearch_supports_structured_results": True,
+        "tavily_supports_structured_results": True,
+        "rag_capability_version": "rag-capabilities-v1",
+        "embedding_supports_batch": True,
+        "rerank_supports_relevance_scores": True,
         "siliconflow_api_key": "strong-siliconflow-secret",
         "siliconflow_url": "https://api.siliconflow.cn/v1",
         "embedding_model": "BAAI/bge-m3",
@@ -62,6 +69,9 @@ def _values() -> dict[str, object]:
         "tavily_api_key": "strong-tavily-secret",
         "mineru_url": "https://mineru.example.com/v1/agent",
         "mineru_api_key": "strong-mineru-secret",
+        "mineru_capability_version": "mineru-capabilities-v1",
+        "mineru_supports_async_parse": True,
+        "mineru_supports_markdown_export": True,
     }
 
 
@@ -217,3 +227,44 @@ def test_production_rejects_implicit_model_capability_defaults() -> None:
 
     with pytest.raises(ValidationError, match="capability declarations"):
         Settings.model_validate(values)
+
+
+@pytest.mark.parametrize(
+    "field",
+    [
+        "search_capability_version",
+        "anysearch_supports_structured_results",
+        "tavily_supports_structured_results",
+        "rag_capability_version",
+        "embedding_supports_batch",
+        "rerank_supports_relevance_scores",
+        "mineru_capability_version",
+        "mineru_supports_async_parse",
+        "mineru_supports_markdown_export",
+    ],
+)
+def test_production_rejects_implicit_external_provider_capability_defaults(field: str) -> None:
+    values = _values()
+    values.pop(field)
+
+    with pytest.raises(ValidationError, match="capability declarations"):
+        Settings.model_validate(values)
+
+
+@pytest.mark.parametrize(
+    ("field", "error"),
+    [
+        ("embedding_supports_batch", "batch embeddings"),
+        ("rerank_supports_relevance_scores", "relevance scores"),
+    ],
+)
+def test_rag_runtime_rejects_unsupported_provider_capabilities_before_constructing_clients(
+    field: str, error: str
+) -> None:
+    values = _values()
+    values["app_env"] = "test"
+    values[field] = False
+    settings = Settings.model_validate(values)
+
+    with pytest.raises(ValueError, match=error):
+        create_rag_runtime(settings, None)  # type: ignore[arg-type]

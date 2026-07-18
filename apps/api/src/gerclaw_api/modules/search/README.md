@@ -9,4 +9,6 @@
 台账只含用途、逻辑处理方、策略版本和 PHI-free 类别计数；写入失败即阻断该次调用。
 重试和 fallback 均为独立事件。AgentScope 内部调用及网页提取尚未纳入该台账。
 
+部署必须显式声明 `search-capabilities-v1` 及 AnySearch/Tavily 的结构化结果能力；不兼容 Provider 在构建 Runtime 时被拒绝，不会先发出查询再降级。
+
 AgentScope 通过只读 `web_search` FunctionTool 复用同一模块。返回内容被 `<untrusted-web-evidence>` 包裹，只能作为可核验外部证据；本地 RAG 仍是医疗事实的第一证据来源。

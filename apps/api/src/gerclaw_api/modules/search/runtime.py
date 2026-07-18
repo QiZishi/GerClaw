@@ -17,6 +17,7 @@ class SearchRuntime:
     module: ProductionSearchModule
     primary: AnySearchProvider
     fallback: TavilyProvider | None
+    capability_version: str
 
     async def aclose(self) -> None:
         await self.primary.aclose()
@@ -26,6 +27,7 @@ class SearchRuntime:
     def status(self) -> SearchStatus:
         return SearchStatus(
             ready=self.fallback is not None,
+            capability_version=self.capability_version,
             primary_configured=True,
             fallback_configured=self.fallback is not None,
         )
@@ -34,6 +36,8 @@ class SearchRuntime:
 def create_search_runtime(settings: Settings) -> SearchRuntime:
     if settings.anysearch_url is None:
         raise ValueError("AnySearch URL is required for online search")
+    if not settings.anysearch_supports_structured_results:
+        raise ValueError("AnySearch does not declare the required structured-results capability")
     primary = AnySearchProvider(
         base_url=str(settings.anysearch_url),
         api_key=(
@@ -47,6 +51,8 @@ def create_search_runtime(settings: Settings) -> SearchRuntime:
     )
     fallback = None
     if settings.tavily_url is not None and settings.tavily_api_key is not None:
+        if not settings.tavily_supports_structured_results:
+            raise ValueError("Tavily does not declare the required structured-results capability")
         fallback = TavilyProvider(
             base_url=str(settings.tavily_url),
             api_key=SecretStr(settings.tavily_api_key.get_secret_value()),
@@ -60,4 +66,9 @@ def create_search_runtime(settings: Settings) -> SearchRuntime:
         max_retries=settings.search_max_retries,
         max_content_characters=settings.search_max_content_characters,
     )
-    return SearchRuntime(module=module, primary=primary, fallback=fallback)
+    return SearchRuntime(
+        module=module,
+        primary=primary,
+        fallback=fallback,
+        capability_version=settings.search_capability_version,
+    )

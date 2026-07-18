@@ -36,6 +36,10 @@ class RAGRuntime:
 def create_rag_runtime(settings: Settings, qdrant_client: AsyncQdrantClient) -> RAGRuntime:
     """Construct the production RAG graph from validated environment settings."""
 
+    if not settings.embedding_supports_batch:
+        raise ValueError("configured embedding provider does not support required batch embeddings")
+    if not settings.rerank_supports_relevance_scores:
+        raise ValueError("configured rerank provider does not support required relevance scores")
     if (
         settings.siliconflow_url is None
         or settings.siliconflow_api_key is None
@@ -92,6 +96,7 @@ def create_rag_runtime(settings: Settings, qdrant_client: AsyncQdrantClient) -> 
         retrieval_candidates=settings.rag_retrieval_candidates,
         rerank_candidates=settings.rag_rerank_candidates,
         min_rerank_score=settings.rag_min_rerank_score,
+        capability_version=settings.rag_capability_version,
     )
     return RAGRuntime(
         module=module,
