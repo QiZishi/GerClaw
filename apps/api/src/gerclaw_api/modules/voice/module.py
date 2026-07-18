@@ -31,6 +31,10 @@ class VoiceProviderInvalidResponse(VoiceProviderError):
     """Provider returned invalid SSE or invalid encoded content."""
 
 
+class VoiceProviderCapabilityUnavailable(VoiceProviderError):
+    """Configured adapter cannot safely perform the requested voice contract."""
+
+
 class _DeltaAudio(BaseModel):
     model_config = ConfigDict(extra="ignore")
 
@@ -74,6 +78,9 @@ class MiMoVoiceModule:
         tts_model: str,
         default_voice: VoiceName,
         timeout_seconds: float,
+        capability_version: str = "voice-capabilities-v1",
+        supports_streaming_asr: bool = True,
+        supports_pcm16_tts: bool = True,
         transport: httpx.AsyncBaseTransport | None = None,
     ) -> None:
         headers = {"Content-Type": "application/json"}
@@ -92,6 +99,9 @@ class MiMoVoiceModule:
         self._asr_model = asr_model
         self._tts_model = tts_model
         self.default_voice = default_voice
+        self.capability_version = capability_version
+        self._supports_streaming_asr = supports_streaming_asr
+        self._supports_pcm16_tts = supports_pcm16_tts
 
     @staticmethod
     def _event(line: str) -> _StreamEvent | None:
@@ -113,6 +123,10 @@ class MiMoVoiceModule:
         VOICE_PROVIDER_LATENCY.labels(operation=operation).observe(time.perf_counter() - started)
 
     async def transcribe(self, audio_data: bytes, *, audio_format: AudioFormat) -> str:
+        if not self._supports_streaming_asr:
+            raise VoiceProviderCapabilityUnavailable(
+                "voice ASR streaming capability is unavailable"
+            )
         encoded = base64.b64encode(audio_data).decode("ascii")
         payload = {
             "model": self._asr_model,
@@ -163,6 +177,8 @@ class MiMoVoiceModule:
     async def synthesize(
         self, text: str, *, voice: VoiceName, style: str | None = None
     ) -> AsyncGenerator[bytes, None]:
+        if not self._supports_pcm16_tts:
+            raise VoiceProviderCapabilityUnavailable("voice PCM16 TTS capability is unavailable")
         safe_text = redact_external_tts_text(text).text
         safe_style = redact_external_tts_text(style or _DEFAULT_STYLE).text
         payload = {
@@ -242,4 +258,7 @@ def create_voice_module(settings: Settings) -> MiMoVoiceModule | None:
         tts_model=settings.tts_model,
         default_voice=cast(VoiceName, tts_voice),
         timeout_seconds=settings.external_request_timeout_seconds,
+        capability_version=settings.voice_capability_version,
+        supports_streaming_asr=settings.voice_supports_streaming_asr,
+        supports_pcm16_tts=settings.voice_supports_pcm16_tts,
     )

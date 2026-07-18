@@ -11,6 +11,10 @@ environment settings exist. Calls require `voice:use`, the common rate limiter,
 bounded provider timeouts, and return stable provider-independent errors. It
 does not persist audio, transcript, synthesis text, provider bodies, or keys.
 
+`voice-capabilities-v1` is a server-owned adapter contract. Production must
+explicitly declare streaming ASR and PCM16 TTS support; a request needing an
+unsupported capability fails before any provider egress.
+
 Before every provider call it persists a PHI-free egress decision and then
 marks it succeeded or failed. TTS records the versioned text-redaction category
 counts. ASR records only the fixed `external_asr_audio` purpose,

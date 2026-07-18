@@ -11,6 +11,7 @@ import pytest
 
 from gerclaw_api.modules.voice.module import (
     MiMoVoiceModule,
+    VoiceProviderCapabilityUnavailable,
     VoiceProviderInvalidResponse,
 )
 
@@ -62,6 +63,31 @@ async def test_voice_module_parses_asr_and_pcm16_sse_without_retaining_payloads(
     try:
         assert await module.transcribe(b"audio", audio_format="wav") == "您好，请说。"
         assert [chunk async for chunk in module.synthesize("测试", voice="冰糖")] == [pcm]
+    finally:
+        await module.aclose()
+
+
+@pytest.mark.asyncio
+async def test_voice_capability_mismatch_fails_before_provider_egress() -> None:
+    calls = 0
+
+    async def handler(_request: httpx.Request) -> httpx.Response:
+        nonlocal calls
+        calls += 1
+        return httpx.Response(500)
+
+    module = MiMoVoiceModule(
+        asr_url="https://voice.test/v1", tts_url="https://voice.test/v1", api_key="test-key",
+        auth_header="authorization", asr_model="mimo-v2.5-asr", tts_model="mimo-v2.5-tts",
+        default_voice="冰糖", timeout_seconds=2, supports_streaming_asr=False,
+        supports_pcm16_tts=False, transport=httpx.MockTransport(handler),
+    )
+    try:
+        with pytest.raises(VoiceProviderCapabilityUnavailable):
+            await module.transcribe(b"audio", audio_format="wav")
+        with pytest.raises(VoiceProviderCapabilityUnavailable):
+            _ = [chunk async for chunk in module.synthesize("测试", voice="冰糖")]
+        assert calls == 0
     finally:
         await module.aclose()
 

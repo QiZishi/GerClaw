@@ -410,6 +410,11 @@ class Settings(BaseSettings):
         default=None,
         validation_alias=AliasChoices("GERCLAW_TTS_VOICE", "TTS_VOICE", "NEXT_PUBLIC_TTS_VOICE"),
     )
+    voice_capability_version: str = Field(
+        default="voice-capabilities-v1", pattern=r"^[a-z][a-z0-9_.-]+$"
+    )
+    voice_supports_streaming_asr: bool = True
+    voice_supports_pcm16_tts: bool = True
 
     siliconflow_api_key: SecretStr | None = Field(
         default=None,
@@ -565,6 +570,9 @@ class Settings(BaseSettings):
                 "agent_backup2_supports_image_input",
                 "agent_backup2_supports_tool_calling",
                 "agent_backup2_supports_structured_output",
+                "voice_capability_version",
+                "voice_supports_streaming_asr",
+                "voice_supports_pcm16_tts",
             }
             if not capability_declarations.issubset(self.model_fields_set):
                 raise ValueError(
