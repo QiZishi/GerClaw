@@ -359,8 +359,10 @@ gerclaw-main-codex/
 │   ├── design-docs/                      核心原则与技术设计
 │   ├── exec-plans/                       版本化执行计划
 │   ├── PRD.md                            产品需求基线
-│   ├── FRONTEND.md / DESIGN.md           前端与视觉规范
-│   ├── SECURITY.md / RELIABILITY.md      安全与可靠性边界
+│   ├── FRONTEND.md                       前端工程与交互规范
+│   ├── DESIGN.md                         视觉设计规范
+│   ├── SECURITY.md                       安全与医疗输出边界
+│   ├── RELIABILITY.md                    超时、重试与降级规范
 │   └── QUALITY_SCORE.md                  质量评价维度
 └── scripts/
     ├── check-root-env.py                 根环境配置一致性检查

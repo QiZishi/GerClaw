@@ -190,7 +190,7 @@ def should_skip_line(line: str) -> bool:
 def count_lines(filepath: Path) -> int:
     try:
         content = filepath.read_text(encoding="utf-8")
-        lines = [l for l in content.splitlines() if l.strip()]
+        lines = [line for line in content.splitlines() if line.strip()]
         return len(lines)
     except Exception:
         return 0
@@ -318,7 +318,30 @@ def check_requirement_matrix(workspace: Path) -> list[str]:
 
 
 def check_markdown_links(workspace: Path) -> list[str]:
-    """Reject broken relative Markdown links in governed documentation."""
+    """Reject broken relative paths and heading anchors in governed Markdown."""
+
+    def heading_anchors(document: Path) -> set[str]:
+        anchors: set[str] = set()
+        duplicates: dict[str, int] = {}
+        in_fence = False
+        for raw_line in document.read_text(encoding="utf-8").splitlines():
+            line = raw_line.strip()
+            if line.startswith(("```", "~~~")):
+                in_fence = not in_fence
+                continue
+            if in_fence:
+                continue
+            match = re.match(r"^#{1,6}\s+(.+?)\s*#*$", line)
+            if not match:
+                continue
+            heading = re.sub(r"<[^>]+>", "", match.group(1))
+            heading = re.sub(r"[`*_~]", "", heading).strip().lower()
+            slug = re.sub(r"[^\w\- ]", "", heading, flags=re.UNICODE)
+            slug = re.sub(r"\s+", "-", slug)
+            duplicate_number = duplicates.get(slug, 0)
+            duplicates[slug] = duplicate_number + 1
+            anchors.add(slug if duplicate_number == 0 else f"{slug}-{duplicate_number}")
+        return anchors
 
     issues: list[str] = []
     for rel_path in (*REQUIRED_FILES, *USER_FACING_DOCUMENTS):
@@ -328,11 +351,16 @@ def check_markdown_links(workspace: Path) -> list[str]:
         content = document.read_text(encoding="utf-8")
         for target in re.findall(r"(?<!!)\[[^\]]+\]\(([^)]+)\)", content):
             normalized = unquote(target.strip().strip("<>"))
-            if normalized.startswith(("#", "/", "http://", "https://", "mailto:", "file:")):
+            if normalized.startswith(("/", "http://", "https://", "mailto:", "file:")):
                 continue
-            path_part = normalized.split("#", maxsplit=1)[0]
-            if path_part and not (document.parent / path_part).resolve().exists():
+            path_part, separator, fragment = normalized.partition("#")
+            target_document = (document.parent / path_part).resolve() if path_part else document
+            if path_part and not target_document.exists():
                 issues.append(f"{rel_path} -> {target}")
+                continue
+            if separator and fragment and target_document.suffix.lower() == ".md":
+                if fragment.lower() not in heading_anchors(target_document):
+                    issues.append(f"{rel_path} -> {target} (不存在的章节锚点)")
     return issues
 
 

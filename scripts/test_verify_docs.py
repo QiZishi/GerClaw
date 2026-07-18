@@ -59,6 +59,31 @@ class VerifyDocsTests(unittest.TestCase):
             )
             self.assertIn("README.md -> docs/missing.md", check_markdown_links(workspace))
 
+    def test_broken_heading_anchor_is_rejected(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            workspace = Path(directory)
+            (workspace / "README.md").write_text(
+                "# GerClaw\n\n[错误目录](#不存在的章节)\n",
+                encoding="utf-8",
+            )
+            self.assertIn(
+                "README.md -> #不存在的章节 (不存在的章节锚点)",
+                check_markdown_links(workspace),
+            )
+
+    def test_existing_chinese_and_english_heading_anchors_are_accepted(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            workspace = Path(directory)
+            (workspace / "README.md").write_text(
+                "# GerClaw\n\n"
+                "[快速开始](#快速开始)\n"
+                "[知识库](#医学知识库与-mineru)\n\n"
+                "## 快速开始\n\n"
+                "## 医学知识库与 MinerU\n",
+                encoding="utf-8",
+            )
+            self.assertEqual(check_markdown_links(workspace), [])
+
     def test_module_document_check_requires_agents_and_readme_for_python_modules(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             workspace = Path(directory)
