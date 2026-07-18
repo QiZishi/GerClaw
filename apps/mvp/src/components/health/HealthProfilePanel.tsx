@@ -201,11 +201,11 @@ export function HealthProfilePanel() {
       )}
 
       {confirmedSections.length === 0 && pendingFacts.length === 0 ? (
-        <PanelStatus
-          className={bodyClassName}
-          title="还没有已确认的健康记录"
-          description="您在对话中确认的信息会显示在这里。系统不会用示例资料代替您的记录。"
-        />
+          <PanelStatus
+            className={bodyClassName}
+            title="还没有已确认的健康记录"
+            description="确认后的个人资料会显示在这里。"
+          />
       ) : (
         <div className="space-y-4">
           {confirmedSections.map(([category, facts]) => (
