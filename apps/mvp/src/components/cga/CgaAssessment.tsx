@@ -4,6 +4,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { AlertTriangle, ArrowLeft, CheckCircle2, ClipboardList, Download, FileText, FileType, Pause, RefreshCw, Square, Volume2 } from "lucide-react";
 import { z } from "zod";
 import { Button } from "@/components/ui/button";
+import { InlineLoadingState } from "@/components/ui/inline-loading-state";
 import { cn } from "@/lib/utils";
 import { exportToDocx, exportToMarkdown, exportToPdf } from "@/lib/export";
 import { recordedCgaOptionAudio, recordedCgaQuestionAudio } from "@/lib/cga-audio";
@@ -508,7 +509,10 @@ export function CgaAssessment({ onExit }: CgaAssessmentProps) {
       {!assessment && !error && (
         <div className="space-y-6">
           {loadingDirectory ? (
-            <p className={cn("rounded-lg border p-5 text-muted-foreground", textClass)}>正在准备评估项目…</p>
+            <InlineLoadingState
+              message="正在准备评估项目"
+              className={cn("min-h-28 rounded-lg border px-5", textClass)}
+            />
           ) : scales.map((scale) => {
             const savedAssessment = savedAssessments[scale.id];
             const actionVerb = savedAssessment?.status === "active"
@@ -544,7 +548,10 @@ export function CgaAssessment({ onExit }: CgaAssessmentProps) {
               <span className={cn("text-muted-foreground", textClass)}>仅显示最近 10 份已完成报告</span>
             </div>
             {loadingHistory ? (
-              <p className={cn("mt-3 rounded-lg border p-4 text-muted-foreground", textClass)}>正在读取历史筛查结果…</p>
+              <InlineLoadingState
+                message="正在读取历史筛查结果"
+                className={cn("mt-3 min-h-20 rounded-lg border px-4", textClass)}
+              />
             ) : historyError ? (
               <div className={cn("mt-3 rounded-lg border border-destructive/40 bg-destructive/10 p-4", textClass)} role="alert">
                 <p>{historyError}</p>
