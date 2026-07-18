@@ -213,7 +213,7 @@ docker compose --profile test up --build --abort-on-container-exit \
 
 ## 测试与性能状态
 
-历史全量门禁数字、独立审阅与完整命令见 [Development Harness](docs/DEVELOPMENT_HARNESS.md) 和各 active exec-plan，不能因后续变更自动继承。本次近期可复现实证包括：`apps/mvp` 的 `npm test`（42 个 Node 行为/契约检查与 CGA 音频资源校验）、`npm run lint` 与 `npm run build`；`apps/api` 的 `uv run pytest --no-cov -q`（650 passed、35 skipped）、Ruff、Mypy，以及核心 Memory/Skill/RAG 定向回归。Docker Compose 的确定性安全短路报告见 [`docs/evidence/`](docs/evidence/)，空卷 Docker smoke 已通过。全站 E2E、临床 workflow 压测与完整产品发布验收仍需在交付前重新执行。
+历史全量门禁数字、独立审阅与完整命令见 [Development Harness](docs/DEVELOPMENT_HARNESS.md) 和各 active exec-plan，不能因后续变更自动继承。本次近期可复现实证包括：`apps/mvp` 的 `npm test`（42 个 Node 行为/契约检查与 CGA 音频资源校验）、`npm run lint` 与 `npm run build`；`scripts/quality-gate.sh quick` 已在当前工作树通过，包含 API Ruff/Mypy、迁移图与 `698 passed、36 skipped`（coverage `80.46%`）、MVP lint/build 及 Harness 负向自测。Docker Compose 的确定性安全短路报告见 [`docs/evidence/`](docs/evidence/)，空卷 Docker smoke 已通过。全站 E2E、临床 workflow 压测与完整产品发布验收仍需在交付前重新执行。
 
 当前没有千级吞吐能力结论。Compose 已实际验证 10 个并发的确定性高风险安全短路 SSE（10/10 done、失败率 0、p50 153ms、p95 154ms、Trace/消息/跨访客隔离均通过）；test image 中经显式 opt-in 的合成 RAG 评测为 6/6（五个本地老年医学主题命中绑定文档，非医学问题无证据为空）。两者均不能替代模型、临床 workflow、取消/限流/幂等的统一性能报告，后者仍归属 `OPS-04/OPS-08`。
 
