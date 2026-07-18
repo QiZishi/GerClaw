@@ -394,9 +394,13 @@ class _SkillModel:
             **content,
         }
         self.calls = 0
+        self.messages: list[list[Any]] = []
 
-    async def generate_structured_output(self, *_args: Any, **_kwargs: Any) -> Any:
+    async def generate_structured_output(
+        self, messages: list[Any], *_args: Any, **_kwargs: Any
+    ) -> Any:
         self.calls += 1
+        self.messages.append(messages)
         return SimpleNamespace(content=self.content)
 
 
@@ -436,6 +440,35 @@ async def test_generator_returns_reviewable_draft_without_registering() -> None:
         await RealSkillGenerator(cast(StructuredSkillModel, model)).generate(
             "请设计一个老年患者血压随访技能，需要检索本地证据"
         )
+
+
+@pytest.mark.asyncio
+async def test_generator_allows_evidence_backed_medication_recommendation_draft() -> None:
+    model = _SkillModel(
+        {
+            "skill_id": "evidence-backed-medication-review",
+            "name": "循证用药复核",
+            "description": "根据可追溯证据生成供医生复核的用药建议",
+            "version": "1.0.0",
+            "category": "medication",
+            "parameters": {},
+            "tools": ["search_knowledge"],
+            "instructions": (
+                "# 用药复核\\n\\n先检索本地证据。只有存在本轮可追溯证据时，"
+                "才可提出调整剂量建议，并同时说明适用条件和证据；Skill 不执行任何调药动作。"
+            ),
+        }
+    )
+
+    definition = await RealSkillGenerator(cast(StructuredSkillModel, model)).generate(
+        "为需要医生复核的老年患者用药调整建议设计技能，并要求标注本地证据。"
+    )
+
+    assert "调整剂量建议" in definition.source_markdown
+    policy = str(model.messages[0][0].content)
+    assert "本轮可追溯证据" in policy
+    assert "Skill 本身不得执行" in policy
+    assert "不写确定性诊断、停换药" not in policy
 
 
 @pytest.mark.asyncio
