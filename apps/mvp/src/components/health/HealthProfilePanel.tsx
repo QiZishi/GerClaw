@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { Check, History, RefreshCw, X } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import { InlineLoadingState } from "@/components/ui/inline-loading-state";
 import { toast } from "@/components/ui/toast";
 import { cn } from "@/lib/utils";
 import { decideMemoryFact, readHealthProfile, readMemoryFactHistory } from "@/services/gerclaw/memory";
@@ -140,11 +141,12 @@ export function HealthProfilePanel() {
 
   if (loadState === "loading" && !profile) {
     return (
-      <PanelStatus
-        className={bodyClassName}
-        title="正在读取您的健康记录"
-        description="请稍候，页面会在读取完成后更新。"
-      />
+      <div className="flex h-full items-center justify-center p-6">
+        <InlineLoadingState
+          message="正在读取您的健康记录"
+          className={cn("min-h-28", bodyClassName)}
+        />
+      </div>
     );
   }
 
@@ -187,9 +189,10 @@ export function HealthProfilePanel() {
       </div>
 
       {loadState === "loading" && (
-        <p className={cn("mb-3 text-muted-foreground", bodyClassName)} role="status" aria-live="polite">
-          正在刷新健康记录…
-        </p>
+        <InlineLoadingState
+          message="正在刷新健康记录"
+          className={cn("mb-3 justify-start", bodyClassName)}
+        />
       )}
       {loadState === "error" && (
         <p className={cn("mb-3 text-destructive", bodyClassName)} role="status">
@@ -311,9 +314,10 @@ function FactHistory({
 }) {
   if (loading) {
     return (
-      <p className={cn("mt-3 text-muted-foreground", className)} role="status" aria-live="polite">
-        正在读取这条记录的变更历史…
-      </p>
+      <InlineLoadingState
+        message="正在读取这条记录的变更历史"
+        className={cn("mt-3 justify-start", className)}
+      />
     );
   }
   if (error) {
