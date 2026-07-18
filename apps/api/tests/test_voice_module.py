@@ -27,7 +27,7 @@ async def test_voice_module_parses_asr_and_pcm16_sse_without_retaining_payloads(
     async def handler(request: httpx.Request) -> httpx.Response:
         payload = json.loads(request.content)
         assert request.headers["authorization"] == "Bearer test-key"
-        if payload["model"] == "mimo-v2.5-asr":
+        if payload["model"] == "configured-asr-model":
             return httpx.Response(
                 200,
                 text=_sse(
@@ -38,6 +38,7 @@ async def test_voice_module_parses_asr_and_pcm16_sse_without_retaining_payloads(
                     ]
                 ),
             )
+        assert payload["model"] == "configured-tts-model"
         assert payload["audio"] == {"format": "pcm16", "voice": "冰糖"}
         return httpx.Response(
             200,
@@ -54,8 +55,8 @@ async def test_voice_module_parses_asr_and_pcm16_sse_without_retaining_payloads(
         tts_url="https://voice.test/v1",
         api_key="test-key",
         auth_header="authorization",
-        asr_model="mimo-v2.5-asr",
-        tts_model="mimo-v2.5-tts",
+        asr_model="configured-asr-model",
+        tts_model="configured-tts-model",
         default_voice="冰糖",
         timeout_seconds=2,
         transport=httpx.MockTransport(handler),

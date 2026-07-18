@@ -164,6 +164,18 @@ def _router(
         return FailoverChatModel(configs)
 
 
+def test_router_identity_uses_configured_primary_model() -> None:
+    models = [
+        _ScriptedModel("configured-primary-model", []),
+        _ScriptedModel("configured-backup1-model", []),
+        _ScriptedModel("configured-backup2-model", []),
+    ]
+
+    router = _router(models)
+
+    assert router.model == "configured-primary-model"
+
+
 async def _consume(router: FailoverChatModel) -> str:
     return await _consume_with_messages(router, [UserMsg(name="user", content="hello")])
 
@@ -317,16 +329,13 @@ async def test_structured_failover_replays_full_context_and_same_schema_to_backu
 
 
 @pytest.mark.asyncio
-async def test_qwen_compatible_openai_endpoint_uses_auto_structured_tool_choice() -> None:
+async def test_structured_output_uses_provider_agnostic_auto_tool_choice() -> None:
     models = [
         _StructuredScriptedModel("primary", [_Action("structured", "primary")]),
         _StructuredScriptedModel("backup1", [_Action("structured", "unused")]),
         _StructuredScriptedModel("backup2", [_Action("structured", "unused")]),
     ]
-    router = _router(
-        models,
-        model_names=("qwen3.7-plus", "backup1-model", "backup2-model"),
-    )
+    router = _router(models)
 
     await router.generate_structured_output(
         [UserMsg(name="user", content="hello")],

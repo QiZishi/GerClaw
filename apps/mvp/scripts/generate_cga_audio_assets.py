@@ -200,6 +200,16 @@ def question_path(definition: QuestionDefinition) -> Path:
     )
 
 
+def tts_release_configuration(environment: dict[str, str]) -> tuple[str, str]:
+    """Return the root-env TTS model and voice without hidden defaults."""
+
+    model = environment.get("TTS_MODEL")
+    voice = environment.get("TTS_VOICE")
+    if not model or not voice:
+        raise RuntimeError("缺少 TTS_MODEL 或 TTS_VOICE，无法生成预录制音频。")
+    return model, voice
+
+
 def tts_wav(text: str, environment: dict[str, str], *, attempts: int = 4) -> bytes:
     tts_url = environment.get("MIMO_TTS_URL") or environment.get("TTS_URL")
     api_key = environment.get("MIMO_API_KEY") or environment.get("TTS_API_KEY")
@@ -208,8 +218,7 @@ def tts_wav(text: str, environment: dict[str, str], *, attempts: int = 4) -> byt
             "缺少 MIMO_TTS_URL/TTS_URL 或 MIMO_API_KEY/TTS_API_KEY，无法生成预录制音频。"
         )
 
-    model = environment.get("MIMO_TTS_MODEL") or environment.get("TTS_MODEL") or "mimo-v2.5-tts"
-    voice = environment.get("TTS_VOICE") or "冰糖"
+    model, voice = tts_release_configuration(environment)
     authorization_header = environment.get("GERCLAW_MIMO_AUTH_HEADER", "authorization").lower()
     headers = {"Content-Type": "application/json"}
     if authorization_header == "api-key":
@@ -301,15 +310,14 @@ def main() -> int:
         parser.error("生成会调用真实 TTS 服务；请显式传入 --confirm-live-provider。")
 
     environment = read_environment()
+    tts_model, tts_voice = tts_release_configuration(environment)
     manifest: dict[str, Any] = {
         "schema_version": 1,
         "generated_at": datetime.now(UTC).isoformat(),
         "generator": {
             "kind": "live_tts_release_asset",
-            "model": environment.get("MIMO_TTS_MODEL")
-            or environment.get("TTS_MODEL")
-            or "mimo-v2.5-tts",
-            "voice": environment.get("TTS_VOICE") or "冰糖",
+            "model": tts_model,
+            "voice": tts_voice,
             "audio_format": "wav",
         },
         "scales": [],

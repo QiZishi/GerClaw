@@ -31,5 +31,6 @@ async def test_model_factory_selects_agentscope_provider(
     model = build_agentscope_model(config)
     try:
         assert isinstance(model, expected_type)
+        assert model.model == "model-name"
     finally:
         await close_agentscope_model(model)

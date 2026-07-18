@@ -67,7 +67,7 @@ def main() -> int:
     mismatches = [
         key
         for key in actual
-        if not is_secret(key) and actual[key] != example[key]
+        if not is_secret(key) and example[key] and actual[key] != example[key]
     ]
     if mismatches:
         print("以下非密钥变量值不一致：" + "、".join(mismatches), file=sys.stderr)

@@ -62,8 +62,6 @@ class ModelAttempt:
 @dataclass(frozen=True, slots=True)
 class _Candidate:
     preference: Literal["primary", "backup1", "backup2"]
-    protocol: Literal["openai", "dashscope", "anthropic"]
-    model_name: str
     model: ChatModelBase
     timeout_seconds: float
     capability_version: str
@@ -287,8 +285,6 @@ class FailoverChatModel(ChatModelBase):
         candidates = tuple(
             _Candidate(
                 config.preference,
-                config.protocol,
-                config.model_name,
                 build_agentscope_model(config),
                 config.timeout_seconds,
                 config.capability_version,
@@ -301,7 +297,7 @@ class FailoverChatModel(ChatModelBase):
         self._candidates = candidates
         super().__init__(
             credential=candidates[0].model.credential,
-            model="gerclaw-failover-chain",
+            model=candidates[0].model.model,
             parameters=self.Parameters(),
             stream=True,
             max_retries=0,
@@ -378,16 +374,10 @@ class FailoverChatModel(ChatModelBase):
         for candidate in candidates:
             _record(self._attempt(candidate, "started"))
             egress_handle = await _prepare_egress(candidate.preference, decision)
-            # Qwen-compatible endpoints can reject a forced named tool choice
-            # in thinking mode even when exposed through the OpenAI-compatible
-            # protocol. The structured schema remains unchanged; `auto` only
-            # avoids a provider-level retry before that schema is evaluated.
-            candidate_tool_choice = (
-                ToolChoice(mode="auto")
-                if candidate.protocol == "dashscope"
-                or candidate.model_name.casefold().startswith("qwen")
-                else tool_choice
-            )
+            # The router must not infer provider behavior from a hard-coded
+            # model family name. ``auto`` is supported by every configured
+            # adapter and the structured schema is still validated afterward.
+            candidate_tool_choice = ToolChoice(mode="auto")
             try:
                 async with asyncio.timeout(candidate.timeout_seconds):
                     response = await candidate.model.generate_structured_output(
