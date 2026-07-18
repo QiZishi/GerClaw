@@ -114,7 +114,7 @@ class SqlAlchemyPrescriptionDraftRepository:
         *,
         tenant_id: str,
         draft_ids: tuple[uuid.UUID, ...],
-        doctor_actor_id: str,
+        doctor_actor_id: str | None,
     ) -> list[PrescriptionDraftReview]:
         if not draft_ids:
             return []
@@ -123,11 +123,12 @@ class SqlAlchemyPrescriptionDraftRepository:
             .where(
                 PrescriptionDraftReview.tenant_id == tenant_id,
                 PrescriptionDraftReview.prescription_draft_id.in_(draft_ids),
-                PrescriptionDraftReview.doctor_actor_id == doctor_actor_id,
             )
             .order_by(PrescriptionDraftReview.reviewed_at.desc(), PrescriptionDraftReview.id.desc())
             .limit(100)
         )
+        if doctor_actor_id is not None:
+            statement = statement.where(PrescriptionDraftReview.doctor_actor_id == doctor_actor_id)
         return list((await self._session.scalars(statement)).all())
 
     async def append_review(

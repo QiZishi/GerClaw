@@ -679,12 +679,25 @@ export const fivePrescriptionDraftSchema = z
 
 export type FivePrescriptionDraft = z.infer<typeof fivePrescriptionDraftSchema>;
 
+export const prescriptionDraftReviewSchema = z
+  .object({
+    review_id: z.string().uuid(),
+    draft_id: z.string().uuid(),
+    doctor_actor_id: z.string().regex(/^usr_account_[a-f0-9]{32}$/),
+    decision: z.enum(["approved", "returned"]),
+    review_note: z.string().min(1).max(5_000),
+    revision: z.number().int().positive(),
+    reviewed_at: z.string().datetime(),
+  })
+  .strict();
+
 export const prescriptionDraftReadSchema = z
   .object({
     draft_id: z.string().uuid(),
     intake_id: z.string().uuid(),
     created_at: z.string().datetime(),
     draft: fivePrescriptionDraftSchema,
+    reviews: z.array(prescriptionDraftReviewSchema).max(100),
   })
   .strict();
 

@@ -61,6 +61,7 @@ from gerclaw_api.modules.prescription.models import (
     PrescriptionConversationTurnRequest,
     PrescriptionDraftHistoryRead,
     PrescriptionDraftRead,
+    PrescriptionDraftReviewRead,
     PrescriptionGenerationCancelRead,
     PrescriptionInputReadiness,
 )
@@ -1157,6 +1158,24 @@ async def list_prescription_drafts(
         actor_id=identity.actor_id,
         limit=20,
     )
+    reviews = await SqlAlchemyPrescriptionDraftRepository(session).list_reviews_for_drafts(
+        tenant_id=identity.tenant_id,
+        draft_ids=tuple(record.id for record in records),
+        doctor_actor_id=None,
+    )
+    reviews_by_draft: dict[uuid.UUID, list[PrescriptionDraftReviewRead]] = {}
+    for review in reviews:
+        reviews_by_draft.setdefault(review.prescription_draft_id, []).append(
+            PrescriptionDraftReviewRead(
+                review_id=review.id,
+                draft_id=review.prescription_draft_id,
+                doctor_actor_id=review.doctor_actor_id,
+                decision=review.decision,
+                review_note=review.review_note,
+                revision=review.revision,
+                reviewed_at=review.reviewed_at,
+            )
+        )
     return PrescriptionDraftHistoryRead(
         items=tuple(
             PrescriptionDraftRead(
@@ -1164,6 +1183,7 @@ async def list_prescription_drafts(
                 intake_id=record.clinical_intake_id,
                 created_at=record.created_at,
                 draft=FivePrescriptionDraft.model_validate(record.content),
+                reviews=tuple(reviews_by_draft.get(record.id, ())),
             )
             for record in records
         )

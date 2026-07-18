@@ -78,12 +78,25 @@ export function PrescriptionConversation({
             generationStartedRef.current = true;
             setGenerationComplete(true);
             onPrescriptionDraftGenerated(latest.draft);
+            const latestReview = latest.reviews[0];
             setMessages([
               {
                 id: "restored",
                 role: "assistant",
                 text: "已恢复最近一次五大处方草案，您可以在右侧查看。",
               },
+              ...(latestReview
+                ? [
+                    {
+                      id: `review-${latestReview.review_id}`,
+                      role: "assistant" as const,
+                      text:
+                        latestReview.decision === "approved"
+                          ? `临床复核意见：已通过。${latestReview.review_note}`
+                          : `临床复核意见：请补充后再复核。${latestReview.review_note}`,
+                    },
+                  ]
+                : []),
             ]);
           } else {
             setMessages([{ id: "welcome", role: "assistant", text: INITIAL_GREETING }]);
