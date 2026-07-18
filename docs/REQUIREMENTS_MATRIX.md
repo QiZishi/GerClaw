@@ -36,8 +36,8 @@
 | IAM-02 | 租户/主体/角色隔离 | auth/repositories | 越权 403/404、跨租户不可见 | 🚧 核心资源隔离；2026-07-18 Trace 读取已从仅 tenant 范围收敛为本人范围，患者/医生/游客读取他人 Trace 一律得到 404，只有持有服务端 `account:admin` 的管理员可作 tenant 内运营审阅。医生未获 patient proof；仍缺医生资质、患者授权和完整 RBAC |
 | IAM-03 | 临床数据持久化加密 | DB/repositories | 文件、CGA、处方、审批、反馈、Bad Case | 🚧 会话/Memory/Skill/Trace 已有，其余缺表 |
 | IAM-04 | 环境配置安全 | config、env templates | 生产拒绝 placeholder/缺 Key/不安全 URL | ✅ FastAPI 核心配置已验证 |
-| IAM-05 | 患者授权生命周期 | consent/RBAC/cache | 授予/到期/撤回，缓存与链接失效 | ❌ 缺账号和授权模型 |
-| IAM-06 | 管理/审计职责分离 | auth/RBAC | 无万能 scope；服务端角色校验 | 🚧 管理员账号可经服务端 `account:admin` scope 管理同 tenant 的患者/医生账号状态与角色，并可在管理控制台、患者端和医生端之间往返；前端入口不授予权限，所有管理请求仍由服务端角色校验。患者和医生账号不能自行切换角色，游客固定为患者端。仍缺医生资质、患者授权、细粒度临床 RBAC 和完整审计保留策略 |
+| IAM-05 | 患者授权生命周期 | consent/RBAC/cache | 授予/到期/撤回，缓存与链接失效 | 🚧 `consent` 已提供患者→指定活跃医生的 revision-fenced、到期失效、可撤回只读授权；医生仅可通过有效 `health_profile_read` 或 `cga_report_read` 授权读取对应健康画像或已完成 CGA 摘要，撤回/过期/不存在统一 404。尚缺医生资质、患者可用的医生目录/分享流程、处方/告警等资源授权、前端、缓存失效和完整审计保留 |
+| IAM-06 | 管理/审计职责分离 | auth/RBAC | 无万能 scope；服务端角色校验 | 🚧 管理员账号可经服务端 `account:admin` scope 管理同 tenant 的患者/医生账号状态与角色，并可在管理控制台、患者端和医生端之间往返；前端入口不授予权限，所有管理请求仍由服务端角色校验。患者和医生账号不能自行切换角色，游客固定为患者端。患者授权当前只覆盖医生对健康画像/完成 CGA 报告的只读访问；仍缺医生资质、细粒度临床 RBAC 和完整审计保留策略 |
 | UI-01 | 三栏响应式布局 | MVP layout | 四断点浏览器证据 | 🚧 desktop 已有，完整断点 E2E 待补 |
 | UI-02 | 多模态输入框 | ChatInput | 文本/语音/图片/10文件/Skill/处方/CGA/停止 | 🚧 文本、Skill、受限临床收集、CGA、FastAPI Voice Runtime BFF、MinerU BFF 与图片多模态链路已接入。2026-07-18 Compose 浏览器实测上传 PNG 后，模型识读图中 CGA 量表内容，SSE `done` 返回上传图片 evidence_id；图片 base64 作为私有 Trace 输入保存。Document Runtime adapter 与语音异常/取消的完整 E2E 待补 |
 | UI-03 | Runtime 状态映射 | ChatArea/MessageBubble | 全 SSE 终态、错误恢复、HITL | 🚧 Chat/取消完成；2026-07-18 已修复 Next.js BFF 反向代理会使上游误判断流、返回空 200 SSE 的问题，并以真实图片流验证 `agent_start`、`text_delta`、`done`、执行时长和终态引用。仍缺 HITL/临床流程 |

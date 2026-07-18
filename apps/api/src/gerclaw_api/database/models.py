@@ -276,6 +276,49 @@ class HealthProfile(TimestampMixin, Base):
     profile: Mapped[dict[str, Any]] = mapped_column(EncryptedJSON(), default=dict, nullable=False)
 
 
+class PatientAccessGrant(Base):
+    """Patient-controlled, revision-fenced read access for one doctor and resource."""
+
+    __tablename__ = "patient_access_grants"
+    __table_args__ = (
+        CheckConstraint(
+            "resource_scope IN ('health_profile_read','cga_report_read')",
+            name="valid_patient_access_grant_resource_scope",
+        ),
+        CheckConstraint(
+            "status IN ('active','revoked')", name="valid_patient_access_grant_status"
+        ),
+        CheckConstraint("revision > 0", name="positive_patient_access_grant_revision"),
+        UniqueConstraint(
+            "tenant_id",
+            "patient_actor_id",
+            "doctor_actor_id",
+            "resource_scope",
+            name="uq_patient_access_grants_subject_doctor_resource",
+        ),
+        Index(
+            "ix_patient_access_grants_doctor_active",
+            "tenant_id",
+            "doctor_actor_id",
+            "status",
+            "expires_at",
+        ),
+    )
+
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    tenant_id: Mapped[str] = mapped_column(String(64), nullable=False, index=True)
+    patient_actor_id: Mapped[str] = mapped_column(String(128), nullable=False, index=True)
+    doctor_actor_id: Mapped[str] = mapped_column(String(128), nullable=False, index=True)
+    resource_scope: Mapped[str] = mapped_column(String(32), nullable=False)
+    status: Mapped[str] = mapped_column(String(16), nullable=False, default="active")
+    expires_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    revision: Mapped[int] = mapped_column(Integer, nullable=False, default=1)
+    granted_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), nullable=False
+    )
+    revoked_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+
+
 class CgaAssessment(TimestampMixin, Base):
     """One caller-owned, encrypted CGA screening assessment."""
 
