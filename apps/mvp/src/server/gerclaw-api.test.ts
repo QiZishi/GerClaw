@@ -128,6 +128,17 @@ test("consent proxy permits only patient-owned grant and revoke operations", () 
   assert.equal(isGuestAllowedGerclawProxyTarget(`access-grants/${grantId}/revoke`, "POST"), false);
 });
 
+test("consent proxy exposes only the doctor review projection after account authentication", () => {
+  const patientActorId = "usr_account_aabbccddeeff00112233445566778899";
+  const draftId = "0f4d021b-5054-461d-88e4-109bc422f616";
+  const path = `access-grants/patients/${patientActorId}/prescription-drafts`;
+  assert.equal(isAllowedGerclawProxyTarget(path, "GET"), true);
+  assert.equal(isAllowedGerclawProxyTarget(`${path}/${draftId}/reviews`, "POST"), true);
+  assert.equal(isAllowedGerclawProxyTarget(`${path}/${draftId}/reviews`, "GET"), false);
+  assert.equal(isAllowedGerclawProxyTarget(`access-grants/patients/${patientActorId}/health-profile`, "GET"), false);
+  assert.equal(isGuestAllowedGerclawProxyTarget(path, "GET"), false);
+});
+
 test("CGA proxy permits only caller-owned descriptive comparison reads", () => {
   assert.equal(isAllowedGerclawProxyTarget(`cga/assessments/${sessionId}/comparison`, "GET"), true);
   assert.equal(isAllowedGerclawProxyTarget(`cga/assessments/${sessionId}/comparison`, "POST"), false);

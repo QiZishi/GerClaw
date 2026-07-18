@@ -707,6 +707,12 @@ export const prescriptionDraftHistorySchema = z
 
 export type PrescriptionDraftHistory = z.infer<typeof prescriptionDraftHistorySchema>;
 
+export const doctorPrescriptionDraftListSchema = z
+  .object({ items: z.array(prescriptionDraftReadSchema).max(20) })
+  .strict();
+
+export type DoctorPrescriptionDraftList = z.infer<typeof doctorPrescriptionDraftListSchema>;
+
 export const patientAccessGrantSchema = z
   .object({
     id: z.string().uuid(),
@@ -726,6 +732,7 @@ export const patientAccessGrantListSchema = z
 
 export type PatientAccessGrant = z.infer<typeof patientAccessGrantSchema>;
 export type PatientAccessGrantList = z.infer<typeof patientAccessGrantListSchema>;
+export type PrescriptionDraftReview = z.infer<typeof prescriptionDraftReviewSchema>;
 
 export { feedbackSubmitSchema } from "./feedback-contract";
 

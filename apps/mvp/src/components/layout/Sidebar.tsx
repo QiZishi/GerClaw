@@ -62,6 +62,7 @@ import { toast } from "@/components/ui/toast";
 import { AccountDialog } from "@/components/account/AccountDialog";
 import { AccountDeactivationDialog } from "@/components/account/AccountDeactivationDialog";
 import { PrescriptionReviewAccessDialog } from "@/components/consent/PrescriptionReviewAccessDialog";
+import { DoctorPrescriptionReviewDialog } from "@/components/consent/DoctorPrescriptionReviewDialog";
 import {
   getAccountIdentity,
   exitGuestSession,
@@ -118,6 +119,7 @@ export function Sidebar({ onNavigate }: SidebarProps) {
   const [accountDialogOpen, setAccountDialogOpen] = useState(false);
   const [accountDeactivationOpen, setAccountDeactivationOpen] = useState(false);
   const [prescriptionReviewAccessOpen, setPrescriptionReviewAccessOpen] = useState(false);
+  const [doctorPrescriptionReviewOpen, setDoctorPrescriptionReviewOpen] = useState(false);
 
   useEffect(() => {
     const frame = requestAnimationFrame(() => setMounted(true));
@@ -568,6 +570,12 @@ export function Sidebar({ onNavigate }: SidebarProps) {
                 </DropdownMenuItem>
               )}
               {account?.account_role === "doctor" && (
+                <DropdownMenuItem className={cn("cursor-pointer", seniorMode && "min-h-12 text-base")} onClick={() => setDoctorPrescriptionReviewOpen(true)}>
+                  <ShieldCheck className="size-4" />
+                  五大处方草案复核
+                </DropdownMenuItem>
+              )}
+              {account?.account_role === "doctor" && (
                 <DropdownMenuItem className={cn("cursor-pointer", seniorMode && "min-h-12 text-base")} onClick={() => void copyDoctorReviewCode()}>
                   <Copy className="size-4" />
                   复制我的复核代码
@@ -724,6 +732,11 @@ export function Sidebar({ onNavigate }: SidebarProps) {
       {account?.account_role === "patient" && <PrescriptionReviewAccessDialog
         open={prescriptionReviewAccessOpen}
         onOpenChange={setPrescriptionReviewAccessOpen}
+        seniorMode={seniorMode}
+      />}
+      {account?.account_role === "doctor" && <DoctorPrescriptionReviewDialog
+        open={doctorPrescriptionReviewOpen}
+        onOpenChange={setDoctorPrescriptionReviewOpen}
         seniorMode={seniorMode}
       />}
     </aside>
