@@ -733,7 +733,11 @@ export function ChatArea() {
     }
   };
 
-  /** 退出当前功能模式，清理相关状态（所有模式下二次确认）*/
+  /**
+   * Only interruptible workflows warrant a confirmation. Read-only ledgers
+   * persist each request independently, so warning about unsaved progress
+   * there is both inaccurate and needlessly blocks a simple return.
+   */
   const handleExitAction = () => {
     if (chatAction === "cga") {
       setExitConfirmType('cga-server');
@@ -743,6 +747,10 @@ export function ChatArea() {
     if (chatAction === "prescription" || chatAction === "drug-review") {
       setExitConfirmType('clinical-intake');
       setShowExitConfirm(true);
+      return;
+    }
+    if (chatAction === "chronic-care" || chatAction === "risk-alerts") {
+      doExitAction();
       return;
     }
     if (chatAction !== "none") {
@@ -838,7 +846,7 @@ export function ChatArea() {
                 onClick={handleExitAction}
                 className={cn("min-h-10 px-3 text-sm text-muted-foreground hover:text-foreground", seniorMode && "min-h-12 text-lg")}
               >
-                退出
+                {chatAction === "chronic-care" || chatAction === "risk-alerts" ? "返回咨询" : "退出"}
               </Button>
             </>
           ) : (
