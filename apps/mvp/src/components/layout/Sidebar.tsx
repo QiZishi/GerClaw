@@ -309,7 +309,7 @@ export function Sidebar({ onNavigate }: SidebarProps) {
       try {
         await exitGuestSession();
       } catch {
-        toast.show("暂时无法结束本次游客会话，请稍后重试。");
+        toast.show("暂时无法结束本次使用，请稍后重试。");
         return;
       }
     }
@@ -317,7 +317,7 @@ export function Sidebar({ onNavigate }: SidebarProps) {
     window.location.assign("/");
     setCurrentSession(null);
     closeRightPanel();
-    toast.show(account ? "已退出账户并返回访客模式" : "已返回访客模式");
+    toast.show("已返回登录页");
     onNavigate?.();
   };
 
@@ -476,7 +476,7 @@ export function Sidebar({ onNavigate }: SidebarProps) {
               </AvatarFallback>
             </Avatar>
             <div className="flex-1 min-w-0 text-left">
-              <div className={cn("text-sm font-medium truncate", seniorMode && "text-lg")}>{account ? "已登录账户" : isGuest ? "本次访客" : "访客"}</div>
+              <div className={cn("text-sm font-medium truncate", seniorMode && "text-lg")}>{account ? "已登录账户" : isGuest ? "本次使用" : "未登录"}</div>
               <div className={cn("text-xs text-muted-foreground truncate", seniorMode && "text-base")}>
                 {getModeLabel()}
               </div>
@@ -484,7 +484,7 @@ export function Sidebar({ onNavigate }: SidebarProps) {
           </DropdownMenuTrigger>
           <DropdownMenuContent align="end" className={cn("w-60", seniorMode && "w-72 text-base")}>
             <DropdownMenuGroup>
-              <DropdownMenuLabel>{account ? "账户身份由服务端验证" : "本次访客会话"}</DropdownMenuLabel>
+              <DropdownMenuLabel>{account ? "账户身份由服务端验证" : "本次使用"}</DropdownMenuLabel>
             </DropdownMenuGroup>
             <DropdownMenuSeparator />
 
@@ -573,7 +573,7 @@ export function Sidebar({ onNavigate }: SidebarProps) {
             </>}
             <DropdownMenuItem className={cn("cursor-pointer", seniorMode && "min-h-12 text-base")} onClick={() => void handleExit()}>
               <LogOut className="size-4" />
-              {account ? "退出账户" : "结束本次访客会话"}
+              {account ? "退出账户" : "结束本次使用"}
             </DropdownMenuItem>
           </DropdownMenuContent>
         </DropdownMenu>

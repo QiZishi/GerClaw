@@ -32,7 +32,7 @@ export function LoginPage({ onAuthenticated, onGuest }: { onAuthenticated: (iden
       <CardHeader className="gap-3 text-center">
         <div className="mx-auto grid size-14 place-items-center rounded-2xl bg-primary text-primary-foreground"><Stethoscope className="size-7" /></div>
         <CardTitle className="text-2xl tracking-tight">GerClaw</CardTitle>
-        <CardDescription className="text-base">{mode === "login" ? "登录或以游客身份进入" : "创建您的工作台账户"}</CardDescription>
+        <CardDescription className="text-base">{mode === "login" ? "登录，或暂不登录进入患者服务" : "创建您的工作台账户"}</CardDescription>
       </CardHeader>
       <CardContent>
         <form className="grid gap-4" onSubmit={submit}>
@@ -42,7 +42,7 @@ export function LoginPage({ onAuthenticated, onGuest }: { onAuthenticated: (iden
           {error && <p role="alert" className="rounded-lg bg-destructive/10 px-3 py-2 text-sm text-destructive">{error}</p>}
           <Button className="min-h-12 text-base" type="submit" disabled={pending}>{pending ? "正在验证…" : mode === "login" ? "登录" : "创建账户"}</Button>
           <Button type="button" variant="ghost" className="min-h-12" onClick={() => { setMode(mode === "login" ? "register" : "login"); setError(null); }}>{mode === "login" ? "创建账户" : "已有账户，去登录"}</Button>
-          {mode === "login" && <Button type="button" variant="outline" className="min-h-12" onClick={onGuest}>以游客身份进入患者端</Button>}
+          {mode === "login" && <Button type="button" variant="outline" className="min-h-12" onClick={onGuest}>暂不登录，进入患者服务</Button>}
         </form>
       </CardContent>
     </Card>
