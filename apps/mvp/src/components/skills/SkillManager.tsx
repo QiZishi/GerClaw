@@ -146,12 +146,15 @@ export function SkillManager() {
 
   const openUploadPicker = () => {
     const input = uploadRef.current;
-    if (!input || uploading) return;
-    try {
-      input.showPicker?.();
-    } catch {
-      input.click();
+    if (uploading) return;
+    if (!input) {
+      toast.show("导入控件暂未准备好，请稍后重试");
+      return;
     }
+    // `HTMLInputElement.showPicker()` is inconsistently gated across browsers.
+    // A direct click remains the broadly supported activation path when invoked
+    // from this user-initiated Button handler.
+    input.click();
   };
 
   const handleOpenSkill = async (skill: SkillInfo, mode: "view" | "edit") => {
