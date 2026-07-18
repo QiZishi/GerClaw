@@ -77,10 +77,17 @@ async def test_voice_capability_mismatch_fails_before_provider_egress() -> None:
         return httpx.Response(500)
 
     module = MiMoVoiceModule(
-        asr_url="https://voice.test/v1", tts_url="https://voice.test/v1", api_key="test-key",
-        auth_header="authorization", asr_model="mimo-v2.5-asr", tts_model="mimo-v2.5-tts",
-        default_voice="冰糖", timeout_seconds=2, supports_streaming_asr=False,
-        supports_pcm16_tts=False, transport=httpx.MockTransport(handler),
+        asr_url="https://voice.test/v1",
+        tts_url="https://voice.test/v1",
+        api_key="test-key",
+        auth_header="authorization",
+        asr_model="mimo-v2.5-asr",
+        tts_model="mimo-v2.5-tts",
+        default_voice="冰糖",
+        timeout_seconds=2,
+        supports_streaming_asr=False,
+        supports_pcm16_tts=False,
+        transport=httpx.MockTransport(handler),
     )
     try:
         with pytest.raises(VoiceProviderCapabilityUnavailable):

@@ -403,9 +403,7 @@ class FailoverChatModel(ChatModelBase):
                 raise
             except Exception as error:
                 await _finish_egress(egress_handle, outcome="failed")
-                _record(
-                    self._attempt(candidate, "failed", _structured_error_code(error))
-                )
+                _record(self._attempt(candidate, "failed", _structured_error_code(error)))
                 continue
             await _finish_egress(egress_handle, outcome="succeeded")
             _record(self._attempt(candidate, "succeeded"))
@@ -632,9 +630,7 @@ class FailoverChatModel(ChatModelBase):
                     raise
                 except Exception as error:
                     await _finish_egress(egress_handle, outcome="failed")
-                    _record(
-                        self._attempt(next_candidate, "failed", _safe_error_code(error))
-                    )
+                    _record(self._attempt(next_candidate, "failed", _safe_error_code(error)))
                     continue
                 if isinstance(next_response, ChatResponse):
                     if _commits_stream(next_response):
@@ -642,9 +638,7 @@ class FailoverChatModel(ChatModelBase):
                         _record(self._attempt(next_candidate, "succeeded"))
                         yield next_response
                         return
-                    _record(
-                        self._attempt(next_candidate, "failed", "MODEL_EMPTY_RESPONSE")
-                    )
+                    _record(self._attempt(next_candidate, "failed", "MODEL_EMPTY_RESPONSE"))
                     await _finish_egress(egress_handle, outcome="failed")
                     continue
                 stream = next_response
