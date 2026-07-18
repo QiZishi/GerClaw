@@ -216,7 +216,10 @@ class CgaService:
             return CgaComparisonRead(
                 status="no_prior_same_scale",
                 current=current,
-                disclaimer="暂无可对照的同量表历史结果。筛查分数不能替代医生诊断。",
+                # The structured status tells clients why no comparison is
+                # available. Keep the disclaimer to its actual job so a UI
+                # does not need to repeat the same empty-state sentence.
+                disclaimer="筛查分数不能替代医生诊断。",
             )
         prior = self._history_item(prior_record)
         if prior.definition_version != current.definition_version:
@@ -224,7 +227,7 @@ class CgaService:
                 status="definition_version_changed",
                 current=current,
                 prior=prior,
-                disclaimer="两次量表版本不同, 系统未比较分数。筛查分数不能替代医生诊断。",
+                disclaimer="筛查分数不能替代医生诊断。",
             )
         return CgaComparisonRead(
             status="comparable",

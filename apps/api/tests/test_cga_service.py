@@ -441,6 +441,7 @@ async def test_comparison_is_owner_scoped_and_only_calculates_same_definition_ve
     )
     assert version_changed.status == "definition_version_changed"
     assert version_changed.score_delta is None
+    assert version_changed.disclaimer == "筛查分数不能替代医生诊断。"
 
     repository.prior_completed_record = None
     no_prior = await service.comparison(
@@ -448,6 +449,7 @@ async def test_comparison_is_owner_scoped_and_only_calculates_same_definition_ve
     )
     assert no_prior.status == "no_prior_same_scale"
     assert no_prior.prior is None
+    assert no_prior.disclaimer == "筛查分数不能替代医生诊断。"
 
 
 @pytest.mark.asyncio

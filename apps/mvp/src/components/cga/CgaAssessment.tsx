@@ -2,7 +2,6 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { AlertTriangle, ArrowLeft, CheckCircle2, ClipboardList, Download, FileText, FileType, Pause, RefreshCw, Square, Volume2 } from "lucide-react";
-import { z } from "zod";
 import { Button } from "@/components/ui/button";
 import { InlineLoadingState } from "@/components/ui/inline-loading-state";
 import { cn } from "@/lib/utils";
@@ -81,10 +80,6 @@ const COMPONENT_MAX: Record<string, number> = {
   language_and_tasks: 9,
 };
 
-function assessmentKey(scaleId: CgaScaleId) {
-  return `gerclaw:cga:${scaleId}:assessment`;
-}
-
 function buildQuestionSpeechText(question: CgaQuestion): string {
   const parts = [question.sensitive_prefix, question.text];
   if (question.options.length > 0) {
@@ -92,8 +87,6 @@ function buildQuestionSpeechText(question: CgaQuestion): string {
   }
   return parts.filter(Boolean).join("。") + "。";
 }
-
-const storedAssessmentIdSchema = z.string().uuid();
 
 function buildReportExportContent(report: CgaReport): string {
   const lines = [
@@ -243,35 +236,18 @@ export function CgaAssessment({ onExit }: CgaAssessmentProps) {
     }
   }, []);
 
-  const loadSavedAssessments = useCallback(async (availableScales: CgaScale[]) => {
+  const loadSavedAssessments = useCallback(async () => {
     const fromServer = (await listActiveCgaAssessments()).items;
     const savedByScale: Partial<Record<CgaScaleId, Assessment>> = {};
     for (const item of fromServer) {
       if (!savedByScale[item.scale_id]) {
         savedByScale[item.scale_id] = item;
-        localStorage.setItem(assessmentKey(item.scale_id), item.assessment_id);
       }
     }
-    const saved = await Promise.all(availableScales.map(async (scale) => {
-      if (savedByScale[scale.id]) return null;
-      const storedId = localStorage.getItem(assessmentKey(scale.id));
-      const parsedStoredId = storedAssessmentIdSchema.safeParse(storedId);
-      if (!parsedStoredId.success) return null;
-      try {
-        const existing = await getCgaAssessment(parsedStoredId.data);
-        return existing.scale_id === scale.id ? existing : null;
-      } catch (caught) {
-        if (caught instanceof GerclawApiError && caught.code === "CGA_NOT_FOUND") {
-          localStorage.removeItem(assessmentKey(scale.id));
-        }
-        return null;
-      }
-    }));
-    const next: Partial<Record<CgaScaleId, Assessment>> = { ...savedByScale };
-    for (const item of saved) {
-      if (item) next[item.scale_id] = item;
-    }
-    setSavedAssessments(next);
+    // Assessment IDs are identity-bound on the server. Do not use a
+    // browser-global localStorage fallback: a previous guest or another
+    // account can otherwise cause a needless 404 before the UI recovers.
+    setSavedAssessments(savedByScale);
   }, []);
 
   const loadDirectory = useCallback(async () => {
@@ -281,7 +257,7 @@ export function CgaAssessment({ onExit }: CgaAssessmentProps) {
     try {
       const availableScales = (await listCgaScales()).scales;
       setScales(availableScales);
-      await loadSavedAssessments(availableScales);
+      await loadSavedAssessments();
     } catch {
       setError("评估目录暂时无法连接。请检查网络后重试。");
     } finally {
@@ -294,33 +270,14 @@ export function CgaAssessment({ onExit }: CgaAssessmentProps) {
     return () => window.clearTimeout(timer);
   }, [loadDirectory]);
 
-  const begin = useCallback(async (scale: CgaScale) => {
+  const begin = useCallback(async (scale: CgaScale, options?: { restart?: boolean }) => {
     setSaving(true);
     setError(null);
     setNotice(null);
     try {
-      const key = assessmentKey(scale.id);
-      const storedId = localStorage.getItem(key);
-      let next: Assessment | null = null;
-      const parsedStoredId = storedAssessmentIdSchema.safeParse(storedId);
-      if (storedId !== null && !parsedStoredId.success) {
-        localStorage.removeItem(key);
-        setNotice("上次评估记录格式无效，已为您开始一份新的评估。");
-      }
-      if (parsedStoredId.success) {
-        try {
-          next = await getCgaAssessment(parsedStoredId.data);
-          if (next.scale_id !== scale.id) {
-            throw new GerclawApiError("评估量表不匹配", "CGA_NOT_FOUND", 404);
-          }
-        } catch (caught) {
-          if (!(caught instanceof GerclawApiError) || caught.code !== "CGA_NOT_FOUND") throw caught;
-          localStorage.removeItem(key);
-          setNotice("上次评估记录已无法恢复，已为您开始一份新的评估。");
-        }
-      }
+      let next = options?.restart ? null : savedAssessments[scale.id] ?? null;
+      if (next?.status === "active") next = await getCgaAssessment(next.assessment_id);
       if (!next) next = await startCgaAssessment(scale.id);
-      localStorage.setItem(key, next.assessment_id);
       setSavedAssessments((current) => ({ ...current, [scale.id]: next! }));
       setSelectedScaleId(scale.id);
       setAssessment(next);
@@ -342,7 +299,7 @@ export function CgaAssessment({ onExit }: CgaAssessmentProps) {
     } finally {
       setSaving(false);
     }
-  }, []);
+  }, [savedAssessments]);
 
   const openHistory = async (historyItem: CgaHistoryItem) => {
     const scale = scales.find((item) => item.id === historyItem.scale_id);
@@ -412,14 +369,13 @@ export function CgaAssessment({ onExit }: CgaAssessmentProps) {
 
   const reset = () => {
     if (!selectedScale) return;
-    localStorage.removeItem(assessmentKey(selectedScale.id));
     setAssessment(null);
     setReport(null);
     setComparison(null);
     setManualInput("");
     setSelectedOrdinalScore(null);
     setSupplementalDetail("");
-    void begin(selectedScale);
+    void begin(selectedScale, { restart: true });
   };
 
   const exportReport = async (format: "markdown" | "docx" | "pdf") => {
@@ -592,7 +548,10 @@ export function CgaAssessment({ onExit }: CgaAssessmentProps) {
           </Button>
           <div className="mb-4">
             <h3 className={cn("font-semibold", seniorMode ? "text-2xl" : "text-xl")}>{selectedScale.name} 筛查</h3>
-            <p className={cn("mt-2 text-muted-foreground", textClass)}>{selectedScale.description}。筛查结果不能替代医生诊断。</p>
+            <p className={cn("mt-2 text-muted-foreground", textClass)}>
+              {selectedScale.description}
+              {!report && "。筛查结果不能替代医生诊断。"}
+            </p>
           </div>
 
           {assessment.risk.requires_immediate_safety_assessment && (
@@ -793,7 +752,9 @@ export function CgaAssessment({ onExit }: CgaAssessmentProps) {
                   ) : (
                     <p className="mt-2">{comparison.status === "definition_version_changed" ? "两次量表版本不同，未作分数对照。" : "暂无可对照的同量表历史结果。"}</p>
                   )}
-                  <p className="mt-2 text-muted-foreground">{comparison.disclaimer}</p>
+                  {comparison.status === "comparable" && (
+                    <p className="mt-2 text-muted-foreground">{comparison.disclaimer}</p>
+                  )}
                 </div>
               )}
               {Object.keys(report.component_scores).length > 0 && (
