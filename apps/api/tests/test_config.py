@@ -90,6 +90,7 @@ def test_production_settings_accept_explicit_safe_endpoints() -> None:
         "model-capabilities-v1"
     }
     assert settings.prescription_generation_timeout_seconds == 600.0
+    assert settings.rag_rerank_candidates == settings.rag_retrieval_candidates == 30
 
 
 @pytest.mark.parametrize(

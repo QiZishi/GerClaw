@@ -98,3 +98,19 @@ history 10/10 为 `403 GUEST_SESSION_HISTORY_DISABLED`，跨访客 Trace 为 404
 
 两份机器可读文件均只含聚合指标，不含患者、会话、Trace、药物文本或身份数据。它们验证
 确定性路径的并发、隔离和终态，不代表临床正确性、外部模型/RAG/MinerU 或千级容量。
+
+## 2026-07-18：公开本地知识库 lexical v2 的真实检索回归
+
+证据文件：`rag-retrieval-reviewed-compose-2026-07-18-v2.json`
+
+为修复中文老年焦虑查询无法稳定命中英文标题指南的问题，公开语料的主题分类被纳入
+词法索引，索引版本升级为
+`markdown-heading-v1:lexical-cjk-ngram-v2:BAAI/bge-m3:1024`。随后在 Compose API
+中以显式 `--allow-external-rag` 完整重建外部只读知识库：436/436 Markdown、39,837
+chunks、0 失败。真实 embedding、Qdrant 混合检索和 rerank 的 8 条审核合成用例为 8/8
+通过：五个既有老年医学主题、老年焦虑、压力性损伤均命中绑定公开文献；无本地医学证据
+例返回空。所有正例返回的五条结果均具完整 `local-rag-evidence-v1` provenance。
+
+该评测会调用外部 embedding/rerank，结果具有非确定性；证据文件只保留聚合计数和索引
+版本，不含查询、文献正文或患者资料。它证明有限检索回归契约，不代表临床有效性、完整
+医学语料覆盖率、完整 RAG 质量或容量验收。

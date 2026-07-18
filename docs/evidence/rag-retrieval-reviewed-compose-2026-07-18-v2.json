@@ -1,0 +1,19 @@
+{
+  "schema_version": "eval-run-v1",
+  "kind": "opt_in_rag_retrieval",
+  "execution_environment": "docker-compose-api",
+  "external_execution_opt_in": true,
+  "external_model_or_rag": true,
+  "nondeterministic": true,
+  "index_version": "markdown-heading-v1:lexical-cjk-ngram-v2:BAAI/bge-m3:1024",
+  "case_count": 8,
+  "passed_count": 8,
+  "top_k": 5,
+  "corpus": {
+    "markdown_documents": 436,
+    "indexed_chunks": 39837,
+    "index_sync_failed": 0
+  },
+  "contains_patient_data": false,
+  "contains_queries_or_document_text": false
+}
