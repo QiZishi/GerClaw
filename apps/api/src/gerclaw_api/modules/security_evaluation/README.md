@@ -22,6 +22,14 @@ server-owned outbound-redaction proof. This complements, rather than replaces,
 the Runtime permission engine, schema/size limits, timeout, budget and
 AgentScope permission checks.
 
+The workflow registry uses the same gate for `standard`, `cga`, `companion`
+and `prescription`. In addition to matching profile identity and asset fields,
+workflow admission now verifies executable controls: every workflow needs
+input/output/budget/untrusted-data controls; PHI workflows need ownership;
+external workflows need egress redaction; and search-enabled workflows need
+evidence provenance. A matching profile that omits any applicable control
+fails closed before Chat constructs a Runtime execution.
+
 ## Contract and limits
 
 `SecurityRiskProfile` binds an asset kind/name/version, owner module, risk,
@@ -29,11 +37,11 @@ network access, data classes, bounded threat categories, executable controls
 and residual-risk statement. `SecurityEvaluationVerdict` is PHI-free and is
 only an in-process admission result.
 
-The contract can describe Agent, Skill, workflow, memory and RAG-source
-profiles, but those asset kinds are **not yet consumed by a production
-registration path**. This module therefore does not claim a completed
-application-wide threat model, full red-team suite, clinical safety validation,
-or privacy/data-retention lifecycle.
+The contract can also describe Agent, Skill, memory and RAG-source profiles,
+but those asset kinds are **not yet consumed by a production registration
+path**. This module therefore does not claim a completed application-wide
+threat model, full red-team suite, clinical safety validation, or
+privacy/data-retention lifecycle.
 
 Run the focused checks from `apps/api`:
 

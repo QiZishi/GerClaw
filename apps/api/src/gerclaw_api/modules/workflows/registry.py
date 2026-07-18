@@ -6,11 +6,7 @@ from collections.abc import Iterable
 from functools import lru_cache
 
 from gerclaw_api.modules.runtime.models import DataClass, NetworkAccess, RiskLevel
-from gerclaw_api.modules.security_evaluation import (
-    SecurityAssetKind,
-    SecurityEvaluationError,
-    SecurityProfileRegistry,
-)
+from gerclaw_api.modules.security_evaluation import SecurityEvaluationError, SecurityProfileRegistry
 from gerclaw_api.modules.workflows.models import (
     WorkflowContextError,
     WorkflowDefinition,
@@ -103,14 +99,14 @@ class WorkflowRegistry:
         if definition is None:
             raise WorkflowContextError("workflow is not registered")
         try:
-            self._security_profiles.assess_asset(
-                asset_kind=SecurityAssetKind.WORKFLOW,
-                asset_name=definition.workflow_id.value,
-                asset_version=definition.version,
+            self._security_profiles.assess_workflow(
+                name=definition.workflow_id.value,
+                version=definition.version,
                 owner_module=definition.owner_module,
                 risk_level=definition.risk_level,
                 network_access=definition.network_access,
                 data_classes=definition.data_classes,
+                search_enabled=definition.search_enabled,
             )
         except SecurityEvaluationError as error:
             raise WorkflowContextError("workflow is not enabled by its security profile") from error

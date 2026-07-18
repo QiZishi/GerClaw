@@ -28,6 +28,15 @@ _BASE_TOOL_CONTROLS = frozenset(
     }
 )
 
+_BASE_WORKFLOW_CONTROLS = frozenset(
+    {
+        SecurityControl.INPUT_SCHEMA,
+        SecurityControl.OUTPUT_BOUNDARY,
+        SecurityControl.EXECUTION_BUDGET,
+        SecurityControl.UNTRUSTED_DATA_ISOLATION,
+    }
+)
+
 
 class SecurityEvaluationError(ValueError):
     """A Runtime asset has no compatible, active reviewed profile."""
@@ -144,4 +153,58 @@ class SecurityProfileRegistry:
                 raise SecurityEvaluationError(
                     f"external tool {capability.name} was built without redaction proof"
                 )
+        return verdict
+
+    def assess_workflow(
+        self,
+        *,
+        name: str,
+        version: str,
+        owner_module: str,
+        risk_level: RiskLevel,
+        network_access: NetworkAccess,
+        data_classes: frozenset[DataClass],
+        search_enabled: bool,
+    ) -> SecurityEvaluationVerdict:
+        """Reject a workflow whose active profile omits its executable controls.
+
+        Asset-field matching alone is insufficient: a profile with the correct
+        name and version but no input, output, budget, provenance, ownership,
+        or egress controls would otherwise enable a real workflow.
+        """
+
+        profile = self.profile_for(SecurityAssetKind.WORKFLOW, name)
+        if profile is None:
+            raise SecurityEvaluationError(
+                f"workflow {name} has no server-owned security risk profile"
+            )
+        verdict = self.assess_asset(
+            asset_kind=SecurityAssetKind.WORKFLOW,
+            asset_name=name,
+            asset_version=version,
+            owner_module=owner_module,
+            risk_level=risk_level,
+            network_access=network_access,
+            data_classes=data_classes,
+        )
+        if not _BASE_WORKFLOW_CONTROLS.issubset(profile.required_controls):
+            raise SecurityEvaluationError(
+                f"workflow {name} profile omits a mandatory Runtime control"
+            )
+        if (
+            DataClass.PHI in data_classes
+            and SecurityControl.PATIENT_OWNERSHIP not in profile.required_controls
+        ):
+            raise SecurityEvaluationError(f"PHI workflow {name} omits patient-ownership control")
+        if (
+            network_access is NetworkAccess.EXTERNAL
+            and SecurityControl.EXTERNAL_EGRESS_REDACTION not in profile.required_controls
+        ):
+            raise SecurityEvaluationError(
+                f"external workflow {name} omits egress-redaction control"
+            )
+        if search_enabled and SecurityControl.EVIDENCE_PROVENANCE not in profile.required_controls:
+            raise SecurityEvaluationError(
+                f"search-enabled workflow {name} omits evidence-provenance control"
+            )
         return verdict

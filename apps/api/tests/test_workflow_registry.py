@@ -5,7 +5,10 @@ from __future__ import annotations
 import pytest
 
 from gerclaw_api.domain.chat_schemas import ChatRequest
-from gerclaw_api.modules.security_evaluation import SecurityProfileRegistry
+from gerclaw_api.modules.security_evaluation import (
+    SecurityControl,
+    SecurityProfileRegistry,
+)
 from gerclaw_api.modules.workflows import (
     WORKFLOW_DEFINITIONS,
     WorkflowContextError,
@@ -13,6 +16,7 @@ from gerclaw_api.modules.workflows import (
     WorkflowRegistry,
     get_default_workflow_registry,
 )
+from gerclaw_api.modules.workflows.profiles import WORKFLOW_SECURITY_PROFILES
 
 
 def test_registered_workflows_have_exact_active_security_profiles() -> None:
@@ -82,6 +86,35 @@ def test_missing_workflow_security_profile_fails_closed() -> None:
 
     with pytest.raises(WorkflowContextError, match="security profile"):
         registry.resolve(WorkflowId.STANDARD)
+
+
+@pytest.mark.parametrize(
+    ("workflow_id", "missing_control"),
+    [
+        (WorkflowId.STANDARD, SecurityControl.EVIDENCE_PROVENANCE),
+        (WorkflowId.PRESCRIPTION, SecurityControl.EXTERNAL_EGRESS_REDACTION),
+        (WorkflowId.CGA, SecurityControl.PATIENT_OWNERSHIP),
+        (WorkflowId.COMPANION, SecurityControl.INPUT_SCHEMA),
+    ],
+)
+def test_workflow_profile_missing_executable_control_fails_closed(
+    workflow_id: WorkflowId,
+    missing_control: SecurityControl,
+) -> None:
+    profiles = tuple(
+        profile.model_copy(
+            update={"required_controls": profile.required_controls - {missing_control}}
+        )
+        if profile.asset_name == workflow_id.value
+        else profile
+        for profile in WORKFLOW_SECURITY_PROFILES
+    )
+    registry = WorkflowRegistry(
+        WORKFLOW_DEFINITIONS, security_profiles=SecurityProfileRegistry(profiles)
+    )
+
+    with pytest.raises(WorkflowContextError, match="security profile"):
+        registry.resolve(workflow_id)
 
 
 def test_chat_contract_uses_the_same_workflow_context_gate() -> None:

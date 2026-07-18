@@ -15,8 +15,11 @@ existing Runtime, service and repository layers.
 | `prescription` | `1.0.0` | `prescription` | Evidence-bound five-prescription draft; session documents allowed, Skills disallowed, clinician review required |
 
 Every definition resolves through a matching active `security_evaluation`
-workflow profile. A missing, blocked or mismatched profile fails closed before
-Chat creates a Runtime execution.
+workflow profile. A missing, blocked, mismatched or control-incomplete profile
+fails closed before Chat creates a Runtime execution. Every workflow requires
+schema, output-boundary, budget and untrusted-data controls; PHI workflows
+also require patient ownership, external workflows require egress redaction,
+and search-enabled workflows require evidence provenance.
 
 ## Limits
 

@@ -3,18 +3,20 @@
 ## Responsibility
 
 This module owns immutable, version-bound security-risk profiles and the
-fail-closed pre-enable gate for Runtime assets. The first production consumer
-is the governed Chat toolkit: `search_knowledge`, `search_memory`, and
-`web_search` cannot be registered without a matching active profile.
+fail-closed pre-enable gate for Runtime assets. Production consumers are the
+governed Chat toolkit (`search_knowledge`, `search_memory`, `web_search`) and
+the workflow registry (`standard`, `cga`, `companion`, `prescription`); neither
+may enter Runtime without a matching active profile and applicable controls.
 
 ## Invariants
 
 - A profile is server-owned, strict, version-bound and keyed by exact asset
   kind/name. Browser, model, Skill and retrieved content can never provide or
   alter a profile.
-- Runtime tool capability risk, network access, data classes and version must
-  match its profile. Unknown, blocked or broadened tools fail closed before an
-  AgentScope toolkit is built.
+- Runtime tool/workflow capability risk, network access, data classes and
+  version must match its profile. Unknown, blocked, broadened or
+  control-incomplete assets fail closed before an AgentScope toolkit or a
+  workflow execution is built.
 - Every profiled tool declares schema, output-boundary, permission, timeout
   and budget controls. Patient-scoped tools additionally require the Runtime
   ownership gate; external tools additionally require egress-redaction proof.

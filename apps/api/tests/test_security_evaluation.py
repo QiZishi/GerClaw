@@ -20,10 +20,13 @@ from gerclaw_api.modules.security_evaluation import (
     SecurityAssetKind,
     SecurityControl,
     SecurityEvaluationError,
+    SecurityProfileRegistry,
     SecurityRiskProfile,
     SecurityThreat,
     build_chat_tool_security_registry,
 )
+from gerclaw_api.modules.workflows import WORKFLOW_DEFINITIONS, WorkflowId
+from gerclaw_api.modules.workflows.profiles import WORKFLOW_SECURITY_PROFILES
 
 
 class SearchInput(BaseModel):
@@ -115,6 +118,42 @@ def test_profile_with_missing_required_runtime_control_fails_closed() -> None:
                 network_access=NetworkAccess.INTERNAL,
                 data_classes=frozenset({DataClass.INTERNAL}),
             )
+        )
+
+
+@pytest.mark.parametrize(
+    ("workflow_id", "missing_control", "message"),
+    [
+        (WorkflowId.STANDARD, SecurityControl.EVIDENCE_PROVENANCE, "evidence-provenance"),
+        (WorkflowId.PRESCRIPTION, SecurityControl.EXTERNAL_EGRESS_REDACTION, "egress-redaction"),
+        (WorkflowId.CGA, SecurityControl.PATIENT_OWNERSHIP, "patient-ownership"),
+        (WorkflowId.COMPANION, SecurityControl.INPUT_SCHEMA, "mandatory Runtime control"),
+    ],
+)
+def test_workflow_profiles_require_applicable_executable_controls(
+    workflow_id: WorkflowId,
+    missing_control: SecurityControl,
+    message: str,
+) -> None:
+    definition = next(item for item in WORKFLOW_DEFINITIONS if item.workflow_id is workflow_id)
+    profiles = tuple(
+        profile.model_copy(
+            update={"required_controls": profile.required_controls - {missing_control}}
+        )
+        if profile.asset_name == workflow_id.value
+        else profile
+        for profile in WORKFLOW_SECURITY_PROFILES
+    )
+
+    with pytest.raises(SecurityEvaluationError, match=message):
+        SecurityProfileRegistry(profiles).assess_workflow(
+            name=definition.workflow_id.value,
+            version=definition.version,
+            owner_module=definition.owner_module,
+            risk_level=definition.risk_level,
+            network_access=definition.network_access,
+            data_classes=definition.data_classes,
+            search_enabled=definition.search_enabled,
         )
 
 
