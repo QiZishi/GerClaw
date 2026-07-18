@@ -20,3 +20,11 @@ Beers-related coverage is reported as `limited_source_traceable`, not as a full 
 医生读取加密保存的审查记录、输入版本和规则来源；不会开放会话、Trace、
 原始附件或其他健康资料。医生可在“患者列表”中直接打开已授权记录，或按
 患者代码读取；撤回、到期和未知患者均返回相同的不可见结果。
+
+## 维护与演进
+
+**可安全改进。** 可在获得许可、来源版本、临床审核人与复审日期后扩充 DDI/剂量/Beers 数据；新规则必须有精确 match 语义、source locator、合成 case 与明确的适用/未知状态。可完善医生审核/发布工作台，但不能把有限规则伪装为完整审查。
+
+**不可破坏的契约。** `medication-rules-v4` 的 finding 必须绑定本地来源和 intake revision；非命中不等于安全，未知药物不能制造阴性结论。禁忌/严重命中写 alert 与审查 artifact 必须同事务；医生投影只可读取授权的 artifact，不含会话、Trace、附件或其他健康记录。
+
+**性能与回归验收。** 每条新增规则需有命中、边界、未知/不匹配和来源指纹回归；必测 artifact 刷新恢复、输入 revision 变化、授权撤回和跨主体拒绝。10 个独立 intake 并发审查必须 10/10 有唯一 Trace/来源绑定 finding；规则计算 p95 与加密持久化 p95 分开报告。

@@ -44,3 +44,11 @@ four cover the `1.1.0` search/TTS policy and two cover the `1.0.0` model-prompt
 projection, including Markdown preservation. The runner rejects ASR and document
 purposes instead of misrepresenting their non-text egress records as text
 redaction coverage.
+
+## 维护与演进
+
+**可安全改进。** 在核心业务稳定后，可按 provider boundary 增加字段级分类、同意、透明度、生命周期和 OCR/ASR 误漏评测；新 purpose 必须有版本化 policy、最小审计字段和离线合成 canary，不能复用不适配的文本策略。
+
+**不可破坏的契约。** 任何外发必须先写 prepared 决策，审计写入失败即不外发；日志、Trace 和 outcome 不得保存正文、图片、文件名、provider body 或 key。不得把 ASR/文件的无文本 outcome 误称为已经脱敏或取得同意。
+
+**性能与回归验收。** 每个 policy version 必测允许/拒绝、Markdown 保留、审计成功/失败、fallback 独立记录和无内容回显；canary 必须离线可重复。测量最大合法 prompt/query 下 policy + audit p95，并验证审计数据库故障时 0 次 provider egress。

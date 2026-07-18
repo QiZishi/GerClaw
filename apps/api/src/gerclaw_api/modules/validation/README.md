@@ -33,3 +33,11 @@ generic and does not echo the rejected data.
 Current scope is deliberately narrow and real. HTTP, tool parameters/results
 and export boundaries continue to use their existing strict contracts and are
 listed for incremental migration in the requirements matrix.
+
+## 维护与演进
+
+**可安全改进。** 可将 HTTP、工具参数/结果和 export 逐步迁入版本化 contracts；每次迁移先声明 literal version、strict schema、生产 consumer、错误映射与兼容淘汰窗口，再用生产边界测试证明接线。
+
+**不可破坏的契约。** validation 只拥有 transport shape、bounds 和 compatibility，不替代领域医学判断；未知字段、旧/缺版本和 malformed payload 必须受控失败，不能以默认值修补 provenance 或模型输出。公共错误不得回显被拒绝的数据。
+
+**性能与回归验收。** 每个 contract 有合法、未知字段、缺/错版本、边界大小和 public-error 回归；producer 与 consumer 都要验证。最大合法 SSE/模型/voice payload 的验证应保持线性并记录 p95；10 并发流不得因单个 malformed event 影响其他连接。

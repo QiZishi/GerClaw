@@ -64,3 +64,11 @@ uv run pytest --no-cov -q tests/test_security_evaluation.py tests/test_runtime_r
 uv run ruff check src/gerclaw_api/modules/security_evaluation tests/test_security_evaluation.py
 uv run mypy src/gerclaw_api/modules/security_evaluation
 ```
+
+## 维护与演进
+
+**可安全改进。** 核心功能稳定后可扩展受审查的 asset/profile、red-team case 和发布 gate；每个新控制项应能被运行时判定，不能只是说明文字。profile 版本升级须有兼容性、owner 和审阅记录。
+
+**不可破坏的契约。** registry/profile 只能由服务端代码构造；浏览器、模型、Skill 和检索文本不得降低 risk、network、data class 或 control。此模块仅 admission gate，不得被误称为完整威胁建模、临床安全验证或隐私生命周期。
+
+**性能与回归验收。** 运行 security-evaluation 与 runtime-registry 定向测试及 Ruff/Mypy；每个 profile 必测缺失、版本漂移、控制遗漏和合法接入。admission 应为无 I/O 的确定性快速路径；在 10 并发 toolkit/workflow 创建下无 profile 串用或非预期放行。

@@ -1,5 +1,13 @@
 # RAG
 
+## 维护与演进
+
+**可安全改进。** 可替换 embedding/reranker、调整 chunking、RRF 与索引实现，但应通过 Protocol/依赖注入和新的 index/capability version 迁移；新增语料先做来源审核、manifest、撤回和合成检索评测。不要把 session 上传资料混入公共医学语料。
+
+**不可破坏的契约。** 查询结果必须通过 `local-rag-evidence-v1`，不得补造 document/section/chunk provenance；索引 writer 的 PostgreSQL advisory lock、generation fencing、staging→activate 和撤回清理不可降级为宽删除。Qdrant/Trace 不得存 query、PHI 或 reasoning。
+
+**性能与回归验收。** 每次索引改动运行增量、撤回、并发 writer、stale cleanup 与检索 provenance 回归；以版本绑定的合成主题集报告 top-k 命中率和无证据拒绝率。真实索引记录文档/chunk 数、失败数、吞吐和查询 p50/p95；10 并发读取不得看到未激活 generation。
+
 对应设计要求 §4.7，已交付可被后续 Agent Harness 直接注入的 local-first Agentic RAG 模块。
 
 生产检索链路只有一套：

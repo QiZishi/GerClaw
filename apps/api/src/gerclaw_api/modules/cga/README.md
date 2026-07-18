@@ -35,3 +35,11 @@ Authenticated callers use `GET /api/v1/cga/scales`, then start, read, answer, co
 ## Scope and limitations
 
 The patient UI reads the server scale directory and supports five separately recoverable flows; it never renders legacy static scale data as a source of truth. Mini-Cog and MMSE results explicitly state that they are based on the participant's responses, not automated drawing/action verification. PSQI item 5J's optional free-text detail is encrypted separately from numeric answers; it is never scored, listed in history, returned in the public report, or exported. Completed reports can be exported in Markdown, PDF, or editable DOCX from the same validated server report; all formats include an explicit medical disclaimer and omit raw answers. The caller can open their own bounded report history. Historical comparison is descriptive only: it never infers symptom improvement, diagnosis, or treatment need, and refuses a cross-version score comparison. A patient may authorize a doctor to read completed CGA report summaries; that grant does not expose raw answers, active assessments, conversations, files, or other patient data. Professional observation verification and a complete clinician workspace remain unimplemented. All results are screening information and cannot replace clinical diagnosis or emergency care.
+
+## 维护与演进
+
+**可安全改进。** 新量表必须以新的不可变定义版本加入，并补齐 server scoring、允许答案、报告、音频 manifest、API/Zod 契约和迁移回归；可改善题目导航、导出和专业观察工作流，但观察证据须有明确角色和审计策略。
+
+**不可破坏的契约。** 已完成评估的定义版本、加密答案、顺序服务端选题和 revision 幂等语义不可原地改写；不得把 Mini-Cog/MMSE 自报答案伪称为图像/动作核验，也不得把 PSQI 5J 自由文本加入分数、历史、公共报告或导出。CGA 不启用联网搜索，医生读取只能是已完成摘要且受有效授权约束。
+
+**性能与回归验收。** 每个量表应有逐题、重复提交、越权、完成、版本差异比较和报告导出回归；音频发布须校验 manifest SHA-256 与题目/版本一一对应。10 个并发独立 assessment 不得串答、重复完成或泄露答案；报告读取 p95 与导出耗时分别记录。

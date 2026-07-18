@@ -36,3 +36,11 @@ The public voice transport is versioned: a successful ASR JSON response is
 declared header and the browser requires an exact version before it parses an
 ASR response or constructs a playable WAV. This turns a cross-tier format drift
 into a controlled client error rather than misleading playback or transcript.
+
+## 维护与演进
+
+**可安全改进。** 可更换 MiMo-compatible provider、改善取消/音质、增加方言评测和 adapter 协商；每种能力以新 capability/transport version 声明，浏览器播放器继续只消费验证过的 PCM16。不可通过浏览器直连 provider 来简化实现。
+
+**不可破坏的契约。** ASR/TTS 必须受 `voice:use`、限流、大小上限、provider timeout、egress outcome 和精确 contract header 保护；不得持久化音频、转写、合成正文、provider body 或 key。浏览器的暂停/继续/停止应控制本地播放，不能伪称能暂停已提交的 provider 合成。
+
+**性能与回归验收。** 覆盖 capability 缺失、权限/大小/格式拒绝、provider timeout、header drift、PCM→WAV 播放控制与 BFF principal 保留；真实 TTS→ASR 烟测记录首字节/完整耗时和稳定错误。10 并发短音频请求应无跨主体 trace 或音频串流，限流拒绝可预期。

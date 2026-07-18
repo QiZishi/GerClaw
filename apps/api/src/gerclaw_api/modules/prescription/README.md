@@ -104,3 +104,11 @@ Write operations also emit an atomic, PHI-free Runtime Trace. The trace contains
 经过 owner/session-bound 的文档再次解析，不能用任意 UUID 声称患者资料 provenance。
 只有服务端从完整私有输入构建的 `needs_clinician_review` 草案才能绑定同会话上传资料
 及其独立 evidence ID。
+
+## 维护与演进
+
+**可安全改进。** 可扩充报告模板、模型输出 schema、证据投影和医生审核工作台；任何临床规则、DDI/剂量结论或发布能力须先纳入许可来源、版本、审核者与复审日期。上传资料应继续作为 session-scoped 输入/evidence，而非公共 RAG 语料。
+
+**不可破坏的契约。** 只有完整 owner/tenant/session 绑定的 `five-prescription-input-v1` 才可生成 `needs_clinician_review`；273k 上下文不能静默截断，模型输出必须通过版本化 schema，所有临床结论/调药候选必须有 evidence ID。不得把草案升级为可执行处方、默认案例或无来源规则。
+
+**性能与回归验收。** 覆盖资料不足的最多五轮补充、最多十份文档、字符上限、模型 fallback、未知 evidence 丢弃、规则附加、历史/导出和授权医生复核。真实模型/RAG 运行应单独记录全流程 p50/p95、token 和证据数；10 并发只在受控合成输入下验证隔离、唯一 Trace 和取消语义，不外推临床有效性。

@@ -65,3 +65,11 @@ uv run mypy src/gerclaw_api/modules/identity api/routes/auth.py
 当前不提供邮箱或手机验证、找回密码、MFA、风险风控、机构归属、医生执业资质、患者
 授权、访客数据迁移、独立假名映射或受控重新识别。上述能力必须在专门的受审计流程
 中实现，不能由本地账户角色推断或绕过。
+
+## 维护与演进
+
+**可安全改进。** 可将 auth route/repository 收敛到模块 service，增加经评审的找回、MFA、机构与医生资质激活；每项先定义身份核验、恢复、审计、失效和客服处置，不允许用前端 role 或用户名推断。
+
+**不可破坏的契约。** 密码 verifier、JWT principal、refresh 轮换、账户停用和 tenant/actor 绑定是服务端事实源；不得回显 credential、hash、refresh token 或用可枚举错误区分账户状态。角色改变不能自动跨越 consent 或患者资源边界。
+
+**性能与回归验收。** 运行现有 auth/account-security 测试和 Ruff/Mypy；覆盖注册、登录、轮换、停用、错误凭据、跨角色和并发 refresh。认证 p95、hash 成本和 rate-limit 拒绝率应在代表性并发下记录，且不得以降低 scrypt 成本换取吞吐。

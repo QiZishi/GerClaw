@@ -14,3 +14,11 @@
 `skill-generation-model-output-v1`。缺失/旧版本、未知字段或不符合 schema
 的 provider 输出会在 Markdown 序列化前受控失败，不能作为未版本化草稿进入
 人工审阅。
+
+## 维护与演进
+
+**可安全改进。** 可提高生成/修订质量、编辑器体验、外部模型评测和临床 Skill 发布审核；生成器变化必须同步更新 `skill-generation-model-output-v1`、quality case、SemVer/revision 测试和人工审核界面。
+
+**不可破坏的契约。** 自进化只能产出草稿，不能自动写库、启用、执行或改变正在使用的 revision；相同 ID 的行为替换必须递增 SemVer，加载前必须重新通过服务端 profile。无证据的诊断/调药事实不得进入草稿，有证据的建议仍是可审阅而非可执行动作。
+
+**性能与回归验收。** 覆盖 generate→审阅保存→会话加载→evolve→revision 冲突→删除，以及 provider 结构输出失败；运行 `skill-draft-case-v1`。真实模型回归要单列耗时、成功率、schema 拒绝率；10 并发 evolve 同一 Skill 只能产生一个可接受的下一 revision。

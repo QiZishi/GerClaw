@@ -50,3 +50,11 @@ uv run mypy src/gerclaw_api/modules/runtime
 ```
 
 改变 approval、审计或实际工具接线时，还必须运行相关 chat/approval 集成测试，并同步更新 capability 版本、风险记录和调用模块的 `AGENTS.md`。
+
+## 维护与演进
+
+**可安全改进。** 可增加经审查的 capability、工具 schema、预算指标和可恢复 executor；副作用 executor 必须有明确幂等键、resume/补偿语义、审批人和 Trace 状态机，不能仅因已有 `ASK` API 就启用。
+
+**不可破坏的契约。** Runtime 是唯一服务端治理边界：browser/model 不得自报角色、权限、预算、capability 或 permit；所有未知字段、超限、未注册/过期 permit 都必须拒绝。不得把 credential 注册给 external tool，或让 delegate 绕过输入/输出 schema、timeout、预算和审计。
+
+**性能与回归验收。** 运行 README 列出的 permission/registry/budget 测试及相关 Chat/approval 集成；新增 capability 必测 allow/deny/ask、schema/大小/超时和 permit 重放。10 并发相同副作用请求必须至多一次 delegate 执行；记录 policy 判定、tool timeout、budget 拒绝和 resume p95。

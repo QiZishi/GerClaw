@@ -44,3 +44,11 @@ Document 模块按 tenant、actor、session 验证并限长后作为显式标记
 检查、用药等医疗解释，上传资料会与本地知识库及受治理联网证据共同进入同一回答链路。
 陪伴 workflow 继续拒绝 Skills 和上传资料。CGA、经治理的处方与 Voice 上下文仍未接入
 本 Harness。
+
+## 维护与演进
+
+**可安全改进。** 可替换模型 provider、优化检索轮数和 prompt、增加经过评审的只读工具，或改进 SSE 文案；必须保持 `AgentState` request-scoped，并把新工具经 Runtime registry、workflow profile 和依赖注入接入。
+
+**不可破坏的契约。** 不得绕过 Redis lease + PostgreSQL fencing 的双重写入保护；不得把原始 reasoning、provider body、图片 base64 或 PHI 写入 SSE/Trace；`done` 只能在 assistant 消息和 Trace 原子提交后发送。不得把无证据降级为编造 citation 或无条件模型调用。
+
+**性能与回归验收。** 至少运行 Harness、Chat 路由、SSE、取消/重放相关测试及 Ruff/Mypy；真实 Compose 回归须覆盖 SSE 成功、断开取消、同 trace 重放和跨主体隔离。确定性安全短路在最多 10 并发下必须 10/10 终态唯一、0 部分消息；模型/RAG 延迟另记 p50/p95。

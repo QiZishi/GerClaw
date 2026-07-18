@@ -28,3 +28,11 @@ registered five-prescription workflow can create only an evidence-bound,
 clinician-review draft; it cannot create an executable prescription. Medication
 review publication and clinician approval remain gated on reviewed rules,
 patient authorization and medical governance.
+
+## 维护与演进
+
+**可安全改进。** 可注册新的 server-owned workflow 或升级现有版本；每个定义必须列明 owner、上下文允许项、风险 profile、预算和回退行为，并由对应 feature module 实现领域逻辑。持久化恢复/补偿应在 Runtime executor 完整后接入，而非在 registry 中临时实现。
+
+**不可破坏的契约。** registry 不能成为第二个 workflow engine；缺失、blocked、版本/owner/风险/控制不匹配的 profile 必须在 Chat 创建前拒绝。不得将 `prescription` 或 `medication_review` 定义为可执行处方/自动临床批准，也不得让 companion 接收被禁用的上下文。
+
+**性能与回归验收。** 每条 workflow 必测 profile admission、allowed/disallowed context、Trace version 绑定、预算和跨主体隔离；新增 workflow 要有 API/Harness 消费方回归。10 并发混合 workflow 不得共享 Toolkit、profile 或上下文；分别报告 admission 和执行 p95。

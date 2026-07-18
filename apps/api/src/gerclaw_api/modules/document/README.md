@@ -25,3 +25,11 @@ local-knowledge-base and governed-web evidence.
 - No cross-session library, physician access, vector retrieval, long-document retrieval, export, retention scheduler or malware scan exists yet.
 
 The source of truth for delivered behavior and residual risk is [0024 MinerU 文档信任链](../../../../../../docs/exec-plans/completed/0024-MinerU文档信任链.md).
+
+## 维护与演进
+
+**可安全改进。** 可增加受控 MIME/恶意文件扫描、私有长文档检索、跨会话保留或医生授权；每项先定义数据所有者、删除/撤销语义、证据投影和独立索引边界。更换 MinerU adapter 时保留同源 BFF、owner-bound egress audit 与 UUID 注册契约。
+
+**不可破坏的契约。** 上传资料是当前会话的患者输入和 evidence，不是公共知识库；tenant/actor/session 三重匹配、加密存储、撤销擦除和五大处方不可静默截断不能放宽。不得把原文件、文件名、Markdown 正文或图片字节写入日志、Trace、Qdrant 或浏览器持久化。
+
+**性能与回归验收。** 必测 MinerU 成功/轮询失败、同会话解析登记、撤销后解析拒绝、跨主体拒绝和 273k/1M 字符边界；用既有病例 PDF 做真实解析烟测并记录 provider 耗时、字符数和失败码。长文档优化必须分别测 full-content five-prescription 输入和普通截断 chat 的 p95 与内存上限。

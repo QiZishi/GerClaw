@@ -93,3 +93,11 @@ The case file must be a `rag-retrieval-case-set-v1` JSON object with only
 reviewed synthetic `RAGRetrievalEvalCase` entries. New corpus-specific expected
 document IDs still require a reviewer to confirm the intended source and index
 version first.
+
+## 维护与演进
+
+**可安全改进。** 只可将经审核、去标识化的合成 case 加入版本化 case set；可扩展到模型、OCR/ASR、规则和 RAG 评测，但先定义允许的输出字段、基线、reviewer 与失败处置。真实 Bad Case 必须先走授权的去标识化晋升，不能直接回放。
+
+**不可破坏的契约。** CLI 输出不得包含原始输入、期望文本、PHI、prompt、规则正文或 provider 凭据；case ID 不是患者或 Trace ID。不得把 deterministic canary 通过表述为临床有效性、全量隐私覆盖或模型质量通过。
+
+**性能与回归验收。** 新 case 集必须离线、确定、可重复，且固定版本/预期；CI 应在无数据库、无网络、无模型下完成。每次变更记录 case 总数、通过率和运行时；任何既有安全 case 回归失败必须阻断相关发布而不是更新期望值掩盖。
