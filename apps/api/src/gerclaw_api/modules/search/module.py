@@ -8,7 +8,7 @@ import time
 from collections.abc import Awaitable, Callable, Iterator
 from contextlib import contextmanager
 from contextvars import ContextVar
-from typing import TypeVar
+from typing import Protocol, TypeVar
 from urllib.parse import parse_qsl, urlencode, urlsplit, urlunsplit
 
 from pydantic import ValidationError
@@ -80,16 +80,14 @@ _ATTEMPT_CAPTURE: ContextVar[list[SearchAttempt] | None] = ContextVar(
 )
 
 
-class SearchEgressAudit:
+class SearchEgressAudit(Protocol):
     """Request-local, fail-closed audit hook around each search provider call."""
 
     async def before_attempt(
         self, *, provider: SearchProviderName, decision: RedactionResult
-    ) -> None:
-        raise NotImplementedError
+    ) -> None: ...
 
-    async def after_attempt(self, *, provider: SearchProviderName, outcome: str) -> None:
-        raise NotImplementedError
+    async def after_attempt(self, *, provider: SearchProviderName, outcome: str) -> None: ...
 
 
 @contextmanager

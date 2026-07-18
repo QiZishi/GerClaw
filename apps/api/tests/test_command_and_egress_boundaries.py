@@ -647,7 +647,16 @@ async def test_document_routes_bind_documents_and_mineru_egress_to_the_owner(
             "method": "POST",
             "path": "/documents",
             "headers": [],
-            "app": SimpleNamespace(state=SimpleNamespace(rate_limiter=limiter, settings=object())),
+            "app": SimpleNamespace(
+                state=SimpleNamespace(
+                    rate_limiter=limiter,
+                    settings=SimpleNamespace(
+                        mineru_supports_async_parse=True,
+                        mineru_supports_markdown_export=True,
+                        mineru_capability_version="mineru-capabilities-v1",
+                    ),
+                )
+            ),
         }
     )
     session = SimpleNamespace(commit=AsyncMock())
@@ -679,7 +688,11 @@ async def test_document_routes_bind_documents_and_mineru_egress_to_the_owner(
             self.outcomes: list[str] = []
 
         async def record_prepared_document_parse(self, **kwargs: object) -> object:
-            assert kwargs == {"tenant_id": identity.tenant_id, "actor_id": identity.actor_id}
+            assert kwargs == {
+                "tenant_id": identity.tenant_id,
+                "actor_id": identity.actor_id,
+                "capability_version": "mineru-capabilities-v1",
+            }
             return self.event
 
         async def get_document_parse_for_owner(self, event_id: object, **kwargs: object) -> object:
