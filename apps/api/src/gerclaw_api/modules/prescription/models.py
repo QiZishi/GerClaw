@@ -205,12 +205,25 @@ class FivePrescriptionDraft(BaseModel):
 
 
 class PrescriptionDraftReviewRequest(BaseModel):
-    """A doctor's review decision, never an executable treatment order."""
+    """A doctor's evidence-bound amendment and review, never a treatment order."""
 
     model_config = ConfigDict(extra="forbid", frozen=True)
 
     decision: Literal["approved", "returned"]
     review_note: str = Field(min_length=1, max_length=5_000)
+    amended_markdown: str | None = Field(default=None, min_length=1, max_length=50_000)
+    amendment_evidence_ids: tuple[str, ...] = Field(default_factory=tuple, max_length=100)
+
+    @model_validator(mode="after")
+    def validate_amendment_pair(self) -> PrescriptionDraftReviewRequest:
+        has_markdown = self.amended_markdown is not None and bool(self.amended_markdown.strip())
+        if has_markdown != bool(self.amendment_evidence_ids):
+            raise ValueError("an amendment must include one or more evidence IDs")
+        if self.amended_markdown is not None and not has_markdown:
+            raise ValueError("amended_markdown must not be blank")
+        if len(set(self.amendment_evidence_ids)) != len(self.amendment_evidence_ids):
+            raise ValueError("amendment evidence IDs must be unique")
+        return self
 
 
 class PrescriptionDraftReviewRead(BaseModel):
@@ -223,6 +236,8 @@ class PrescriptionDraftReviewRead(BaseModel):
     doctor_actor_id: str = Field(pattern=r"^usr_account_[a-f0-9]{32}$")
     decision: Literal["approved", "returned"]
     review_note: str = Field(min_length=1, max_length=5_000)
+    amended_markdown: str | None = Field(default=None, max_length=50_000)
+    amendment_evidence_ids: tuple[str, ...] = Field(default_factory=tuple, max_length=100)
     revision: int = Field(ge=1)
     reviewed_at: datetime
 

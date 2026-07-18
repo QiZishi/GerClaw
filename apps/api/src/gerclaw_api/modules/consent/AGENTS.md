@@ -22,9 +22,10 @@ diagnostic authority, an emergency override, or a permission to mutate data.
   source-bound medication-review artifacts and an append-only review record
   for that same doctor only; it never exposes chat turns, Trace, uploaded
   files, raw assessment answers, alerts, approval tokens or emergency access.
-  `prescription_draft_review` separately permits append-only review of a
-  generated five-prescription draft only; neither scope authorises treatment
-  execution.
+  `prescription_draft_review` separately permits an append-only review of a
+  generated five-prescription draft, including an encrypted Markdown amendment
+  bound only to evidence IDs in that exact draft; neither scope authorises
+  treatment execution or mutation of the original draft.
 - Missing patients, grants, revoked grants and expired grants return the same
   not-found result to a doctor.
 

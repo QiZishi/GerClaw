@@ -667,6 +667,8 @@ async def test_doctor_review_is_patient_grant_bound_and_append_only(
             "doctor_actor_id": DOCTOR,
             "decision": "approved",
             "review_note": review.review_note,
+            "amended_markdown": None,
+            "amendment_evidence_ids": (),
         }
     ]
     session.commit.assert_awaited_once()

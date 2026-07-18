@@ -44,6 +44,17 @@ twenty newest revisions, and its SQL boundary requires the same tenant and
 actor that own the prescription intake. The browser restores only that caller's
 newest draft into the report panel after the intake is reopened.
 
+A patient-authorized doctor may append an encrypted Markdown **amendment**
+while recording an `approved` or `returned` review. It is not an in-place
+rewrite: the original model draft and its SHA-256 remain immutable, while the
+amendment has its own SHA-256 and the reviewing doctor's next revision. The
+amendment may select only evidence IDs already projected by the reviewed draft;
+the server rejects unknown or empty evidence and appends the fixed disclaimer
+if it is absent. On reopening the same owner-scoped conversation, the patient
+sees the latest review and the latest clinician amendment. This is still a
+reviewed clinical suggestion, not an electronic prescription or automatic
+treatment action.
+
 The authenticated generic session list exposes only the owner-scoped boolean
 `has_prescription_draft`. This lets the web client re-open the corresponding
 chat-native intake after a new login, while all report content, intake answers,
@@ -107,8 +118,8 @@ Write operations also emit an atomic, PHI-free Runtime Trace. The trace contains
 
 ## 维护与演进
 
-**可安全改进。** 可扩充报告模板、模型输出 schema、证据投影和医生审核工作台；任何临床规则、DDI/剂量结论或发布能力须先纳入许可来源、版本、审核者与复审日期。上传资料应继续作为 session-scoped 输入/evidence，而非公共 RAG 语料。
+**可安全改进。** 可扩充报告模板、模型输出 schema、证据投影和医生审核工作台；医生编辑必须继续作为不可覆盖的、证据绑定的修订附本。任何临床规则、DDI/剂量结论或正式发布能力须先纳入许可来源、版本、审核者与复审日期。上传资料应继续作为 session-scoped 输入/evidence，而非公共 RAG 语料。
 
-**不可破坏的契约。** 只有完整 owner/tenant/session 绑定的 `five-prescription-input-v1` 才可生成 `needs_clinician_review`；273k 上下文不能静默截断，模型输出必须通过版本化 schema，所有临床结论/调药候选必须有 evidence ID。不得把草案升级为可执行处方、默认案例或无来源规则。
+**不可破坏的契约。** 只有完整 owner/tenant/session 绑定的 `five-prescription-input-v1` 才可生成 `needs_clinician_review`；273k 上下文不能静默截断，模型输出必须通过版本化 schema，所有临床结论/调药候选必须有 evidence ID。医生修订不得覆盖模型草案、伪造新证据或绕开患者对指定医生的有效授权。不得把草案或修订升级为可执行处方、默认案例或无来源规则。
 
 **性能与回归验收。** 覆盖资料不足的最多五轮补充、最多十份文档、字符上限、模型 fallback、未知 evidence 丢弃、规则附加、历史/导出和授权医生复核。真实模型/RAG 运行应单独记录全流程 p50/p95、token 和证据数；10 并发只在受控合成输入下验证隔离、唯一 Trace 和取消语义，不外推临床有效性。

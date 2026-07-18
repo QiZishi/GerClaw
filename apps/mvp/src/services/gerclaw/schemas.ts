@@ -759,6 +759,8 @@ export const prescriptionDraftReviewSchema = z
     doctor_actor_id: z.string().regex(/^usr_account_[a-f0-9]{32}$/),
     decision: z.enum(["approved", "returned"]),
     review_note: z.string().min(1).max(5_000),
+    amended_markdown: z.string().min(1).max(50_000).nullable(),
+    amendment_evidence_ids: z.array(z.string().regex(/^ev_[a-z0-9]{8,64}$/)).max(100),
     revision: z.number().int().positive(),
     reviewed_at: z.string().datetime(),
   })

@@ -20,13 +20,20 @@ export function submitPrescriptionDraftReview(input: {
   draftId: string;
   decision: "approved" | "returned";
   reviewNote: string;
+  amendedMarkdown?: string;
+  amendmentEvidenceIds?: string[];
 }): Promise<PrescriptionDraftReview> {
   return gerclawRequest(
     `${patientDraftPath(input.patientActorId)}/${encodeURIComponent(input.draftId)}/reviews`,
     prescriptionDraftReviewSchema,
     {
       method: "POST",
-      body: JSON.stringify({ decision: input.decision, review_note: input.reviewNote.trim() }),
+      body: JSON.stringify({
+        decision: input.decision,
+        review_note: input.reviewNote.trim(),
+        amended_markdown: input.amendedMarkdown?.trim() || null,
+        amendment_evidence_ids: input.amendmentEvidenceIds ?? [],
+      }),
     }
   );
 }

@@ -1231,6 +1231,8 @@ async def list_prescription_drafts(
                 doctor_actor_id=review.doctor_actor_id,
                 decision=review.decision,
                 review_note=review.review_note,
+                amended_markdown=getattr(review, "amended_markdown", None),
+                amendment_evidence_ids=tuple(getattr(review, "amendment_evidence_ids", None) or ()),
                 revision=review.revision,
                 reviewed_at=review.reviewed_at,
             )

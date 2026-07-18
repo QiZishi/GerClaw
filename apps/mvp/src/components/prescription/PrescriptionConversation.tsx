@@ -4,6 +4,7 @@ import { useEffect, useRef, useState } from "react";
 import { RefreshCw, Square } from "lucide-react";
 import { ChatInput, type ChatDocumentAttachment } from "@/components/chat/ChatInput";
 import { Button } from "@/components/ui/button";
+import { MarkdownRenderer } from "@/components/chat/MarkdownRenderer";
 import { toast } from "@/components/ui/toast";
 import { cn } from "@/lib/utils";
 import { PRESCRIPTION_COMPLETING_MAX_TURNS } from "@/lib/constants";
@@ -21,6 +22,7 @@ type ConversationMessage = {
   id: string;
   role: "assistant" | "user";
   text: string;
+  markdown?: boolean;
 };
 
 const INITIAL_GREETING = "您好，我会结合您提供的资料整理五大处方。请先说说最想改善什么。";
@@ -81,6 +83,7 @@ export function PrescriptionConversation({
             setGenerationComplete(true);
             onPrescriptionDraftGenerated(latest.draft);
             const latestReview = latest.reviews[0];
+            const latestAmendment = latest.reviews.find((review) => review.amended_markdown);
             setMessages([
               {
                 id: "restored",
@@ -96,6 +99,16 @@ export function PrescriptionConversation({
                         latestReview.decision === "approved"
                           ? `临床复核意见：已通过。${latestReview.review_note}`
                           : `临床复核意见：请补充后再复核。${latestReview.review_note}`,
+                    },
+                  ]
+                : []),
+              ...(latestAmendment?.amended_markdown
+                ? [
+                    {
+                      id: `amendment-${latestAmendment.review_id}`,
+                      role: "assistant" as const,
+                      text: `## 医生修订内容\n\n${latestAmendment.amended_markdown}`,
+                      markdown: true,
                     },
                   ]
                 : []),
@@ -250,7 +263,7 @@ export function PrescriptionConversation({
                 seniorMode ? "text-lg" : "text-sm",
               )}
             >
-              {message.text}
+              {message.markdown ? <MarkdownRenderer content={message.text} /> : message.text}
             </div>
           ))}
           {loading && <p className={cn("text-muted-foreground", seniorMode ? "text-lg" : "text-sm")}>正在准备对话…</p>}

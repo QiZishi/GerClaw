@@ -11,10 +11,15 @@ from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from gerclaw_api.database.models import PrescriptionDraftRecord, PrescriptionDraftReview
+from gerclaw_api.modules.prescription.models import MEDICAL_DRAFT_DISCLAIMER, FivePrescriptionDraft
 
 
 class PrescriptionDraftNotFoundError(LookupError):
     """A draft is absent or outside the current principal's narrow boundary."""
+
+
+class PrescriptionDraftAmendmentValidationError(ValueError):
+    """A clinician amendment is not bound to evidence from the reviewed draft."""
 
 
 def _content_fingerprint(content: dict[str, Any]) -> str:
@@ -26,6 +31,48 @@ def _content_fingerprint(content: dict[str, Any]) -> str:
         separators=(",", ":"),
     )
     return hashlib.sha256(canonical.encode()).hexdigest()
+
+
+def _amendment_fingerprint(content: str) -> str:
+    return hashlib.sha256(content.encode()).hexdigest()
+
+
+def _normalize_amendment(
+    *,
+    content: dict[str, Any],
+    amended_markdown: str | None,
+    amendment_evidence_ids: tuple[str, ...],
+) -> tuple[str | None, list[str] | None, str | None]:
+    """Keep clinician edits traceable to the immutable source draft evidence.
+
+    The editable rendition is intentionally an addendum rather than a mutation
+    of model output. It may cite only evidence already projected by the
+    server-owned draft, and always carries the fixed clinical disclaimer.
+    """
+
+    if amended_markdown is None:
+        if amendment_evidence_ids:
+            raise PrescriptionDraftAmendmentValidationError(
+                "amendment evidence requires amended markdown"
+            )
+        return None, None, None
+    normalized = amended_markdown.strip()
+    if not normalized or not amendment_evidence_ids:
+        raise PrescriptionDraftAmendmentValidationError(
+            "amended markdown requires one or more evidence IDs"
+        )
+    try:
+        draft = FivePrescriptionDraft.model_validate(content)
+    except ValueError as error:
+        raise PrescriptionDraftAmendmentValidationError("stored draft is invalid") from error
+    available_ids = {source.evidence_id for source in draft.evidence_sources}
+    if not set(amendment_evidence_ids).issubset(available_ids):
+        raise PrescriptionDraftAmendmentValidationError(
+            "amendment evidence IDs must belong to the reviewed draft"
+        )
+    if MEDICAL_DRAFT_DISCLAIMER not in normalized:
+        normalized = f"{normalized}\n\n> {MEDICAL_DRAFT_DISCLAIMER}"
+    return normalized, list(amendment_evidence_ids), _amendment_fingerprint(normalized)
 
 
 class SqlAlchemyPrescriptionDraftRepository:
@@ -166,6 +213,8 @@ class SqlAlchemyPrescriptionDraftRepository:
         doctor_actor_id: str,
         decision: str,
         review_note: str,
+        amended_markdown: str | None = None,
+        amendment_evidence_ids: tuple[str, ...] = (),
     ) -> PrescriptionDraftReview:
         """Append a review while locking the exact encrypted draft revision."""
 
@@ -180,6 +229,11 @@ class SqlAlchemyPrescriptionDraftRepository:
         )
         if draft is None:
             raise PrescriptionDraftNotFoundError("prescription draft not found")
+        normalized_amendment, normalized_evidence_ids, amendment_sha256 = _normalize_amendment(
+            content=draft.content,
+            amended_markdown=amended_markdown,
+            amendment_evidence_ids=amendment_evidence_ids,
+        )
         latest_revision = await self._session.scalar(
             select(func.max(PrescriptionDraftReview.revision)).where(
                 PrescriptionDraftReview.tenant_id == tenant_id,
@@ -195,6 +249,9 @@ class SqlAlchemyPrescriptionDraftRepository:
             draft_content_sha256=_content_fingerprint(draft.content),
             decision=decision,
             review_note=review_note,
+            amended_markdown=normalized_amendment,
+            amendment_evidence_ids=normalized_evidence_ids,
+            amended_content_sha256=amendment_sha256,
             revision=(int(latest_revision or 0) + 1),
         )
         self._session.add(record)

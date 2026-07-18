@@ -7,7 +7,10 @@ doctor licence or permit clinical writes, prescriptions, approvals, emergency
 override, chat/Trace/document access, or access to uncompleted CGA answers.
 `prescription_draft_review` additionally permits that named doctor to read
 the patient's generated review-only five-prescription drafts and append a
-clinician review. It never turns the draft into an executable prescription.
+clinician review. A review may include an encrypted, evidence-bound Markdown
+amendment, but it is an append-only addendum: it cannot overwrite the model
+draft, introduce an unknown evidence ID or turn the draft into an executable
+prescription.
 `medication_review_read` permits only the persisted, source-bound medication
 review artifact: its input revision, deterministic findings and rule sources.
 After the same real-time grant check, the named doctor may append an encrypted
@@ -32,6 +35,6 @@ timestamps. Health data never enters the grant, audit or error payload.
 
 **可安全改进。** 可增加经产品和临床治理批准的新只读 resource scope、到期提醒和患者目录投影；每个 consumer 必须在读取前实时调用 repository。新增 scope 同步更新 schema、迁移 check constraint、BFF allowlist、医生 UI、撤回测试和对应模块说明。
 
-**不可破坏的契约。** grant 是 patient→指定 doctor→单一资源→期限→revision 的事实源；撤回、过期、tenant/角色不符和未知患者必须 fail closed 且对医生不可区分。`chronic_care_read` 没有写入例外；`medication_review_read` 与 `prescription_draft_review` 的唯一写入例外是对既有 artifact 追加本医生的不可覆盖复核记录，绝不等同于临床执行权。不得以 grant 暗示医生资质、紧急访问、其他写入权或 chat/Trace/附件访问。
+**不可破坏的契约。** grant 是 patient→指定 doctor→单一资源→期限→revision 的事实源；撤回、过期、tenant/角色不符和未知患者必须 fail closed 且对医生不可区分。`chronic_care_read` 没有写入例外；`medication_review_read` 与 `prescription_draft_review` 的唯一写入例外是对既有 artifact 追加本医生的不可覆盖复核记录，处方修订还必须绑定原草案已有 evidence ID，绝不等同于临床执行权。不得以 grant 暗示医生资质、紧急访问、其他写入权或 chat/Trace/附件访问。
 
 **性能与回归验收。** 每个 scope 必测创建、续期、revision 冲突、撤回、到期、跨 tenant/doctor 拒绝及 consumer 的读取前复验；真实浏览器至少覆盖患者授权→医生只读查询→撤回后拒绝。10 并发续期/撤回应保持单一最终 revision，不可短暂过度授权。

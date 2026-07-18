@@ -68,6 +68,7 @@ from gerclaw_api.repositories.medication_review_draft import (
 )
 from gerclaw_api.repositories.memory import SqlAlchemyMemoryRepository
 from gerclaw_api.repositories.prescription_draft import (
+    PrescriptionDraftAmendmentValidationError,
     PrescriptionDraftNotFoundError,
     SqlAlchemyPrescriptionDraftRepository,
 )
@@ -116,6 +117,8 @@ def _review_read(record: PrescriptionDraftReview) -> PrescriptionDraftReviewRead
         doctor_actor_id=record.doctor_actor_id,
         decision=record.decision,
         review_note=record.review_note,
+        amended_markdown=getattr(record, "amended_markdown", None),
+        amendment_evidence_ids=tuple(getattr(record, "amendment_evidence_ids", None) or ()),
         revision=record.revision,
         reviewed_at=record.reviewed_at,
     )
@@ -554,9 +557,16 @@ async def append_authorized_prescription_review(
             doctor_actor_id=identity.actor_id,
             decision=payload.decision,
             review_note=payload.review_note,
+            amended_markdown=payload.amended_markdown,
+            amendment_evidence_ids=payload.amendment_evidence_ids,
         )
     except (PatientAccessGrantNotFoundError, PrescriptionDraftNotFoundError) as error:
         raise _not_found() from error
+    except PrescriptionDraftAmendmentValidationError as error:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail={"code": "PRESCRIPTION_AMENDMENT_EVIDENCE_INVALID"},
+        ) from error
     await session.commit()
     return _review_read(review)
 
