@@ -117,6 +117,17 @@ test("guest proxy keeps patient care flows but rejects every Skill endpoint", ()
   assert.equal(isGuestAllowedGerclawProxyTarget("skills/health-education/execute", "POST"), false);
 });
 
+test("consent proxy permits only patient-owned grant and revoke operations", () => {
+  const grantId = "0f4d021b-5054-461d-88e4-109bc422f616";
+  assert.equal(isAllowedGerclawProxyTarget("access-grants", "GET"), true);
+  assert.equal(isAllowedGerclawProxyTarget("access-grants", "POST"), true);
+  assert.equal(isAllowedGerclawProxyTarget(`access-grants/${grantId}/revoke`, "POST"), true);
+  assert.equal(isAllowedGerclawProxyTarget(`access-grants/${grantId}`, "DELETE"), false);
+  assert.equal(isAllowedGerclawProxyTarget("access-grants/patients/anything", "GET"), false);
+  assert.equal(isGuestAllowedGerclawProxyTarget("access-grants", "GET"), false);
+  assert.equal(isGuestAllowedGerclawProxyTarget(`access-grants/${grantId}/revoke`, "POST"), false);
+});
+
 test("CGA proxy permits only caller-owned descriptive comparison reads", () => {
   assert.equal(isAllowedGerclawProxyTarget(`cga/assessments/${sessionId}/comparison`, "GET"), true);
   assert.equal(isAllowedGerclawProxyTarget(`cga/assessments/${sessionId}/comparison`, "POST"), false);

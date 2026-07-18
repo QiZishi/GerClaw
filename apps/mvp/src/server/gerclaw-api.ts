@@ -60,6 +60,11 @@ const proxyRules: Array<{ pattern: RegExp; methods: ReadonlySet<string> }> = [
   },
   { pattern: /^traces\/[A-Za-z0-9_.-]{3,64}$/, methods: new Set(["GET"]) },
   { pattern: /^feedback$/, methods: new Set(["POST"]) },
+  { pattern: /^access-grants$/, methods: new Set(["GET", "POST"]) },
+  {
+    pattern: new RegExp(`^access-grants/${uuidPattern}/revoke$`, "i"),
+    methods: new Set(["POST"]),
+  },
   { pattern: /^clinical-intakes$/, methods: new Set(["POST"]) },
   {
     pattern: new RegExp(`^clinical-intakes/${uuidPattern}$`, "i"),
@@ -136,5 +141,5 @@ export function isAllowedGerclawProxyTarget(path: string, method: string): boole
 
 /** Guests can use patient-facing care flows, but never inspect or manage Skills. */
 export function isGuestAllowedGerclawProxyTarget(path: string, method: string): boolean {
-  return isAllowedGerclawProxyTarget(path, method) && !/^skills(?:\/|$)/.test(path);
+  return isAllowedGerclawProxyTarget(path, method) && !/^(?:skills|access-grants)(?:\/|$)/.test(path);
 }

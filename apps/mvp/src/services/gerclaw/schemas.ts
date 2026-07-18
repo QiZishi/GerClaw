@@ -707,6 +707,26 @@ export const prescriptionDraftHistorySchema = z
 
 export type PrescriptionDraftHistory = z.infer<typeof prescriptionDraftHistorySchema>;
 
+export const patientAccessGrantSchema = z
+  .object({
+    id: z.string().uuid(),
+    doctor_actor_id: z.string().regex(/^usr_account_[a-f0-9]{32}$/),
+    resource_scope: z.enum(["health_profile_read", "cga_report_read", "prescription_draft_review"]),
+    status: z.enum(["active", "revoked", "expired"]),
+    expires_at: z.string().datetime(),
+    revision: z.number().int().positive(),
+    granted_at: z.string().datetime(),
+    revoked_at: z.string().datetime().nullable(),
+  })
+  .strict();
+
+export const patientAccessGrantListSchema = z
+  .object({ items: z.array(patientAccessGrantSchema).max(100) })
+  .strict();
+
+export type PatientAccessGrant = z.infer<typeof patientAccessGrantSchema>;
+export type PatientAccessGrantList = z.infer<typeof patientAccessGrantListSchema>;
+
 export { feedbackSubmitSchema } from "./feedback-contract";
 
 export const feedbackReadSchema = z

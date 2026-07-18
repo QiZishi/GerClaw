@@ -3,6 +3,7 @@
 import { useEffect, useMemo, useState } from "react";
 import {
   ArrowLeftRight,
+  Copy,
   Zap,
   HelpCircle,
   History,
@@ -60,6 +61,7 @@ import type { Session } from "@/types";
 import { toast } from "@/components/ui/toast";
 import { AccountDialog } from "@/components/account/AccountDialog";
 import { AccountDeactivationDialog } from "@/components/account/AccountDeactivationDialog";
+import { PrescriptionReviewAccessDialog } from "@/components/consent/PrescriptionReviewAccessDialog";
 import {
   getAccountIdentity,
   exitGuestSession,
@@ -115,6 +117,7 @@ export function Sidebar({ onNavigate }: SidebarProps) {
   const [account, setAccount] = useState<AccountIdentity | null>(null);
   const [accountDialogOpen, setAccountDialogOpen] = useState(false);
   const [accountDeactivationOpen, setAccountDeactivationOpen] = useState(false);
+  const [prescriptionReviewAccessOpen, setPrescriptionReviewAccessOpen] = useState(false);
 
   useEffect(() => {
     const frame = requestAnimationFrame(() => setMounted(true));
@@ -337,6 +340,19 @@ export function Sidebar({ onNavigate }: SidebarProps) {
 
   const isAdministrator = account?.account_role === "admin";
 
+  async function copyDoctorReviewCode() {
+    if (!account || !navigator.clipboard) {
+      toast.show("暂时无法复制复核代码");
+      return;
+    }
+    try {
+      await navigator.clipboard.writeText(account.actor_id);
+      toast.show("医生复核代码已复制");
+    } catch {
+      toast.show("暂时无法复制复核代码");
+    }
+  }
+
   return (
     <aside
       className="flex h-full flex-col bg-sidebar text-sidebar-foreground border-r border-sidebar-border"
@@ -545,6 +561,18 @@ export function Sidebar({ onNavigate }: SidebarProps) {
                 <HelpCircle className="size-4" />
                 帮助
               </DropdownMenuItem>
+              {account?.account_role === "patient" && (
+                <DropdownMenuItem className={cn("cursor-pointer", seniorMode && "min-h-12 text-base")} onClick={() => setPrescriptionReviewAccessOpen(true)}>
+                  <ShieldCheck className="size-4" />
+                  医生复核授权
+                </DropdownMenuItem>
+              )}
+              {account?.account_role === "doctor" && (
+                <DropdownMenuItem className={cn("cursor-pointer", seniorMode && "min-h-12 text-base")} onClick={() => void copyDoctorReviewCode()}>
+                  <Copy className="size-4" />
+                  复制我的复核代码
+                </DropdownMenuItem>
+              )}
             </DropdownMenuGroup>
             {isAdministrator && <>
               <DropdownMenuSeparator />
@@ -693,6 +721,11 @@ export function Sidebar({ onNavigate }: SidebarProps) {
           onNavigate?.();
         }}
       />
+      {account?.account_role === "patient" && <PrescriptionReviewAccessDialog
+        open={prescriptionReviewAccessOpen}
+        onOpenChange={setPrescriptionReviewAccessOpen}
+        seniorMode={seniorMode}
+      />}
     </aside>
   );
 }
