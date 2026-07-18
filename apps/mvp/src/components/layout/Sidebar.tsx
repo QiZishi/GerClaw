@@ -63,6 +63,7 @@ import { AccountDialog } from "@/components/account/AccountDialog";
 import { AccountDeactivationDialog } from "@/components/account/AccountDeactivationDialog";
 import { PrescriptionReviewAccessDialog } from "@/components/consent/PrescriptionReviewAccessDialog";
 import { DoctorCgaWorkspaceDialog } from "@/components/consent/DoctorCgaWorkspaceDialog";
+import { DoctorChronicCareDialog } from "@/components/consent/DoctorChronicCareDialog";
 import { DoctorHealthProfileDialog } from "@/components/consent/DoctorHealthProfileDialog";
 import { DoctorPatientDirectoryDialog } from "@/components/consent/DoctorPatientDirectoryDialog";
 import type { PatientGrantResource } from "@/services/gerclaw/consent";
@@ -131,6 +132,7 @@ export function Sidebar({ onNavigate }: SidebarProps) {
   const [doctorMedicationReviewOpen, setDoctorMedicationReviewOpen] = useState(false);
   const [doctorRiskAlertOpen, setDoctorRiskAlertOpen] = useState(false);
   const [doctorCgaWorkspaceOpen, setDoctorCgaWorkspaceOpen] = useState(false);
+  const [doctorChronicCareOpen, setDoctorChronicCareOpen] = useState(false);
   const [doctorHealthProfileOpen, setDoctorHealthProfileOpen] = useState(false);
   const [doctorPatientDirectoryOpen, setDoctorPatientDirectoryOpen] = useState(false);
   const [runtimeApprovalReviewOpen, setRuntimeApprovalReviewOpen] = useState(false);
@@ -388,6 +390,8 @@ export function Sidebar({ onNavigate }: SidebarProps) {
       setDoctorPrescriptionReviewOpen(true);
     } else if (resourceScope === "risk_alert_read") {
       setDoctorRiskAlertOpen(true);
+    } else if (resourceScope === "chronic_care_read") {
+      setDoctorChronicCareOpen(true);
     } else {
       setDoctorMedicationReviewOpen(true);
     }
@@ -658,6 +662,12 @@ export function Sidebar({ onNavigate }: SidebarProps) {
                 </DropdownMenuItem>
               )}
               {account?.account_role === "doctor" && (
+                <DropdownMenuItem className={cn("cursor-pointer", seniorMode && "min-h-12 text-base")} onClick={() => setDoctorChronicCareOpen(true)}>
+                  <Stethoscope className="size-4" />
+                  患者慢病记录
+                </DropdownMenuItem>
+              )}
+              {account?.account_role === "doctor" && (
                 <DropdownMenuItem className={cn("cursor-pointer", seniorMode && "min-h-12 text-base")} onClick={() => setDoctorCgaWorkspaceOpen(true)}>
                   <Stethoscope className="size-4" />
                   CGA 报告工作区
@@ -837,6 +847,12 @@ export function Sidebar({ onNavigate }: SidebarProps) {
       {account?.account_role === "doctor" && <DoctorRiskAlertDialog
         open={doctorRiskAlertOpen}
         onOpenChange={(nextOpen) => closeSelectedPatientWorkspace(setDoctorRiskAlertOpen, nextOpen)}
+        seniorMode={seniorMode}
+        initialPatientActorId={selectedPatientActorId}
+      />}
+      {account?.account_role === "doctor" && <DoctorChronicCareDialog
+        open={doctorChronicCareOpen}
+        onOpenChange={(nextOpen) => closeSelectedPatientWorkspace(setDoctorChronicCareOpen, nextOpen)}
         seniorMode={seniorMode}
         initialPatientActorId={selectedPatientActorId}
       />}

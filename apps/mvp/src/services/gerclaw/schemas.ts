@@ -393,9 +393,23 @@ export const chronicTrendListSchema = z
   .object({ items: z.array(chronicTrendSchema).max(100) })
   .strict();
 
+export const doctorChronicCareConditionListSchema = z
+  .object({ items: z.array(chronicConditionSchema).max(30) })
+  .strict();
+
+export const doctorChronicCareConditionDetailSchema = z
+  .object({
+    condition: chronicConditionSchema,
+    measurements: z.array(chronicMeasurementSchema).max(100),
+    trends: z.array(chronicTrendSchema).max(100),
+  })
+  .strict();
+
 export type ChronicCondition = z.infer<typeof chronicConditionSchema>;
 export type ChronicMeasurement = z.infer<typeof chronicMeasurementSchema>;
 export type ChronicTrend = z.infer<typeof chronicTrendSchema>;
+export type DoctorChronicCareConditionList = z.infer<typeof doctorChronicCareConditionListSchema>;
+export type DoctorChronicCareConditionDetail = z.infer<typeof doctorChronicCareConditionDetailSchema>;
 
 export const riskAlertSchema = z
   .object({
@@ -776,7 +790,7 @@ export const patientAccessGrantSchema = z
   .object({
     id: z.string().uuid(),
     doctor_actor_id: z.string().regex(/^usr_account_[a-f0-9]{32}$/),
-    resource_scope: z.enum(["health_profile_read", "cga_report_read", "prescription_draft_review", "medication_review_read", "risk_alert_read"]),
+    resource_scope: z.enum(["health_profile_read", "cga_report_read", "prescription_draft_review", "medication_review_read", "risk_alert_read", "chronic_care_read"]),
     status: z.enum(["active", "revoked", "expired"]),
     expires_at: z.string().datetime(),
     revision: z.number().int().positive(),
@@ -794,7 +808,7 @@ export type PatientAccessGrantList = z.infer<typeof patientAccessGrantListSchema
 
 export const doctorPatientGrantScopeSchema = z
   .object({
-    resource_scope: z.enum(["health_profile_read", "cga_report_read", "prescription_draft_review", "medication_review_read", "risk_alert_read"]),
+    resource_scope: z.enum(["health_profile_read", "cga_report_read", "prescription_draft_review", "medication_review_read", "risk_alert_read", "chronic_care_read"]),
     expires_at: z.string().datetime(),
   })
   .strict();
@@ -802,7 +816,7 @@ export const doctorPatientGrantScopeSchema = z
 export const doctorPatientAccessSchema = z
   .object({
     patient_actor_id: z.string().regex(/^usr_account_[a-f0-9]{32}$/),
-    grants: z.array(doctorPatientGrantScopeSchema).min(1).max(4),
+    grants: z.array(doctorPatientGrantScopeSchema).min(1).max(6),
   })
   .strict();
 

@@ -14,6 +14,7 @@ ResourceScope = Literal[
     "prescription_draft_review",
     "medication_review_read",
     "risk_alert_read",
+    "chronic_care_read",
 ]
 
 
@@ -21,7 +22,7 @@ class PatientAccessGrantCreate(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     doctor_actor_id: str = Field(pattern=r"^usr_account_[a-f0-9]{32}$")
-    resource_scopes: tuple[ResourceScope, ...] = Field(min_length=1, max_length=5)
+    resource_scopes: tuple[ResourceScope, ...] = Field(min_length=1, max_length=6)
     expires_at: datetime
 
     @field_validator("resource_scopes")
@@ -74,7 +75,7 @@ class DoctorPatientAccessRead(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     patient_actor_id: str = Field(pattern=r"^usr_account_[a-f0-9]{32}$")
-    grants: tuple[DoctorPatientGrantScopeRead, ...] = Field(min_length=1, max_length=5)
+    grants: tuple[DoctorPatientGrantScopeRead, ...] = Field(min_length=1, max_length=6)
 
 
 class DoctorPatientAccessListRead(BaseModel):

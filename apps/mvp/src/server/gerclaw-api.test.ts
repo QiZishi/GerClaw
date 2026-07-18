@@ -159,6 +159,8 @@ test("consent proxy exposes only the declared doctor directory and projections a
   const path = `access-grants/patients/${patientActorId}/prescription-drafts`;
   const medicationReviewPath = `access-grants/patients/${patientActorId}/medication-review-drafts`;
   const medicationReviewReviewPath = `${medicationReviewPath}/${draftId}/reviews`;
+  const chronicCarePath = `access-grants/patients/${patientActorId}/chronic-care`;
+  const chronicConditionPath = `${chronicCarePath}/conditions/${conditionId}`;
   const cgaPath = `access-grants/patients/${patientActorId}/cga-reports`;
   const profilePath = `access-grants/patients/${patientActorId}/health-profile`;
   assert.equal(isAllowedGerclawProxyTarget("access-grants/patients", "GET"), true);
@@ -168,6 +170,10 @@ test("consent proxy exposes only the declared doctor directory and projections a
   assert.equal(isAllowedGerclawProxyTarget(medicationReviewPath, "POST"), false);
   assert.equal(isAllowedGerclawProxyTarget(medicationReviewReviewPath, "POST"), true);
   assert.equal(isAllowedGerclawProxyTarget(medicationReviewReviewPath, "GET"), false);
+  assert.equal(isAllowedGerclawProxyTarget(chronicCarePath, "GET"), true);
+  assert.equal(isAllowedGerclawProxyTarget(chronicCarePath, "POST"), false);
+  assert.equal(isAllowedGerclawProxyTarget(chronicConditionPath, "GET"), true);
+  assert.equal(isAllowedGerclawProxyTarget(chronicConditionPath, "POST"), false);
   assert.equal(isAllowedGerclawProxyTarget(`${path}/${draftId}/reviews`, "POST"), true);
   assert.equal(isAllowedGerclawProxyTarget(`${path}/${draftId}/reviews`, "GET"), false);
   assert.equal(isAllowedGerclawProxyTarget(cgaPath, "GET"), true);
@@ -177,6 +183,7 @@ test("consent proxy exposes only the declared doctor directory and projections a
   assert.equal(isGuestAllowedGerclawProxyTarget(path, "GET"), false);
   assert.equal(isGuestAllowedGerclawProxyTarget(medicationReviewPath, "GET"), false);
   assert.equal(isGuestAllowedGerclawProxyTarget(medicationReviewReviewPath, "POST"), false);
+  assert.equal(isGuestAllowedGerclawProxyTarget(chronicCarePath, "GET"), false);
   assert.equal(isGuestAllowedGerclawProxyTarget("access-grants/patients", "GET"), false);
   assert.equal(isGuestAllowedGerclawProxyTarget(cgaPath, "GET"), false);
   assert.equal(isGuestAllowedGerclawProxyTarget(profilePath, "GET"), false);

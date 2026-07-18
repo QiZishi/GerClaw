@@ -26,6 +26,7 @@ const grantOptions: ReadonlyArray<{
   { scope: "prescription_draft_review", label: "五大处方草案", description: "查看草案并记录复核意见" },
   { scope: "medication_review_read", label: "用药审查记录", description: "查看来源绑定的审查结论" },
   { scope: "cga_report_read", label: "已完成 CGA 报告", description: "查看已完成的筛查摘要" },
+  { scope: "chronic_care_read", label: "慢病记录", description: "查看本人自述的记录和数值变化" },
   { scope: "risk_alert_read", label: "安全提醒", description: "查看当前安全提醒，不含原始对话或附件" },
 ];
 

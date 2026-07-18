@@ -13,6 +13,7 @@ from gerclaw_api.auth import (
     AuthContext,
     authenticate,
     require_cga_read,
+    require_chronic_care_read,
     require_clinical_intake_read,
     require_memory_read,
     require_risk_alert_read,
@@ -20,6 +21,10 @@ from gerclaw_api.auth import (
 from gerclaw_api.database.models import MedicationReviewDraftReview, PrescriptionDraftReview
 from gerclaw_api.dependencies import get_database_session
 from gerclaw_api.modules.cga.models import CgaHistoryRead
+from gerclaw_api.modules.chronic_care.models import (
+    DoctorChronicCareConditionDetailRead,
+    DoctorChronicCareConditionListRead,
+)
 from gerclaw_api.modules.consent.models import (
     DoctorPatientAccessListRead,
     DoctorPatientAccessRead,
@@ -48,6 +53,10 @@ from gerclaw_api.modules.prescription.models import (
 from gerclaw_api.modules.risk_alert.models import RiskAlertListRead
 from gerclaw_api.modules.risk_alert.service import RiskAlertService
 from gerclaw_api.repositories.cga import SqlAlchemyCgaRepository
+from gerclaw_api.repositories.chronic_care import (
+    ChronicCareNotFoundError,
+    SqlAlchemyChronicCareRepository,
+)
 from gerclaw_api.repositories.consent import (
     PatientAccessGrantConflictError,
     PatientAccessGrantNotFoundError,
@@ -64,6 +73,7 @@ from gerclaw_api.repositories.prescription_draft import (
 )
 from gerclaw_api.repositories.risk_alert import SqlAlchemyRiskAlertRepository
 from gerclaw_api.services.cga_service import CgaService
+from gerclaw_api.services.chronic_care_service import ChronicCareService
 from gerclaw_api.services.model_router import FailoverChatModel
 
 router = APIRouter(prefix="/access-grants", tags=["consent"])
@@ -71,6 +81,7 @@ SessionDependency = Annotated[AsyncSession, Depends(get_database_session)]
 Identity = Annotated[AuthContext, Depends(authenticate)]
 DoctorMemoryIdentity = Annotated[AuthContext, Depends(require_memory_read)]
 DoctorCgaIdentity = Annotated[AuthContext, Depends(require_cga_read)]
+DoctorChronicCareIdentity = Annotated[AuthContext, Depends(require_chronic_care_read)]
 DoctorPrescriptionIdentity = Annotated[AuthContext, Depends(require_clinical_intake_read)]
 DoctorRiskAlertIdentity = Annotated[AuthContext, Depends(require_risk_alert_read)]
 PatientActorId = Annotated[str, Path(pattern=r"^usr_account_[a-f0-9]{32}$")]
@@ -300,6 +311,77 @@ async def list_authorized_cga_reports(
         raise _not_found() from error
     return await CgaService(SqlAlchemyCgaRepository(session)).history(
         tenant_id=identity.tenant_id, actor_id=patient_actor_id, limit=20
+    )
+
+
+@router.get(
+    "/patients/{patient_actor_id}/chronic-care",
+    response_model=DoctorChronicCareConditionListRead,
+)
+async def list_authorized_chronic_care_conditions(
+    patient_actor_id: PatientActorId,
+    session: SessionDependency,
+    identity: DoctorChronicCareIdentity,
+) -> DoctorChronicCareConditionListRead:
+    """Read only self-reported condition labels after a current patient grant."""
+
+    _require_doctor(identity)
+    try:
+        await SqlAlchemyPatientAccessGrantRepository(session).require_active_grant(
+            tenant_id=identity.tenant_id,
+            patient_actor_id=patient_actor_id,
+            doctor_actor_id=identity.actor_id,
+            resource_scope="chronic_care_read",
+        )
+    except PatientAccessGrantNotFoundError as error:
+        raise _not_found() from error
+    result = await ChronicCareService(SqlAlchemyChronicCareRepository(session)).list_conditions(
+        tenant_id=identity.tenant_id,
+        actor_id=patient_actor_id,
+        limit=30,
+    )
+    return DoctorChronicCareConditionListRead(items=result.items)
+
+
+@router.get(
+    "/patients/{patient_actor_id}/chronic-care/conditions/{condition_id}",
+    response_model=DoctorChronicCareConditionDetailRead,
+)
+async def get_authorized_chronic_care_condition(
+    patient_actor_id: PatientActorId,
+    condition_id: uuid.UUID,
+    session: SessionDependency,
+    identity: DoctorChronicCareIdentity,
+) -> DoctorChronicCareConditionDetailRead:
+    """Read a bounded immutable measurement view; never evaluate it clinically."""
+
+    _require_doctor(identity)
+    try:
+        await SqlAlchemyPatientAccessGrantRepository(session).require_active_grant(
+            tenant_id=identity.tenant_id,
+            patient_actor_id=patient_actor_id,
+            doctor_actor_id=identity.actor_id,
+            resource_scope="chronic_care_read",
+        )
+        service = ChronicCareService(SqlAlchemyChronicCareRepository(session))
+        condition = await service.get_condition(
+            condition_id, tenant_id=identity.tenant_id, actor_id=patient_actor_id
+        )
+        measurements = await service.list_measurements(
+            condition_id,
+            tenant_id=identity.tenant_id,
+            actor_id=patient_actor_id,
+            limit=100,
+        )
+        trends = await service.trends(
+            condition_id, tenant_id=identity.tenant_id, actor_id=patient_actor_id
+        )
+    except (PatientAccessGrantNotFoundError, ChronicCareNotFoundError) as error:
+        raise _not_found() from error
+    return DoctorChronicCareConditionDetailRead(
+        condition=condition,
+        measurements=measurements.items,
+        trends=trends.items,
     )
 
 

@@ -110,3 +110,21 @@ class ChronicTrendListRead(BaseModel):
     model_config = STRICT
 
     items: list[ChronicTrendRead] = Field(default_factory=list, max_length=100)
+
+
+class DoctorChronicCareConditionListRead(BaseModel):
+    """Doctor projection after the patient's active chronic-care grant."""
+
+    model_config = STRICT
+
+    items: list[ChronicConditionRead] = Field(default_factory=list, max_length=30)
+
+
+class DoctorChronicCareConditionDetailRead(BaseModel):
+    """A bounded, read-only ledger projection without clinical interpretation."""
+
+    model_config = STRICT
+
+    condition: ChronicConditionRead
+    measurements: list[ChronicMeasurementRead] = Field(default_factory=list, max_length=100)
+    trends: list[ChronicTrendRead] = Field(default_factory=list, max_length=100)

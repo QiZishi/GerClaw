@@ -300,7 +300,7 @@ class PatientAccessGrant(Base):
         CheckConstraint(
             "resource_scope IN ("
             "'health_profile_read','cga_report_read','prescription_draft_review',"
-            "'medication_review_read','risk_alert_read')",
+            "'medication_review_read','risk_alert_read','chronic_care_read')",
             name="valid_patient_access_grant_resource_scope",
         ),
         CheckConstraint("status IN ('active','revoked')", name="valid_patient_access_grant_status"),

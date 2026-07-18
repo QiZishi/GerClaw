@@ -19,6 +19,10 @@ adherence, medication or treatment engine.
   arithmetic directions, never abnormality, target attainment or risk.
 - Every lookup and mutation is tenant- and actor-scoped. A measurement must
   belong to the caller-owned condition selected by its path parameter.
+- A named active doctor may receive this ledger only through the consent
+  module's current `chronic_care_read` grant. That projection is read-only,
+  remains limited to self-reported conditions, measurements and arithmetic
+  directions, and must re-check the grant before every read.
 
 ## Change and test rules
 
@@ -27,3 +31,6 @@ adherence, medication or treatment engine.
   reviewed rule and its own Runtime/HITL contract.
 - Test encrypted persistence, tenant/actor isolation, append-only semantics,
   malformed payloads, non-finite values, ordering and trace redaction.
+- Test doctor reads before grant, after grant, after revoke/expiry and across
+  tenants. No doctor route may add a measurement, target, interpretation or
+  treatment action.

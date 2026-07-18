@@ -68,6 +68,16 @@ class ChronicCareService:
         )
         return ChronicConditionListRead(items=[self._condition_read(record) for record in records])
 
+    async def get_condition(
+        self, condition_id: uuid.UUID, *, tenant_id: str, actor_id: str
+    ) -> ChronicConditionRead:
+        """Project one encrypted condition after a caller boundary has been checked."""
+
+        record = await self._repository.get_condition(
+            condition_id, tenant_id=tenant_id, actor_id=actor_id
+        )
+        return self._condition_read(record)
+
     async def create_measurement(
         self,
         condition_id: uuid.UUID,

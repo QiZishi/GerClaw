@@ -13,6 +13,12 @@ from pydantic import ValidationError
 
 from gerclaw_api.api.routes import consent as consent_routes
 from gerclaw_api.auth import AuthContext
+from gerclaw_api.modules.chronic_care.models import (
+    ChronicConditionListRead,
+    ChronicConditionRead,
+    ChronicMeasurementListRead,
+    ChronicTrendListRead,
+)
 from gerclaw_api.modules.consent.models import PatientAccessGrantCreate, PatientAccessGrantRevoke
 from gerclaw_api.modules.medication_review.models import MedicationReviewDraftReviewRequest
 from gerclaw_api.modules.memory.models import HealthProfileRead
@@ -82,6 +88,8 @@ async def test_patient_grant_validates_active_doctor_and_expiry(
             "cga_report_read",
             "prescription_draft_review",
             "medication_review_read",
+            "risk_alert_read",
+            "chronic_care_read",
         ),
         expires_at=datetime.now(UTC) + timedelta(days=30),
     )
@@ -90,13 +98,15 @@ async def test_patient_grant_validates_active_doctor_and_expiry(
         payload, SimpleNamespace(commit=AsyncMock()), _identity()
     )
 
-    assert len(result.items) == 4
+    assert len(result.items) == 6
     assert calls[0]["actor_id"] == DOCTOR
     assert {call["resource_scope"] for call in calls[1:]} == {
         "health_profile_read",
         "cga_report_read",
         "prescription_draft_review",
         "medication_review_read",
+        "risk_alert_read",
+        "chronic_care_read",
     }
 
     with pytest.raises(HTTPException) as expired:
@@ -391,6 +401,118 @@ async def test_authorized_doctor_can_read_only_current_risk_alerts(
             "resource_scope": "risk_alert_read",
         },
         {"tenant_id": "tenant_public0001", "actor_id": PATIENT, "status": None, "limit": 50},
+    ]
+
+
+@pytest.mark.asyncio
+async def test_doctor_chronic_care_projection_requires_current_grant_and_stays_read_only(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    condition = ChronicConditionRead(
+        condition_id=uuid.uuid4(),
+        label="患者自述健康情况",
+        revision=1,
+        created_at=datetime.now(UTC),
+        updated_at=datetime.now(UTC),
+    )
+    calls: list[dict[str, object]] = []
+
+    class MissingGrantRepository:
+        def __init__(self, _session: object) -> None:
+            pass
+
+        async def require_active_grant(self, **_kwargs: object) -> None:
+            raise PatientAccessGrantNotFoundError("hidden")
+
+    monkeypatch.setattr(
+        consent_routes, "SqlAlchemyPatientAccessGrantRepository", MissingGrantRepository
+    )
+    doctor = _identity(role="doctor", scopes=frozenset({"chronic_care:read"}))
+    with pytest.raises(HTTPException) as denied:
+        await consent_routes.list_authorized_chronic_care_conditions(
+            PATIENT, SimpleNamespace(), doctor
+        )
+    assert denied.value.status_code == 404
+
+    class GrantRepository:
+        def __init__(self, _session: object) -> None:
+            pass
+
+        async def require_active_grant(self, **kwargs: object) -> None:
+            calls.append(kwargs)
+
+    class FakeChronicRepository:
+        def __init__(self, _session: object) -> None:
+            pass
+
+    class FakeChronicService:
+        def __init__(self, _repository: object) -> None:
+            pass
+
+        async def list_conditions(self, **kwargs: object) -> ChronicConditionListRead:
+            calls.append(kwargs)
+            return ChronicConditionListRead(items=[condition])
+
+        async def get_condition(
+            self, condition_id: uuid.UUID, **kwargs: object
+        ) -> ChronicConditionRead:
+            calls.append({"condition_id": condition_id, **kwargs})
+            return condition
+
+        async def list_measurements(
+            self, condition_id: uuid.UUID, **kwargs: object
+        ) -> ChronicMeasurementListRead:
+            calls.append({"measurement_condition_id": condition_id, **kwargs})
+            return ChronicMeasurementListRead(items=[])
+
+        async def trends(self, condition_id: uuid.UUID, **kwargs: object) -> ChronicTrendListRead:
+            calls.append({"trend_condition_id": condition_id, **kwargs})
+            return ChronicTrendListRead(items=[])
+
+    monkeypatch.setattr(consent_routes, "SqlAlchemyPatientAccessGrantRepository", GrantRepository)
+    monkeypatch.setattr(consent_routes, "SqlAlchemyChronicCareRepository", FakeChronicRepository)
+    monkeypatch.setattr(consent_routes, "ChronicCareService", FakeChronicService)
+
+    listed = await consent_routes.list_authorized_chronic_care_conditions(
+        PATIENT, SimpleNamespace(), doctor
+    )
+    assert listed.items == [condition]
+    detail = await consent_routes.get_authorized_chronic_care_condition(
+        PATIENT, condition.condition_id, SimpleNamespace(), doctor
+    )
+    assert detail.condition == condition
+    assert detail.measurements == []
+    assert detail.trends == []
+    assert calls == [
+        {
+            "tenant_id": "tenant_public0001",
+            "patient_actor_id": PATIENT,
+            "doctor_actor_id": DOCTOR,
+            "resource_scope": "chronic_care_read",
+        },
+        {"tenant_id": "tenant_public0001", "actor_id": PATIENT, "limit": 30},
+        {
+            "tenant_id": "tenant_public0001",
+            "patient_actor_id": PATIENT,
+            "doctor_actor_id": DOCTOR,
+            "resource_scope": "chronic_care_read",
+        },
+        {
+            "condition_id": condition.condition_id,
+            "tenant_id": "tenant_public0001",
+            "actor_id": PATIENT,
+        },
+        {
+            "measurement_condition_id": condition.condition_id,
+            "tenant_id": "tenant_public0001",
+            "actor_id": PATIENT,
+            "limit": 100,
+        },
+        {
+            "trend_condition_id": condition.condition_id,
+            "tenant_id": "tenant_public0001",
+            "actor_id": PATIENT,
+        },
     ]
 
 

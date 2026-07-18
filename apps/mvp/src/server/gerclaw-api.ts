@@ -74,6 +74,14 @@ const proxyRules: Array<{ pattern: RegExp; methods: ReadonlySet<string> }> = [
   { pattern: /^access-grants$/, methods: new Set(["GET", "POST"]) },
   { pattern: /^access-grants\/patients$/, methods: new Set(["GET"]) },
   {
+    pattern: new RegExp(`^access-grants/patients/usr_account_[a-f0-9]{32}/chronic-care$`, "i"),
+    methods: new Set(["GET"]),
+  },
+  {
+    pattern: new RegExp(`^access-grants/patients/usr_account_[a-f0-9]{32}/chronic-care/conditions/${uuidPattern}$`, "i"),
+    methods: new Set(["GET"]),
+  },
+  {
     pattern: new RegExp(`^access-grants/${uuidPattern}/revoke$`, "i"),
     methods: new Set(["POST"]),
   },
