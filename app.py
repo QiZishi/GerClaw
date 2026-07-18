@@ -1,9 +1,9 @@
 #!/usr/bin/env python3
 """GerClaw 的本地开发启动入口。
 
-默认只启动 MVP 前端，避免在前端设计阶段无意拉起数据库或 API。
-需要同时调试本地 FastAPI 时，显式传入 ``--api``；该模式会先启动开发
-依赖、执行迁移，再并行运行 API 与前端。为让宿主机 API 使用 compose
+默认启动本地 FastAPI、MVP 前端及其开发依赖；该模式会先启动开发
+依赖、执行迁移，再并行运行 API 与前端。仅审阅前端时可显式传入
+``--frontend-only``。为让宿主机 API 使用 compose
 发布的服务，脚本只读取连接地址并在子进程内转换 Docker 服务名；不会打印
 或修改 ``.env`` 中的任何值。
 """
@@ -166,12 +166,18 @@ def terminate(process: subprocess.Popen[bytes]) -> None:
 
 def main() -> int:
     parser = argparse.ArgumentParser(
-        description="启动 GerClaw 本地开发环境（默认仅启动 MVP 前端）。"
+        description="启动 GerClaw 本地开发环境（默认启动 API、依赖与 MVP 前端）。"
     )
-    parser.add_argument(
+    launch_mode = parser.add_mutually_exclusive_group()
+    launch_mode.add_argument(
         "--api",
         action="store_true",
-        help="同时启动本地 API、PostgreSQL、Redis 和 Qdrant，并先执行迁移。",
+        help="兼容旧命令：显式启动本地 API、PostgreSQL、Redis 和 Qdrant，并先执行迁移。",
+    )
+    launch_mode.add_argument(
+        "--frontend-only",
+        action="store_true",
+        help="仅启动 MVP 前端；不启动 API、开发依赖或执行迁移。",
     )
     parser.add_argument(
         "--port",
@@ -188,7 +194,7 @@ def main() -> int:
     frontend_process: subprocess.Popen[bytes] | None = None
     try:
         require_command("npm", "请安装 Node.js 20+ 与 npm 后重试。")
-        if args.api:
+        if not args.frontend_only:
             start_api_dependencies()
             api_process = start_local_api()
 
