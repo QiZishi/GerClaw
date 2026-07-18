@@ -39,7 +39,6 @@ export function WelcomePage({
   const [mounted, setMounted] = useState(false);
   const storeRole = useAppStore((s) => s.role);
   const storeSeniorMode = useAppStore((s) => s.seniorMode);
-  const setRole = useAppStore((s) => s.setRole);
   
   useEffect(() => {
     // eslint-disable-next-line react-hooks/set-state-in-effect
@@ -51,17 +50,11 @@ export function WelcomePage({
   
   const isPatient = role === "patient";
   const isDoctor = role === "doctor";
-  const isVisitor = false;
-
-  const greeting = isVisitor
-    ? "欢迎使用 GerClaw 老年科AI诊疗平台"
-    : isPatient
+  const greeting = isPatient
     ? "您好，我是 GerClaw 健康助手，有什么可以帮您？"
     : "您好，GerClaw 辅助诊疗已就绪";
 
-  const subtitle = isVisitor
-    ? "请选择您的使用模式开始体验"
-    : isPatient
+  const subtitle = isPatient
     ? "您可以文字或语音描述健康问题，我会尽力帮助您。"
     : "可检索循证资料、完成可用的 CGA 量表，或安全记录待审核信息。";
 
@@ -127,25 +120,7 @@ export function WelcomePage({
     },
   ];
 
-  // 访客模式：选择角色卡片
-  const visitorCards = [
-    {
-      icon: UserRound,
-      label: "我是老年朋友",
-      desc: "适老化界面，语音交互，通俗易懂",
-      role: "patient" as Role,
-      color: "bg-primary/10 text-primary",
-    },
-    {
-      icon: Stethoscope,
-      label: "我是医生",
-      desc: "专业医学界面，循证规范，高效辅助",
-      role: "doctor" as Role,
-      color: "bg-blue-100 text-blue-700 dark:bg-blue-950/40 dark:text-blue-300",
-    },
-  ];
-
-  const quickCards = isPatient ? patientCards : isDoctor ? doctorCards : [];
+  const quickCards = isPatient ? patientCards : doctorCards;
 
   const examples = isPatient
     ? [
@@ -166,10 +141,6 @@ export function WelcomePage({
         "如何使用老年综合评估？",
         "五大处方包含什么内容？",
       ];
-
-  const handleSelectRole = (selectedRole: Role) => {
-    setRole(selectedRole);
-  };
 
   return (
     <div className="flex-1 overflow-y-auto">
@@ -192,36 +163,9 @@ export function WelcomePage({
           {subtitle}
         </p>
 
-        {/* 访客模式：角色选择 */}
-        {isVisitor && (
-          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 w-full mb-8">
-            {visitorCards.map((card) => (
-              <button
-                key={card.role}
-                type="button"
-                onClick={() => handleSelectRole(card.role)}
-                className="flex flex-col items-start gap-3 rounded-xl border-2 border-border bg-card p-6 text-left transition-[background-color,border-color,color,transform] duration-[var(--motion-press)] ease-[var(--motion-ease-out)] hover:border-primary/40 hover:bg-muted/30 active:scale-[0.97] motion-reduce:transform-none motion-reduce:transition-[background-color,border-color,color,opacity]"
-              >
-                <div className={cn("flex items-center justify-center size-12 rounded-xl", card.color)}>
-                  <card.icon className="size-6" />
-                </div>
-                <div>
-                  <div className="font-semibold text-lg">
-                    {card.label}
-                  </div>
-                  <div className="text-sm text-muted-foreground mt-1">
-                    {card.desc}
-                  </div>
-                </div>
-              </button>
-            ))}
-          </div>
-        )}
-
         {/* 功能快捷入口（患者/医生模式）*/}
-        {!isVisitor && (
-          <div className={cn("grid gap-3 w-full mb-8", seniorMode ? "grid-cols-1 sm:grid-cols-2" : "grid-cols-2")}>
-            {quickCards.map((card) => (
+        <div className={cn("grid gap-3 w-full mb-8", seniorMode ? "grid-cols-1 sm:grid-cols-2" : "grid-cols-2")}>
+          {quickCards.map((card) => (
               <button
                 key={card.label}
                 type="button"
@@ -249,14 +193,13 @@ export function WelcomePage({
                   </div>
                 </div>
               </button>
-            ))}
-          </div>
-        )}
+          ))}
+        </div>
 
         {/* 示例提示词 */}
         <div className="w-full">
           <div className={cn("text-muted-foreground mb-2 text-left", seniorMode ? "text-lg" : "text-xs")}>
-            {isVisitor ? "了解平台功能：" : "您可以试试以下提问："}
+            您可以试试以下提问：
           </div>
           <div className="flex flex-col gap-2">
             {examples.map((ex) => (
