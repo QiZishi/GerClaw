@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { InlineLoadingState } from "@/components/ui/inline-loading-state";
@@ -45,10 +45,12 @@ export function DoctorCgaWorkspaceDialog({
   open,
   onOpenChange,
   seniorMode,
+  initialPatientActorId = null,
 }: {
   open: boolean;
   onOpenChange: (open: boolean) => void;
   seniorMode: boolean;
+  initialPatientActorId?: string | null;
 }) {
   const [patientActorId, setPatientActorId] = useState("");
   const [items, setItems] = useState<CgaHistoryItem[] | null>(null);
@@ -78,6 +80,29 @@ export function DoctorCgaWorkspaceDialog({
       setLoading(false);
     }
   }
+
+  useEffect(() => {
+    if (!open || !initialPatientActorId || !accountIdPattern.test(initialPatientActorId)) return;
+    let active = true;
+    void Promise.resolve().then(async () => {
+      if (!active) return;
+      setPatientActorId(initialPatientActorId);
+      setLoading(true);
+      setError(null);
+      try {
+        const history = await listAuthorizedCgaReports(initialPatientActorId);
+        if (active) setItems(history.items);
+      } catch {
+        if (active) {
+          setItems(null);
+          setError("未找到可查看的 CGA 报告，或患者尚未授权。");
+        }
+      } finally {
+        if (active) setLoading(false);
+      }
+    });
+    return () => { active = false; };
+  }, [initialPatientActorId, open]);
 
   return (
     <Dialog open={open} onOpenChange={close}>

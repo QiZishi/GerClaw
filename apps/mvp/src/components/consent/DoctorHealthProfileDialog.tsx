@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { InlineLoadingState } from "@/components/ui/inline-loading-state";
@@ -28,10 +28,12 @@ export function DoctorHealthProfileDialog({
   open,
   onOpenChange,
   seniorMode,
+  initialPatientActorId = null,
 }: {
   open: boolean;
   onOpenChange: (open: boolean) => void;
   seniorMode: boolean;
+  initialPatientActorId?: string | null;
 }) {
   const [patientActorId, setPatientActorId] = useState("");
   const [profile, setProfile] = useState<HealthProfile | null>(null);
@@ -69,6 +71,29 @@ export function DoctorHealthProfileDialog({
       setLoading(false);
     }
   }
+
+  useEffect(() => {
+    if (!open || !initialPatientActorId || !accountIdPattern.test(initialPatientActorId)) return;
+    let active = true;
+    void Promise.resolve().then(async () => {
+      if (!active) return;
+      setPatientActorId(initialPatientActorId);
+      setLoading(true);
+      setError(null);
+      try {
+        const nextProfile = await readAuthorizedHealthProfile(initialPatientActorId);
+        if (active) setProfile(nextProfile);
+      } catch {
+        if (active) {
+          setProfile(null);
+          setError("未找到可查看的健康画像，或患者尚未授权。");
+        }
+      } finally {
+        if (active) setLoading(false);
+      }
+    });
+    return () => { active = false; };
+  }, [initialPatientActorId, open]);
 
   return (
     <Dialog open={open} onOpenChange={close}>

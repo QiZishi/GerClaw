@@ -65,6 +65,7 @@ import { PrescriptionReviewAccessDialog } from "@/components/consent/Prescriptio
 import { DoctorCgaWorkspaceDialog } from "@/components/consent/DoctorCgaWorkspaceDialog";
 import { DoctorHealthProfileDialog } from "@/components/consent/DoctorHealthProfileDialog";
 import { DoctorPatientDirectoryDialog } from "@/components/consent/DoctorPatientDirectoryDialog";
+import type { PatientGrantResource } from "@/services/gerclaw/consent";
 import { DoctorPrescriptionReviewDialog } from "@/components/consent/DoctorPrescriptionReviewDialog";
 import {
   getAccountIdentity,
@@ -127,6 +128,7 @@ export function Sidebar({ onNavigate }: SidebarProps) {
   const [doctorCgaWorkspaceOpen, setDoctorCgaWorkspaceOpen] = useState(false);
   const [doctorHealthProfileOpen, setDoctorHealthProfileOpen] = useState(false);
   const [doctorPatientDirectoryOpen, setDoctorPatientDirectoryOpen] = useState(false);
+  const [selectedPatientActorId, setSelectedPatientActorId] = useState<string | null>(null);
 
   useEffect(() => {
     const frame = requestAnimationFrame(() => setMounted(true));
@@ -364,6 +366,29 @@ export function Sidebar({ onNavigate }: SidebarProps) {
     } catch {
       toast.show(`暂时无法复制${kind}代码`);
     }
+  }
+
+  function openAuthorizedPatientWorkspace(
+    patientActorId: string,
+    resourceScope: PatientGrantResource,
+  ) {
+    setSelectedPatientActorId(patientActorId);
+    setDoctorPatientDirectoryOpen(false);
+    if (resourceScope === "health_profile_read") {
+      setDoctorHealthProfileOpen(true);
+    } else if (resourceScope === "cga_report_read") {
+      setDoctorCgaWorkspaceOpen(true);
+    } else {
+      setDoctorPrescriptionReviewOpen(true);
+    }
+  }
+
+  function closeSelectedPatientWorkspace(
+    setOpen: (open: boolean) => void,
+    nextOpen: boolean,
+  ) {
+    setOpen(nextOpen);
+    if (!nextOpen) setSelectedPatientActorId(null);
   }
 
   return (
@@ -771,23 +796,27 @@ export function Sidebar({ onNavigate }: SidebarProps) {
       />}
       {account?.account_role === "doctor" && <DoctorPrescriptionReviewDialog
         open={doctorPrescriptionReviewOpen}
-        onOpenChange={setDoctorPrescriptionReviewOpen}
+        onOpenChange={(nextOpen) => closeSelectedPatientWorkspace(setDoctorPrescriptionReviewOpen, nextOpen)}
         seniorMode={seniorMode}
+        initialPatientActorId={selectedPatientActorId}
       />}
       {account?.account_role === "doctor" && <DoctorCgaWorkspaceDialog
         open={doctorCgaWorkspaceOpen}
-        onOpenChange={setDoctorCgaWorkspaceOpen}
+        onOpenChange={(nextOpen) => closeSelectedPatientWorkspace(setDoctorCgaWorkspaceOpen, nextOpen)}
         seniorMode={seniorMode}
+        initialPatientActorId={selectedPatientActorId}
       />}
       {account?.account_role === "doctor" && <DoctorHealthProfileDialog
         open={doctorHealthProfileOpen}
-        onOpenChange={setDoctorHealthProfileOpen}
+        onOpenChange={(nextOpen) => closeSelectedPatientWorkspace(setDoctorHealthProfileOpen, nextOpen)}
         seniorMode={seniorMode}
+        initialPatientActorId={selectedPatientActorId}
       />}
       {account?.account_role === "doctor" && <DoctorPatientDirectoryDialog
         open={doctorPatientDirectoryOpen}
         onOpenChange={setDoctorPatientDirectoryOpen}
         seniorMode={seniorMode}
+        onSelectPatient={openAuthorizedPatientWorkspace}
       />}
     </aside>
   );

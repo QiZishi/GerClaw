@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
@@ -21,10 +21,12 @@ export function DoctorPrescriptionReviewDialog({
   open,
   onOpenChange,
   seniorMode,
+  initialPatientActorId = null,
 }: {
   open: boolean;
   onOpenChange: (open: boolean) => void;
   seniorMode: boolean;
+  initialPatientActorId?: string | null;
 }) {
   const [patientActorId, setPatientActorId] = useState("");
   const [result, setResult] = useState<DoctorPrescriptionDraftList | null>(null);
@@ -57,6 +59,29 @@ export function DoctorPrescriptionReviewDialog({
       setLoading(false);
     }
   }
+
+  useEffect(() => {
+    if (!open || !initialPatientActorId || !accountIdPattern.test(initialPatientActorId)) return;
+    let active = true;
+    void Promise.resolve().then(async () => {
+      if (!active) return;
+      setPatientActorId(initialPatientActorId);
+      setLoading(true);
+      setError(null);
+      try {
+        const drafts = await listAuthorizedPrescriptionDrafts(initialPatientActorId);
+        if (active) setResult(drafts);
+      } catch {
+        if (active) {
+          setResult(null);
+          setError("未找到可复核的草案，或患者尚未授权。");
+        }
+      } finally {
+        if (active) setLoading(false);
+      }
+    });
+    return () => { active = false; };
+  }, [initialPatientActorId, open]);
 
   async function submit(draftId: string, decision: "approved" | "returned") {
     const reviewNote = notes[draftId]?.trim() ?? "";

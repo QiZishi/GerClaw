@@ -24,10 +24,12 @@ export function DoctorPatientDirectoryDialog({
   open,
   onOpenChange,
   seniorMode,
+  onSelectPatient,
 }: {
   open: boolean;
   onOpenChange: (open: boolean) => void;
   seniorMode: boolean;
+  onSelectPatient: (patientActorId: string, resourceScope: PatientGrantResource) => void;
 }) {
   const [patients, setPatients] = useState<DoctorPatientAccess[]>([]);
   const [loading, setLoading] = useState(false);
@@ -92,6 +94,24 @@ export function DoctorPatientDirectoryDialog({
                     <span key={grant.resource_scope} className="rounded-full bg-muted px-2.5 py-1 text-muted-foreground">
                       {scopeLabels[grant.resource_scope]} · 至 {formattedExpiry(grant.expires_at)}
                     </span>
+                  ))}
+                </div>
+                <div className="mt-3 flex flex-wrap gap-2">
+                  {patient.grants.map((grant) => (
+                    <Button
+                      key={grant.resource_scope}
+                      type="button"
+                      size="sm"
+                      variant="outline"
+                      className={cn(seniorMode && "min-h-12 text-base")}
+                      onClick={() => onSelectPatient(patient.patient_actor_id, grant.resource_scope)}
+                    >
+                      {grant.resource_scope === "health_profile_read"
+                        ? "查看画像"
+                        : grant.resource_scope === "cga_report_read"
+                          ? "查看 CGA"
+                          : "复核草案"}
+                    </Button>
                   ))}
                 </div>
               </li>
