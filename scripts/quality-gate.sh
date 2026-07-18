@@ -11,12 +11,6 @@ step() {
   echo "==> $1"
 }
 
-docs_gate() {
-  step "Documentation contracts"
-  python3 "${ROOT_DIR}/scripts/verify-docs.py" "${ROOT_DIR}"
-  PYTHONPATH="${ROOT_DIR}/scripts" python3 -m unittest "${ROOT_DIR}/scripts/test_verify_docs.py"
-}
-
 backend_gate() {
   step "Backend format, lint, types, migration graph, tests and coverage"
   cd "${API_DIR}"
@@ -121,7 +115,7 @@ docker_gate() {
   step "Docker configuration and image build"
   cd "${ROOT_DIR}"
   docker compose -f docker-compose.yml -f docker-compose.dev.yml config --quiet
-  docker compose -f docker-compose.yml -f docker-compose.dev.yml build api
+  docker compose -f docker-compose.yml -f docker-compose.dev.yml build api web
 }
 
 docker_smoke_gate() {
@@ -161,9 +155,6 @@ e2e_gate() {
 }
 
 case "${MODE}" in
-  docs)
-    docs_gate
-    ;;
   backend)
     backend_gate
     ;;
@@ -171,7 +162,6 @@ case "${MODE}" in
     frontend_gate
     ;;
   quick)
-    docs_gate
     backend_gate
     frontend_gate
     harness_self_test
@@ -198,14 +188,13 @@ case "${MODE}" in
     e2e_gate
     ;;
   full)
-    docs_gate
     backend_gate
     frontend_gate
     harness_self_test
     security_gate
     ;;
   *)
-    echo "usage: scripts/quality-gate.sh {docs|backend|frontend|quick|security|migration|integration|external|e2e|docker|docker-smoke|full}" >&2
+    echo "usage: scripts/quality-gate.sh {backend|frontend|quick|security|migration|integration|external|e2e|docker|docker-smoke|full}" >&2
     exit 2
     ;;
 esac

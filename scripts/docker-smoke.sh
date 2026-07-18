@@ -20,12 +20,21 @@ if [[ "${GERCLAW_RUN_EXTERNAL:-}" != "1" ]]; then
 fi
 
 API_PORT="${GERCLAW_DOCKER_SMOKE_API_PORT:-18080}"
+WEB_PORT="${GERCLAW_DOCKER_SMOKE_WEB_PORT:-13000}"
 if ! [[ "${API_PORT}" =~ ^[0-9]{2,5}$ ]] || (( API_PORT < 1024 || API_PORT > 65535 )); then
   echo "GERCLAW_DOCKER_SMOKE_API_PORT must be an unoccupied TCP port from 1024 to 65535" >&2
   exit 2
 fi
-if curl --silent --show-error --fail "http://127.0.0.1:${API_PORT}/health/live" >/dev/null 2>&1; then
+if ! [[ "${WEB_PORT}" =~ ^[0-9]{2,5}$ ]] || (( WEB_PORT < 1024 || WEB_PORT > 65535 )); then
+  echo "GERCLAW_DOCKER_SMOKE_WEB_PORT must be an unoccupied TCP port from 1024 to 65535" >&2
+  exit 2
+fi
+if curl --silent --show-error --fail --connect-timeout 2 --max-time 3 "http://127.0.0.1:${API_PORT}/health/live" >/dev/null 2>&1; then
   echo "Docker smoke port ${API_PORT} is already serving HTTP; choose another port" >&2
+  exit 2
+fi
+if curl --silent --show-error --fail --connect-timeout 2 --max-time 3 "http://127.0.0.1:${WEB_PORT}/" >/dev/null 2>&1; then
+  echo "Docker smoke web port ${WEB_PORT} is already serving HTTP; choose another port" >&2
   exit 2
 fi
 if [[ ! -d "${SMOKE_KNOWLEDGE_BASE}" ]]; then
@@ -51,12 +60,13 @@ wait_for_http() {
   local path="$1"
   local expected_status="$2"
   local expected_body="$3"
+  local port="${4:-${API_PORT}}"
   local deadline=$((SECONDS + 240))
   local response
 
   while (( SECONDS < deadline )); do
-    response="$(curl --silent --show-error --write-out $'\n%{http_code}' \
-      "http://127.0.0.1:${API_PORT}${path}" 2>/dev/null || true)"
+    response="$(curl --silent --show-error --connect-timeout 2 --max-time 5 --write-out $'\n%{http_code}' \
+      "http://127.0.0.1:${port}${path}" 2>/dev/null || true)"
     if [[ "${response}" == *$'\n'"${expected_status}" ]] \
       && grep --quiet --fixed-strings "${expected_body}" <<<"${response}"; then
       return 0
@@ -70,22 +80,29 @@ wait_for_http() {
 
 cd "${ROOT_DIR}"
 export API_PORT
+export WEB_PORT
 # A real empty-volume index is required to prove the runtime path.  A small,
 # versioned corpus keeps this deployment smoke bounded; full-corpus indexing is
 # an operational job and must not make the release gate take tens of minutes.
 export GERCLAW_KNOWLEDGE_BASE_HOST_PATH="${SMOKE_KNOWLEDGE_BASE}"
 
 echo "==> Starting isolated empty-volume Compose project ${PROJECT}"
-"${COMPOSE[@]}" up --detach --build postgres redis qdrant migrate api
+"${COMPOSE[@]}" up --detach --build postgres redis qdrant migrate api web
 wait_for_http "/health/live" "200" '"status":"alive"'
+wait_for_http "/" "200" "GerClaw" "${WEB_PORT}"
 
 echo "==> Building the empty-volume local RAG index"
 "${COMPOSE[@]}" --profile ops run --rm rag-index
 wait_for_http "/health/ready" "200" '"status":"ready"'
 
-api_uid="$("${COMPOSE[@]}" exec --no-TTY api id --user)"
+api_uid="$("${COMPOSE[@]}" exec --no-TTY api id -u)"
 if [[ "${api_uid}" == "0" ]]; then
   echo "API container must not run as root" >&2
+  exit 1
+fi
+web_uid="$("${COMPOSE[@]}" exec --no-TTY web id -u)"
+if [[ "${web_uid}" == "0" ]]; then
+  echo "Web container must not run as root" >&2
   exit 1
 fi
 
@@ -94,4 +111,4 @@ echo "==> Restarting API against its existing smoke volumes"
 wait_for_http "/health/live" "200" '"status":"alive"'
 wait_for_http "/health/ready" "200" '"status":"ready"'
 
-echo "PASS: empty-volume migration/index/readiness/restart/non-root Docker smoke"
+echo "PASS: full-stack web/API empty-volume migration/index/readiness/restart/non-root Docker smoke"

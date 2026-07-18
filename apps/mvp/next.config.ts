@@ -25,6 +25,8 @@ if (unsafePublicKeys.length > 0) {
 }
 
 const nextConfig: NextConfig = {
+  // 生成可独立运行的最小 Node.js 产物，供生产 Docker 镜像使用。
+  output: "standalone",
   // `app.py` 明确向用户展示 127.0.0.1 地址；允许它与 localhost 一样接入
   // 开发期 HMR，避免正常本地体验持续产生跨源 WebSocket 报错。
   allowedDevOrigins: ["127.0.0.1", "localhost"],
