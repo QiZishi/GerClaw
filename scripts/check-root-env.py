@@ -33,6 +33,12 @@ def is_secret(key: str) -> bool:
     )
 
 
+def is_environment_specific(key: str) -> bool:
+    """Allow deployment endpoints and filesystem paths to differ from the template."""
+
+    return key.endswith(("_URL", "_PATH"))
+
+
 def main() -> int:
     actual_path = ROOT / ".env"
     example_path = ROOT / ".env.example"
@@ -67,7 +73,10 @@ def main() -> int:
     mismatches = [
         key
         for key in actual
-        if not is_secret(key) and example[key] and actual[key] != example[key]
+        if not is_environment_specific(key)
+        and not is_secret(key)
+        and example[key]
+        and actual[key] != example[key]
     ]
     if mismatches:
         print("以下非密钥变量值不一致：" + "、".join(mismatches), file=sys.stderr)

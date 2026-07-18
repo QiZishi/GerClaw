@@ -87,9 +87,13 @@ def local_process_environment() -> dict[str, str]:
             environment[key] = replace_service_host(value)
 
     knowledge_base = root_environment.get("GERCLAW_KNOWLEDGE_BASE_PATH")
-    local_knowledge_base = ROOT.parent / "本地知识库" / "md"
-    if knowledge_base == "/knowledge-base" and local_knowledge_base.is_dir():
-        environment["GERCLAW_KNOWLEDGE_BASE_PATH"] = str(local_knowledge_base)
+    knowledge_base_host = root_environment.get("GERCLAW_KNOWLEDGE_BASE_HOST_PATH")
+    if knowledge_base == "/knowledge-base" and knowledge_base_host:
+        local_knowledge_base = Path(knowledge_base_host).expanduser()
+        if not local_knowledge_base.is_absolute():
+            local_knowledge_base = (ROOT / local_knowledge_base).resolve()
+        if local_knowledge_base.is_dir():
+            environment["GERCLAW_KNOWLEDGE_BASE_PATH"] = str(local_knowledge_base)
     if root_environment.get("GERCLAW_LOCAL_SECRET_DIR") == "/app/workspaces/secrets":
         environment["GERCLAW_LOCAL_SECRET_DIR"] = str(
             Path.home() / ".local" / "share" / "gerclaw" / "secrets"
@@ -163,13 +167,12 @@ def start_local_api() -> subprocess.Popen[bytes]:
         run_checked([str(alembic), "upgrade", "head"], cwd=API_DIR, env=environment)
         return subprocess.Popen([str(api)], cwd=API_DIR, env=environment)
 
-    require_command(
-        "uv",
-        "请先用 Python venv 安装 apps/api，或安装 uv：https://docs.astral.sh/uv/",
+    raise RuntimeError(
+        "未检测到 apps/api/.venv。请在项目根目录执行："
+        "python3.12 -m venv apps/api/.venv && "
+        "source apps/api/.venv/bin/activate && "
+        "python -m pip install -r requirements.txt"
     )
-    run_checked(["uv", "sync", "--all-extras", "--dev"], cwd=API_DIR)
-    run_checked(["uv", "run", "alembic", "upgrade", "head"], cwd=API_DIR, env=environment)
-    return subprocess.Popen(["uv", "run", "gerclaw-api"], cwd=API_DIR, env=environment)
 
 
 def run_rag_index() -> None:
@@ -180,12 +183,12 @@ def run_rag_index() -> None:
     if local_indexer.is_file():
         run_checked([str(local_indexer)], cwd=API_DIR, env=environment)
         return
-    require_command(
-        "uv",
-        "请先用 Python venv 安装 apps/api，或安装 uv：https://docs.astral.sh/uv/",
+    raise RuntimeError(
+        "未检测到 apps/api/.venv/bin/gerclaw-rag-index。请在项目根目录执行："
+        "python3.12 -m venv apps/api/.venv && "
+        "source apps/api/.venv/bin/activate && "
+        "python -m pip install -r requirements.txt"
     )
-    run_checked(["uv", "sync", "--all-extras", "--dev"], cwd=API_DIR)
-    run_checked(["uv", "run", "gerclaw-rag-index"], cwd=API_DIR, env=environment)
 
 
 def terminate(process: subprocess.Popen[bytes]) -> None:

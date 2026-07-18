@@ -1,0 +1,19 @@
+# GerClaw 后端开发与测试依赖。
+# 安装命令：python -m pip install -r requirements-dev.txt
+-r requirements.txt
+colorama==0.4.6 ; sys_platform == 'win32'
+coverage==7.15.1
+iniconfig==2.3.0
+librt==0.13.0 ; platform_python_implementation != 'PyPy'
+mypy==1.20.2
+mypy-extensions==1.1.0
+packaging==26.2
+pathspec==1.1.1
+pluggy==1.6.0
+pygments==2.20.0
+pytest==9.1.1
+pytest-asyncio==1.4.0
+pytest-cov==6.3.0
+ruff==0.15.21
+types-pyyaml==6.0.12.20260518
+typing-extensions==4.16.0
