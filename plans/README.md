@@ -21,6 +21,7 @@ loader wall or fake progress.
 | 008 | 降低抽屉与高频控件的无障碍运动负担 | MEDIUM | DONE |
 | 009 | 使五大处方生成可感知且可安全停止 | HIGH | DONE |
 | 010 | 统一非对话加载反馈，避免旋转图标和状态闪烁 | MEDIUM | DONE |
+| 011 | 将模型配置加载收敛为稳定状态反馈 | MEDIUM | DONE |
 
 Executed in order 001 → 002 → 003 → 004. Plans 002 and 003 use the motion
 tokens and reduced-motion policy introduced by 001; plan 004 uses the shared
@@ -60,3 +61,13 @@ shared dialog motion contract: transform/opacity only, 180ms strong ease-out,
 and an opacity-only reduced-motion fallback. Loading uses the existing inline
 status indicator rather than a competing spinner. No additional animation plan
 is warranted; this is an intentional no-new-plan audit result.
+
+The 2026-07-18 follow-up at `b194771` found one later regression outside the
+ledger surfaces covered by plan 010: model configuration still uses a
+continuous spinner for both fetch and save. Plan 011 is independent of
+clinical configuration semantics and should run after plan 010; it reuses
+the same `InlineLoadingState` and does not introduce a second loading system.
+Plan 011 is complete in the same worktree: its change preserves account-scoped
+configuration requests, validation and error recovery while removing the two
+continuous spinner states. Lint, unit/contract tests, production build and the
+local-origin Playwright smoke passed.

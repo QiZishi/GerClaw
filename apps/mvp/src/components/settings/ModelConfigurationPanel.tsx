@@ -1,9 +1,10 @@
 "use client";
 
 import { useEffect, useMemo, useState, type Dispatch, type ReactNode, type SetStateAction } from "react";
-import { KeyRound, LoaderCircle, Save } from "lucide-react";
+import { KeyRound, Save } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { InlineLoadingState } from "@/components/ui/inline-loading-state";
 import { cn } from "@/lib/utils";
 import { getModelConfiguration, saveModelConfiguration, type ModelSlot, type ServiceOverrides } from "@/services/model-configuration";
 import { toast } from "@/components/ui/toast";
@@ -101,7 +102,9 @@ export function ModelConfigurationPanel({ senior }: { senior: boolean }) {
     finally { setSaving(false); }
   };
 
-  if (loading) return <div className="grid min-h-40 place-items-center text-sm text-muted-foreground"><LoaderCircle className="size-5 animate-spin" aria-hidden />正在读取配置…</div>;
+  if (loading) {
+    return <InlineLoadingState message="正在读取配置" className="min-h-40 text-sm" />;
+  }
 
   return <section aria-labelledby="model-config-title" className="space-y-4 border-t border-border pt-5">
     <div><h3 id="model-config-title" className={cn("flex items-center gap-2 font-semibold", senior && "text-lg")}><KeyRound className="size-5 text-primary" aria-hidden />模型与服务配置</h3><p className={cn("mt-1 text-sm leading-relaxed text-muted-foreground", senior && "text-base")}>未填写的服务继续使用部署默认值。密钥仅加密保存到当前账号，读取时不会回显。</p></div>
@@ -113,7 +116,7 @@ export function ModelConfigurationPanel({ senior }: { senior: boolean }) {
     <ServiceCard title="Embedding 与 Rerank" detail="当前 RAG 适配器使用同一 OpenAI 兼容端点和密钥。" senior={senior}><ConfigInput label="服务地址" value={vector.url} type="url" placeholder="https://api.siliconflow.cn/v1" onChange={(value) => updateService(setVector, "url", value)} guide="从向量服务商 API 文档复制 OpenAI 兼容 Base URL。" senior={senior} /><ConfigInput label="API Key" value={vector.api_key} type="password" placeholder="已配置时请重新输入以修改" onChange={(value) => updateService(setVector, "api_key", value)} guide="在向量服务商控制台创建 API Key。" senior={senior} /><ConfigInput label="Embedding 模型" value={vector.embedding_model} placeholder="例如：BAAI/bge-m3" onChange={(value) => updateService(setVector, "embedding_model", value)} guide="选择与当前知识库向量维度兼容的 Embedding 模型。" senior={senior} /><ConfigInput label="Rerank 模型" value={vector.rerank_model} placeholder="例如：BAAI/bge-reranker-v2-m3" onChange={(value) => updateService(setVector, "rerank_model", value)} guide="填写服务商支持的重排模型 ID。" senior={senior} /></ServiceCard>
     <ServiceCard title="语音服务" detail="同一兼容服务可提供语音识别与语音合成。" senior={senior}><ConfigInput label="语音 API Key" value={voice.api_key} type="password" placeholder="已配置时请重新输入以修改" onChange={(value) => updateService(setVoice, "api_key", value)} guide="在语音服务商控制台创建 API Key。" senior={senior} /><ConfigInput label="ASR 服务地址" value={voice.asr_url} type="url" placeholder="https://api.example.com/v1" onChange={(value) => updateService(setVoice, "asr_url", value)} guide="从 ASR 服务文档复制兼容 API Base URL。" senior={senior} /><ConfigInput label="ASR 模型" value={voice.asr_model} placeholder="例如：mimo-v2.5-asr" onChange={(value) => updateService(setVoice, "asr_model", value)} guide="填写服务商提供的语音识别模型 ID。" senior={senior} /><ConfigInput label="TTS 服务地址" value={voice.tts_url} type="url" placeholder="https://api.example.com/v1" onChange={(value) => updateService(setVoice, "tts_url", value)} guide="从 TTS 服务文档复制兼容 API Base URL。" senior={senior} /><ConfigInput label="TTS 模型" value={voice.tts_model} placeholder="例如：mimo-v2.5-tts" onChange={(value) => updateService(setVoice, "tts_model", value)} guide="填写服务商提供的语音合成模型 ID。" senior={senior} /><ConfigInput label="TTS 音色" value={voice.tts_voice} placeholder="例如：冰糖" onChange={(value) => updateService(setVoice, "tts_voice", value)} guide="填写服务商允许的音色名称；当前语音适配器会校验可用音色。" senior={senior} /></ServiceCard>
     <ServiceCard title="MinerU 文档解析" detail="用于提取上传报告中的文本。" senior={senior}><ConfigInput label="MinerU 服务地址" value={mineru.url} type="url" placeholder="https://mineru.net/api/v1/agent" onChange={(value) => updateService(setMineru, "url", value)} guide="在 MinerU 开发者文档中复制 API 地址。" senior={senior} /><ConfigInput label="MinerU API Key" value={mineru.api_key} type="password" placeholder="已配置时请重新输入以修改" onChange={(value) => updateService(setMineru, "api_key", value)} guide="在 MinerU 控制台创建 API Token。" senior={senior} /></ServiceCard>
-    <Button type="button" className={cn("w-full gap-2", senior && "min-h-12 text-base")} onClick={() => void save()} disabled={saving}>{saving ? <LoaderCircle className="size-4 animate-spin" aria-hidden /> : <Save className="size-4" aria-hidden />}{saving ? "正在保存…" : `保存模型配置${configuredCount ? `（${configuredCount} 项）` : ""}`}</Button>
+    <Button type="button" className={cn("w-full gap-2", senior && "min-h-12 text-base")} onClick={() => void save()} disabled={saving}><Save className="size-4" aria-hidden />{saving ? "正在保存配置" : `保存模型配置${configuredCount ? `（${configuredCount} 项）` : ""}`}</Button>
   </section>;
 }
 
