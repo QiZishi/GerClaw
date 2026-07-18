@@ -1,6 +1,13 @@
 """Operational Bad Case metrics must remain content-free and deterministic."""
 
-from gerclaw_api.modules.observability_feedback import BadCaseAggregate, summarize_bad_cases
+from datetime import date
+
+from gerclaw_api.modules.observability_feedback import (
+    BadCaseAggregate,
+    BadCaseTrendAggregate,
+    summarize_bad_case_trend,
+    summarize_bad_cases,
+)
 
 
 def test_bad_case_summary_counts_status_source_and_high_priority() -> None:
@@ -44,3 +51,26 @@ def test_bad_case_summary_is_zeroed_for_an_empty_queue() -> None:
         "negative_feedback_count": 0,
         "high_priority_count": 0,
     }
+
+
+def test_bad_case_trend_returns_a_complete_fixed_window_without_case_data() -> None:
+    trend = summarize_bad_case_trend(
+        [
+            BadCaseTrendAggregate(day=date(2026, 7, 16), source="execution_failure", count=2),
+            BadCaseTrendAggregate(day=date(2026, 7, 18), source="negative_feedback", count=3),
+        ],
+        end_day=date(2026, 7, 18),
+    )
+    assert trend.window_days == 7
+    assert [point.day.isoformat() for point in trend.points] == [
+        "2026-07-12",
+        "2026-07-13",
+        "2026-07-14",
+        "2026-07-15",
+        "2026-07-16",
+        "2026-07-17",
+        "2026-07-18",
+    ]
+    assert [point.total for point in trend.points] == [0, 0, 0, 0, 2, 0, 3]
+    assert [point.execution_failure_count for point in trend.points] == [0, 0, 0, 0, 2, 0, 0]
+    assert [point.negative_feedback_count for point in trend.points] == [0, 0, 0, 0, 0, 0, 3]

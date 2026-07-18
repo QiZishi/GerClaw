@@ -3,8 +3,15 @@
 from __future__ import annotations
 
 from collections.abc import Iterable
+from datetime import date, timedelta
 
-from gerclaw_api.modules.observability_feedback.models import BadCaseAggregate, BadCaseSummary
+from gerclaw_api.modules.observability_feedback.models import (
+    BadCaseAggregate,
+    BadCaseSummary,
+    BadCaseTrend,
+    BadCaseTrendAggregate,
+    BadCaseTrendPoint,
+)
 
 
 def summarize_bad_cases(aggregates: Iterable[BadCaseAggregate]) -> BadCaseSummary:
@@ -34,3 +41,23 @@ def summarize_bad_cases(aggregates: Iterable[BadCaseAggregate]) -> BadCaseSummar
         if aggregate.severity in {"high", "critical"}:
             totals["high_priority_count"] += count
     return BadCaseSummary(**totals)
+
+
+def summarize_bad_case_trend(
+    aggregates: Iterable[BadCaseTrendAggregate], *, end_day: date
+) -> BadCaseTrend:
+    days = [end_day - timedelta(days=offset) for offset in range(6, -1, -1)]
+    totals = {
+        day: {
+            "total": 0,
+            "execution_failure_count": 0,
+            "negative_feedback_count": 0,
+        }
+        for day in days
+    }
+    for aggregate in aggregates:
+        values = totals.get(aggregate.day)
+        if values is not None:
+            values["total"] += aggregate.count
+            values[f"{aggregate.source}_count"] += aggregate.count
+    return BadCaseTrend(points=[BadCaseTrendPoint(day=day, **totals[day]) for day in days])

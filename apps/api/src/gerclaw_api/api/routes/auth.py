@@ -11,7 +11,8 @@ from typing import Annotated, Literal, cast
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request, status
 from pydantic import BaseModel, ConfigDict, Field, model_validator
-from sqlalchemy import func, select
+from sqlalchemy import Date, func, select
+from sqlalchemy import cast as sql_cast
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import defer
 
@@ -28,6 +29,9 @@ from gerclaw_api.modules.identity.passwords import hash_password, verify_passwor
 from gerclaw_api.modules.observability_feedback import (
     BadCaseAggregate,
     BadCaseSummary,
+    BadCaseTrend,
+    BadCaseTrendAggregate,
+    summarize_bad_case_trend,
     summarize_bad_cases,
 )
 from gerclaw_api.repositories.account import (
@@ -610,6 +614,28 @@ async def get_bad_case_summary_for_administrator(
         for source, severity, status, count in (await session.execute(statement)).all()
     ]
     return summarize_bad_cases(aggregates)
+
+
+@router.get("/admin/bad-cases/trend", response_model=BadCaseTrend)
+async def get_bad_case_trend_for_administrator(
+    session: AccountSessionDependency,
+    identity: Annotated[AuthContext, Depends(require_account_admin)],
+) -> BadCaseTrend:
+    """Return a content-free seven-day queue trend for the administrator."""
+
+    end_day = datetime.now(UTC).date()
+    start_day = end_day - timedelta(days=6)
+    day_column = sql_cast(BadCase.created_at, Date)
+    statement = (
+        select(day_column, BadCase.source, func.count(BadCase.id))
+        .where(BadCase.tenant_id == identity.tenant_id, day_column >= start_day)
+        .group_by(day_column, BadCase.source)
+    )
+    aggregates = [
+        BadCaseTrendAggregate(day=day, source=source, count=count)
+        for day, source, count in (await session.execute(statement)).all()
+    ]
+    return summarize_bad_case_trend(aggregates, end_day=end_day)
 
 
 @router.patch("/admin/bad-cases/{case_id}", response_model=BadCaseAdminRead)

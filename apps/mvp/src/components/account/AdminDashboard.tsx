@@ -32,6 +32,10 @@ type BadCaseSummary = {
   negative_feedback_count: number;
   high_priority_count: number;
 };
+type BadCaseTrend = {
+  window_days: 7;
+  points: Array<{ day: string; total: number }>;
+};
 
 const csrf = () => document.cookie.split("; ").find((value) => value.startsWith("gerclaw_account_csrf="))?.split("=")[1] ?? "";
 
@@ -48,6 +52,7 @@ export function AdminDashboard() {
   const [accounts, setAccounts] = useState<Account[]>([]);
   const [cases, setCases] = useState<BadCase[]>([]);
   const [summary, setSummary] = useState<BadCaseSummary | null>(null);
+  const [trend, setTrend] = useState<BadCaseTrend | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
 
@@ -61,15 +66,17 @@ export function AdminDashboard() {
     setLoading(true);
     setError(null);
     try {
-      const [accountsResponse, casesResponse, summaryResponse] = await Promise.all([
+      const [accountsResponse, casesResponse, summaryResponse, trendResponse] = await Promise.all([
         fetch("/api/account/admin/accounts", { cache: "no-store" }),
         fetch("/api/account/admin/bad-cases", { cache: "no-store" }),
         fetch("/api/account/admin/bad-cases/summary", { cache: "no-store" }),
+        fetch("/api/account/admin/bad-cases/trend", { cache: "no-store" }),
       ]);
-      if (!accountsResponse.ok || !casesResponse.ok || !summaryResponse.ok) throw new Error("load failed");
+      if (!accountsResponse.ok || !casesResponse.ok || !summaryResponse.ok || !trendResponse.ok) throw new Error("load failed");
       setAccounts((await accountsResponse.json()).accounts);
       setCases((await casesResponse.json()).cases);
       setSummary(await summaryResponse.json());
+      setTrend(await trendResponse.json());
     } catch {
       setError("暂时无法读取管理数据。");
     } finally {
@@ -147,6 +154,23 @@ export function AdminDashboard() {
             <SummaryMetric label="高优先级" value={summary.high_priority_count} emphasized={summary.high_priority_count > 0} />
             <SummaryMetric label="用户负反馈" value={summary.negative_feedback_count} />
             <SummaryMetric label="已处置" value={summary.resolved_count + summary.dismissed_count} />
+          </section>
+        )}
+
+        {trend && (
+          <section aria-label="近七日运行问题趋势" className="rounded-xl border bg-card p-3">
+            <div className="mb-2 flex items-baseline justify-between gap-3">
+              <h2 className="font-semibold">近 7 日趋势</h2>
+              <span className="text-xs text-muted-foreground">仅聚合计数</span>
+            </div>
+            <ol className="grid grid-cols-7 gap-1.5">
+              {trend.points.map((point) => (
+                <li key={point.day} className="rounded-md bg-muted/50 px-1.5 py-2 text-center">
+                  <p className="text-xs text-muted-foreground">{point.day.slice(5)}</p>
+                  <p className={point.total > 0 ? "mt-1 font-semibold text-destructive" : "mt-1 font-semibold"}>{point.total}</p>
+                </li>
+              ))}
+            </ol>
           </section>
         )}
 
