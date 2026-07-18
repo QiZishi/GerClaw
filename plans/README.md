@@ -45,3 +45,11 @@ The 2026-07-18 follow-up audit at `c5afd5b` found that the primary model and
 five-prescription flows remain aligned with this policy, but several passive
 ledger fetch states still use generic continuous spinners. Plan 010 is queued
 without altering model execution, medical results or cancellation semantics.
+
+Plan 010 is complete in `9283e00`. A subsequent source and interaction audit
+at `038d60b` rechecked the patient CGA voice controls, model-running status,
+passive fetch states, and reduced-motion fallback. It found no new motion
+change worth adding: the voice surface keeps preparation-cancel, pause/resume,
+stop and progress; question changes stop stale playback; and all passive
+fetches use the shared low-frequency indicator rather than a continuous
+spinner. This is intentionally a no-new-plan result rather than churn.

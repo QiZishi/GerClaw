@@ -1,7 +1,7 @@
 # 010 — 统一非对话加载反馈，避免旋转图标和状态闪烁
 
 - **Status**: DONE
-- **Commit**: pending
+- **Commit**: 9283e00
 - **Severity**: MEDIUM
 - **Category**: Purpose & frequency / accessibility / cohesion
 - **Estimated scope**: 5 files, focused state-presentation changes
