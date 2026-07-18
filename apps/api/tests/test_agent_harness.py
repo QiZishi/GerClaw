@@ -233,6 +233,7 @@ def _harness(
     workflow: str = "standard",
     uploaded_documents: list[UploadedDocumentContext] | None = None,
     uploaded_images: list[ImageInput] | None = None,
+    actor_role: ActorRole = ActorRole.PATIENT,
 ) -> ProductionAgentHarness:
     return ProductionAgentHarness(
         settings=settings,
@@ -249,7 +250,7 @@ def _harness(
         runtime_principal=RuntimePrincipal(
             tenant_id="tenant_public0001",
             actor_id="usr_patient00000001",
-            role=ActorRole.PATIENT,
+            role=actor_role,
             scopes=frozenset({"rag:read", "memory:read", "search:read"}),
             patient_id="108815d7-05bf-4c2a-a977-cd034f390fab",
             patient_access_verified=True,
@@ -270,7 +271,7 @@ def test_canonical_text_stream_strips_only_outer_whitespace() -> None:
 
 
 @pytest.mark.asyncio
-async def test_medical_harness_streams_sanitized_cited_response(
+async def test_medical_harness_streams_evidence_backed_cited_response(
     unit_settings: Settings,
 ) -> None:
     model = _HarnessModel()
@@ -313,9 +314,12 @@ async def test_medical_harness_streams_sanitized_cited_response(
     assert len(prefetch_results) == 1
     assert prefetch_results[0].data["status"] == "success"
     assert prefetch_results[0].data["result_count"] == 1
-    assert "确诊" not in response.text
-    assert "进一步评估" in response.text
-    assert response.safety.deterministic_diagnosis_blocked
+    assert "确诊为高血压" in response.text
+    assert not response.safety.deterministic_diagnosis_blocked
+    assert "evidence_backed_clinical_conclusion_allowed" in response.safety.notices
+    assert response.safety.notices.count("patient_clinical_risk_notice_applied") == 1
+    assert response.structured["evidence_backed_clinical_conclusion"] is True
+    assert response.text.count("请勿自行开始、停用、替换药物或调整剂量") == 1
     assert response.text.endswith(MEDICAL_DISCLAIMER)
     assert response.citations[0].source_id == "chunk-evidence-001"
     streamed = "".join(
@@ -323,6 +327,35 @@ async def test_medical_harness_streams_sanitized_cited_response(
     )
     assert streamed == response.text
     assert rag.calls == ["老年高血压需要注意什么？"]
+
+
+@pytest.mark.asyncio
+async def test_doctor_evidence_backed_conclusion_has_no_patient_risk_footer(
+    unit_settings: Settings,
+) -> None:
+    harness = _harness(
+        unit_settings,
+        model=_HarnessModel(text="明确诊断为冠心病。"),
+        rag=_HarnessRAG([_evidence()]),
+        actor_role=ActorRole.DOCTOR,
+    )
+    context = await harness.assemble_context(
+        "108815d7-05bf-4c2a-a977-cd034f390fab",
+        "usr_patient00000001",
+        [],
+        [],
+    )
+
+    response = await harness.process_message(
+        "请根据当前心血管资料给出临床结论",
+        "108815d7-05bf-4c2a-a977-cd034f390fab",
+        context,
+        lambda _event: None,
+    )
+
+    assert "明确诊断为冠心病" in response.text
+    assert "请勿自行开始、停用、替换药物或调整剂量" not in response.text
+    assert "patient_clinical_risk_notice_applied" not in response.safety.notices
 
 
 @pytest.mark.asyncio
@@ -747,8 +780,9 @@ async def test_final_only_provider_text_is_safely_recovered_from_agent_state(
     )
     assert model.calls == 2
     assert streamed == response.text
-    assert "您患有" not in response.text
-    assert response.safety.deterministic_diagnosis_blocked
+    assert "您患有高血压" in response.text
+    assert not response.safety.deterministic_diagnosis_blocked
+    assert response.structured["evidence_backed_clinical_conclusion"] is True
 
 
 @pytest.mark.asyncio
@@ -779,8 +813,7 @@ async def test_final_only_outer_whitespace_is_canonical_in_sse_and_done(
         str(event.data["content"]) for event in events if event.event_type == "text_delta"
     )
     assert streamed == response.text
-    assert response.text.startswith("您可能存在高血压")
-    assert "您患有" not in response.text
+    assert response.text.startswith("您患有高血压")
 
 
 @pytest.mark.asyncio
@@ -999,7 +1032,7 @@ async def test_non_projectable_evidence_returns_safe_clarification_before_model_
 
 
 @pytest.mark.asyncio
-async def test_adversarial_diagnosis_phrases_are_rewritten_and_audited(
+async def test_evidence_backed_direct_clinical_conclusions_are_preserved_and_audited(
     unit_settings: Settings,
 ) -> None:
     unsafe = "您患有冠心病。这是心力衰竭。诊断是高血压。明确诊断为糖尿病。"
@@ -1022,9 +1055,9 @@ async def test_adversarial_diagnosis_phrases_are_rewritten_and_audited(
         events.append,
     )
 
-    assert all(phrase not in response.text for phrase in ("您患有", "这是", "诊断是", "明确诊断"))
-    assert "明需" not in response.text
-    assert response.safety.deterministic_diagnosis_blocked
+    assert all(phrase in response.text for phrase in ("您患有", "这是", "诊断是", "明确诊断"))
+    assert not response.safety.deterministic_diagnosis_blocked
+    assert "evidence_backed_clinical_conclusion_allowed" in response.safety.notices
     streamed = "".join(
         str(event.data["content"]) for event in events if event.event_type == "text_delta"
     )

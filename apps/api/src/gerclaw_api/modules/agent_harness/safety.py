@@ -20,6 +20,9 @@ HIGH_RISK_NOTICE = (
     "⚠️ 您描述的情况可能涉及紧急风险。请立即拨打 120 或尽快前往急诊，"
     "不要等待在线回复；如身边有人，请请其陪同并携带当前用药清单。"
 )
+PATIENT_CLINICAL_RISK_NOTICE = (
+    "⚠️ 请勿自行开始、停用、替换药物或调整剂量；请结合上述依据与医生复核。"
+)
 
 _CLEARLY_NON_MEDICAL = re.compile(
     r"^(?:你好|您好|嗨|谢谢|多谢|再见|你是谁|你能做什么|怎么使用|帮助|help)[！!。.\s]*$",
@@ -100,6 +103,13 @@ _RED_FLAG_NEGATION = re.compile(
 )
 _RED_FLAG_CONTRAST = re.compile(r"但(?:是)?|然而|却|仍(?:然)?")
 _EMBEDDED_CITATION_MARKER = re.compile(r"\[(?:E|W|K|R)\d{1,4}\]", re.IGNORECASE)
+_PATIENT_RISK_NOTICE_TRIGGER = re.compile(
+    r"(?:"
+    r"开始(?:服用|使用)?|停用|加用|减量|增量|调整(?:药物)?剂量|换药|替换(?:药物)?|"
+    r"确诊(?:为|是)?|(?:明确(?:临床)?诊断|诊断结论|诊断)(?:为|是)|"
+    r"(?:您|患者|病人)(?:已经|已)?(?:患有|得了|就是得了)"
+    r")"
+)
 
 
 class EvidenceUnavailableError(RuntimeError):
@@ -144,12 +154,19 @@ def detect_high_risk(text: str) -> list[str]:
     return codes
 
 
-def sanitize_medical_text(text: str) -> str:
+def sanitize_medical_text(
+    text: str,
+    *,
+    allow_evidence_backed_clinical_conclusion: bool = False,
+) -> str:
     """Normalize model text before public emission.
 
     The Harness owns the single, final disclaimer.  Removing a model-invented
-    copy here prevents a duplicate footer in streamed UI without changing the
-    substantive answer.
+    copy here prevents a duplicate footer in streamed UI. A clinical conclusion
+    is not deleted merely because it is direct: it may remain when the Runtime
+    has already obtained traceable local, web, or user-provided evidence for
+    this turn. Without that evidence, deterministic diagnostic language is
+    rewritten to prevent unsupported certainty.
     """
 
     def rewrite_malformed_limitation(match: re.Match[str]) -> str:
@@ -164,11 +181,19 @@ def sanitize_medical_text(text: str) -> str:
     for fragment in _MODEL_DISCLAIMER_FRAGMENTS:
         sanitized = sanitized.replace(fragment, "")
     sanitized = _MALFORMED_LIMITATION_DIAGNOSIS.sub(rewrite_malformed_limitation, sanitized)
+    if allow_evidence_backed_clinical_conclusion:
+        return sanitized
     for pattern in _DETERMINISTIC_DIAGNOSIS_ASSERTIONS:
         sanitized = pattern.sub(rewrite_assertion, sanitized)
     for pattern, replacement in _DETERMINISTIC_DIAGNOSIS_REWRITES:
         sanitized = pattern.sub(replacement, sanitized)
     return sanitized
+
+
+def requires_patient_clinical_risk_notice(text: str) -> bool:
+    """Keep one concise risk footer for patient-facing actionable conclusions."""
+
+    return _PATIENT_RISK_NOTICE_TRIGGER.search(text) is not None
 
 
 def citations_from_results(results: list[RetrievalResult]) -> list[Citation]:
@@ -227,6 +252,8 @@ def safety_decision(
     high_risk_codes: list[str],
     *,
     deterministic_diagnosis_blocked: bool = False,
+    evidence_backed_clinical_conclusion_allowed: bool = False,
+    patient_clinical_risk_notice_applied: bool = False,
     evidence_unavailable: bool = False,
 ) -> SafetyDecision:
     """Return the mandatory explicit safety decision persisted with every reply."""
@@ -245,6 +272,10 @@ def safety_decision(
         notices.append("high_risk_escalation_checked")
     if evidence_unavailable:
         notices.append("evidence_unavailable_clarification")
+    if evidence_backed_clinical_conclusion_allowed:
+        notices.append("evidence_backed_clinical_conclusion_allowed")
+    if patient_clinical_risk_notice_applied:
+        notices.append("patient_clinical_risk_notice_applied")
     return SafetyDecision(
         reviewed=True,
         disclaimer_applied=True,

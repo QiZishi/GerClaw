@@ -65,13 +65,29 @@ def test_shared_module_contracts_require_evidence_and_safety() -> None:
 def test_shared_contracts_reject_unsafe_or_oversized_public_data() -> None:
     with pytest.raises(ValidationError):
         AgentRequest(context=_context(), text="x" * 4_001)
-    with pytest.raises(ValidationError, match="deterministic diagnosis"):
+    with pytest.raises(ValidationError, match="traceable evidence"):
         AgentResponse(
             text="您已经确诊患有某疾病。",
             citations=[],
             safety=_safety(),
             medical_content=False,
         )
+    evidence_backed = AgentResponse(
+        text="您已经确诊患有某疾病。",
+        citations=[
+            Citation(
+                source_id="uploaded-evidence-1",
+                title="当前用户资料",
+                locator="uploaded_document:source-1",
+                excerpt="用户提供的检查结论。",
+                corpus="uploaded_document",
+            )
+        ],
+        safety=_safety().model_copy(update={"deterministic_diagnosis_blocked": False}),
+        medical_content=True,
+        structured={"evidence_backed_clinical_conclusion": True},
+    )
+    assert evidence_backed.structured["evidence_backed_clinical_conclusion"] is True
     with pytest.raises(ValidationError, match="requires at least one"):
         AgentResponse(
             text="这是一条医疗建议。",

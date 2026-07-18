@@ -6,10 +6,12 @@ import pytest
 
 from gerclaw_api.modules.agent_harness.safety import (
     MEDICAL_DISCLAIMER,
+    PATIENT_CLINICAL_RISK_NOTICE,
     build_evidence_context,
     citations_from_results,
     detect_high_risk,
     is_medical_message,
+    requires_patient_clinical_risk_notice,
     safety_decision,
     sanitize_medical_text,
 )
@@ -92,6 +94,17 @@ def test_diagnosis_rewrite_does_not_corrupt_explicit_diagnosis_phrase() -> None:
     )
 
 
+def test_evidence_backed_clinical_conclusion_is_preserved() -> None:
+    conclusion = "明确诊断为冠心病。"
+    assert (
+        sanitize_medical_text(
+            conclusion,
+            allow_evidence_backed_clinical_conclusion=True,
+        )
+        == conclusion
+    )
+
+
 def test_diagnosis_rewrite_preserves_a_clear_system_limitation() -> None:
     unsafe = "不能对任何疾病作出最终的明确诊断为结论。"
     assert sanitize_medical_text(unsafe) == "不能对任何疾病作出最终临床判断。"
@@ -159,3 +172,15 @@ def test_safety_decision_always_applies_disclaimer_and_red_flag_check() -> None:
     assert "high_risk_escalation_checked" in routine.notices
     assert "high_risk_escalation_applied" in urgent.notices
     assert MEDICAL_DISCLAIMER.endswith("及时就医。")
+
+
+def test_safety_decision_marks_an_evidence_backed_conclusion_once() -> None:
+    decision = safety_decision([], evidence_backed_clinical_conclusion_allowed=True)
+    assert decision.notices.count("evidence_backed_clinical_conclusion_allowed") == 1
+
+
+def test_patient_risk_footer_is_reserved_for_actionable_or_direct_conclusions() -> None:
+    assert requires_patient_clinical_risk_notice("明确诊断为冠心病。")
+    assert requires_patient_clinical_risk_notice("建议停用当前药物。")
+    assert not requires_patient_clinical_risk_notice("建议继续记录血压并复诊。")
+    assert "自行" in PATIENT_CLINICAL_RISK_NOTICE

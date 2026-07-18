@@ -95,8 +95,13 @@ class AgentResponse(BaseModel):
 
     @model_validator(mode="after")
     def enforce_medical_output_invariants(self) -> AgentResponse:
-        if _UNSAFE_DIAGNOSIS.search(self.text):
-            raise ValueError("public output contains deterministic diagnosis language")
+        if _UNSAFE_DIAGNOSIS.search(self.text) and (
+            not self.citations
+            or self.structured.get("evidence_backed_clinical_conclusion") is not True
+        ):
+            raise ValueError(
+                "direct clinical conclusion requires Runtime-marked traceable evidence"
+            )
         if self.emergency_short_circuit:
             if not self.medical_content:
                 raise ValueError("emergency short circuit must be marked as medical content")
