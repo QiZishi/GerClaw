@@ -7,6 +7,7 @@ import {
   type BackendSession,
   type BackendSessionMessages,
 } from "./schemas";
+import { toFrontendSession } from "./conversation-session-presenter";
 import type { Citation, Message, Session } from "@/types";
 
 /** Account-only history; guest tokens are rejected by the API. */
@@ -25,14 +26,7 @@ export async function readConversationMessages(
 }
 
 export function toFrontendSessions(items: BackendSession[], role: Session["role"]): Session[] {
-  return items.map((item) => ({
-    id: item.id,
-    title: item.title ?? "新对话",
-    role,
-    createdAt: Date.parse(item.created_at),
-    updatedAt: Date.parse(item.updated_at),
-    messageCount: 0,
-  }));
+  return items.map((item) => toFrontendSession(item, role));
 }
 
 function toCitation(

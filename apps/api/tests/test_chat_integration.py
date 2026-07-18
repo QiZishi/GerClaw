@@ -140,6 +140,7 @@ async def test_session_api_enforces_actor_ownership(
     history = await client.get(f"/api/v1/sessions/{session_id}/messages")
 
     assert created.status_code == 201, created.text
+    assert created.json()["has_prescription_draft"] is False
     assert replay.status_code == 201
     assert replay.json()["id"] == created.json()["id"]
     assert history.status_code == 200

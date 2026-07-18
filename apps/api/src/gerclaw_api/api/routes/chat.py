@@ -48,6 +48,7 @@ from gerclaw_api.repositories.conversation import (
 )
 from gerclaw_api.repositories.document import SqlAlchemyDocumentRepository
 from gerclaw_api.repositories.memory import SqlAlchemyMemoryRepository
+from gerclaw_api.repositories.prescription_draft import SqlAlchemyPrescriptionDraftRepository
 from gerclaw_api.repositories.risk_alert import SqlAlchemyRiskAlertRepository
 from gerclaw_api.repositories.skill import SqlAlchemySkillRepository
 from gerclaw_api.repositories.trace import SqlAlchemyTraceRepository
@@ -179,7 +180,21 @@ async def list_sessions(
     conversations = await _conversation_service(session).list_sessions(
         tenant_id=identity.tenant_id, actor_id=identity.actor_id, limit=limit
     )
-    return SessionListRead(sessions=[SessionRead.model_validate(item) for item in conversations])
+    draft_session_ids = await SqlAlchemyPrescriptionDraftRepository(
+        session
+    ).session_ids_with_drafts(
+        tenant_id=identity.tenant_id,
+        actor_id=identity.actor_id,
+        session_ids=tuple(item.id for item in conversations),
+    )
+    return SessionListRead(
+        sessions=[
+            SessionRead.model_validate(item).model_copy(
+                update={"has_prescription_draft": item.id in draft_session_ids}
+            )
+            for item in conversations
+        ]
+    )
 
 
 @router.delete("/sessions/{session_id}", response_model=SessionDeleted)

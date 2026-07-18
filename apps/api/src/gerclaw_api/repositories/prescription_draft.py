@@ -96,6 +96,32 @@ class SqlAlchemyPrescriptionDraftRepository:
         )
         return list((await self._session.scalars(statement)).all())
 
+    async def session_ids_with_drafts(
+        self,
+        *,
+        tenant_id: str,
+        actor_id: str,
+        session_ids: tuple[uuid.UUID, ...],
+    ) -> set[uuid.UUID]:
+        """Return only owner-visible session IDs that have a saved draft.
+
+        This intentionally exposes a boolean restore hint rather than encrypted
+        report content or intake state to the generic conversation history.
+        """
+
+        if not session_ids:
+            return set()
+        statement = (
+            select(PrescriptionDraftRecord.session_id)
+            .where(
+                PrescriptionDraftRecord.tenant_id == tenant_id,
+                PrescriptionDraftRecord.actor_id == actor_id,
+                PrescriptionDraftRecord.session_id.in_(session_ids),
+            )
+            .distinct()
+        )
+        return set((await self._session.scalars(statement)).all())
+
     async def get_for_patient(
         self, *, draft_id: uuid.UUID, tenant_id: str, patient_actor_id: str
     ) -> PrescriptionDraftRecord:

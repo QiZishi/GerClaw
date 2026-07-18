@@ -75,6 +75,9 @@ class SessionRead(BaseModel):
     agent_id: str
     status: Literal["active", "archived", "deleted"]
     title: str | None = Field(default=None, max_length=120)
+    # A metadata-only restore hint. It discloses neither report contents nor
+    # clinical intake data, and is always calculated inside the owner scope.
+    has_prescription_draft: bool = False
     created_at: datetime
     updated_at: datetime
 

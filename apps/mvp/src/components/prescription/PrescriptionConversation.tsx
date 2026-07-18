@@ -52,6 +52,7 @@ export function PrescriptionConversation({
   const [intake, setIntake] = useState<ClinicalIntake | null>(null);
   const [messages, setMessages] = useState<ConversationMessage[]>([]);
   const [loading, setLoading] = useState(true);
+  const [sending, setSending] = useState(false);
   const [generating, setGenerating] = useState(false);
   const [stopping, setStopping] = useState(false);
   const [generationFailed, setGenerationFailed] = useState(false);
@@ -59,6 +60,7 @@ export function PrescriptionConversation({
   const [generationComplete, setGenerationComplete] = useState(false);
   const [elapsedSeconds, setElapsedSeconds] = useState(0);
   const generationStartedRef = useRef(false);
+  const turnSubmissionInFlightRef = useRef(false);
   const generationAbortControllerRef = useRef<AbortController | null>(null);
 
   useEffect(() => {
@@ -184,13 +186,20 @@ export function PrescriptionConversation({
     images: ImageAttachment[] | undefined,
     documents: ChatDocumentAttachment[] = [],
   ) => {
-    if (!intake || loading || generating) return false;
+    // A text Enter event and an immediate click can arrive before React has
+    // painted the disabled send control. Keep a synchronous lock so both
+    // paths cannot submit the same intake revision.
+    if (!intake || loading || generating || generationStartedRef.current || turnSubmissionInFlightRef.current) return false;
+    turnSubmissionInFlightRef.current = true;
+    setSending(true);
     const documentIds = [...new Set([
       ...intake.document_ids,
       ...documents.flatMap((document) => document.serverDocumentId ? [document.serverDocumentId] : []),
     ])];
     if (documentIds.length > 10) {
       toast.show("一次最多使用 10 份资料");
+      turnSubmissionInFlightRef.current = false;
+      setSending(false);
       return false;
     }
     try {
@@ -216,6 +225,9 @@ export function PrescriptionConversation({
     } catch (error) {
       toast.show(error instanceof Error ? error.message : "信息暂未保存，请重试");
       return false;
+    } finally {
+      turnSubmissionInFlightRef.current = false;
+      setSending(false);
     }
   };
 
@@ -242,6 +254,16 @@ export function PrescriptionConversation({
             </div>
           ))}
           {loading && <p className={cn("text-muted-foreground", seniorMode ? "text-lg" : "text-sm")}>正在准备对话…</p>}
+          {sending && !generating && (
+            <div className={cn("flex items-center gap-2 self-start rounded-2xl border border-border bg-muted/50 px-4 py-3 text-muted-foreground", seniorMode ? "text-lg" : "text-sm")} role="status" aria-live="polite">
+              <span className="codex-activity-dots" aria-hidden="true">
+                <span className="codex-activity-dot" />
+                <span className="codex-activity-dot" />
+                <span className="codex-activity-dot" />
+              </span>
+              正在整理资料…
+            </div>
+          )}
           {generating && (
             <div className={cn("flex flex-wrap items-center gap-x-3 gap-y-2 self-start rounded-2xl border border-border bg-muted/50 px-4 py-3 text-muted-foreground", seniorMode ? "text-lg" : "text-sm")} role="status" aria-live="polite">
               <span className="inline-flex items-center gap-2 font-medium text-foreground">
@@ -271,6 +293,7 @@ export function PrescriptionConversation({
         <ChatInput
           onSend={handleSend}
           isGenerating={generating}
+          isSending={sending}
           prescriptionConversation
           placeholderOverride="输入文字、上传资料或使用语音…"
         />

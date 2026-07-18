@@ -58,6 +58,7 @@ export const sessionSchema = z
     agent_id: z.string(),
     status: z.enum(["active", "archived", "deleted"]),
     title: z.string().min(1).max(120).nullable(),
+    has_prescription_draft: z.boolean(),
     created_at: z.string(),
     updated_at: z.string(),
   })

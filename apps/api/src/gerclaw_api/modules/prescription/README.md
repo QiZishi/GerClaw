@@ -44,6 +44,12 @@ twenty newest revisions, and its SQL boundary requires the same tenant and
 actor that own the prescription intake. The browser restores only that caller's
 newest draft into the report panel after the intake is reopened.
 
+The authenticated generic session list exposes only the owner-scoped boolean
+`has_prescription_draft`. This lets the web client re-open the corresponding
+chat-native intake after a new login, while all report content, intake answers,
+patient materials and clinician feedback remain available solely through the
+existing owner-scoped prescription routes.
+
 Before execution the route resolves the versioned Runtime workflow
 `prescription@1.0.0` and its `security.workflow.prescription` profile. The
 workflow allows its bounded, owner-scoped uploaded input but rejects Skills;

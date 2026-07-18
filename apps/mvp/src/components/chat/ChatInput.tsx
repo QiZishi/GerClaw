@@ -77,6 +77,8 @@ interface ChatInputProps {
     documents?: ChatDocumentAttachment[]
   ) => boolean | void | ChatSendAccepted | Promise<boolean | void | ChatSendAccepted>;
   isGenerating?: boolean;
+  /** A request is being accepted by the backend; block duplicate sends without pretending generation has started. */
+  isSending?: boolean;
   onStop?: () => void;
   onStartAction?: (action: "prescription" | "cga" | "drug-review" | "health-profile") => void;
   contextLoading?: boolean;
@@ -291,6 +293,7 @@ function FunctionButtonGroup({
 export function ChatInput({
   onSend,
   isGenerating,
+  isSending = false,
   onStop,
   onStartAction,
   contextLoading = false,
@@ -364,7 +367,7 @@ export function ChatInput({
     cancelRecording,
   } = useAudioRecorder();
 
-  const micDisabled = !isOnline || !asrAvailable || isTranscribing || isGenerating;
+  const micDisabled = !isOnline || !asrAvailable || isTranscribing || isGenerating || isSending;
 
   useLayoutEffect(() => {
     const previousSessionId = previousSessionIdRef.current;
@@ -740,6 +743,7 @@ export function ChatInput({
     if (
       (!trimmed && (pendingImages.length === 0 || hasUnboundParsedDocuments)) ||
       isGenerating ||
+      isSending ||
       isTranscribing ||
       contextLoading ||
       !isOnline
@@ -1009,7 +1013,7 @@ export function ChatInput({
             onKeyDown={handleKeyDown}
           placeholder={isTranscribing ? (seniorMode ? "正在识别语音…" : "识别中…") : hasUnboundParsedDocuments ? (seniorMode ? "请说出您想了解的问题…" : "请输入您想了解的问题…") : placeholder}
             rows={1}
-            disabled={isTranscribing || contextLoading}
+            disabled={isTranscribing || contextLoading || isSending}
             className={cn(
               "w-full resize-none bg-transparent border-0 outline-none px-4 py-3 text-base leading-relaxed placeholder:text-muted-foreground max-h-[200px] overflow-y-auto disabled:opacity-60 transition-colors",
               seniorMode && "text-lg"
@@ -1024,7 +1028,7 @@ export function ChatInput({
               </p>
             ) : (
               <FunctionButtonGroup
-                disabled={isTranscribing || contextLoading}
+                disabled={isTranscribing || contextLoading || isSending}
                 role={role}
                 mounted={mounted}
                 seniorMode={seniorMode}
@@ -1079,8 +1083,8 @@ export function ChatInput({
                         size={seniorMode ? "default" : "icon"}
                         className={cn("btn-icon", seniorMode && "h-12 gap-2 px-3 text-base")}
                         onClick={() => void handleSend()}
-                        aria-label="发送"
-                        disabled={!isOnline || contextLoading}
+                        aria-label={isSending ? "正在提交" : "发送"}
+                        disabled={!isOnline || contextLoading || isSending}
                       />
                     }
                   >

@@ -92,6 +92,7 @@ export function Sidebar({ onNavigate }: SidebarProps) {
   const toggleSidebar = useAppStore((s) => s.toggleSidebar);
   const currentSessionId = useAppStore((s) => s.currentSessionId);
   const setCurrentSession = useAppStore((s) => s.setCurrentSession);
+  const setChatAction = useAppStore((s) => s.setChatAction);
   const setRole = useAppStore((s) => s.setRole);
   const setSeniorMode = useAppStore((s) => s.setSeniorMode);
   const setRightPanel = useAppStore((s) => s.setRightPanel);
@@ -215,6 +216,10 @@ export function Sidebar({ onNavigate }: SidebarProps) {
     // 根据会话 panelType 自动展开右侧面板（若该会话有生成结果）
     const session = effectiveSessions.find((s) => s.id === id);
     if (session?.panelType) {
+      // A generated prescription is a conversation, not merely a detached
+      // preview. Restore its chat-native status and clinician feedback while
+      // keeping the persisted report open alongside it.
+      if (session.panelType === "prescription") setChatAction("prescription");
       setRightPanel(session.panelType);
       setPanelContent(session.panelContent ?? "");
     } else {
