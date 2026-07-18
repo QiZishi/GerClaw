@@ -31,8 +31,11 @@ from gerclaw_api.modules.evals.models import (
     RAGEvaluationRunReport,
     RAGRetrievalEvalCase,
     RAGRetrievalEvalCaseResult,
+    SkillDraftEvalCase,
+    SkillDraftEvalCaseResult,
 )
 from gerclaw_api.modules.evals.privacy_cases import PRIVACY_REDACTION_GOLDEN_CASES
+from gerclaw_api.modules.evals.skill_cases import SKILL_DRAFT_GOLDEN_CASES
 from gerclaw_api.modules.medication_review.rules_engine import (
     MedicationRulesInputError,
     review_medication_list,
@@ -44,6 +47,8 @@ from gerclaw_api.modules.privacy_redaction.policy import (
     redact_external_tts_text,
 )
 from gerclaw_api.modules.rag.protocols import RAGModule
+from gerclaw_api.modules.skill.models import SkillDefinition
+from gerclaw_api.modules.skill.quality import evaluate_skill_draft
 from gerclaw_api.modules.validation import (
     RAGEvidenceContractValidationError,
     validate_local_rag_evidence_provenance,
@@ -220,6 +225,46 @@ def run_medication_rule_golden_cases() -> tuple[MedicationRuleEvalCaseResult, ..
     if not all(result.passed for result in results):
         failed = ", ".join(result.case_id for result in results if not result.passed)
         raise AssertionError(f"medication rule golden cases failed: {failed}")
+    return results
+
+
+def run_skill_draft_case(case: SkillDraftEvalCase) -> SkillDraftEvalCaseResult:
+    """Run one synthetic Skill checklist case without reporting its instructions."""
+
+    definition = SkillDefinition(
+        skill_id="eval-skill",
+        name="Synthetic Skill Review",
+        description="Synthetic deterministic checklist evaluation only.",
+        version="1.0.0",
+        parameter_schema={"type": "object", "properties": {}, "additionalProperties": False},
+        tool_names=list(case.tool_names),
+        category="evaluation",
+        source="custom",
+        origin="generated",
+        enabled=False,
+        source_markdown=case.synthetic_instructions,
+    )
+    report = evaluate_skill_draft(definition)
+    actual_missing_checks = report.missing_checks
+    return SkillDraftEvalCaseResult(
+        case_id=case.case_id,
+        passed=(
+            report.version == case.quality_version
+            and actual_missing_checks == case.expected_missing_checks
+        ),
+        expected_missing_checks=case.expected_missing_checks,
+        actual_missing_checks=actual_missing_checks,
+        quality_version=report.version,
+    )
+
+
+def run_skill_draft_golden_cases() -> tuple[SkillDraftEvalCaseResult, ...]:
+    """Run the reviewed, synthetic Skill-draft coverage baseline."""
+
+    results = tuple(run_skill_draft_case(case) for case in SKILL_DRAFT_GOLDEN_CASES)
+    if not all(result.passed for result in results):
+        failed = ", ".join(result.case_id for result in results if not result.passed)
+        raise AssertionError(f"skill-draft golden cases failed: {failed}")
     return results
 
 

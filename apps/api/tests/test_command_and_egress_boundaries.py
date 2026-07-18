@@ -83,14 +83,17 @@ def test_safety_eval_cli_outputs_only_versioned_summary(
     monkeypatch.setattr(
         eval_cli, "run_medication_rule_golden_cases", lambda: (_result("medication.case"),)
     )
+    monkeypatch.setattr(
+        eval_cli, "run_skill_draft_golden_cases", lambda: (_result("skill-draft.case"),)
+    )
 
     with pytest.raises(SystemExit, match="0"):
         eval_cli.main()
 
     payload = json.loads(capsys.readouterr().out)
     assert payload["schema_version"] == "eval-run-v1"
-    assert payload["case_count"] == 4
-    assert payload["passed_count"] == 4
+    assert payload["case_count"] == 5
+    assert payload["passed_count"] == 5
     assert payload["external_model_or_rag"] is False
 
 

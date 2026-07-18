@@ -25,6 +25,10 @@ content and has written a new canonical case.
 - Medication-rule canaries bind a synthetic list only to expected rule/source
   IDs and ruleset version. Results must never expose the list, patient data,
   source content or a patient-executable recommendation.
+- Skill-draft canaries bind synthetic instructions only to deterministic
+  checklist codes and `skill-draft-quality-v1`. Results must never expose the
+  instructions, a user request, model output, or imply medical validity or
+  automatic publication.
 
 ## Change and test rules
 

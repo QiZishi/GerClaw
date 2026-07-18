@@ -6,6 +6,7 @@ from gerclaw_api.modules.evals.runner import (
     run_opt_in_rag_retrieval_evaluation,
     run_output_safety_golden_cases,
     run_privacy_redaction_golden_cases,
+    run_skill_draft_golden_cases,
 )
 
 __all__ = [
@@ -14,4 +15,5 @@ __all__ = [
     "run_opt_in_rag_retrieval_evaluation",
     "run_output_safety_golden_cases",
     "run_privacy_redaction_golden_cases",
+    "run_skill_draft_golden_cases",
 ]

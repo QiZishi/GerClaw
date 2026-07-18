@@ -20,7 +20,7 @@ GerClaw 是面向老年患者与老年科医生的 Web 端 AI 双向诊疗平台
 - `input_output` 生产边界：Chat 输入在 Trace/存储/Harness 前规范化，SSE 终态只投影已审核的公开文本、引用与安全信息
 - Chat/CGA 风险告警的本人范围账本与确认、慢病自述/测量账本，以及隔离的安全情感陪伴 workflow；均明确不替代临床审批或医生服务
 - 五大处方对话式收集、证据绑定结构化草案、Markdown/PDF/Word 导出，以及用药审查：真实 API、加密持久化、乐观 revision 与 PHI-free Trace；审查依据 `medication-rules-v3` 返回 30 条可追溯 DDI、4 条日剂量、重复/多重用药和限定 Beers 信号，均不等同于可执行处方
-- 用户反馈、加密 Bad Case 与 19 个合成确定性安全/输出安全/隐私/用药规则 case 基线；golden case 不回放用户原文，也不调用模型或 RAG
+- 用户反馈、加密 Bad Case 与 24 个合成确定性安全/输出安全/隐私/用药规则/Skill 草稿 case 基线；golden case 不回放用户原文，也不调用模型或 RAG
 - `security_evaluation` Runtime 门禁：Chat 实际启用的本地知识检索、本人记忆检索、外网搜索均有版本绑定风险档案；未匹配的风险/网络/数据类别、缺基础控制或外网缺服务端脱敏证明会拒绝加入 Toolkit
 - 版本化 `privacy_redaction`：外部搜索 query 与 FastAPI TTS 正文/style 在 Provider 调用前最小化并脱敏，审计摘要只保留类别计数
 - Docker Compose API 的 10 并发高风险安全短路 SSE，以及 10 并发确定性用药审查 workflow 证据；两者都不是模型/RAG/MinerU、完整处方或临床有效性的吞吐结论
@@ -35,7 +35,7 @@ GerClaw 是面向老年患者与老年科医生的 Web 端 AI 双向诊疗平台
 - 风险预警、慢病管理、情感陪伴均只具当前最小的本人范围 workflow；缺通知升级、医学审核规则、人工升级、患者授权与医生队列
 - 医生资质、患者授权与跨患者访问；账号已支持注册、登录、刷新轮换、登出、改密、账户停用与管理端基础后台，但没有账号验证、找回、MFA 和临床授权
 - Bad Case 的授权脱敏晋升、模型/RAG/医疗评测、趋势指标与安全回放闭环
-- Skill 的自然语言修订不会自动发布、启用或执行；医疗业务 Skill 的审核发布和持续质量评测仍未完成
+- Skill 的自然语言修订不会自动发布、启用或执行；版本绑定的草稿审核提示已有合成回归，但医疗业务 Skill 的审核发布和外部模型持续质量评测仍未完成
 - 安全风险档案当前仅接入上述三种 Chat 工具；Agent、Skill、workflow、Memory 和 RAG 数据源的上线档案、统一 red-team 语料及发布门禁仍未完成
 - 隐私策略已覆盖外部搜索、模型 prompt、FastAPI TTS/ASR 和 MinerU egress audit；字段级分类、同意、导出、生命周期、透明度及剩余出口尚未统一接入
 - 全站响应式/适老化 E2E、临床 workflow E2E 与最终发布验收

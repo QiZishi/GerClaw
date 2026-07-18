@@ -22,6 +22,13 @@ result never emits a medication list, patient attribute, rule text or source
 content. It guards deterministic wiring and provenance only; it is not a
 complete DDI/Beers/dose evaluation or clinical-validity evidence.
 
+`skill-draft-case-v1` adds three reviewed, synthetic checks for the same
+`skill-draft-quality-v1` checklist used to label generated and evolution
+drafts for manual review. The CLI emits only a case ID, expected/actual
+checklist codes and the quality version; it never emits instructions, user
+requests or model output. Passing it does not assess medical validity or
+publish a Skill.
+
 Run:
 
 ```bash

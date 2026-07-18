@@ -10,6 +10,7 @@ from gerclaw_api.modules.privacy_redaction.models import (
     EgressPurpose,
     RedactionFinding,
 )
+from gerclaw_api.modules.skill.models import SkillDraftCheckCode
 
 EVAL_CASE_SCHEMA_VERSION: Final = "eval-case-v1"
 
@@ -143,6 +144,59 @@ class MedicationRuleEvalCaseResult(BaseModel):
     expected_input_error: bool
     actual_input_error: bool
     ruleset_version: str | None = None
+
+
+class SkillDraftEvalCase(BaseModel):
+    """Reviewed synthetic coverage expectation for a draft Skill checklist.
+
+    This contract deliberately exercises only the deterministic review cues for
+    a generated Skill. It does not evaluate medical validity, authorise a
+    Skill, or retain a user request or provider response.
+    """
+
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    schema_version: Literal["skill-draft-case-v1"] = "skill-draft-case-v1"
+    case_id: str = Field(pattern=r"^skill-draft\.[a-z0-9_.-]{3,80}$")
+    title: str = Field(min_length=1, max_length=120)
+    synthetic_instructions: str = Field(min_length=20, max_length=8_000)
+    tool_names: tuple[str, ...] = Field(default_factory=tuple, max_length=20)
+    expected_missing_checks: tuple[SkillDraftCheckCode, ...] = Field(
+        default_factory=tuple, max_length=4
+    )
+    quality_version: Literal["skill-draft-quality-v1"] = "skill-draft-quality-v1"
+    provenance: Literal["synthetic_reviewed"] = "synthetic_reviewed"
+
+    @field_validator("tool_names")
+    @classmethod
+    def validate_unique_tool_names(cls, value: tuple[str, ...]) -> tuple[str, ...]:
+        if len(set(value)) != len(value) or not all(
+            item and len(item) <= 64 and item.replace("_", "").replace("-", "").isalnum()
+            for item in value
+        ):
+            raise ValueError("tool names must be unique bounded identifiers")
+        return value
+
+    @field_validator("expected_missing_checks")
+    @classmethod
+    def validate_unique_missing_checks(
+        cls, value: tuple[SkillDraftCheckCode, ...]
+    ) -> tuple[SkillDraftCheckCode, ...]:
+        if len(set(value)) != len(value):
+            raise ValueError("expected missing checks must be unique")
+        return value
+
+
+class SkillDraftEvalCaseResult(BaseModel):
+    """PHI-free Skill-draft checklist result without draft instructions."""
+
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    case_id: str
+    passed: bool
+    expected_missing_checks: tuple[SkillDraftCheckCode, ...]
+    actual_missing_checks: tuple[SkillDraftCheckCode, ...]
+    quality_version: str
 
 
 class RAGRetrievalEvalCase(BaseModel):

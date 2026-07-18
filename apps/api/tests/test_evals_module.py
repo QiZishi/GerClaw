@@ -16,6 +16,7 @@ from gerclaw_api.modules.evals.models import (
     RAGEvaluationRunConfig,
     RAGRetrievalEvalCase,
     RAGRetrievalEvalCaseSet,
+    SkillDraftEvalCase,
 )
 from gerclaw_api.modules.evals.rag_cli import (
     RAGEvaluationCliError,
@@ -32,6 +33,8 @@ from gerclaw_api.modules.evals.runner import (
     run_output_safety_golden_cases,
     run_privacy_redaction_case,
     run_privacy_redaction_golden_cases,
+    run_skill_draft_case,
+    run_skill_draft_golden_cases,
 )
 from gerclaw_api.modules.privacy_redaction.models import EgressPurpose
 from gerclaw_api.modules.rag.protocols import RetrievalResult
@@ -138,6 +141,50 @@ def test_medication_rule_golden_cases_are_version_bound_and_do_not_echo_inputs()
     assert "硝酸甘油" not in serialized
     assert "西地那非" not in serialized
     assert not hasattr(results[0], "synthetic_medication_list")
+
+
+def test_skill_draft_golden_cases_are_version_bound_and_never_echo_instructions() -> None:
+    results = run_skill_draft_golden_cases()
+
+    assert len(results) == 3
+    assert all(result.passed for result in results)
+    assert results[1].actual_missing_checks == ("red_flag", "medical_disclaimer")
+    serialized = results[0].model_dump_json()
+    assert "Synthetic Skill Review" not in serialized
+    assert "先核对用户输入" not in serialized
+    assert not hasattr(results[0], "synthetic_instructions")
+
+
+def test_skill_draft_eval_case_rejects_unreviewed_or_duplicate_expectations() -> None:
+    with pytest.raises(ValidationError):
+        SkillDraftEvalCase(
+            case_id="skill-draft.invalid_case",
+            title="invalid",
+            synthetic_instructions="这是仅用于结构验证的合成说明且长度足够。",
+            expected_missing_checks=("red_flag", "red_flag"),
+        )
+    with pytest.raises(ValidationError):
+        SkillDraftEvalCase(
+            case_id="skill-draft.invalid_case",
+            title="invalid",
+            synthetic_instructions="这是仅用于结构验证的合成说明且长度足够。",
+            provenance="raw_user_feedback",
+        )
+
+
+def test_skill_draft_eval_reports_a_failed_expectation_without_echoing_instructions() -> None:
+    result = run_skill_draft_case(
+        SkillDraftEvalCase(
+            case_id="skill-draft.expectation_regression",
+            title="regression",
+            synthetic_instructions="先核对输入完整性后使用本地证据整理待确认问题。",
+            expected_missing_checks=(),
+        )
+    )
+
+    assert result.passed is False
+    assert result.actual_missing_checks == ("red_flag", "medical_disclaimer")
+    assert "先核对输入" not in result.model_dump_json()
 
 
 def test_eval_case_rejects_unknown_fields_and_unreviewed_provenance() -> None:
