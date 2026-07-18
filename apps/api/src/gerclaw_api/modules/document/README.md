@@ -19,7 +19,7 @@ local-knowledge-base and governed-web evidence.
 
 ## Limits and non-goals
 
-- Markdown registration is limited to 1,000,000 characters and direct Harness context is limited to 20,000 characters per turn.
+- Markdown registration is limited to 1,000,000 characters. The server-owned aggregate context budget is 273,000 characters; ordinary chat may use an explicitly bounded excerpt, while five-prescription input rejects any selected material that would not fit in full.
 - No original binary is stored.
 - No body or filename is persisted in browser storage, logs, Trace, Qdrant or the public local medical knowledge base.
 - No cross-session library, physician access, vector retrieval, long-document retrieval, export, retention scheduler or malware scan exists yet.

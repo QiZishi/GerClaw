@@ -11,7 +11,7 @@ from typing import Annotated, Literal, cast
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request, status
 from pydantic import BaseModel, ConfigDict, Field, model_validator
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import defer
 
@@ -25,6 +25,11 @@ from gerclaw_api.auth import (
 from gerclaw_api.database.models import BadCase
 from gerclaw_api.dependencies import get_database_session
 from gerclaw_api.modules.identity.passwords import hash_password, verify_password
+from gerclaw_api.modules.observability_feedback import (
+    BadCaseAggregate,
+    BadCaseSummary,
+    summarize_bad_cases,
+)
 from gerclaw_api.repositories.account import (
     AccountConflictError,
     AccountNotFoundError,
@@ -583,6 +588,28 @@ async def list_bad_cases_for_administrator(
     statement = statement.order_by(BadCase.created_at.desc(), BadCase.id.desc()).limit(limit)
     entries = (await session.scalars(statement)).all()
     return BadCaseAdminListRead(cases=[BadCaseAdminRead.model_validate(item) for item in entries])
+
+
+@router.get("/admin/bad-cases/summary", response_model=BadCaseSummary)
+async def get_bad_case_summary_for_administrator(
+    session: AccountSessionDependency,
+    identity: Annotated[AuthContext, Depends(require_account_admin)],
+) -> BadCaseSummary:
+    """Return tenant-scoped operational totals without decrypting queue records."""
+
+    # Select only group keys and counts.  In particular, this endpoint never
+    # selects ``snapshot`` or joins traces/feedback, so images and other private
+    # replay material remain outside the management dashboard.
+    statement = (
+        select(BadCase.source, BadCase.severity, BadCase.status, func.count(BadCase.id))
+        .where(BadCase.tenant_id == identity.tenant_id)
+        .group_by(BadCase.source, BadCase.severity, BadCase.status)
+    )
+    aggregates = [
+        BadCaseAggregate(source=source, severity=severity, status=status, count=count)
+        for source, severity, status, count in (await session.execute(statement)).all()
+    ]
+    return summarize_bad_cases(aggregates)
 
 
 @router.patch("/admin/bad-cases/{case_id}", response_model=BadCaseAdminRead)

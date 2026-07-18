@@ -477,6 +477,21 @@ async def test_real_trace_feedback_bad_case_encryption_and_readiness_flow(
     assert bad_case_queue.status_code == 200
     assert len(bad_case_queue.json()["cases"]) == 2
     assert "snapshot" not in bad_case_queue.json()["cases"][0]
+    bad_case_summary = await client.get(
+        "/api/v1/auth/admin/bad-cases/summary",
+        headers={"Authorization": f"Bearer {administrator_token}"},
+    )
+    assert bad_case_summary.status_code == 200
+    assert bad_case_summary.json() == {
+        "total": 2,
+        "open_count": 2,
+        "triaged_count": 0,
+        "resolved_count": 0,
+        "dismissed_count": 0,
+        "execution_failure_count": 1,
+        "negative_feedback_count": 1,
+        "high_priority_count": 1,
+    }
     reviewed_case = await client.patch(
         f"/api/v1/auth/admin/bad-cases/{bad_case_queue.json()['cases'][0]['id']}",
         headers={"Authorization": f"Bearer {administrator_token}"},
@@ -485,6 +500,13 @@ async def test_real_trace_feedback_bad_case_encryption_and_readiness_flow(
     assert reviewed_case.status_code == 200
     assert reviewed_case.json()["status"] == "triaged"
     assert reviewed_case.json()["resolved_at"] is None
+    refreshed_summary = await client.get(
+        "/api/v1/auth/admin/bad-cases/summary",
+        headers={"Authorization": f"Bearer {administrator_token}"},
+    )
+    assert refreshed_summary.status_code == 200
+    assert refreshed_summary.json()["triaged_count"] == 1
+    assert refreshed_summary.json()["open_count"] == 1
 
     async with app.state.database.session() as session:
         assert await session.scalar(select(func.count()).select_from(ExecutionTrace)) == 1
