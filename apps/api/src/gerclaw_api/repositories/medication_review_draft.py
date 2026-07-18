@@ -67,3 +67,26 @@ class SqlAlchemyMedicationReviewDraftRepository:
             .limit(limit)
         )
         return list((await self._session.scalars(statement)).all())
+
+    async def list_for_patient(
+        self,
+        *,
+        tenant_id: str,
+        patient_actor_id: str,
+        limit: int,
+    ) -> list[MedicationReviewDraftRecord]:
+        """Return bounded newest-first drafts for one consented patient only."""
+
+        statement = (
+            select(MedicationReviewDraftRecord)
+            .where(
+                MedicationReviewDraftRecord.tenant_id == tenant_id,
+                MedicationReviewDraftRecord.actor_id == patient_actor_id,
+            )
+            .order_by(
+                MedicationReviewDraftRecord.created_at.desc(),
+                MedicationReviewDraftRecord.id.desc(),
+            )
+            .limit(limit)
+        )
+        return list((await self._session.scalars(statement)).all())

@@ -28,6 +28,11 @@ from gerclaw_api.modules.consent.models import (
     PatientAccessGrantRead,
     PatientAccessGrantRevoke,
 )
+from gerclaw_api.modules.medication_review.models import (
+    DoctorMedicationReviewDraftListRead,
+    MedicationReviewDraft,
+    MedicationReviewDraftRead,
+)
 from gerclaw_api.modules.memory.models import HealthProfileRead
 from gerclaw_api.modules.memory.runtime import create_memory_module
 from gerclaw_api.modules.prescription.models import (
@@ -42,6 +47,9 @@ from gerclaw_api.repositories.consent import (
     PatientAccessGrantConflictError,
     PatientAccessGrantNotFoundError,
     SqlAlchemyPatientAccessGrantRepository,
+)
+from gerclaw_api.repositories.medication_review_draft import (
+    SqlAlchemyMedicationReviewDraftRepository,
 )
 from gerclaw_api.repositories.memory import SqlAlchemyMemoryRepository
 from gerclaw_api.repositories.prescription_draft import (
@@ -315,6 +323,52 @@ async def list_authorized_prescription_drafts(
                 created_at=record.created_at,
                 draft=FivePrescriptionDraft.model_validate(record.content),
                 reviews=tuple(reviews_by_draft.get(record.id, ())),
+            )
+            for record in records
+        )
+    )
+
+
+@router.get(
+    "/patients/{patient_actor_id}/medication-review-drafts",
+    response_model=DoctorMedicationReviewDraftListRead,
+)
+async def list_authorized_medication_review_drafts(
+    patient_actor_id: PatientActorId,
+    session: SessionDependency,
+    identity: DoctorPrescriptionIdentity,
+) -> DoctorMedicationReviewDraftListRead:
+    """Read source-bound medication-review artifacts after an active scoped grant.
+
+    This projection deliberately excludes chat turns, trace payloads, and uploaded
+    files. The doctor's view is limited to the persisted review artifact and its
+    explicit rule sources.
+    """
+
+    _require_doctor(identity)
+    grants = SqlAlchemyPatientAccessGrantRepository(session)
+    try:
+        await grants.require_active_grant(
+            tenant_id=identity.tenant_id,
+            patient_actor_id=patient_actor_id,
+            doctor_actor_id=identity.actor_id,
+            resource_scope="medication_review_read",
+        )
+    except PatientAccessGrantNotFoundError as error:
+        raise _not_found() from error
+    records = await SqlAlchemyMedicationReviewDraftRepository(session).list_for_patient(
+        tenant_id=identity.tenant_id,
+        patient_actor_id=patient_actor_id,
+        limit=20,
+    )
+    return DoctorMedicationReviewDraftListRead(
+        items=tuple(
+            MedicationReviewDraftRead(
+                draft_id=record.id,
+                intake_id=record.clinical_intake_id,
+                intake_revision=record.clinical_intake_revision,
+                created_at=record.created_at,
+                draft=MedicationReviewDraft.model_validate(record.content),
             )
             for record in records
         )

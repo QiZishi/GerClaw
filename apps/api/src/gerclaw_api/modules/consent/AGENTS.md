@@ -13,10 +13,13 @@ diagnostic authority, an emergency override, or a permission to mutate data.
 - Every grant is tenant-scoped, resource-scoped, expiry-bound and revision
   fenced. Expired or revoked records always deny access.
 - A doctor may receive only explicitly granted `health_profile_read`,
-  `cga_report_read` or `prescription_draft_review`. The last grants read and
-  append-only review of a generated five-prescription draft only; it never
-  authorises a treatment execution, raw assessment answers, messages, Trace,
-  documents, alerts, approval tokens or emergency access.
+  `cga_report_read`, `prescription_draft_review` or
+  `medication_review_read`. The latter permits a read-only projection of
+  encrypted, source-bound medication-review artifacts; it never exposes chat
+  turns, Trace, uploaded files, raw assessment answers, alerts, approval
+  tokens or emergency access. `prescription_draft_review` separately permits
+  append-only review of a generated five-prescription draft only; neither
+  scope authorises treatment execution.
 - Missing patients, grants, revoked grants and expired grants return the same
   not-found result to a doctor.
 

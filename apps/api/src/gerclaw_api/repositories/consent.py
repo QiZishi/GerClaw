@@ -15,6 +15,7 @@ ResourceScope = Literal[
     "health_profile_read",
     "cga_report_read",
     "prescription_draft_review",
+    "medication_review_read",
 ]
 
 

@@ -8,6 +8,10 @@ override, chat/Trace/document access, or access to uncompleted CGA answers.
 `prescription_draft_review` additionally permits that named doctor to read
 the patient's generated review-only five-prescription drafts and append a
 clinician review. It never turns the draft into an executable prescription.
+`medication_review_read` permits only the persisted, source-bound medication
+review artifact: its input revision, deterministic findings and rule sources.
+It is read-only and never discloses the chat, Trace, uploaded materials or
+other patient records.
 
 The production consumer must call `SqlAlchemyPatientAccessGrantRepository`
 immediately before reading a protected patient resource. A failed lookup is

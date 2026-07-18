@@ -76,7 +76,12 @@ async def test_patient_grant_validates_active_doctor_and_expiry(
     monkeypatch.setattr(consent_routes, "SqlAlchemyPatientAccessGrantRepository", FakeRepository)
     payload = PatientAccessGrantCreate(
         doctor_actor_id=DOCTOR,
-        resource_scopes=("health_profile_read", "cga_report_read"),
+        resource_scopes=(
+            "health_profile_read",
+            "cga_report_read",
+            "prescription_draft_review",
+            "medication_review_read",
+        ),
         expires_at=datetime.now(UTC) + timedelta(days=30),
     )
 
@@ -84,11 +89,13 @@ async def test_patient_grant_validates_active_doctor_and_expiry(
         payload, SimpleNamespace(commit=AsyncMock()), _identity()
     )
 
-    assert len(result.items) == 2
+    assert len(result.items) == 4
     assert calls[0]["actor_id"] == DOCTOR
     assert {call["resource_scope"] for call in calls[1:]} == {
         "health_profile_read",
         "cga_report_read",
+        "prescription_draft_review",
+        "medication_review_read",
     }
 
     with pytest.raises(HTTPException) as expired:
@@ -251,6 +258,80 @@ async def test_doctor_projections_fail_closed_without_current_grant(
                 await endpoint(PATIENT, SimpleNamespace(), doctor)
         assert denied.value.status_code == 404
         assert denied.value.detail["code"] == "PATIENT_ACCESS_NOT_FOUND"
+
+
+@pytest.mark.asyncio
+async def test_authorized_doctor_can_read_only_saved_medication_review_artifacts(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    calls: list[dict[str, object]] = []
+    record = SimpleNamespace(
+        id=uuid.uuid4(),
+        clinical_intake_id=uuid.uuid4(),
+        clinical_intake_revision=3,
+        created_at=datetime.now(UTC),
+        content={"ignored": "validated by the deterministic review schema"},
+    )
+
+    class FakeGrantRepository:
+        def __init__(self, _session: object) -> None:
+            pass
+
+        async def require_active_grant(self, **kwargs: object) -> None:
+            calls.append(kwargs)
+
+    class FakeDraftRepository:
+        def __init__(self, _session: object) -> None:
+            pass
+
+        async def list_for_patient(self, **kwargs: object) -> list[SimpleNamespace]:
+            calls.append(kwargs)
+            return [record]
+
+    class FakeDraft:
+        @classmethod
+        def model_validate(cls, value: object) -> object:
+            return value
+
+    class FakeRead:
+        def __init__(self, **kwargs: object) -> None:
+            self.__dict__.update(kwargs)
+
+    class FakeList:
+        def __init__(self, *, items: tuple[FakeRead, ...]) -> None:
+            self.items = items
+
+    monkeypatch.setattr(
+        consent_routes, "SqlAlchemyPatientAccessGrantRepository", FakeGrantRepository
+    )
+    monkeypatch.setattr(
+        consent_routes, "SqlAlchemyMedicationReviewDraftRepository", FakeDraftRepository
+    )
+    monkeypatch.setattr(consent_routes, "MedicationReviewDraft", FakeDraft)
+    monkeypatch.setattr(consent_routes, "MedicationReviewDraftRead", FakeRead)
+    monkeypatch.setattr(consent_routes, "DoctorMedicationReviewDraftListRead", FakeList)
+
+    result = await consent_routes.list_authorized_medication_review_drafts(
+        PATIENT,
+        SimpleNamespace(),
+        _identity(role="doctor", scopes=frozenset({"clinical_intake:read"})),
+    )
+
+    assert len(result.items) == 1
+    assert result.items[0].intake_revision == 3
+    assert calls == [
+        {
+            "tenant_id": "tenant_public0001",
+            "patient_actor_id": PATIENT,
+            "doctor_actor_id": DOCTOR,
+            "resource_scope": "medication_review_read",
+        },
+        {
+            "tenant_id": "tenant_public0001",
+            "patient_actor_id": PATIENT,
+            "limit": 20,
+        },
+    ]
 
 
 @pytest.mark.asyncio

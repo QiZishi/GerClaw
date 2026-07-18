@@ -144,3 +144,11 @@ class MedicationReviewDraftHistoryRead(BaseModel):
     model_config = ConfigDict(extra="forbid", frozen=True)
 
     items: tuple[MedicationReviewDraftRead, ...] = Field(default_factory=tuple, max_length=20)
+
+
+class DoctorMedicationReviewDraftListRead(BaseModel):
+    """A doctor's consent-gated, read-only projection of saved review drafts."""
+
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    items: tuple[MedicationReviewDraftRead, ...] = Field(default_factory=tuple, max_length=20)

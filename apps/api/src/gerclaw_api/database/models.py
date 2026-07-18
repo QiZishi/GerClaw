@@ -298,7 +298,7 @@ class PatientAccessGrant(Base):
     __tablename__ = "patient_access_grants"
     __table_args__ = (
         CheckConstraint(
-            "resource_scope IN ('health_profile_read','cga_report_read')",
+            "resource_scope IN ('health_profile_read','cga_report_read','prescription_draft_review','medication_review_read')",
             name="valid_patient_access_grant_resource_scope",
         ),
         CheckConstraint("status IN ('active','revoked')", name="valid_patient_access_grant_status"),

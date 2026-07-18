@@ -53,3 +53,10 @@ change worth adding: the voice surface keeps preparation-cancel, pause/resume,
 stop and progress; question changes stop stale playback; and all passive
 fetches use the shared low-frequency indicator rather than a continuous
 spinner. This is intentionally a no-new-plan result rather than churn.
+
+The 2026-07-18 follow-up at `6367933` also inspected the newly added
+patient-authorisation and doctor medication-review dialogs. They reuse the
+shared dialog motion contract: transform/opacity only, 180ms strong ease-out,
+and an opacity-only reduced-motion fallback. Loading uses the existing inline
+status indicator rather than a competing spinner. No additional animation plan
+is warranted; this is an intentional no-new-plan audit result.

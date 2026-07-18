@@ -15,3 +15,8 @@ urgent clinician/pharmacist review and does not authorise self-adjustment.
 Beers-related coverage is reported as `limited_source_traceable`, not as a full Beers implementation. The system does not turn a non-match into “no finding” or “safe”; expanding coverage requires a permitted versioned dataset and clinical governance review. Medication-review intake accepts no document references, because five-prescription uploads have a distinct owner/session-scoped MinerU input boundary.
 
 医生端直接呈现具体结论、条件与来源；患者端仅在结果末尾显示一次风险提示。历史结果不是当前输入的替代品：若信息收集 revision 已变化，界面必须提示重新审查。
+
+登录患者可把 `medication_review_read` 授予一名指定医生。该授权只让
+医生读取加密保存的审查记录、输入版本和规则来源；不会开放会话、Trace、
+原始附件或其他健康资料。医生可在“患者列表”中直接打开已授权记录，或按
+患者代码读取；撤回、到期和未知患者均返回相同的不可见结果。

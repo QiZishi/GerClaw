@@ -14,6 +14,7 @@ const scopeLabels: Record<PatientGrantResource, string> = {
   health_profile_read: "健康画像",
   cga_report_read: "CGA 报告",
   prescription_draft_review: "处方草案",
+  medication_review_read: "用药审查",
 };
 
 function formattedExpiry(value: string): string {
@@ -110,7 +111,9 @@ export function DoctorPatientDirectoryDialog({
                         ? "查看画像"
                         : grant.resource_scope === "cga_report_read"
                           ? "查看 CGA"
-                          : "复核草案"}
+                          : grant.resource_scope === "prescription_draft_review"
+                            ? "复核草案"
+                            : "查看用药审查"}
                     </Button>
                   ))}
                 </div>

@@ -599,6 +599,10 @@ export const medicationReviewDraftHistorySchema = z
 
 export type MedicationReviewDraftHistory = z.infer<typeof medicationReviewDraftHistorySchema>;
 
+export const doctorMedicationReviewDraftListSchema = medicationReviewDraftHistorySchema;
+
+export type DoctorMedicationReviewDraftList = z.infer<typeof doctorMedicationReviewDraftListSchema>;
+
 const prescriptionEvidenceSourceSchema = z
   .object({
     evidence_id: z.string().regex(/^ev_[a-z0-9]{8,64}$/),
@@ -757,7 +761,7 @@ export const patientAccessGrantSchema = z
   .object({
     id: z.string().uuid(),
     doctor_actor_id: z.string().regex(/^usr_account_[a-f0-9]{32}$/),
-    resource_scope: z.enum(["health_profile_read", "cga_report_read", "prescription_draft_review"]),
+    resource_scope: z.enum(["health_profile_read", "cga_report_read", "prescription_draft_review", "medication_review_read"]),
     status: z.enum(["active", "revoked", "expired"]),
     expires_at: z.string().datetime(),
     revision: z.number().int().positive(),
@@ -775,7 +779,7 @@ export type PatientAccessGrantList = z.infer<typeof patientAccessGrantListSchema
 
 export const doctorPatientGrantScopeSchema = z
   .object({
-    resource_scope: z.enum(["health_profile_read", "cga_report_read", "prescription_draft_review"]),
+    resource_scope: z.enum(["health_profile_read", "cga_report_read", "prescription_draft_review", "medication_review_read"]),
     expires_at: z.string().datetime(),
   })
   .strict();
@@ -783,7 +787,7 @@ export const doctorPatientGrantScopeSchema = z
 export const doctorPatientAccessSchema = z
   .object({
     patient_actor_id: z.string().regex(/^usr_account_[a-f0-9]{32}$/),
-    grants: z.array(doctorPatientGrantScopeSchema).min(1).max(3),
+    grants: z.array(doctorPatientGrantScopeSchema).min(1).max(4),
   })
   .strict();
 
