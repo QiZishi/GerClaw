@@ -41,6 +41,7 @@ from gerclaw_api.modules.memory.runtime import create_memory_module
 from gerclaw_api.modules.risk_alert.service import RiskAlertService
 from gerclaw_api.modules.skill import ProductionSkillModule
 from gerclaw_api.modules.validation import validate_public_chat_stream_event
+from gerclaw_api.repositories.account_model_override import SqlAlchemyAccountModelOverrideRepository
 from gerclaw_api.repositories.approval import SqlAlchemyApprovalRepository
 from gerclaw_api.repositories.conversation import (
     ConversationConflictError,
@@ -52,6 +53,7 @@ from gerclaw_api.repositories.prescription_draft import SqlAlchemyPrescriptionDr
 from gerclaw_api.repositories.risk_alert import SqlAlchemyRiskAlertRepository
 from gerclaw_api.repositories.skill import SqlAlchemySkillRepository
 from gerclaw_api.repositories.trace import SqlAlchemyTraceRepository
+from gerclaw_api.services.account_model_configuration import resolve_effective_configs
 from gerclaw_api.services.chat_cancellation import (
     ChatCancellationRegistry,
     ChatCancellationUnavailable,
@@ -62,7 +64,7 @@ from gerclaw_api.services.conversation_service import (
     ConversationService,
 )
 from gerclaw_api.services.model_egress_audit import SqlAlchemyModelPromptEgressAudit
-from gerclaw_api.services.model_router import bind_model_prompt_egress_audit
+from gerclaw_api.services.model_router import FailoverChatModel, bind_model_prompt_egress_audit
 from gerclaw_api.services.rate_limit import RateLimiter
 from gerclaw_api.services.session_lease import SessionLease
 from gerclaw_api.services.trace_service import TraceService
@@ -284,6 +286,19 @@ async def chat(
         database: Database = request.app.state.database
         try:
             async with database.session() as database_session:
+                model = request.app.state.agent_model
+                request_owned_model: FailoverChatModel | None = None
+                if identity.account_role != "guest":
+                    override = await SqlAlchemyAccountModelOverrideRepository(database_session).get(
+                        tenant_id=identity.tenant_id, actor_id=identity.actor_id
+                    )
+                    if override is not None:
+                        request_owned_model = FailoverChatModel(
+                            resolve_effective_configs(
+                                request.app.state.settings, override.configuration
+                            )
+                        )
+                        model = request_owned_model
                 memory_repository = SqlAlchemyMemoryRepository(database_session)
 
                 def memory_factory(
@@ -297,7 +312,7 @@ async def chat(
                     return create_memory_module(
                         settings=request.app.state.settings,
                         repository=memory_repository,
-                        model=request.app.state.agent_model,
+                        model=model,
                         embedding_model=request.app.state.rag_runtime.embedding_model,
                         vector_store=request.app.state.memory_store,
                         tenant_id=tenant_id,
@@ -320,7 +335,7 @@ async def chat(
                         request.app.state.redis,
                         ttl_seconds=(request.app.state.settings.chat_session_lease_ttl_seconds),
                     ),
-                    model=request.app.state.agent_model,
+                    model=model,
                     rag_module=request.app.state.rag_runtime.module,
                     memory_factory=memory_factory,
                     search_module=request.app.state.search_runtime.module,
@@ -328,7 +343,7 @@ async def chat(
                         repository=SqlAlchemySkillRepository(database_session),
                         tenant_id=identity.tenant_id,
                         actor_id=identity.actor_id,
-                        model=request.app.state.agent_model,
+                        model=model,
                         allowed_tools=frozenset(request.app.state.settings.skill_allowed_tools),
                     ),
                     approval_repository=SqlAlchemyApprovalRepository(database_session),
@@ -344,18 +359,22 @@ async def chat(
                         database, tenant_id=identity.tenant_id, actor_id=identity.actor_id
                     )
                 ):
-                    await service.process(
-                        payload,
-                        identity=identity,
-                        request_id=request_id,
-                        trace_id=trace_id,
-                        callback=publish,
-                        cancellation_requested=lambda: registry.is_cancel_requested(
-                            tenant_id=identity.tenant_id,
-                            actor_id=identity.actor_id,
+                    try:
+                        await service.process(
+                            payload,
+                            identity=identity,
+                            request_id=request_id,
                             trace_id=trace_id,
-                        ),
-                    )
+                            callback=publish,
+                            cancellation_requested=lambda: registry.is_cancel_requested(
+                                tenant_id=identity.tenant_id,
+                                actor_id=identity.actor_id,
+                                trace_id=trace_id,
+                            ),
+                        )
+                    finally:
+                        if request_owned_model is not None:
+                            await request_owned_model.aclose()
         except asyncio.CancelledError:
             _force_enqueue(
                 queue,

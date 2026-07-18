@@ -102,6 +102,22 @@ class AccountRefreshSession(TimestampMixin, Base):
     replaced_by_id: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True), nullable=True)
 
 
+class AccountModelOverride(TimestampMixin, Base):
+    """Encrypted account-owned overrides for the three Agent model slots."""
+
+    __tablename__ = "account_model_overrides"
+    __table_args__ = (
+        UniqueConstraint("tenant_id", "actor_id", name="uq_account_model_override_owner"),
+        CheckConstraint("revision > 0", name="positive_account_model_override_revision"),
+    )
+
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    tenant_id: Mapped[str] = mapped_column(String(64), nullable=False, index=True)
+    actor_id: Mapped[str] = mapped_column(String(128), nullable=False, index=True)
+    configuration: Mapped[dict[str, Any]] = mapped_column(EncryptedJSON(), nullable=False)
+    revision: Mapped[int] = mapped_column(Integer, default=1, nullable=False)
+
+
 class IdentitySecurityEvent(Base):
     """Immutable, PHI-free security audit fact for a local-account operation."""
 

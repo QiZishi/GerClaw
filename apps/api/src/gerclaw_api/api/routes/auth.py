@@ -39,7 +39,17 @@ from gerclaw_api.repositories.account import (
     AccountNotFoundError,
     SqlAlchemyAccountRepository,
 )
+from gerclaw_api.repositories.account_model_override import (
+    AccountModelOverrideConflictError,
+    SqlAlchemyAccountModelOverrideRepository,
+)
 from gerclaw_api.security import audit_hmac_digest
+from gerclaw_api.services.account_model_configuration import (
+    AccountModelSlotRead,
+    AccountModelSlotWrite,
+    read_slots,
+    serialize_slots,
+)
 from gerclaw_api.services.rate_limit import RateLimiter
 
 router = APIRouter(prefix="/auth", tags=["auth"])
@@ -149,6 +159,30 @@ class AccountIdentityRead(BaseModel):
     account_role: Literal["patient", "doctor", "admin"]
 
 
+class AccountModelConfigurationUpdate(BaseModel):
+    """Replace account-owned model slots using an optimistic revision fence."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    expected_revision: int = Field(ge=0)
+    slots: list[AccountModelSlotWrite] = Field(max_length=3)
+
+    @model_validator(mode="after")
+    def unique_preferences(self) -> AccountModelConfigurationUpdate:
+        if len({slot.preference for slot in self.slots}) != len(self.slots):
+            raise ValueError("model slot preferences must be unique")
+        return self
+
+
+class AccountModelConfigurationRead(BaseModel):
+    """Read model override metadata without returning an API key or default secrets."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    revision: int = Field(ge=0)
+    slots: list[AccountModelSlotRead]
+
+
 class AccountAdminRead(BaseModel):
     """Identity data exposed only to an authenticated administrator."""
 
@@ -249,6 +283,68 @@ async def read_account_session(
         actor_id=identity.actor_id,
         role=identity.role,
         account_role=identity.account_role,
+    )
+
+
+def _require_persistent_account(identity: AuthContext) -> None:
+    if identity.account_role not in {
+        "patient",
+        "doctor",
+        "admin",
+    } or not identity.actor_id.startswith("usr_account_"):
+        raise HTTPException(status_code=403, detail={"code": "ACCOUNT_REQUIRED"})
+
+
+@router.get("/model-configuration", response_model=AccountModelConfigurationRead)
+async def read_model_configuration(
+    session: AccountSessionDependency,
+    identity: Annotated[AuthContext, Depends(authenticate)],
+) -> AccountModelConfigurationRead:
+    """Return only the current account's non-secret model override metadata."""
+
+    _require_persistent_account(identity)
+    record = await SqlAlchemyAccountModelOverrideRepository(session).get(
+        tenant_id=identity.tenant_id, actor_id=identity.actor_id
+    )
+    if record is None:
+        return AccountModelConfigurationRead(revision=0, slots=[])
+    try:
+        slots = list(read_slots(record.configuration))
+    except ValueError as error:
+        raise HTTPException(
+            status_code=409, detail={"code": "MODEL_CONFIGURATION_INVALID"}
+        ) from error
+    return AccountModelConfigurationRead(revision=record.revision, slots=slots)
+
+
+@router.put("/model-configuration", response_model=AccountModelConfigurationRead)
+async def replace_model_configuration(
+    payload: AccountModelConfigurationUpdate,
+    request: Request,
+    session: AccountSessionDependency,
+    identity: Annotated[AuthContext, Depends(authenticate)],
+) -> AccountModelConfigurationRead:
+    """Persist encrypted account overrides; omitted slots continue using deployment defaults."""
+
+    _require_persistent_account(identity)
+    limiter: RateLimiter = request.app.state.rate_limiter
+    await limiter.check(tenant_id=identity.tenant_id, actor_id=identity.actor_id)
+    repository = SqlAlchemyAccountModelOverrideRepository(session)
+    try:
+        record = await repository.replace(
+            tenant_id=identity.tenant_id,
+            actor_id=identity.actor_id,
+            configuration=serialize_slots(tuple(payload.slots)),
+            expected_revision=payload.expected_revision,
+        )
+        await session.commit()
+    except AccountModelOverrideConflictError as error:
+        await session.rollback()
+        raise HTTPException(
+            status_code=409, detail={"code": "MODEL_CONFIGURATION_CONFLICT"}
+        ) from error
+    return AccountModelConfigurationRead(
+        revision=record.revision, slots=list(read_slots(record.configuration))
     )
 
 
