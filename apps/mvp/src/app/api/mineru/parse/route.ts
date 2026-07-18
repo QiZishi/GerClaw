@@ -130,7 +130,7 @@ async function finishMineruEgress(
 }
 
 function deploymentProviderConfig(): MinerUProviderConfig {
-  const baseUrl = (process.env.MINERU_URL ?? process.env.MINERU_API_BASE_URL ?? "")
+  const baseUrl = (process.env.MINERU_URL ?? "")
     .trim()
     .replace(/\/$/, "");
   const allowedHosts = new Set(

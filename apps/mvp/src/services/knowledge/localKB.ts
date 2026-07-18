@@ -27,7 +27,7 @@ export function isKBInitializing(): boolean {
 }
 
 function getKBPath(): string {
-  return process.env.KNOWLEDGE_BASE_PATH || DEFAULT_KB_PATH;
+  return process.env.GERCLAW_KNOWLEDGE_BASE_PATH || DEFAULT_KB_PATH;
 }
 
 function extractTitleFromContent(content: string, fileName: string): string {

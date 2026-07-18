@@ -1,34 +1,17 @@
 name: gerclaw
 
-x-api-environment: &api-environment
-  GERCLAW_APP_ENV: ${GERCLAW_APP_ENV:-development}
-  GERCLAW_LOG_LEVEL: ${GERCLAW_LOG_LEVEL:-INFO}
-  GERCLAW_DATABASE_URL: postgresql+asyncpg://${POSTGRES_USER:-gerclaw}:${POSTGRES_PASSWORD:-local-postgres-only}@postgres:5432/${POSTGRES_DB:-gerclaw}
-  GERCLAW_DATABASE_POOL_SIZE: ${GERCLAW_DATABASE_POOL_SIZE:-20}
-  GERCLAW_DATABASE_MAX_OVERFLOW: ${GERCLAW_DATABASE_MAX_OVERFLOW:-20}
-  GERCLAW_DATABASE_POOL_TIMEOUT_SECONDS: ${GERCLAW_DATABASE_POOL_TIMEOUT_SECONDS:-10}
-  GERCLAW_REDIS_URL: redis://:${REDIS_PASSWORD:-local-redis-only}@redis:6379/0
-  GERCLAW_REDIS_MAX_CONNECTIONS: ${GERCLAW_REDIS_MAX_CONNECTIONS:-100}
-  GERCLAW_QDRANT_URL: http://qdrant:6333
-  GERCLAW_QDRANT_API_KEY: ${GERCLAW_QDRANT_API_KEY:-local-qdrant-only}
-  GERCLAW_KNOWLEDGE_BASE_PATH: /knowledge-base
-  GERCLAW_CORS_ORIGINS: ${GERCLAW_CORS_ORIGINS:-["http://localhost:3000"]}
-  GERCLAW_AGENTSCOPE_REQUIRED_VERSION: ${GERCLAW_AGENTSCOPE_REQUIRED_VERSION:-2.0.4}
-  GERCLAW_LOCAL_SECRET_DIR: /app/workspaces/secrets
-
 x-api-base: &api-base
-  image: ${GERCLAW_API_IMAGE:-gerclaw-api}
+  image: ${GERCLAW_API_IMAGE}
   build:
     context: ./apps/api
     target: production
     args:
-      PYTHON_IMAGE: ${PYTHON_IMAGE:-python:3.12-slim}
+      PYTHON_IMAGE: ${PYTHON_IMAGE}
   env_file:
     - path: ./.env
       required: false
-  environment: *api-environment
   volumes:
-    - "${GERCLAW_KNOWLEDGE_BASE_HOST_PATH:-../本地知识库/md}:/knowledge-base:ro"
+    - "${GERCLAW_KNOWLEDGE_BASE_HOST_PATH}:/knowledge-base:ro"
     - runtime_secrets:/app/workspaces
   networks:
     - edge
@@ -36,15 +19,15 @@ x-api-base: &api-base
 
 services:
   web:
-    image: ${GERCLAW_WEB_IMAGE:-gerclaw-web}
+    image: ${GERCLAW_WEB_IMAGE}
     build:
       context: ./apps/mvp
       target: production
       args:
-        NODE_IMAGE: ${NODE_IMAGE:-public.ecr.aws/docker/library/node:22-alpine}
-        NPM_REGISTRY: ${NPM_REGISTRY:-https://registry.npmmirror.com}
-        NEXT_PUBLIC_APP_NAME: ${NEXT_PUBLIC_APP_NAME:-GerClaw}
-        NEXT_PUBLIC_APP_VERSION: ${NEXT_PUBLIC_APP_VERSION:-1.0.0}
+        NODE_IMAGE: ${NODE_IMAGE}
+        NPM_REGISTRY: ${NPM_REGISTRY}
+        NEXT_PUBLIC_APP_NAME: ${NEXT_PUBLIC_APP_NAME}
+        NEXT_PUBLIC_APP_VERSION: ${NEXT_PUBLIC_APP_VERSION}
     env_file:
       - path: ./.env
         required: false
@@ -52,9 +35,8 @@ services:
       NODE_ENV: production
       HOSTNAME: 0.0.0.0
       PORT: 3000
-      GERCLAW_API_URL: http://api:8000
     ports:
-      - "127.0.0.1:${WEB_PORT:-3000}:3000"
+      - "127.0.0.1:${WEB_PORT}:3000"
     depends_on:
       api:
         condition: service_healthy
@@ -86,9 +68,9 @@ services:
     profiles: ["test"]
     environment:
       PGHOST: postgres
-      PGUSER: ${POSTGRES_USER:-gerclaw}
-      PGPASSWORD: ${POSTGRES_PASSWORD:-local-postgres-only}
-      TEST_DATABASE: ${POSTGRES_TEST_DB:-gerclaw_test}
+      PGUSER: ${POSTGRES_USER}
+      PGPASSWORD: ${POSTGRES_PASSWORD}
+      TEST_DATABASE: ${POSTGRES_TEST_DB}
     depends_on:
       postgres:
         condition: service_healthy
@@ -105,22 +87,13 @@ services:
 
   test-api:
     <<: *api-base
-    image: ${GERCLAW_API_TEST_IMAGE:-gerclaw-api-test}
+    image: ${GERCLAW_API_TEST_IMAGE}
     profiles: ["test"]
     build:
       context: ./apps/api
       target: test
       args:
-        PYTHON_IMAGE: ${PYTHON_IMAGE:-python:3.12-slim}
-    environment:
-      <<: *api-environment
-      GERCLAW_TEST_DATABASE_URL: postgresql+asyncpg://${POSTGRES_USER:-gerclaw}:${POSTGRES_PASSWORD:-local-postgres-only}@postgres:5432/${POSTGRES_TEST_DB:-gerclaw_test}
-      GERCLAW_TEST_REDIS_URL: redis://:${REDIS_PASSWORD:-local-redis-only}@redis:6379/15
-      GERCLAW_TEST_QDRANT_URL: http://qdrant:6333
-      GERCLAW_TEST_QDRANT_API_KEY: ${GERCLAW_QDRANT_API_KEY:-local-qdrant-only}
-      GERCLAW_TEST_KNOWLEDGE_BASE_PATH: /knowledge-base
-      GERCLAW_TEST_MEMORY_COLLECTION_NAME: gerclaw_user_memory_test_v1
-      GERCLAW_RUN_INTEGRATION: "1"
+        PYTHON_IMAGE: ${PYTHON_IMAGE}
     depends_on:
       test-db-init:
         condition: service_completed_successfully
@@ -140,7 +113,7 @@ services:
   api:
     <<: *api-base
     ports:
-      - "127.0.0.1:${API_PORT:-8000}:8000"
+      - "127.0.0.1:${API_PORT}:8000"
     depends_on:
       migrate:
         condition: service_completed_successfully
@@ -154,9 +127,9 @@ services:
   postgres:
     image: postgres:16-alpine
     environment:
-      POSTGRES_USER: ${POSTGRES_USER:-gerclaw}
-      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-local-postgres-only}
-      POSTGRES_DB: ${POSTGRES_DB:-gerclaw}
+      POSTGRES_USER: ${POSTGRES_USER}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+      POSTGRES_DB: ${POSTGRES_DB}
     volumes:
       - postgres_data:/var/lib/postgresql/data
     healthcheck:
@@ -171,7 +144,7 @@ services:
   redis:
     image: redis:7-alpine
     environment:
-      REDIS_PASSWORD: ${REDIS_PASSWORD:-local-redis-only}
+      REDIS_PASSWORD: ${REDIS_PASSWORD}
     command:
       - redis-server
       - --appendonly
@@ -179,7 +152,7 @@ services:
       - --appendfsync
       - everysec
       - --requirepass
-      - ${REDIS_PASSWORD:-local-redis-only}
+      - ${REDIS_PASSWORD}
     volumes:
       - redis_data:/data
     healthcheck:
@@ -194,7 +167,7 @@ services:
   qdrant:
     image: qdrant/qdrant:v1.18.2
     environment:
-      QDRANT__SERVICE__API_KEY: ${GERCLAW_QDRANT_API_KEY:-local-qdrant-only}
+      QDRANT__SERVICE__API_KEY: ${GERCLAW_QDRANT_API_KEY}
     volumes:
       - qdrant_data:/qdrant/storage
     networks:

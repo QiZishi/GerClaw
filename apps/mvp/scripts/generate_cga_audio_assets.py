@@ -89,11 +89,7 @@ def read_environment() -> dict[str, str]:
     """Load local configuration without printing credential values."""
 
     values = dict(os.environ)
-    for environment_file in (
-        ROOT / ".env",
-        ROOT / "apps" / "mvp" / ".env",
-        ROOT / "apps" / "mvp" / ".env.local",
-    ):
+    for environment_file in (ROOT / ".env",):
         if not environment_file.is_file():
             continue
         for raw_line in environment_file.read_text(encoding="utf-8").splitlines():

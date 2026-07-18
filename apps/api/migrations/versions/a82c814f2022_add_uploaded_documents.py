@@ -8,8 +8,9 @@ Create Date: 2026-07-16
 from collections.abc import Sequence
 
 import sqlalchemy as sa
-from alembic import op
 from sqlalchemy.dialects import postgresql
+
+from alembic import op
 
 revision: str = "a82c814f2022"
 down_revision: str | None = "a72c814f2021"

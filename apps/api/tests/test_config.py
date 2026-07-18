@@ -75,8 +75,14 @@ def _values() -> dict[str, object]:
     }
 
 
+def _settings(values: dict[str, object]) -> Settings:
+    """Validate one isolated payload without allowing the root env to fill omissions."""
+
+    return Settings(_env_file=None, **values)  # type: ignore[arg-type]
+
+
 def test_production_settings_accept_explicit_safe_endpoints() -> None:
-    settings = Settings.model_validate(_values())
+    settings = _settings(_values())
 
     assert settings.cors_origin_strings == ["https://gerclaw.example.com"]
     assert [item.preference for item in settings.agent_model_configs] == [
@@ -106,7 +112,7 @@ def test_model_deadline_and_output_budget_are_hard_upper_bounds(field: str, valu
     values[field] = value
 
     with pytest.raises(ValidationError):
-        Settings.model_validate(values)
+        _settings(values)
 
 
 @pytest.mark.parametrize(
@@ -122,7 +128,7 @@ def test_production_settings_reject_unsafe_configuration(field: str, value: obje
     values[field] = value
 
     with pytest.raises(ValidationError):
-        Settings.model_validate(values)
+        _settings(values)
 
 
 def test_production_rejects_legacy_browser_exposed_secrets() -> None:
@@ -148,7 +154,7 @@ def test_production_rejects_legacy_browser_exposed_secrets() -> None:
     )
 
     with pytest.raises(ValidationError, match="NEXT_PUBLIC"):
-        Settings.model_validate(values)
+        _settings(values)
 
 
 def test_legacy_mvp_names_only_map_in_nonproduction_migration() -> None:
@@ -174,7 +180,7 @@ def test_legacy_mvp_names_only_map_in_nonproduction_migration() -> None:
         }
     )
 
-    settings = Settings.model_validate(values)
+    settings = _settings(values)
 
     assert len(settings.agent_model_configs) == 3
     assert settings.agent_model_configs[0].api_key.get_secret_value() == "legacy-primary-key"
@@ -195,14 +201,14 @@ def test_production_rejects_blank_placeholder_and_insecure_external_config(
     values[field] = value
 
     with pytest.raises(ValidationError):
-        Settings.model_validate(values)
+        _settings(values)
 
 
 def test_partial_agent_model_configuration_is_rejected_on_access() -> None:
     values = _values()
     values["app_env"] = "test"
     values["agent_primary_api_key"] = None
-    settings = Settings.model_validate(values)
+    settings = _settings(values)
 
     with pytest.raises(ValueError, match="partially configured"):
         _ = settings.agent_model_configs
@@ -214,7 +220,7 @@ def test_model_slot_capabilities_are_loaded_from_server_configuration() -> None:
     values["agent_backup1_supports_tool_calling"] = False
     values["agent_model_capability_version"] = "model-capabilities-v2"
 
-    settings = Settings.model_validate(values)
+    settings = _settings(values)
 
     backup = settings.agent_model_configs[1]
     assert backup.capability_version == "model-capabilities-v2"
@@ -227,7 +233,7 @@ def test_production_rejects_implicit_model_capability_defaults() -> None:
     values.pop("agent_backup2_supports_image_input")
 
     with pytest.raises(ValidationError, match="capability declarations"):
-        Settings.model_validate(values)
+        _settings(values)
 
 
 @pytest.mark.parametrize(
@@ -249,7 +255,7 @@ def test_production_rejects_implicit_external_provider_capability_defaults(field
     values.pop(field)
 
     with pytest.raises(ValidationError, match="capability declarations"):
-        Settings.model_validate(values)
+        _settings(values)
 
 
 @pytest.mark.parametrize(
@@ -265,7 +271,7 @@ def test_rag_runtime_rejects_unsupported_provider_capabilities_before_constructi
     values = _values()
     values["app_env"] = "test"
     values[field] = False
-    settings = Settings.model_validate(values)
+    settings = _settings(values)
 
     with pytest.raises(ValueError, match=error):
         create_rag_runtime(settings, None)  # type: ignore[arg-type]
