@@ -3,6 +3,7 @@
 from gerclaw_api.modules.evals.runner import (
     run_golden_cases,
     run_medication_rule_golden_cases,
+    run_memory_extraction_golden_cases,
     run_opt_in_rag_retrieval_evaluation,
     run_output_safety_golden_cases,
     run_privacy_redaction_golden_cases,
@@ -12,6 +13,7 @@ from gerclaw_api.modules.evals.runner import (
 __all__ = [
     "run_golden_cases",
     "run_medication_rule_golden_cases",
+    "run_memory_extraction_golden_cases",
     "run_opt_in_rag_retrieval_evaluation",
     "run_output_safety_golden_cases",
     "run_privacy_redaction_golden_cases",

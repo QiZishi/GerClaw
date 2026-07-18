@@ -6,6 +6,8 @@ from typing import Final, Literal
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
+from gerclaw_api.modules.memory.models import MemoryExtraction
+from gerclaw_api.modules.memory.protocols import MemoryCategory, MemoryStatus
 from gerclaw_api.modules.privacy_redaction.models import (
     EgressPurpose,
     RedactionFinding,
@@ -197,6 +199,51 @@ class SkillDraftEvalCaseResult(BaseModel):
     expected_missing_checks: tuple[SkillDraftCheckCode, ...]
     actual_missing_checks: tuple[SkillDraftCheckCode, ...]
     quality_version: str
+
+
+class MemoryExtractionEvalOutcome(BaseModel):
+    """PHI-free expected outcome for one synthetic Memory candidate."""
+
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    category: MemoryCategory
+    status: MemoryStatus
+    action: Literal["upsert", "deactivate"]
+
+
+class MemoryExtractionEvalCase(BaseModel):
+    """Reviewed synthetic regression case for deterministic Memory guards.
+
+    The stored model response is synthetic test material only. Runner results
+    intentionally expose category/status/action rather than user text, entities,
+    statements, evidence spans, or model content.
+    """
+
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    schema_version: Literal["memory-extraction-case-v1"] = "memory-extraction-case-v1"
+    case_id: str = Field(pattern=r"^memory-extraction\.[a-z0-9_.-]{3,80}$")
+    title: str = Field(min_length=1, max_length=120)
+    synthetic_input: str = Field(min_length=1, max_length=500)
+    synthetic_model_output: MemoryExtraction
+    expected_outcomes: tuple[MemoryExtractionEvalOutcome, ...] = Field(
+        default_factory=tuple, max_length=10
+    )
+    min_confidence: float = Field(default=0.8, ge=0, le=1)
+    guard_version: Literal["memory-extraction-guard-v1"] = "memory-extraction-guard-v1"
+    provenance: Literal["synthetic_reviewed"] = "synthetic_reviewed"
+
+
+class MemoryExtractionEvalCaseResult(BaseModel):
+    """PHI-free Memory extraction result without source or model content."""
+
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    case_id: str
+    passed: bool
+    expected_outcomes: tuple[MemoryExtractionEvalOutcome, ...]
+    actual_outcomes: tuple[MemoryExtractionEvalOutcome, ...]
+    guard_version: str
 
 
 class RAGRetrievalEvalCase(BaseModel):

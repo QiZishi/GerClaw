@@ -4,6 +4,8 @@ from __future__ import annotations
 
 import uuid
 from collections.abc import Mapping
+from types import SimpleNamespace
+from typing import Any, cast
 
 from gerclaw_api.modules.agent_harness.safety import (
     HIGH_RISK_NOTICE,
@@ -18,11 +20,15 @@ from gerclaw_api.modules.evals.golden_cases import (
     SAFETY_GOLDEN_CASES,
 )
 from gerclaw_api.modules.evals.medication_cases import MEDICATION_RULE_GOLDEN_CASES
+from gerclaw_api.modules.evals.memory_cases import MEMORY_EXTRACTION_GOLDEN_CASES
 from gerclaw_api.modules.evals.models import (
     EvalCase,
     EvalCaseResult,
     MedicationRuleEvalCase,
     MedicationRuleEvalCaseResult,
+    MemoryExtractionEvalCase,
+    MemoryExtractionEvalCaseResult,
+    MemoryExtractionEvalOutcome,
     OutputSafetyEvalCase,
     OutputSafetyEvalCaseResult,
     PrivacyRedactionEvalCase,
@@ -40,6 +46,7 @@ from gerclaw_api.modules.medication_review.rules_engine import (
     MedicationRulesInputError,
     review_medication_list,
 )
+from gerclaw_api.modules.memory.extractor import RealMemoryExtractor, StructuredMemoryModel
 from gerclaw_api.modules.privacy_redaction.models import EgressPurpose
 from gerclaw_api.modules.privacy_redaction.policy import (
     redact_external_model_prompt,
@@ -56,6 +63,19 @@ from gerclaw_api.modules.validation import (
 from gerclaw_api.security import JsonValue
 
 _RAG_SOURCE_TYPES = frozenset({"guideline", "consensus", "textbook", "literature"})
+
+
+class _SyntheticMemoryModel:
+    """Minimal in-process structured-model double for reviewed synthetic Evals."""
+
+    def __init__(self, content: dict[str, Any]) -> None:
+        self._content = content
+
+    async def generate_structured_output(
+        self, messages: list[Any], structured_model: object, **kwargs: Any
+    ) -> Any:
+        del messages, structured_model, kwargs
+        return SimpleNamespace(content=self._content)
 
 
 def _has_complete_rag_provenance(metadata: Mapping[str, JsonValue]) -> bool:
@@ -266,6 +286,47 @@ def run_skill_draft_golden_cases() -> tuple[SkillDraftEvalCaseResult, ...]:
         failed = ", ".join(result.case_id for result in results if not result.passed)
         raise AssertionError(f"skill-draft golden cases failed: {failed}")
     return results
+
+
+async def run_memory_extraction_case(
+    case: MemoryExtractionEvalCase,
+) -> MemoryExtractionEvalCaseResult:
+    """Exercise Memory's real evidence guards with synthetic model content only."""
+
+    model = _SyntheticMemoryModel(case.synthetic_model_output.model_dump(mode="json"))
+    extractor = RealMemoryExtractor(
+        cast(StructuredMemoryModel, model),
+        min_confidence=case.min_confidence,
+        max_facts=10,
+    )
+    extracted = await extractor.extract(case.synthetic_input)
+    actual_outcomes = tuple(
+        MemoryExtractionEvalOutcome(
+            category=fact.category,
+            status=status,
+            action=fact.action,
+        )
+        for fact, status in extracted
+    )
+    return MemoryExtractionEvalCaseResult(
+        case_id=case.case_id,
+        passed=actual_outcomes == case.expected_outcomes,
+        expected_outcomes=case.expected_outcomes,
+        actual_outcomes=actual_outcomes,
+        guard_version=case.guard_version,
+    )
+
+
+async def run_memory_extraction_golden_cases() -> tuple[MemoryExtractionEvalCaseResult, ...]:
+    """Run the reviewed Memory extraction guard baseline without external calls."""
+
+    results: list[MemoryExtractionEvalCaseResult] = []
+    for case in MEMORY_EXTRACTION_GOLDEN_CASES:
+        results.append(await run_memory_extraction_case(case))
+    if not all(result.passed for result in results):
+        failed = ", ".join(result.case_id for result in results if not result.passed)
+        raise AssertionError(f"memory extraction golden cases failed: {failed}")
+    return tuple(results)
 
 
 async def run_rag_retrieval_case(

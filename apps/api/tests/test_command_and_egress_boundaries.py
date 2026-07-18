@@ -87,13 +87,18 @@ def test_safety_eval_cli_outputs_only_versioned_summary(
         eval_cli, "run_skill_draft_golden_cases", lambda: (_result("skill-draft.case"),)
     )
 
+    async def memory_results() -> tuple[_EvalResult, ...]:
+        return (_result("memory-extraction.case"),)
+
+    monkeypatch.setattr(eval_cli, "run_memory_extraction_golden_cases", memory_results)
+
     with pytest.raises(SystemExit, match="0"):
         eval_cli.main()
 
     payload = json.loads(capsys.readouterr().out)
     assert payload["schema_version"] == "eval-run-v1"
-    assert payload["case_count"] == 5
-    assert payload["passed_count"] == 5
+    assert payload["case_count"] == 6
+    assert payload["passed_count"] == 6
     assert payload["external_model_or_rag"] is False
 
 

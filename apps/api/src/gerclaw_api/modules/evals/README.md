@@ -29,6 +29,15 @@ checklist codes and the quality version; it never emits instructions, user
 requests or model output. Passing it does not assess medical validity or
 publish a Skill.
 
+`memory-extraction-case-v1` adds four reviewed, synthetic regressions for the
+production `RealMemoryExtractor`: explicit self-report confirmation, negated
+fact deactivation, other-subject rejection and unbound-entity rejection. It
+uses an in-memory synthetic structured response and never calls a provider.
+The CLI emits only a case ID plus category/status/action outcomes and the
+guard version; it never emits input, entity, statement, evidence span or model
+content. Passing it verifies these deterministic evidence guards only, not
+clinical correctness or extraction-model quality.
+
 Run:
 
 ```bash

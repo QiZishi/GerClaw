@@ -8,9 +8,11 @@ from pathlib import Path
 import pytest
 from pydantic import ValidationError
 
+from gerclaw_api.modules.evals.memory_cases import MEMORY_EXTRACTION_GOLDEN_CASES
 from gerclaw_api.modules.evals.models import (
     EvalCase,
     MedicationRuleEvalCase,
+    MemoryExtractionEvalCase,
     OutputSafetyEvalCase,
     PrivacyRedactionEvalCase,
     RAGEvaluationRunConfig,
@@ -28,6 +30,8 @@ from gerclaw_api.modules.evals.runner import (
     run_golden_cases,
     run_medication_rule_case,
     run_medication_rule_golden_cases,
+    run_memory_extraction_case,
+    run_memory_extraction_golden_cases,
     run_opt_in_rag_retrieval_evaluation,
     run_output_safety_case,
     run_output_safety_golden_cases,
@@ -185,6 +189,44 @@ def test_skill_draft_eval_reports_a_failed_expectation_without_echoing_instructi
     assert result.passed is False
     assert result.actual_missing_checks == ("red_flag", "medical_disclaimer")
     assert "先核对输入" not in result.model_dump_json()
+
+
+@pytest.mark.asyncio
+async def test_memory_extraction_golden_cases_exercise_real_guards() -> None:
+    results = await run_memory_extraction_golden_cases()
+
+    assert len(results) == 4
+    assert all(result.passed for result in results)
+    assert results[0].actual_outcomes[0].status == "confirmed"
+    assert results[1].actual_outcomes[0].action == "deactivate"
+    assert results[2].actual_outcomes == ()
+    assert results[3].actual_outcomes == ()
+    serialized = results[0].model_dump_json()
+    assert "合成药甲" not in serialized
+    assert "合成患者" not in serialized
+
+
+def test_memory_extraction_eval_rejects_unreviewed_provenance() -> None:
+    source_case = MEMORY_EXTRACTION_GOLDEN_CASES[0]
+    with pytest.raises(ValidationError):
+        MemoryExtractionEvalCase(
+            **{
+                **source_case.model_dump(mode="python"),
+                "provenance": "raw_user_feedback",
+            }
+        )
+
+
+@pytest.mark.asyncio
+async def test_memory_extraction_eval_reports_a_failed_expectation() -> None:
+    source_case = MEMORY_EXTRACTION_GOLDEN_CASES[0]
+    result = await run_memory_extraction_case(
+        source_case.model_copy(update={"expected_outcomes": ()})
+    )
+
+    assert result.passed is False
+    assert result.actual_outcomes[0].status == "confirmed"
+    assert "合成药甲" not in result.model_dump_json()
 
 
 def test_eval_case_rejects_unknown_fields_and_unreviewed_provenance() -> None:

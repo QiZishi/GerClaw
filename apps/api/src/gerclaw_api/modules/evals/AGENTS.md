@@ -29,6 +29,10 @@ content and has written a new canonical case.
   checklist codes and `skill-draft-quality-v1`. Results must never expose the
   instructions, a user request, model output, or imply medical validity or
   automatic publication.
+- Memory-extraction canaries exercise the production evidence guards with
+  reviewed synthetic input and in-memory synthetic structured output only.
+  Results may expose category/status/action but must never expose input,
+  entity, statement, evidence span, candidate details, or model content.
 
 ## Change and test rules
 
