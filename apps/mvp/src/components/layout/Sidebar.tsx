@@ -64,6 +64,7 @@ import { AccountDeactivationDialog } from "@/components/account/AccountDeactivat
 import { PrescriptionReviewAccessDialog } from "@/components/consent/PrescriptionReviewAccessDialog";
 import { DoctorCgaWorkspaceDialog } from "@/components/consent/DoctorCgaWorkspaceDialog";
 import { DoctorHealthProfileDialog } from "@/components/consent/DoctorHealthProfileDialog";
+import { DoctorPatientDirectoryDialog } from "@/components/consent/DoctorPatientDirectoryDialog";
 import { DoctorPrescriptionReviewDialog } from "@/components/consent/DoctorPrescriptionReviewDialog";
 import {
   getAccountIdentity,
@@ -125,6 +126,7 @@ export function Sidebar({ onNavigate }: SidebarProps) {
   const [doctorPrescriptionReviewOpen, setDoctorPrescriptionReviewOpen] = useState(false);
   const [doctorCgaWorkspaceOpen, setDoctorCgaWorkspaceOpen] = useState(false);
   const [doctorHealthProfileOpen, setDoctorHealthProfileOpen] = useState(false);
+  const [doctorPatientDirectoryOpen, setDoctorPatientDirectoryOpen] = useState(false);
 
   useEffect(() => {
     const frame = requestAnimationFrame(() => setMounted(true));
@@ -585,6 +587,12 @@ export function Sidebar({ onNavigate }: SidebarProps) {
                 </DropdownMenuItem>
               )}
               {account?.account_role === "doctor" && (
+                <DropdownMenuItem className={cn("cursor-pointer", seniorMode && "min-h-12 text-base")} onClick={() => setDoctorPatientDirectoryOpen(true)}>
+                  <User className="size-4" />
+                  患者列表
+                </DropdownMenuItem>
+              )}
+              {account?.account_role === "doctor" && (
                 <DropdownMenuItem className={cn("cursor-pointer", seniorMode && "min-h-12 text-base")} onClick={() => setDoctorHealthProfileOpen(true)}>
                   <User className="size-4" />
                   患者健康画像
@@ -774,6 +782,11 @@ export function Sidebar({ onNavigate }: SidebarProps) {
       {account?.account_role === "doctor" && <DoctorHealthProfileDialog
         open={doctorHealthProfileOpen}
         onOpenChange={setDoctorHealthProfileOpen}
+        seniorMode={seniorMode}
+      />}
+      {account?.account_role === "doctor" && <DoctorPatientDirectoryDialog
+        open={doctorPatientDirectoryOpen}
+        onOpenChange={setDoctorPatientDirectoryOpen}
         seniorMode={seniorMode}
       />}
     </aside>

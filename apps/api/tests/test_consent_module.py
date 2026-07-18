@@ -36,11 +36,18 @@ def _identity(*, role: str = "patient", scopes: frozenset[str] = frozenset()) ->
     )
 
 
-def _grant(*, status: str = "active", expires_at: datetime | None = None) -> SimpleNamespace:
+def _grant(
+    *,
+    patient_actor_id: str = PATIENT,
+    resource_scope: str = "health_profile_read",
+    status: str = "active",
+    expires_at: datetime | None = None,
+) -> SimpleNamespace:
     return SimpleNamespace(
         id=uuid.uuid4(),
+        patient_actor_id=patient_actor_id,
         doctor_actor_id=DOCTOR,
-        resource_scope="health_profile_read",
+        resource_scope=resource_scope,
         status=status,
         expires_at=expires_at or datetime.now(UTC) + timedelta(days=7),
         revision=1,
@@ -111,6 +118,59 @@ async def test_only_patient_can_mutate_own_grants() -> None:
         await consent_routes.grant_access(payload, SimpleNamespace(), _identity(role="doctor"))
     assert rejected.value.status_code == 403
     assert rejected.value.detail["code"] == "PATIENT_ACCOUNT_REQUIRED"
+
+
+@pytest.mark.asyncio
+async def test_doctor_directory_exposes_only_current_patient_grant_metadata(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    other_patient = "usr_account_cccccccccccccccccccccccccccccccc"
+    records = [
+        _grant(resource_scope="cga_report_read"),
+        _grant(resource_scope="health_profile_read"),
+        _grant(
+            patient_actor_id=other_patient,
+            resource_scope="prescription_draft_review",
+        ),
+    ]
+    calls: list[dict[str, object]] = []
+
+    class FakeRepository:
+        def __init__(self, _session: object) -> None:
+            pass
+
+        async def require_active_doctor(self, **kwargs: object) -> None:
+            calls.append(kwargs)
+
+        async def list_active_for_doctor(self, **kwargs: object) -> list[SimpleNamespace]:
+            calls.append(kwargs)
+            return records
+
+    monkeypatch.setattr(consent_routes, "SqlAlchemyPatientAccessGrantRepository", FakeRepository)
+    result = await consent_routes.list_authorized_patients(
+        SimpleNamespace(), _identity(role="doctor")
+    )
+
+    assert calls == [
+        {"tenant_id": "tenant_public0001", "actor_id": DOCTOR},
+        {"tenant_id": "tenant_public0001", "doctor_actor_id": DOCTOR},
+    ]
+    assert [
+        (item.patient_actor_id, [grant.resource_scope for grant in item.grants])
+        for item in result.items
+    ] == [
+        (PATIENT, ["cga_report_read", "health_profile_read"]),
+        (other_patient, ["prescription_draft_review"]),
+    ]
+    assert all(not hasattr(item, "profile") for item in result.items)
+
+
+@pytest.mark.asyncio
+async def test_patient_cannot_read_doctor_directory() -> None:
+    with pytest.raises(HTTPException) as rejected:
+        await consent_routes.list_authorized_patients(SimpleNamespace(), _identity())
+    assert rejected.value.status_code == 403
+    assert rejected.value.detail["code"] == "DOCTOR_ACCOUNT_REQUIRED"
 
 
 @pytest.mark.asyncio

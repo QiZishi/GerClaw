@@ -93,6 +93,28 @@ class SqlAlchemyPatientAccessGrantRepository:
         )
         return list((await self._session.scalars(statement)).all())
 
+    async def list_active_for_doctor(
+        self, *, tenant_id: str, doctor_actor_id: str
+    ) -> list[PatientAccessGrant]:
+        """Return only the doctor's live grants, with no patient profile join."""
+
+        statement = (
+            select(PatientAccessGrant)
+            .where(
+                PatientAccessGrant.tenant_id == tenant_id,
+                PatientAccessGrant.doctor_actor_id == doctor_actor_id,
+                PatientAccessGrant.status == "active",
+                PatientAccessGrant.expires_at > datetime.now(UTC),
+            )
+            .order_by(
+                PatientAccessGrant.patient_actor_id.asc(),
+                PatientAccessGrant.resource_scope.asc(),
+                PatientAccessGrant.id.asc(),
+            )
+            .limit(300)
+        )
+        return list((await self._session.scalars(statement)).all())
+
     async def revoke(
         self,
         *,

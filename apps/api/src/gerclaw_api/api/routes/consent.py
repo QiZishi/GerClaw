@@ -20,6 +20,9 @@ from gerclaw_api.database.models import PrescriptionDraftReview
 from gerclaw_api.dependencies import get_database_session
 from gerclaw_api.modules.cga.models import CgaHistoryRead
 from gerclaw_api.modules.consent.models import (
+    DoctorPatientAccessListRead,
+    DoctorPatientAccessRead,
+    DoctorPatientGrantScopeRead,
     PatientAccessGrantCreate,
     PatientAccessGrantListRead,
     PatientAccessGrantRead,
@@ -145,6 +148,39 @@ async def list_my_grants(
         tenant_id=identity.tenant_id, patient_actor_id=identity.actor_id
     )
     return PatientAccessGrantListRead(items=[_project(record) for record in records])
+
+
+@router.get("/patients", response_model=DoctorPatientAccessListRead)
+async def list_authorized_patients(
+    session: SessionDependency, identity: Identity
+) -> DoctorPatientAccessListRead:
+    """List only patients that currently authorize this authenticated doctor."""
+
+    _require_doctor(identity)
+    repository = SqlAlchemyPatientAccessGrantRepository(session)
+    try:
+        await repository.require_active_doctor(
+            tenant_id=identity.tenant_id, actor_id=identity.actor_id
+        )
+    except PatientAccessGrantNotFoundError as error:
+        raise _not_found() from error
+    records = await repository.list_active_for_doctor(
+        tenant_id=identity.tenant_id, doctor_actor_id=identity.actor_id
+    )
+    by_patient: dict[str, list[DoctorPatientGrantScopeRead]] = {}
+    for record in records:
+        by_patient.setdefault(record.patient_actor_id, []).append(
+            DoctorPatientGrantScopeRead(
+                resource_scope=record.resource_scope,
+                expires_at=record.expires_at,
+            )
+        )
+    return DoctorPatientAccessListRead(
+        items=[
+            DoctorPatientAccessRead(patient_actor_id=patient_actor_id, grants=tuple(grants))
+            for patient_actor_id, grants in by_patient.items()
+        ]
+    )
 
 
 @router.post("/{grant_id}/revoke", response_model=PatientAccessGrantRead)

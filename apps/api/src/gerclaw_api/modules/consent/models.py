@@ -55,3 +55,27 @@ class PatientAccessGrantListRead(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     items: list[PatientAccessGrantRead] = Field(default_factory=list, max_length=100)
+
+
+class DoctorPatientGrantScopeRead(BaseModel):
+    """One currently effective projection a patient has granted to this doctor."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    resource_scope: ResourceScope
+    expires_at: datetime
+
+
+class DoctorPatientAccessRead(BaseModel):
+    """Deliberately minimal patient directory entry for an authorized doctor."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    patient_actor_id: str = Field(pattern=r"^usr_account_[a-f0-9]{32}$")
+    grants: tuple[DoctorPatientGrantScopeRead, ...] = Field(min_length=1, max_length=3)
+
+
+class DoctorPatientAccessListRead(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    items: list[DoctorPatientAccessRead] = Field(default_factory=list, max_length=100)

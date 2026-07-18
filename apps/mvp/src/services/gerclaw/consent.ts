@@ -1,7 +1,9 @@
 import { gerclawRequest } from "./client";
 import {
+  doctorPatientAccessListSchema,
   patientAccessGrantListSchema,
   patientAccessGrantSchema,
+  type DoctorPatientAccessList,
   type PatientAccessGrant,
   type PatientAccessGrantList,
 } from "./schemas";
@@ -10,6 +12,11 @@ export type PatientGrantResource = PatientAccessGrant["resource_scope"];
 
 export function listPrescriptionReviewGrants(): Promise<PatientAccessGrantList> {
   return gerclawRequest("access-grants", patientAccessGrantListSchema);
+}
+
+/** A doctor can discover only patients with a live grant to that same doctor. */
+export function listAuthorizedPatients(): Promise<DoctorPatientAccessList> {
+  return gerclawRequest("access-grants/patients", doctorPatientAccessListSchema);
 }
 
 /** A patient chooses the bounded read projections that a specific doctor may use. */

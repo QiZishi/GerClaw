@@ -734,6 +734,27 @@ export const patientAccessGrantListSchema = z
 
 export type PatientAccessGrant = z.infer<typeof patientAccessGrantSchema>;
 export type PatientAccessGrantList = z.infer<typeof patientAccessGrantListSchema>;
+
+export const doctorPatientGrantScopeSchema = z
+  .object({
+    resource_scope: z.enum(["health_profile_read", "cga_report_read", "prescription_draft_review"]),
+    expires_at: z.string().datetime(),
+  })
+  .strict();
+
+export const doctorPatientAccessSchema = z
+  .object({
+    patient_actor_id: z.string().regex(/^usr_account_[a-f0-9]{32}$/),
+    grants: z.array(doctorPatientGrantScopeSchema).min(1).max(3),
+  })
+  .strict();
+
+export const doctorPatientAccessListSchema = z
+  .object({ items: z.array(doctorPatientAccessSchema).max(100) })
+  .strict();
+
+export type DoctorPatientAccess = z.infer<typeof doctorPatientAccessSchema>;
+export type DoctorPatientAccessList = z.infer<typeof doctorPatientAccessListSchema>;
 export type PrescriptionDraftReview = z.infer<typeof prescriptionDraftReviewSchema>;
 
 export { feedbackSubmitSchema } from "./feedback-contract";
