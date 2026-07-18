@@ -663,6 +663,7 @@ const prescriptionSectionSchema = z
 const medicationDraftSchema = prescriptionSectionSchema
   .extend({
     kind: z.literal("medication"),
+    title: z.literal("药物处方"),
     medication_items: z.array(z.string().min(1).max(2_000)).max(30),
     monitoring_requirements: z.array(z.string().min(1).max(1_000)).max(20),
     review_required: z.literal(true),
@@ -681,6 +682,7 @@ const exercisePhaseSchema = z
 const exerciseDraftSchema = prescriptionSectionSchema
   .extend({
     kind: z.literal("exercise"),
+    title: z.literal("运动处方"),
     contraindications: z.array(z.string().min(1).max(1_000)).min(1).max(20),
     phases: z.array(exercisePhaseSchema).min(1).max(6),
   })
@@ -689,6 +691,7 @@ const exerciseDraftSchema = prescriptionSectionSchema
 const nutritionDraftSchema = prescriptionSectionSchema
   .extend({
     kind: z.literal("nutrition"),
+    title: z.literal("营养处方"),
     assessment_summary: z.string().min(1).max(2_000),
     target_energy_kcal: z.number().int().min(1).max(10_000).nullable(),
     target_protein_g: z.number().int().min(1).max(1_000).nullable(),
@@ -699,6 +702,7 @@ const nutritionDraftSchema = prescriptionSectionSchema
 const psychologicalDraftSchema = prescriptionSectionSchema
   .extend({
     kind: z.literal("psychological"),
+    title: z.literal("心理处方"),
     assessment_summary: z.string().min(1).max(2_000),
     follow_up: z.string().min(1).max(1_000),
     review_required: z.literal(true),
@@ -708,6 +712,7 @@ const psychologicalDraftSchema = prescriptionSectionSchema
 const rehabilitationDraftSchema = prescriptionSectionSchema
   .extend({
     kind: z.literal("rehabilitation"),
+    title: z.literal("康复处方"),
     rehabilitation_type: z.string().min(1).max(200),
     functional_assessment: z.string().min(1).max(2_000),
     training_plan: z.array(z.string().min(1).max(1_000)).min(1).max(20),

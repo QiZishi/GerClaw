@@ -30,7 +30,8 @@ test("keeps every structured five-prescription field in the exported report", ()
   const content = fivePrescriptionDraftToMarkdown(draft);
   for (const expected of [
     "72 岁", "改善耐力", "近期跌倒", "跌倒风险", "既往用药", "监测血压",
-    "运动禁忌核对", "1800 kcal", "60 g", "手杖核对", "康复安全事项",
+    "## 药物处方", "## 运动处方", "## 营养处方", "## 心理处方", "## 康复处方",
+    "运动禁忌核对", "1800 kcal", "60 g", "平衡训练", "功能评估", "手杖核对", "康复安全事项",
     "上传图片：本次使用 1 张病例图片", "章节依据：ev_local1234",
   ]) assert.ok(content.includes(expected), `export is missing ${expected}`);
 });

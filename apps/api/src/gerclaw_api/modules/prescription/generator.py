@@ -56,6 +56,9 @@ _SYSTEM_PROMPT = "\n".join(
         "生成供临床人员审核的结构化草案。",
         "",
         "必须遵守：",
+        "0. 必须且只能生成五章，按药物处方、运动处方、营养处方、心理处方、康复处方",
+        "排列并使用这五个固定标题。睡眠问题属于心理处方的评估或建议，不得生成睡眠处方；",
+        "生活方式内容须拆入运动处方、营养处方或注意事项，不得另建生活方式处方。",
         "1. 这是待审核草案，不是确定性诊断；健康评估使用审慎措辞并列出待核对事项。",
         "2. 每个章节和每条建议只能引用给定 evidence_id，不能编造来源、药物事实、",
         "检验结果或患者信息。",
@@ -289,7 +292,7 @@ class EvidenceBoundPrescriptionGenerator:
                 risk_factors=("完整风险因素、合并症和检查结果尚待核对。",),
             ),
             medication=MedicationDraft(
-                title="药物核对",
+                title="药物处方",
                 goal="确认完整用药、适应证、不良反应与监测需求。",
                 recommendations=(recommendation,),
                 precautions=("涉及用药调整时，需结合完整病史、检查结果和相应证据复核。",),
@@ -298,7 +301,7 @@ class EvidenceBoundPrescriptionGenerator:
                 monitoring_requirements=("由医生或药师核对药盒、处方和近期检查结果。",),
             ),
             exercise=ExerciseDraft(
-                title="运动计划",
+                title="运动处方",
                 goal="在专业人员评估安全性后逐步恢复或维持活动。",
                 recommendations=(recommendation,),
                 precautions=("出现胸痛、呼吸困难、晕厥或神经系统异常时立即就医。",),
@@ -314,7 +317,7 @@ class EvidenceBoundPrescriptionGenerator:
                 ),
             ),
             nutrition=NutritionDraft(
-                title="营养支持",
+                title="营养处方",
                 goal="完成营养风险和摄入情况评估后确定个体化方案。",
                 recommendations=(recommendation,),
                 precautions=("合并疾病或吞咽困难时须由专业人员评估。",),
@@ -323,7 +326,7 @@ class EvidenceBoundPrescriptionGenerator:
                 monitoring=("记录近期体重变化、进食情况及吞咽困难等信息。",),
             ),
             psychological=PsychologicalDraft(
-                title="心理与睡眠支持",
+                title="心理处方",
                 goal="识别情绪、睡眠和社会支持需求，并安排必要的专业评估。",
                 recommendations=(recommendation,),
                 precautions=("出现自伤想法、严重意识改变或急性行为异常时立即寻求急救帮助。",),
@@ -332,7 +335,7 @@ class EvidenceBoundPrescriptionGenerator:
                 follow_up="由医生根据症状持续时间、功能影响和风险信号安排复核。",
             ),
             rehabilitation=RehabilitationDraft(
-                title="康复与功能支持",
+                title="康复处方",
                 goal="评估日常生活能力、步态、平衡和辅助需求后制定计划。",
                 recommendations=(recommendation,),
                 precautions=("训练中出现不适应停止并及时就医。",),

@@ -117,6 +117,26 @@ def test_generic_five_prescription_draft_requires_all_five_sections_and_disclaim
     assert draft.rehabilitation.rehabilitation_type
     assert draft.medication.review_required is True
     assert draft.psychological.review_required is True
+    assert [
+        draft.medication.title,
+        draft.exercise.title,
+        draft.nutrition.title,
+        draft.psychological.title,
+        draft.rehabilitation.title,
+    ] == ["药物处方", "运动处方", "营养处方", "心理处方", "康复处方"]
+
+
+def test_five_prescription_draft_rejects_a_sleep_prescription_substitution() -> None:
+    with pytest.raises(ValidationError, match="title"):
+        PsychologicalDraft(
+            title="睡眠处方",
+            goal="错误分类",
+            recommendations=(_recommendation(),),
+            precautions=("待核对",),
+            evidence_ids=("ev_12345678",),
+            assessment_summary="错误地替换了心理处方。",
+            follow_up="待核对。",
+        )
 
 
 def test_five_prescription_draft_rejects_untraceable_evidence() -> None:

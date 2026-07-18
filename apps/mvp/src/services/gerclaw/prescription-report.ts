@@ -83,7 +83,7 @@ export function fivePrescriptionDraftToMarkdown(draft: FivePrescriptionDraft): s
     "### 训练计划",
     ...draft.rehabilitation.training_plan.map((item) => `- ${item}`),
     "",
-    "### 辅助用具核对",
+    "### 辅助器具建议",
     ...bullets(draft.rehabilitation.assistive_devices, "未提出辅助用具建议。"),
     "",
     "### 康复安全注意事项",

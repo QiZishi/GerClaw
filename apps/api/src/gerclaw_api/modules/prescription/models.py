@@ -78,6 +78,7 @@ class MedicationDraft(PrescriptionSection):
     """Medication section shape only; dose safety remains a separately governed rule set."""
 
     kind: Literal["medication"] = "medication"
+    title: Literal["药物处方"] = "药物处方"
     medication_items: tuple[str, ...] = Field(default_factory=tuple, max_length=30)
     monitoring_requirements: tuple[str, ...] = Field(default_factory=tuple, max_length=20)
     review_required: Literal[True] = True
@@ -94,12 +95,14 @@ class ExercisePhase(BaseModel):
 
 class ExerciseDraft(PrescriptionSection):
     kind: Literal["exercise"] = "exercise"
+    title: Literal["运动处方"] = "运动处方"
     contraindications: tuple[str, ...] = Field(min_length=1, max_length=20)
     phases: tuple[ExercisePhase, ...] = Field(min_length=1, max_length=6)
 
 
 class NutritionDraft(PrescriptionSection):
     kind: Literal["nutrition"] = "nutrition"
+    title: Literal["营养处方"] = "营养处方"
     assessment_summary: str = Field(min_length=1, max_length=2_000)
     target_energy_kcal: int | None = Field(default=None, ge=1, le=10_000)
     target_protein_g: int | None = Field(default=None, ge=1, le=1_000)
@@ -108,6 +111,7 @@ class NutritionDraft(PrescriptionSection):
 
 class PsychologicalDraft(PrescriptionSection):
     kind: Literal["psychological"] = "psychological"
+    title: Literal["心理处方"] = "心理处方"
     assessment_summary: str = Field(min_length=1, max_length=2_000)
     follow_up: str = Field(min_length=1, max_length=1_000)
     review_required: Literal[True] = True
@@ -117,6 +121,7 @@ class RehabilitationDraft(PrescriptionSection):
     """Required rehabilitation fields from the supplied five-prescription template."""
 
     kind: Literal["rehabilitation"] = "rehabilitation"
+    title: Literal["康复处方"] = "康复处方"
     rehabilitation_type: str = Field(min_length=1, max_length=200)
     functional_assessment: str = Field(min_length=1, max_length=2_000)
     training_plan: tuple[str, ...] = Field(min_length=1, max_length=20)

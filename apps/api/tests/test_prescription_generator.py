@@ -101,7 +101,7 @@ def _content() -> GeneratedPrescriptionContent:
             summary="当前资料提示需要进一步评估活动耐受。", key_issues=("活动后疲劳",)
         ),
         medication=MedicationDraft(
-            title="用药核对",
+            title="药物处方",
             goal="由医生或药师核对现有用药。",
             recommendations=(recommendation,),
             precautions=("不自行调整药物。",),
@@ -110,7 +110,7 @@ def _content() -> GeneratedPrescriptionContent:
             monitoring_requirements=("携带完整药盒或处方供医生核对。",),
         ),
         exercise=ExerciseDraft(
-            title="运动建议",
+            title="运动处方",
             goal="在专业人员确认后逐步活动。",
             recommendations=(recommendation,),
             precautions=("出现不适立即停止并就医。",),
@@ -126,7 +126,7 @@ def _content() -> GeneratedPrescriptionContent:
             ),
         ),
         nutrition=NutritionDraft(
-            title="营养建议",
+            title="营养处方",
             goal="补充完整饮食信息后由专业人员制定目标。",
             recommendations=(recommendation,),
             precautions=("合并疾病时需个体化调整。",),
@@ -135,7 +135,7 @@ def _content() -> GeneratedPrescriptionContent:
             monitoring=("按医生建议复查。",),
         ),
         psychological=PsychologicalDraft(
-            title="心理支持",
+            title="心理处方",
             goal="识别并支持睡眠和情绪困扰。",
             recommendations=(recommendation,),
             precautions=("出现自伤风险时立即寻求急救帮助。",),
@@ -144,7 +144,7 @@ def _content() -> GeneratedPrescriptionContent:
             follow_up="按医生建议随访。",
         ),
         rehabilitation=RehabilitationDraft(
-            title="康复建议",
+            title="康复处方",
             goal="改善功能并降低活动风险。",
             recommendations=(recommendation,),
             precautions=("训练应在安全保护下循序渐进。",),

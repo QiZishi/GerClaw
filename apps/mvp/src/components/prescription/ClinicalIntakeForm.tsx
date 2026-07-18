@@ -967,9 +967,13 @@ export function ClinicalIntakeForm({
           <p className={cn("rounded-lg border border-border bg-muted/20 p-3 leading-relaxed text-muted-foreground", seniorMode ? "text-lg" : "text-sm")}>{draft.psychological.assessment_summary}</p>
           <DraftList title="后续复核" items={[draft.psychological.follow_up]} seniorMode={seniorMode} />
           <DraftSection section={draft.rehabilitation} seniorMode={seniorMode} />
+          <div className="grid gap-3 sm:grid-cols-2">
+            <DraftDetail title="康复类型" content={draft.rehabilitation.rehabilitation_type} seniorMode={seniorMode} />
+            <DraftDetail title="功能评估" content={draft.rehabilitation.functional_assessment} seniorMode={seniorMode} />
+          </div>
           <DraftList title="训练计划" items={draft.rehabilitation.training_plan} seniorMode={seniorMode} />
-          <DraftList title="安全注意事项" items={draft.rehabilitation.safety_precautions} seniorMode={seniorMode} />
-          {draft.rehabilitation.assistive_devices.length > 0 && <DraftList title="辅助用具核对" items={draft.rehabilitation.assistive_devices} seniorMode={seniorMode} />}
+          {draft.rehabilitation.assistive_devices.length > 0 && <DraftList title="辅助器具建议" items={draft.rehabilitation.assistive_devices} seniorMode={seniorMode} />}
+          <DraftList title="康复安全注意事项" items={draft.rehabilitation.safety_precautions} seniorMode={seniorMode} />
 
           <div className="space-y-2 border-t border-border pt-4">
             <h3 className={cn("font-medium text-foreground", seniorMode ? "text-lg" : "text-base")}>证据来源</h3>
@@ -1004,6 +1008,15 @@ export function ClinicalIntakeForm({
         </Button>
       </footer>
     </section>
+  );
+}
+
+function DraftDetail({ title, content, seniorMode }: { title: string; content: string; seniorMode: boolean }) {
+  return (
+    <div className="rounded-lg border border-border bg-muted/20 p-3">
+      <h4 className={cn("font-medium text-foreground", seniorMode ? "text-lg" : "text-sm")}>{title}</h4>
+      <p className={cn("mt-1 leading-relaxed text-muted-foreground", seniorMode ? "text-lg" : "text-sm")}>{content}</p>
+    </div>
   );
 }
 
