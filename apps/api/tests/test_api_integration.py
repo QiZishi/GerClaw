@@ -492,6 +492,21 @@ async def test_real_trace_feedback_bad_case_encryption_and_readiness_flow(
         "negative_feedback_count": 1,
         "high_priority_count": 1,
     }
+    bad_case_trend = await client.get(
+        "/api/v1/auth/admin/bad-cases/trend",
+        headers={"Authorization": f"Bearer {administrator_token}"},
+    )
+    assert bad_case_trend.status_code == 200
+    trend_payload = bad_case_trend.json()
+    assert trend_payload["window_days"] == 7
+    assert len(trend_payload["points"]) == 7
+    assert sum(point["total"] for point in trend_payload["points"]) == 2
+    assert set(trend_payload["points"][-1]) == {
+        "day",
+        "total",
+        "execution_failure_count",
+        "negative_feedback_count",
+    }
     reviewed_case = await client.patch(
         f"/api/v1/auth/admin/bad-cases/{bad_case_queue.json()['cases'][0]['id']}",
         headers={"Authorization": f"Bearer {administrator_token}"},
