@@ -894,6 +894,7 @@ export function ChatArea() {
             localSessionId={currentSessionId}
             kind="medication_review"
             seniorMode={seniorMode}
+            isClinician={role === "doctor" || role === "admin"}
             onExit={handleExitAction}
           />
         ) : null

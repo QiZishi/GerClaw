@@ -569,6 +569,45 @@ class PrescriptionDraftRecord(TimestampMixin, Base):
     content: Mapped[dict[str, Any]] = mapped_column(EncryptedJSON(), nullable=False)
 
 
+class MedicationReviewDraftRecord(TimestampMixin, Base):
+    """An encrypted, owner-scoped deterministic medication-review revision.
+
+    A generated medication review is a real clinical-review artifact, not an
+    ephemeral browser panel.  The encrypted payload is kept outside Trace data
+    so an owner can reopen the exact source-bound result without exposing the
+    medication list to telemetry or browser storage.
+    """
+
+    __tablename__ = "medication_review_drafts"
+    __table_args__ = (
+        CheckConstraint(
+            "status IN ('needs_clinician_review')",
+            name="valid_medication_review_draft_status",
+        ),
+        Index(
+            "ix_medication_review_drafts_owner_intake_created",
+            "tenant_id",
+            "actor_id",
+            "clinical_intake_id",
+            "created_at",
+        ),
+    )
+
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    tenant_id: Mapped[str] = mapped_column(String(64), nullable=False, index=True)
+    actor_id: Mapped[str] = mapped_column(String(128), nullable=False, index=True)
+    session_id: Mapped[uuid.UUID] = mapped_column(
+        ForeignKey("sessions.id", ondelete="CASCADE"), nullable=False
+    )
+    clinical_intake_id: Mapped[uuid.UUID] = mapped_column(
+        ForeignKey("clinical_intakes.id", ondelete="CASCADE"), nullable=False
+    )
+    clinical_intake_revision: Mapped[int] = mapped_column(Integer, nullable=False)
+    ruleset_version: Mapped[str] = mapped_column(String(64), nullable=False)
+    status: Mapped[str] = mapped_column(String(32), nullable=False)
+    content: Mapped[dict[str, Any]] = mapped_column(EncryptedJSON(), nullable=False)
+
+
 class PrescriptionDraftReview(Base):
     """Append-only clinician review bound to one encrypted draft revision.
 

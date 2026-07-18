@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import uuid
+from datetime import datetime
 from typing import Literal
 
 from pydantic import BaseModel, ConfigDict, Field
@@ -123,3 +124,23 @@ class MedicationReviewDraft(BaseModel):
         "本审查仅基于已安装且来源可追溯的有限规则，不能替代医师或药师的完整用药核对；"
         "不得据此自行开始、停用或调整剂量。"
     )
+
+
+class MedicationReviewDraftRead(BaseModel):
+    """One encrypted medication-review revision projected to its owner."""
+
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    draft_id: uuid.UUID
+    intake_id: uuid.UUID
+    intake_revision: int = Field(ge=1)
+    created_at: datetime
+    draft: MedicationReviewDraft
+
+
+class MedicationReviewDraftHistoryRead(BaseModel):
+    """Bounded newest-first history for one owner-scoped intake."""
+
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    items: tuple[MedicationReviewDraftRead, ...] = Field(default_factory=tuple, max_length=20)

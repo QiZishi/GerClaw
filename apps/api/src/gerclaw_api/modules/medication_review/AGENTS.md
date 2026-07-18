@@ -2,7 +2,7 @@
 
 ## Responsibility
 
-This module owns the versioned, encrypted intake definition, owner-scoped medication-list reconciliation, and deterministic medication-rule review artifact. The installed `rules/core-v1.json` currently carries the `medication-rules-v3` artifact. It provides only rules with source metadata, a corpus fingerprint, and a precise locator. It produces source-bound clinical review conclusions, never a diagnosis or an unqualified patient-executable medication instruction.
+This module owns the versioned, encrypted intake definition, owner-scoped medication-list reconciliation, and deterministic medication-rule review artifact. Generated artifacts are persisted as encrypted, intake-revision-bound records and can be reopened only by their original tenant/actor. The installed `rules/core-v1.json` currently carries the `medication-rules-v3` artifact. It provides only rules with source metadata, a corpus fingerprint, and a precise locator. It produces source-bound clinical review conclusions, never a diagnosis or an unqualified patient-executable medication instruction.
 
 ## Invariants
 
@@ -18,6 +18,7 @@ This module owns the versioned, encrypted intake definition, owner-scoped medica
   medication name, dose, rule text, source locator or raw intake content; it
   asks for urgent clinician/pharmacist review and never authorises self-change.
 - No medication list, reaction description, identifier, or raw request body may enter logs, Trace payloads, vector indexes, model prompts, or public contracts.
+- A historical artifact must retain the exact ruleset and intake revision used to create it. Do not overwrite an earlier result when the intake changes; it must be visibly identified as historical on recovery.
 - Any additional rules engine must be versioned, source-traceable, medically reviewed, and governed by Runtime/HITL before it can emit a clinical fact. Update the coverage contract whenever a source is added, removed, or expires.
 
 ## Change and test rules

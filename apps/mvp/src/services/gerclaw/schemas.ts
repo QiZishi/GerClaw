@@ -579,6 +579,26 @@ export const medicationReviewDraftSchema = z
 
 export type MedicationReviewDraft = z.infer<typeof medicationReviewDraftSchema>;
 
+export const medicationReviewDraftHistorySchema = z
+  .object({
+    items: z
+      .array(
+        z
+          .object({
+            draft_id: z.string().uuid(),
+            intake_id: z.string().uuid(),
+            intake_revision: z.number().int().min(1),
+            created_at: z.string().datetime(),
+            draft: medicationReviewDraftSchema,
+          })
+          .strict()
+      )
+      .max(20),
+  })
+  .strict();
+
+export type MedicationReviewDraftHistory = z.infer<typeof medicationReviewDraftHistorySchema>;
+
 const prescriptionEvidenceSourceSchema = z
   .object({
     evidence_id: z.string().regex(/^ev_[a-z0-9]{8,64}$/),

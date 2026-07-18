@@ -9,10 +9,12 @@ import {
   prescriptionDraftHistorySchema,
   medicationReconciliationSchema,
   medicationReviewDraftSchema,
+  medicationReviewDraftHistorySchema,
   type ClinicalIntake,
   type FivePrescriptionDraft,
   type MedicationReconciliation,
   type MedicationReviewDraft,
+  type MedicationReviewDraftHistory,
   type PrescriptionConversationTurn,
   type PrescriptionDraftHistory,
   prescriptionConversationTurnSchema,
@@ -79,6 +81,16 @@ export async function generateMedicationReviewDraft(input: {
         input.patientAge === undefined ? {} : { patient_age: input.patientAge }
       ),
     }
+  );
+}
+
+/** Reopen encrypted source-bound review revisions for the current intake owner. */
+export async function listMedicationReviewDrafts(
+  intakeId: string
+): Promise<MedicationReviewDraftHistory> {
+  return gerclawRequest(
+    `clinical-intakes/${encodeURIComponent(intakeId)}/medication-review-drafts`,
+    medicationReviewDraftHistorySchema
   );
 }
 

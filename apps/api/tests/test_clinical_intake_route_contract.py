@@ -2,6 +2,7 @@
 
 import asyncio
 import uuid
+from datetime import UTC, datetime
 from types import SimpleNamespace
 
 import pytest
@@ -16,6 +17,7 @@ from gerclaw_api.api.routes.clinical_intakes import (
     generate_prescription_draft,
     get_medication_reconciliation,
     get_prescription_input_readiness,
+    list_medication_review_drafts,
 )
 from gerclaw_api.domain.enums import TraceEventStatus, TraceEventType, TraceStatus
 from gerclaw_api.domain.trace_schemas import (
@@ -23,6 +25,7 @@ from gerclaw_api.domain.trace_schemas import (
     TraceEventCreate,
     TraceStartRequest,
 )
+from gerclaw_api.modules.medication_review.models import MedicationReviewDraftHistoryRead
 from gerclaw_api.modules.medication_review.rules_engine import review_medication_list
 from gerclaw_api.modules.prescription.models import (
     ClinicalIntakeFieldRead,
@@ -106,6 +109,75 @@ def test_prescription_draft_history_is_bounded_and_strict() -> None:
     assert PrescriptionDraftHistoryRead.model_validate({}).items == ()
     with pytest.raises(ValueError):
         PrescriptionDraftHistoryRead.model_validate({"items": [], "extra": True})
+
+
+def test_medication_review_draft_history_is_bounded_and_strict() -> None:
+    assert MedicationReviewDraftHistoryRead.model_validate({}).items == ()
+    with pytest.raises(ValueError):
+        MedicationReviewDraftHistoryRead.model_validate({"items": [], "extra": True})
+
+
+@pytest.mark.asyncio
+async def test_medication_review_history_reads_only_the_owned_intake(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    intake_id = uuid.uuid4()
+    draft_id = uuid.uuid4()
+    generated_at = datetime(2026, 7, 18, tzinfo=UTC)
+    review = review_medication_list(
+        intake_id=intake_id,
+        medication_list="瑞舒伐他汀 40mg 每日一次\n环孢素",
+    )
+
+    class _Intakes:
+        async def get(self, requested_id: uuid.UUID, **kwargs: object) -> object:
+            assert requested_id == intake_id
+            assert kwargs == {"tenant_id": "tenant", "actor_id": "actor"}
+            return SimpleNamespace(kind="medication_review")
+
+    class _Drafts:
+        async def list_for_intake(self, **kwargs: object) -> list[object]:
+            assert kwargs == {
+                "intake_id": intake_id,
+                "tenant_id": "tenant",
+                "actor_id": "actor",
+                "limit": 20,
+            }
+            return [
+                SimpleNamespace(
+                    id=draft_id,
+                    clinical_intake_id=intake_id,
+                    clinical_intake_revision=3,
+                    created_at=generated_at,
+                    content=review.model_dump(mode="json"),
+                )
+            ]
+
+    async def _no_rate_limit(*_args: object, **_kwargs: object) -> None:
+        return None
+
+    from gerclaw_api.api.routes import clinical_intakes as intake_routes
+
+    monkeypatch.setattr(
+        intake_routes,
+        "SqlAlchemyClinicalIntakeRepository",
+        lambda _session: _Intakes(),
+    )
+    monkeypatch.setattr(
+        intake_routes, "SqlAlchemyMedicationReviewDraftRepository", lambda _session: _Drafts()
+    )
+    monkeypatch.setattr(intake_routes, "_enforce_rate_limit", _no_rate_limit)
+
+    result = await list_medication_review_drafts(
+        intake_id,
+        SimpleNamespace(),
+        object(),
+        SimpleNamespace(tenant_id="tenant", actor_id="actor"),
+    )  # type: ignore[arg-type]
+
+    assert result.items[0].draft_id == draft_id
+    assert result.items[0].intake_revision == 3
+    assert result.items[0].draft.findings[0].finding_id == "ddi_rosuvastatin_cyclosporine"
 
 
 @pytest.mark.asyncio

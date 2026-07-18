@@ -20,6 +20,7 @@ import {
   getMedicationReconciliation,
   generateMedicationReviewDraft,
   generatePrescriptionDraft,
+  listMedicationReviewDrafts,
   startClinicalIntake,
   updateClinicalIntake,
   type ClinicalIntakeKind,
@@ -29,6 +30,7 @@ import type {
   FivePrescriptionDraft,
   MedicationReconciliation,
   MedicationReviewDraft,
+  MedicationReviewDraftHistory,
 } from "@/services/gerclaw/schemas";
 import { parseFile } from "@/services/document/mineru";
 import { registerParsedDocument, revokeParsedDocument } from "@/services/gerclaw/documents";
@@ -111,6 +113,7 @@ interface ClinicalIntakeFormProps {
   localSessionId: string;
   kind: ClinicalIntakeKind;
   seniorMode: boolean;
+  isClinician?: boolean;
   onExit: () => void;
   onPrescriptionDraftGenerated?: (draft: FivePrescriptionDraft) => void;
 }
@@ -119,6 +122,7 @@ export function ClinicalIntakeForm({
   localSessionId,
   kind,
   seniorMode,
+  isClinician = false,
   onExit,
   onPrescriptionDraftGenerated,
 }: ClinicalIntakeFormProps) {
@@ -140,6 +144,9 @@ export function ClinicalIntakeForm({
     useState<MedicationReviewDraft | null>(null);
   const [medicationReviewState, setMedicationReviewState] = useState<"idle" | "generating">("idle");
   const [medicationReviewElapsedSeconds, setMedicationReviewElapsedSeconds] = useState(0);
+  const [medicationReviewHistoryCount, setMedicationReviewHistoryCount] = useState(0);
+  const [medicationReviewHistory, setMedicationReviewHistory] = useState<MedicationReviewDraftHistory["items"]>([]);
+  const [restoredMedicationReviewRevision, setRestoredMedicationReviewRevision] = useState<number | null>(null);
   const [patientAge, setPatientAge] = useState("");
   const fieldRefs = useRef<Record<string, HTMLTextAreaElement | null>>({});
   const documentInputRef = useRef<HTMLInputElement>(null);
@@ -223,6 +230,9 @@ export function ClinicalIntakeForm({
         storeIntakeId(localSessionId, kind, next.intake_id);
         setMedicationReconciliation(null);
         setMedicationReviewDraft(null);
+        setMedicationReviewHistoryCount(0);
+        setMedicationReviewHistory([]);
+        setRestoredMedicationReviewRevision(null);
         setDraft(null);
         setIntake(next);
         setAnswers(next.answers);
@@ -265,6 +275,33 @@ export function ClinicalIntakeForm({
     };
   }, [intake, kind]);
 
+  useEffect(() => {
+    if (kind !== "medication_review" || !intake) return;
+    let live = true;
+    void listMedicationReviewDrafts(intake.intake_id).then(
+      (history) => {
+        if (!live) return;
+        setMedicationReviewHistoryCount(history.items.length);
+        setMedicationReviewHistory(history.items);
+        const latest = history.items[0];
+        if (latest) {
+          setMedicationReviewDraft(latest.draft);
+          setRestoredMedicationReviewRevision(latest.intake_revision);
+        }
+      },
+      () => {
+        // The current intake remains usable if historical artifact recovery fails.
+        if (live) {
+          setMedicationReviewHistoryCount(0);
+          setMedicationReviewHistory([]);
+        }
+      }
+    );
+    return () => {
+      live = false;
+    };
+  }, [intake, kind]);
+
   const save = async () => {
     if (!intake || saving) return;
     const missingRequiredFields = intake.fields.filter(
@@ -286,6 +323,7 @@ export function ClinicalIntakeForm({
       setAnswers(next.answers);
       setDraft(null);
       setMedicationReviewDraft(null);
+      setRestoredMedicationReviewRevision(null);
       if (next.kind === "medication_review") {
         toast.show("信息已保存，可以开始规则审查。", 1_800);
       } else {
@@ -416,6 +454,12 @@ export function ClinicalIntakeForm({
         patientAge: age,
       });
       setMedicationReviewDraft(next);
+      setMedicationReviewHistoryCount((count) => count + 1);
+      setRestoredMedicationReviewRevision(null);
+      void listMedicationReviewDrafts(intake.intake_id).then((history) => {
+        setMedicationReviewHistory(history.items);
+        setMedicationReviewHistoryCount(history.items.length);
+      });
       toast.show("用药审查已完成，请查看禁忌、严重风险和规则覆盖范围。", 1_800);
     } catch (error) {
       if (error instanceof GerclawApiError && error.code === "MEDICATION_REVIEW_INPUT_INVALID") {
@@ -700,9 +744,6 @@ export function ClinicalIntakeForm({
                   请先保存对药物列表的修改，再进行规则审查，避免审查到旧信息。
                 </p>
               )}
-              <p className={cn("leading-relaxed text-muted-foreground", seniorMode ? "text-lg" : "text-sm")}>
-                审查只使用已安装、可追溯的本地规则；不会把药物列表发送给大模型。结果供医师或药师复核，不能自行改药。
-              </p>
               {medicationReviewDraft && (
                 <div className="space-y-3 rounded-lg border border-primary/30 bg-background p-3" aria-live="polite">
                   <div className="space-y-1">
@@ -713,6 +754,38 @@ export function ClinicalIntakeForm({
                       {medicationReviewDraft.conclusion}
                     </p>
                   </div>
+                  {medicationReviewHistoryCount > 0 && (
+                    <div className={cn("flex flex-wrap items-center gap-2 rounded-md border border-border bg-muted/20 p-2 text-muted-foreground", seniorMode ? "text-base" : "text-sm")}>
+                      <span>本会话已保存 {medicationReviewHistoryCount} 份审查记录</span>
+                      {medicationReviewHistory.length > 1 && (
+                        <label className="ml-auto flex items-center gap-2 text-foreground">
+                          <span className="sr-only">选择已保存的审查记录</span>
+                          <select
+                            className={cn("min-h-10 rounded-md border border-input bg-background px-2", seniorMode && "min-h-12 text-base")}
+                            value={medicationReviewHistory.find((item) => item.draft === medicationReviewDraft)?.draft_id ?? medicationReviewHistory[0]?.draft_id}
+                            onChange={(event) => {
+                              const selected = medicationReviewHistory.find((item) => item.draft_id === event.target.value);
+                              if (!selected) return;
+                              setMedicationReviewDraft(selected.draft);
+                              setRestoredMedicationReviewRevision(selected.intake_revision);
+                            }}
+                          >
+                            {medicationReviewHistory.map((item, index) => (
+                              <option key={item.draft_id} value={item.draft_id}>
+                                {index === 0 ? "最新保存记录" : `历史记录 ${medicationReviewHistory.length - index}`}
+                              </option>
+                            ))}
+                          </select>
+                        </label>
+                      )}
+                    </div>
+                  )}
+                  {restoredMedicationReviewRevision !== null && (
+                    <p className={cn("text-muted-foreground", seniorMode ? "text-base" : "text-xs")}>
+                      已恢复信息版本 {restoredMedicationReviewRevision} 的审查记录。
+                      {restoredMedicationReviewRevision === intake.revision ? "" : " 当前信息已更新，请重新审查。"}
+                    </p>
+                  )}
                   <p className={cn("rounded-md border border-amber-500/40 bg-amber-50/70 p-3 text-amber-950 dark:bg-amber-950/20 dark:text-amber-100", seniorMode ? "text-lg" : "text-sm")}>
                     Beers 相关核对：仅覆盖本地来源可追溯的少量老年用药情境，仍不是完整 Beers 筛查；“未命中”不等于安全。
                   </p>
@@ -751,9 +824,11 @@ export function ClinicalIntakeForm({
                       ))}
                     </ul>
                   </details>
-                  <p className={cn("leading-relaxed text-muted-foreground", seniorMode ? "text-lg" : "text-sm")}>
-                    {medicationReviewDraft.disclaimer}
-                  </p>
+                  {!isClinician && (
+                    <p className={cn("leading-relaxed text-muted-foreground", seniorMode ? "text-lg" : "text-sm")}>
+                      {medicationReviewDraft.disclaimer}
+                    </p>
+                  )}
                 </div>
               )}
             </div>

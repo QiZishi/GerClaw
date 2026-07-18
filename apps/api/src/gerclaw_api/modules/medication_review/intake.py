@@ -13,7 +13,7 @@ MEDICATION_REVIEW_INTAKE_DEFINITION = ClinicalIntakeDefinition(
     kind="medication_review",
     version=CLINICAL_INTAKE_VERSION,
     title="用药审查信息收集",
-    description="仅收集需要医生核对的信息；当前不会给出停药、加药或剂量调整结论。",
+    description="填写当前用药与重点问题，生成带来源的待复核结论。",
     fields=(
         ClinicalIntakeField(
             id="medication_list",

@@ -32,6 +32,8 @@ from gerclaw_api.modules.input_output.clinical_intake import ClinicalIntakeKind
 from gerclaw_api.modules.medication_review.models import (
     MedicationReconciliationRead,
     MedicationReviewDraft,
+    MedicationReviewDraftHistoryRead,
+    MedicationReviewDraftRead,
     MedicationReviewRequest,
 )
 from gerclaw_api.modules.medication_review.reconciliation import (
@@ -78,6 +80,9 @@ from gerclaw_api.repositories.clinical_intake import (
 )
 from gerclaw_api.repositories.conversation import SqlAlchemyConversationRepository
 from gerclaw_api.repositories.document import SqlAlchemyDocumentRepository
+from gerclaw_api.repositories.medication_review_draft import (
+    SqlAlchemyMedicationReviewDraftRepository,
+)
 from gerclaw_api.repositories.prescription_draft import SqlAlchemyPrescriptionDraftRepository
 from gerclaw_api.repositories.risk_alert import SqlAlchemyRiskAlertRepository
 from gerclaw_api.security import audit_hmac_digest
@@ -786,6 +791,15 @@ async def generate_medication_review_draft(
     )
     if not trace_started.created:
         raise HTTPException(status_code=409, detail={"code": "MEDICATION_REVIEW_TRACE_CONFLICT"})
+    await SqlAlchemyMedicationReviewDraftRepository(session).create(
+        tenant_id=identity.tenant_id,
+        actor_id=identity.actor_id,
+        session_id=intake.session_id,
+        clinical_intake_id=intake.intake_id,
+        clinical_intake_revision=intake.revision,
+        ruleset_version=result.ruleset_version,
+        content=result.model_dump(mode="json"),
+    )
     await RiskAlertService(SqlAlchemyRiskAlertRepository(session)).sync_medication_review(
         tenant_id=identity.tenant_id,
         actor_id=identity.actor_id,
@@ -832,6 +846,50 @@ async def generate_medication_review_draft(
     )
     await session.commit()
     return result
+
+
+@router.get(
+    "/{intake_id}/medication-review-drafts",
+    response_model=MedicationReviewDraftHistoryRead,
+)
+async def list_medication_review_drafts(
+    intake_id: uuid.UUID,
+    request: Request,
+    session: SessionDependency,
+    identity: ReadIdentity,
+) -> MedicationReviewDraftHistoryRead:
+    """Return bounded encrypted medication-review history for its owner only."""
+
+    await _enforce_rate_limit(request, identity)
+    try:
+        intake = await SqlAlchemyClinicalIntakeRepository(session).get(
+            intake_id, tenant_id=identity.tenant_id, actor_id=identity.actor_id
+        )
+    except ClinicalIntakeNotFoundError as error:
+        raise HTTPException(
+            status_code=404, detail={"code": "CLINICAL_INTAKE_NOT_FOUND"}
+        ) from error
+    if intake.kind != "medication_review":
+        raise HTTPException(status_code=409, detail={"code": "MEDICATION_REVIEW_UNAVAILABLE"})
+
+    records = await SqlAlchemyMedicationReviewDraftRepository(session).list_for_intake(
+        intake_id=intake_id,
+        tenant_id=identity.tenant_id,
+        actor_id=identity.actor_id,
+        limit=20,
+    )
+    return MedicationReviewDraftHistoryRead(
+        items=tuple(
+            MedicationReviewDraftRead(
+                draft_id=record.id,
+                intake_id=record.clinical_intake_id,
+                intake_revision=record.clinical_intake_revision,
+                created_at=record.created_at,
+                draft=MedicationReviewDraft.model_validate(record.content),
+            )
+            for record in records
+        )
+    )
 
 
 @router.get(
