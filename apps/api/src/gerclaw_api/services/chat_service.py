@@ -18,6 +18,7 @@ from gerclaw_api.domain.trace_schemas import (
     TraceEventCreate,
     TraceFinishRequest,
     TraceStartRequest,
+    bounded_trace_duration_ms,
 )
 from gerclaw_api.metrics import CHAT_TURN_LATENCY, CHAT_TURNS
 from gerclaw_api.modules.agent_harness import (
@@ -965,7 +966,7 @@ class ChatService:
             )
             skill_outcome = "cancelled" if status is TraceStatus.CANCELLED else "failed"
             for started_at, skill_id, version in active_skill_calls.values():
-                duration_ms = max(0, int((time.monotonic() - started_at) * 1_000))
+                duration_ms = bounded_trace_duration_ms(time.monotonic() - started_at)
                 await self._traces.append_event(
                     identity.tenant_id,
                     trace_id,

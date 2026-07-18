@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import uuid
 from datetime import datetime
+from math import isfinite
 from typing import Annotated, Any
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
@@ -17,6 +18,7 @@ from gerclaw_api.domain.enums import (
 from gerclaw_api.security import JsonValue, validate_audit_payload
 
 TRACE_ID_PATTERN = r"^trace_[A-Za-z0-9][A-Za-z0-9_.:-]{7,57}$"
+MAX_TRACE_EVENT_DURATION_MS = 86_400_000
 SAFE_IDENTIFIER_PATTERN = r"^[a-z][a-z0-9]{1,31}_[A-Za-z0-9][A-Za-z0-9_.:-]{7,95}$"
 EVENT_ID_PATTERN = r"^event_[A-Za-z0-9][A-Za-z0-9_.:-]{7,89}$"
 FINISH_KEY_PATTERN = r"^finish_[A-Za-z0-9][A-Za-z0-9_.:-]{7,88}$"
@@ -28,6 +30,21 @@ FeedbackCategory = Annotated[
 ]
 
 STRICT_MODEL_CONFIG = ConfigDict(extra="forbid")
+
+
+def bounded_trace_duration_ms(elapsed_seconds: float) -> int:
+    """Project an elapsed monotonic interval into the public Trace contract.
+
+    Runtime failures must still reach a terminal Trace when a process has been
+    alive longer than the public event-duration ceiling.  The wall-clock
+    workflow budgets remain the execution guard; this only prevents telemetry
+    validation from masking the original terminal outcome.
+    """
+
+    if not isfinite(elapsed_seconds) or elapsed_seconds <= 0:
+        return 0
+    return min(MAX_TRACE_EVENT_DURATION_MS, int(elapsed_seconds * 1_000))
+
 
 EVENT_AUDIT_KEYS: dict[TraceEventType, frozenset[str]] = {
     TraceEventType.AGENT_START: frozenset(
@@ -175,7 +192,7 @@ class TraceEventCreate(BaseModel):
     event_type: TraceEventType
     status: TraceEventStatus
     payload: dict[str, JsonValue] = Field(default_factory=dict)
-    duration_ms: int | None = Field(default=None, ge=0, le=86_400_000)
+    duration_ms: int | None = Field(default=None, ge=0, le=MAX_TRACE_EVENT_DURATION_MS)
 
     @field_validator("payload", mode="before")
     @classmethod

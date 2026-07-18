@@ -13,7 +13,12 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from gerclaw_api.auth import AuthContext, require_cga_read, require_cga_write
 from gerclaw_api.dependencies import get_database_session, get_trace_service
 from gerclaw_api.domain.enums import TraceEventStatus, TraceEventType, TraceStatus
-from gerclaw_api.domain.trace_schemas import TraceEventCreate, TraceFinishRequest, TraceStartRequest
+from gerclaw_api.domain.trace_schemas import (
+    TraceEventCreate,
+    TraceFinishRequest,
+    TraceStartRequest,
+    bounded_trace_duration_ms,
+)
 from gerclaw_api.middleware import set_active_trace
 from gerclaw_api.modules.cga.minicog import (
     MINICOG_OPTIONS,
@@ -144,7 +149,7 @@ async def _finish_write_trace(
                 "outcome": result.status,
                 "success": True,
             },
-            duration_ms=max(0, int((monotonic() - elapsed_started_at) * 1_000)),
+            duration_ms=bounded_trace_duration_ms(monotonic() - elapsed_started_at),
         ),
         commit=False,
     )

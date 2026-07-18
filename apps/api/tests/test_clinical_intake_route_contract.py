@@ -18,7 +18,11 @@ from gerclaw_api.api.routes.clinical_intakes import (
     get_prescription_input_readiness,
 )
 from gerclaw_api.domain.enums import TraceEventStatus, TraceEventType, TraceStatus
-from gerclaw_api.domain.trace_schemas import TraceEventCreate, TraceStartRequest
+from gerclaw_api.domain.trace_schemas import (
+    MAX_TRACE_EVENT_DURATION_MS,
+    TraceEventCreate,
+    TraceStartRequest,
+)
 from gerclaw_api.modules.medication_review.rules_engine import review_medication_list
 from gerclaw_api.modules.prescription.models import (
     ClinicalIntakeFieldRead,
@@ -154,6 +158,7 @@ async def test_prescription_failure_trace_keeps_slot_only_attempts() -> None:
     ]
     assert traces.events[-1].event_type is TraceEventType.SYSTEM_ERROR
     assert traces.events[-1].payload["error_code"] == "prescription_draft_unavailable"
+    assert traces.events[-1].duration_ms == MAX_TRACE_EVENT_DURATION_MS
     assert traces.finish is not None
 
 
@@ -191,6 +196,7 @@ async def test_prescription_cancellation_finishes_without_private_input() -> Non
         "outcome": "cancelled",
         "success": False,
     }
+    assert event.duration_ms == MAX_TRACE_EVENT_DURATION_MS
     assert traces.finish is not None
     assert traces.finish.status is TraceStatus.CANCELLED
 

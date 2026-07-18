@@ -10,10 +10,12 @@ import pytest
 from gerclaw_api.database.models import BadCase, ExecutionTrace, TraceEvent, UserFeedback
 from gerclaw_api.domain.enums import FeedbackRating, TraceEventStatus, TraceEventType, TraceStatus
 from gerclaw_api.domain.trace_schemas import (
+    MAX_TRACE_EVENT_DURATION_MS,
     FeedbackCreate,
     TraceEventCreate,
     TraceFinishRequest,
     TraceStartRequest,
+    bounded_trace_duration_ms,
 )
 from gerclaw_api.services.trace_service import (
     TraceConflictError,
@@ -25,6 +27,13 @@ from gerclaw_api.services.trace_service import (
 TENANT = "tenant_public0001"
 ACTOR = "usr_patient_unit0001"
 TRACE_ID = "trace_unit_0001"
+
+
+def test_trace_duration_projection_is_finite_and_schema_bounded() -> None:
+    assert bounded_trace_duration_ms(-1) == 0
+    assert bounded_trace_duration_ms(float("inf")) == 0
+    assert bounded_trace_duration_ms(0.017) == 17
+    assert bounded_trace_duration_ms(90_000) == MAX_TRACE_EVENT_DURATION_MS
 
 
 class FakeTraceRepository:

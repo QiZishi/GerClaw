@@ -43,6 +43,7 @@ from agentscope.tool import Toolkit
 from pydantic import BaseModel, ValidationError
 
 from gerclaw_api.config import Settings
+from gerclaw_api.domain.trace_schemas import bounded_trace_duration_ms
 from gerclaw_api.modules.agent_harness.protocols import (
     AgentContext,
     ConversationHistoryMessage,
@@ -753,7 +754,7 @@ class ProductionAgentHarness:
                         "tool_call_id": tool_call_id,
                         "tool_name": tool_name,
                         "status": terminal_status,
-                        "duration_ms": max(0, int((time.monotonic() - started_at) * 1_000)),
+                        "duration_ms": bounded_trace_duration_ms(time.monotonic() - started_at),
                     }
                     if tool_name == "Skill":
                         result_data.update(

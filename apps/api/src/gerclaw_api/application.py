@@ -14,10 +14,10 @@ from redis.asyncio import Redis
 from gerclaw_api.api.routes.approvals import router as approvals_router
 from gerclaw_api.api.routes.auth import router as auth_router
 from gerclaw_api.api.routes.cga import router as cga_router
-from gerclaw_api.api.routes.consent import router as consent_router
 from gerclaw_api.api.routes.chat import router as chat_router
 from gerclaw_api.api.routes.chronic_care import router as chronic_care_router
 from gerclaw_api.api.routes.clinical_intakes import router as clinical_intakes_router
+from gerclaw_api.api.routes.consent import router as consent_router
 from gerclaw_api.api.routes.documents import router as documents_router
 from gerclaw_api.api.routes.health import router as health_router
 from gerclaw_api.api.routes.memory import router as memory_router

@@ -23,6 +23,7 @@ from gerclaw_api.domain.trace_schemas import (
     TraceEventCreate,
     TraceFinishRequest,
     TraceStartRequest,
+    bounded_trace_duration_ms,
 )
 from gerclaw_api.middleware import set_active_trace
 from gerclaw_api.modules.agent_harness.safety import EvidenceUnavailableError
@@ -258,7 +259,7 @@ async def _finish_write_trace(
                 "outcome": result.status,
                 "success": True,
             },
-            duration_ms=max(0, int((monotonic() - elapsed_started_at) * 1_000)),
+            duration_ms=bounded_trace_duration_ms(monotonic() - elapsed_started_at),
         ),
         commit=False,
     )
@@ -346,7 +347,7 @@ async def _finish_conversation_failure_trace(
                 "operation": "conversation_turn",
                 "error_code": "prescription_intake_unavailable",
             },
-            duration_ms=max(0, int((monotonic() - started_at) * 1_000)),
+            duration_ms=bounded_trace_duration_ms(monotonic() - started_at),
         ),
         commit=False,
     )
@@ -442,7 +443,7 @@ async def _finish_prescription_failure_trace(
                 "operation": "generate_draft",
                 "result_code": error_code.casefold(),
             },
-            duration_ms=max(0, int((monotonic() - started_at) * 1_000)),
+            duration_ms=bounded_trace_duration_ms(monotonic() - started_at),
         ),
         commit=False,
     )
@@ -489,7 +490,7 @@ async def _finish_prescription_cancellation_trace(
                 "outcome": "cancelled",
                 "success": False,
             },
-            duration_ms=max(0, int((monotonic() - started_at) * 1_000)),
+            duration_ms=bounded_trace_duration_ms(monotonic() - started_at),
         ),
         commit=False,
     )
@@ -810,7 +811,7 @@ async def generate_medication_review_draft(
                 "outcome": "needs_clinician_review",
                 "success": True,
             },
-            duration_ms=max(0, int((monotonic() - started_at) * 1_000)),
+            duration_ms=bounded_trace_duration_ms(monotonic() - started_at),
         ),
         commit=False,
     )
@@ -1008,7 +1009,7 @@ async def generate_prescription_draft(
                     "outcome": draft.status,
                     "success": True,
                 },
-                duration_ms=max(0, int((monotonic() - started_at) * 1_000)),
+                duration_ms=bounded_trace_duration_ms(monotonic() - started_at),
             ),
             commit=False,
         )
