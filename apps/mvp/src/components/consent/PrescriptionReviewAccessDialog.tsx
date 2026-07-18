@@ -179,7 +179,7 @@ export function PrescriptionReviewAccessDialog({
             </select>
           </div>
           {error && <p role="alert" className={cn("rounded-lg border border-destructive/40 bg-destructive/10 p-3 text-destructive", textClass)}>{error}</p>}
-          <DialogFooter className={cn("gap-2", seniorMode && "flex-row justify-end gap-3")}>
+          <DialogFooter className={cn("sticky bottom-0 z-10 gap-2", seniorMode && "flex-row justify-end gap-3")}>
             <Button type="submit" disabled={pending || resourceScopes.length === 0 || !doctorActorIdPattern.test(doctorActorId)} className={cn(seniorMode && "min-h-12 text-lg")}>
               {pending ? "正在保存…" : "保存授权"}
             </Button>
