@@ -175,7 +175,7 @@ async def _run_review(client: httpx.AsyncClient, intake: PreparedIntake) -> Revi
     sources = body.get("sources")
     coverage = body.get("coverage")
     if (
-        body.get("ruleset_version") != "medication-rules-v3"
+        body.get("ruleset_version") != "medication-rules-v4"
         or not isinstance(findings, list)
         or not findings
         or not isinstance(sources, list)
@@ -286,7 +286,7 @@ async def _run(args: argparse.Namespace) -> dict[str, Any]:
         },
         "trace": {"unique_count": len(set(trace_ids)), "completed_count": len(results)},
         "review_contract": {
-            "ruleset_version": "medication-rules-v3",
+            "ruleset_version": "medication-rules-v4",
             "reviews_with_findings": sum(result.finding_count > 0 for result in results),
             "reviews_with_sources": sum(result.source_count > 0 for result in results),
         },

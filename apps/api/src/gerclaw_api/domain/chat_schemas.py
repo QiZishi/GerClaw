@@ -142,7 +142,7 @@ class ChatCancelledData(BaseModel):
 
     trace_id: str
     status: Literal["cancelled"] = "cancelled"
-    message: str = "回答已停止。未完成内容不得用于诊疗或用药调整。"
+    message: str = "回答已停止。未完成内容不代表完整评估结果。"
 
 
 class ChatCancelRead(BaseModel):

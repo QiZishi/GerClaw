@@ -572,7 +572,7 @@ export const medicationReviewDraftSchema = z
     unrecognized_entry_count: z.number().int().min(0).max(50),
     conclusion: z.string().min(1).max(1_000),
     disclaimer: z.literal(
-      "本审查仅基于已安装且来源可追溯的有限规则，不能替代医师或药师的完整用药核对；不得据此自行开始、停用或调整剂量。"
+      "本审查仅基于已安装且来源可追溯的有限规则，不能替代医师或药师的完整用药核对；涉及开始、停用或调整剂量时，应结合完整临床资料和相应证据复核。"
     ),
   })
   .strict();

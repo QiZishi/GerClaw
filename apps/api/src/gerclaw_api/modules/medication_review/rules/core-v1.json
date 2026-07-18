@@ -1,5 +1,5 @@
 {
-  "version": "medication-rules-v3",
+  "version": "medication-rules-v4",
   "sources": [
     {
       "source_id": "cad_rehab_primary_care",
@@ -85,7 +85,7 @@
       "drugs": ["辛伐他汀", "胺碘酮"],
       "severity": "major",
       "conclusion": "该组合命中规则：合用可增加横纹肌溶解风险。",
-      "clinician_action": "请由医师或药师尽快核对适应证、剂量、替代方案及肌肉不适等情况；患者不要自行改药。",
+      "clinician_action": "请由医师或药师尽快核对适应证、剂量、替代方案及肌肉不适等情况。",
       "elderly_note": "老年人合并多病和多重用药时，应特别核对不良反应和监测条件。",
       "source_ids": ["cad_rehab_primary_care"]
     },
@@ -94,7 +94,7 @@
       "drugs": ["辛伐他汀", "维拉帕米"],
       "severity": "major",
       "conclusion": "该组合命中规则：合用可增加横纹肌溶解风险。",
-      "clinician_action": "请由医师或药师尽快核对适应证、剂量、替代方案及肌肉不适等情况；患者不要自行改药。",
+      "clinician_action": "请由医师或药师尽快核对适应证、剂量、替代方案及肌肉不适等情况。",
       "elderly_note": "老年人合并多病和多重用药时，应特别核对不良反应和监测条件。",
       "source_ids": ["cad_rehab_primary_care"]
     },
@@ -103,7 +103,7 @@
       "drugs": ["辛伐他汀", "地尔硫䓬"],
       "severity": "major",
       "conclusion": "该组合命中规则：合用可增加横纹肌溶解风险。",
-      "clinician_action": "请由医师或药师尽快核对适应证、剂量、替代方案及肌肉不适等情况；患者不要自行改药。",
+      "clinician_action": "请由医师或药师尽快核对适应证、剂量、替代方案及肌肉不适等情况。",
       "elderly_note": "老年人合并多病和多重用药时，应特别核对不良反应和监测条件。",
       "source_ids": ["cad_rehab_primary_care"]
     },
@@ -112,7 +112,7 @@
       "drugs": ["辛伐他汀", "氨氯地平"],
       "severity": "major",
       "conclusion": "该组合命中规则：合用可增加横纹肌溶解风险。",
-      "clinician_action": "请由医师或药师尽快核对适应证、剂量、替代方案及肌肉不适等情况；患者不要自行改药。",
+      "clinician_action": "请由医师或药师尽快核对适应证、剂量、替代方案及肌肉不适等情况。",
       "elderly_note": "老年人合并多病和多重用药时，应特别核对不良反应和监测条件。",
       "source_ids": ["cad_rehab_primary_care"]
     },
@@ -121,7 +121,7 @@
       "drugs": ["辛伐他汀", "环孢素"],
       "severity": "major",
       "conclusion": "该组合命中规则：合用可增加横纹肌溶解风险。",
-      "clinician_action": "请由医师或药师尽快核对适应证、剂量、替代方案及肌肉不适等情况；患者不要自行改药。",
+      "clinician_action": "请由医师或药师尽快核对适应证、剂量、替代方案及肌肉不适等情况。",
       "elderly_note": "老年人合并多病和多重用药时，应特别核对不良反应和监测条件。",
       "source_ids": ["cad_rehab_primary_care"]
     },
@@ -130,7 +130,7 @@
       "drugs": ["辛伐他汀", "红霉素"],
       "severity": "major",
       "conclusion": "该组合命中规则：合用可增加横纹肌溶解风险。",
-      "clinician_action": "请由医师或药师尽快核对适应证、剂量、替代方案及肌肉不适等情况；患者不要自行改药。",
+      "clinician_action": "请由医师或药师尽快核对适应证、剂量、替代方案及肌肉不适等情况。",
       "elderly_note": "老年人合并多病和多重用药时，应特别核对不良反应和监测条件。",
       "source_ids": ["cad_rehab_primary_care"]
     },
@@ -139,7 +139,7 @@
       "drugs": ["辛伐他汀", "吉非贝齐"],
       "severity": "major",
       "conclusion": "该组合命中规则：合用可增加横纹肌溶解风险。",
-      "clinician_action": "请由医师或药师尽快核对适应证、剂量、替代方案及肌肉不适等情况；患者不要自行改药。",
+      "clinician_action": "请由医师或药师尽快核对适应证、剂量、替代方案及肌肉不适等情况。",
       "elderly_note": "老年人合并多病和多重用药时，应特别核对不良反应和监测条件。",
       "source_ids": ["cad_rehab_primary_care"]
     },
@@ -148,7 +148,7 @@
       "drugs": ["辛伐他汀", "烟酸"],
       "severity": "major",
       "conclusion": "该组合命中规则：合用可增加横纹肌溶解风险。",
-      "clinician_action": "请由医师或药师尽快核对适应证、剂量、替代方案及肌肉不适等情况；患者不要自行改药。",
+      "clinician_action": "请由医师或药师尽快核对适应证、剂量、替代方案及肌肉不适等情况。",
       "elderly_note": "老年人合并多病和多重用药时，应特别核对不良反应和监测条件。",
       "source_ids": ["cad_rehab_primary_care"]
     },
@@ -157,7 +157,7 @@
       "drugs": ["辛伐他汀", "夫西地酸"],
       "severity": "major",
       "conclusion": "该组合命中规则：合用可增加横纹肌溶解风险。",
-      "clinician_action": "请由医师或药师尽快核对适应证、剂量、替代方案及肌肉不适等情况；患者不要自行改药。",
+      "clinician_action": "请由医师或药师尽快核对适应证、剂量、替代方案及肌肉不适等情况。",
       "elderly_note": "老年人合并多病和多重用药时，应特别核对不良反应和监测条件。",
       "source_ids": ["cad_rehab_primary_care"]
     },
@@ -166,7 +166,7 @@
       "drugs": ["阿托伐他汀", "地高辛"],
       "severity": "moderate",
       "conclusion": "该组合命中规则：阿托伐他汀可增加地高辛血药浓度。",
-      "clinician_action": "请由医师或药师核对地高辛浓度监测和个体化给药方案；患者不要自行调整剂量。",
+      "clinician_action": "请由医师或药师核对地高辛浓度监测和个体化给药方案。",
       "elderly_note": "老年人可能更易受肾功能变化和多重用药影响。",
       "source_ids": ["cad_rehab_primary_care"]
     },
@@ -175,7 +175,7 @@
       "drugs": ["阿托伐他汀", "克拉霉素"],
       "severity": "major",
       "conclusion": "该组合命中规则：合用可增加横纹肌溶解和/或急性肾功能衰竭风险。",
-      "clinician_action": "请由医师或药师尽快核对联用必要性、剂量和替代方案；患者不要自行改药。",
+      "clinician_action": "请由医师或药师尽快核对联用必要性、剂量和替代方案。",
       "elderly_note": "老年人应特别核对肾功能和肌肉不适等风险线索。",
       "source_ids": ["cad_rehab_primary_care"]
     },
@@ -184,7 +184,7 @@
       "drugs": ["阿托伐他汀", "环孢素"],
       "severity": "major",
       "conclusion": "该组合命中规则：合用可增加横纹肌溶解和/或急性肾功能衰竭风险。",
-      "clinician_action": "请由医师或药师尽快核对联用必要性、剂量和替代方案；患者不要自行改药。",
+      "clinician_action": "请由医师或药师尽快核对联用必要性、剂量和替代方案。",
       "elderly_note": "老年人应特别核对肾功能和肌肉不适等风险线索。",
       "source_ids": ["cad_rehab_primary_care"]
     },
@@ -193,7 +193,7 @@
       "drugs": ["阿托伐他汀", "伊曲康唑"],
       "severity": "major",
       "conclusion": "该组合命中规则：合用可增加横纹肌溶解和/或急性肾功能衰竭风险。",
-      "clinician_action": "请由医师或药师尽快核对联用必要性、剂量和替代方案；患者不要自行改药。",
+      "clinician_action": "请由医师或药师尽快核对联用必要性、剂量和替代方案。",
       "elderly_note": "老年人应特别核对肾功能和肌肉不适等风险线索。",
       "source_ids": ["cad_rehab_primary_care"]
     },
@@ -202,7 +202,7 @@
       "drugs": ["瑞舒伐他汀", "环孢素"],
       "severity": "contraindicated",
       "conclusion": "该组合命中规则：指南条目记载瑞舒伐他汀禁用于同时接受环孢素治疗的患者。",
-      "clinician_action": "请尽快由开方医师或临床药师核对；患者不要自行停药或替换药物。",
+      "clinician_action": "请尽快由开方医师或临床药师结合完整病史、检查结果和来源依据核对。",
       "elderly_note": "老年人发生不良反应时应及时寻求医疗帮助。",
       "source_ids": ["cad_rehab_primary_care"]
     },
@@ -211,7 +211,7 @@
       "drugs": ["瑞舒伐他汀", "吉非贝齐"],
       "severity": "major",
       "conclusion": "该组合命中规则：指南条目不建议瑞舒伐他汀与吉非贝齐合用。",
-      "clinician_action": "请由医师或药师核对联用必要性、剂量和替代方案；患者不要自行改药。",
+      "clinician_action": "请由医师或药师核对联用必要性、剂量和替代方案。",
       "elderly_note": "老年人应结合肾功能和整体用药情况复核。",
       "source_ids": ["cad_rehab_primary_care"]
     },
@@ -358,7 +358,7 @@
       "max_daily_mg": 20,
       "severity": "major",
       "conclusion": "录入的瑞舒伐他汀日剂量超过本规则来源所列的一日最大剂量20 mg。",
-      "clinician_action": "请由医师或药师核对适应证、实际服用频次、肾功能和原始处方；患者不要自行调整剂量。",
+      "clinician_action": "请由医师或药师核对适应证、实际服用频次、肾功能和原始处方。",
       "elderly_note": "来源指出65岁及以上患者调整剂量时应慎重。",
       "source_ids": ["cad_rehab_primary_care"]
     },
@@ -400,7 +400,7 @@
       "minimum_age": 65,
       "severity": "moderate",
       "conclusion": "本地来源转述：对老年患者，Beers criteria 建议避免将苯二氮卓类用于失眠治疗，因可能增加认知损害和跌倒等风险。当前药物清单不能确定该药的实际适应证。",
-      "clinician_action": "请由医师或药师核对该药的适应证、疗程、跌倒/认知风险及其他中枢抑制药；仅在确认属于来源所述情境后再作个体化判断，患者不要自行停药。",
+      "clinician_action": "请由医师或药师核对该药的适应证、疗程、跌倒/认知风险及其他中枢抑制药；仅在确认属于来源所述情境后再作个体化判断。",
       "elderly_note": "这是有限、本地可追溯来源的核对信号，不代表完整 Beers 筛查或个体化禁忌结论。",
       "source_ids": ["insomnia_bz_older_adults"]
     }

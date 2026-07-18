@@ -208,6 +208,7 @@ async def test_severe_medication_findings_create_fixed_owner_alerts_only() -> No
     assert "瑞舒伐他汀" not in payload
     assert "环孢素" not in payload
     assert "source_fingerprint" not in payload
+    assert "不要自行" not in payload
     assert all(record.source == "medication_review" for record in repository.records)
 
     # Repository recency/UUID ordering can be arbitrary for records created in

@@ -113,7 +113,7 @@ class MedicationRuleEvalCase(BaseModel):
     expected_finding_ids: tuple[str, ...] = Field(default_factory=tuple, max_length=20)
     expected_source_ids: tuple[str, ...] = Field(default_factory=tuple, max_length=20)
     expected_input_error: bool = False
-    ruleset_version: Literal["medication-rules-v3"] = "medication-rules-v3"
+    ruleset_version: Literal["medication-rules-v4"] = "medication-rules-v4"
     provenance: Literal["synthetic_reviewed"] = "synthetic_reviewed"
 
     @field_validator("expected_finding_ids", "expected_source_ids")

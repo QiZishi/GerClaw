@@ -119,10 +119,10 @@ class MedicationReviewDraft(BaseModel):
     unrecognized_entry_count: int = Field(ge=0, le=50)
     conclusion: str = Field(min_length=1, max_length=1_000)
     disclaimer: Literal[
-        "本审查仅基于已安装且来源可追溯的有限规则，不能替代医师或药师的完整用药核对；不得据此自行开始、停用或调整剂量。"
+        "本审查仅基于已安装且来源可追溯的有限规则，不能替代医师或药师的完整用药核对；涉及开始、停用或调整剂量时，应结合完整临床资料和相应证据复核。"
     ] = (
         "本审查仅基于已安装且来源可追溯的有限规则，不能替代医师或药师的完整用药核对；"
-        "不得据此自行开始、停用或调整剂量。"
+        "涉及开始、停用或调整剂量时，应结合完整临床资料和相应证据复核。"
     )
 
 

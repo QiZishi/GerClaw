@@ -68,7 +68,7 @@ def test_rule_review_emits_source_traceable_ddi_and_dose_findings() -> None:
         medication_list="瑞舒伐他汀 40mg 每日一次\n环孢素\n阿托伐他汀\n地高辛",
     )
 
-    assert result.ruleset_version == "medication-rules-v3"
+    assert result.ruleset_version == "medication-rules-v4"
     assert result.coverage.beers == "limited_source_traceable"
     assert result.sources[0].content_sha256 == (
         "940965391565b0de32f3aba51c5a323542f5af9b18162c5075130ba63437feeb"
@@ -125,7 +125,7 @@ def test_rule_review_v3_emits_evidence_bound_new_high_risk_pairs() -> None:
     )
 
     findings = {finding.finding_id: finding for finding in result.findings}
-    assert result.ruleset_version == "medication-rules-v3"
+    assert result.ruleset_version == "medication-rules-v4"
     assert set(findings) == {
         "ddi_nitroglycerin_sildenafil",
         "ddi_clopidogrel_omeprazole",
@@ -151,7 +151,7 @@ def test_rule_review_v3_covers_exact_local_daily_dose_limits() -> None:
         ),
     )
 
-    assert result.ruleset_version == "medication-rules-v3"
+    assert result.ruleset_version == "medication-rules-v4"
     assert [finding.finding_id for finding in result.findings] == [
         "dose_bisoprolol_max_daily_10mg_1",
         "dose_levamlodipine_max_daily_5mg_3",

@@ -319,7 +319,7 @@ async def test_medical_harness_streams_evidence_backed_cited_response(
     assert "evidence_backed_clinical_conclusion_allowed" in response.safety.notices
     assert response.safety.notices.count("patient_clinical_risk_notice_applied") == 1
     assert response.structured["evidence_backed_clinical_conclusion"] is True
-    assert response.text.count("请勿自行开始、停用、替换药物或调整剂量") == 1
+    assert response.text.count("涉及诊断或用药调整时") == 1
     assert response.text.endswith(MEDICAL_DISCLAIMER)
     assert response.citations[0].source_id == "chunk-evidence-001"
     streamed = "".join(
@@ -354,7 +354,7 @@ async def test_doctor_evidence_backed_conclusion_has_no_patient_risk_footer(
     )
 
     assert "明确诊断为冠心病" in response.text
-    assert "请勿自行开始、停用、替换药物或调整剂量" not in response.text
+    assert "涉及诊断或用药调整时" not in response.text
     assert "patient_clinical_risk_notice_applied" not in response.safety.notices
 
 

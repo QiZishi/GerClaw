@@ -62,7 +62,7 @@ only as owner-visible uploaded-document provenance. It never becomes a local
 knowledge-base citation. If RAG has no evidence, the endpoint fails closed.
 
 When the caller provides a current medication list, the server attaches the
-separate, deterministic `medication-rules-v3` result after model generation.
+separate, deterministic `medication-rules-v4` result after model generation.
 It has limited source-traceable DDI/dose/duplicate/polypharmacy coverage and a
 narrowly qualified Beers-related signal; it remains pending clinical governance
 and cannot be presented as a complete medication review. The model may record
@@ -71,7 +71,8 @@ in a cited recommendation. If a model projection references an unknown evidence
 ID or places an affirmative medication action in an uncited free-text field, the
 server discards that projection and returns an explicit evidence-bound,
 review-only baseline instead of returning a late 503. Negative safety wording
-such as “请勿自行停用” remains visible and is not misclassified as a proposal.
+such as “涉及停用或减量时，请结合相应证据和完整病史复核” remains visible and is not
+misclassified as a proposal.
 Both roles receive the complete cited candidate; the report ends with one unified
 risk notice. The model cannot create, override or explain deterministic rule findings.
 

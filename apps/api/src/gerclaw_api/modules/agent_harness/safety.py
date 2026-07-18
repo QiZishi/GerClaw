@@ -21,7 +21,7 @@ HIGH_RISK_NOTICE = (
     "不要等待在线回复；如身边有人，请请其陪同并携带当前用药清单。"
 )
 PATIENT_CLINICAL_RISK_NOTICE = (
-    "⚠️ 请勿自行开始、停用、替换药物或调整剂量；请结合上述依据与医生复核。"
+    "⚠️ 涉及诊断或用药调整时，请结合上述依据、完整病史和医生或药师复核后决定下一步。"
 )
 
 _CLEARLY_NON_MEDICAL = re.compile(

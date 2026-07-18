@@ -292,7 +292,7 @@ class EvidenceBoundPrescriptionGenerator:
                 title="药物核对",
                 goal="确认完整用药、适应证、不良反应与监测需求。",
                 recommendations=(recommendation,),
-                precautions=("请勿自行调整任何药物或剂量。",),
+                precautions=("涉及用药调整时，需结合完整病史、检查结果和相应证据复核。",),
                 evidence_ids=(evidence_id,),
                 medication_items=recorded_medications,
                 monitoring_requirements=("由医生或药师核对药盒、处方和近期检查结果。",),
@@ -567,11 +567,15 @@ class EvidenceBoundPrescriptionGenerator:
             for clause in re.split(r"[。；;\n]", field):
                 for term in directive_terms:
                     for match in re.finditer(re.escape(term), clause):
-                        # "请勿自行停用" and similar safety precautions are not
-                        # medication proposals.  They must stay visible rather
-                        # than triggering a false safety failure.
+                        # A conditional risk notice (for example, "涉及停用或
+                        # 减量时") describes a review boundary, not a medication
+                        # proposal. It must stay visible rather than triggering
+                        # a false safety failure.
                         prefix = clause[max(0, match.start() - 12) : match.start()]
+                        suffix = clause[match.end() : match.end() + 12]
                         if any(marker in prefix for marker in negation_markers):
+                            continue
+                        if "涉及" in prefix and "时" in suffix:
                             continue
                         raise UnattributableMedicationDirectiveError(
                             "medication change candidate has no attributable evidence"

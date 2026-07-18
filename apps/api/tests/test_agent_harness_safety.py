@@ -183,4 +183,5 @@ def test_patient_risk_footer_is_reserved_for_actionable_or_direct_conclusions() 
     assert requires_patient_clinical_risk_notice("明确诊断为冠心病。")
     assert requires_patient_clinical_risk_notice("建议停用当前药物。")
     assert not requires_patient_clinical_risk_notice("建议继续记录血压并复诊。")
-    assert "自行" in PATIENT_CLINICAL_RISK_NOTICE
+    assert "完整病史" in PATIENT_CLINICAL_RISK_NOTICE
+    assert "请勿" not in PATIENT_CLINICAL_RISK_NOTICE

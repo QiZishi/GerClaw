@@ -76,14 +76,14 @@ _MEDICATION_CONTRAINDICATED_DETAILS = RiskAlertDetails(
     severity="critical",
     title="发现需要立即复核的用药风险",
     message="本次用药规则核对发现禁忌级风险，需要由医师或药师立即复核。",
-    action="请立即联系医生或药师复核原始处方和完整用药；如出现严重不适或急症症状，请立即就医。不要自行停药或调整剂量。",
+    action="请立即联系医生或药师复核原始处方和完整用药；如出现严重不适或急症症状，请立即就医。",
 )
 _MEDICATION_MAJOR_RISK_DETAILS = RiskAlertDetails(
     kind="medication_major_risk",
     severity="high",
     title="发现需要尽快复核的用药风险",
     message="本次用药规则核对发现严重级风险，需要尽快由医师或药师复核。",
-    action="请尽快联系医生或药师复核原始处方、完整用药和近期检查。不要自行停药或调整剂量。",
+    action="请尽快联系医生或药师复核原始处方、完整用药和近期检查。",
 )
 
 

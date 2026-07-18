@@ -10,7 +10,7 @@
 4. AgentScope 可自主调用 `search_knowledge`；该工具复用 production hybrid RAG，不存在简化检索旁路。
    默认每种检索工具只调用一次；只有首轮无可用证据或存在独立子问题时才允许再调用一次，避免同义检索循环。默认 ReAct 上限为 6，支持通过受校验的 `GERCLAW_AGENT_MAX_REACT_ITERATIONS` 按环境调整。
 5. 三模型按 `primary → backup1 → backup2` 切换。只有尚未产生可见文本或工具调用时才允许切换；thinking-only、空字符串和 whitespace-only 都按 `MODEL_EMPTY_RESPONSE` 继续兜底，流中断后 fail closed。
-6. 文本按句检查直接临床结论是否已有本轮 evidence：无 citation/Runtime evidence marker 时改写为待核验表述；有本地、联网或上传 citation 时保留结论。患者端仅在整段末尾追加一次“勿自行改药、请医生复核”风险提示，医生端不机械改写。红旗症状先发 120/急诊提示；AgentScope final-only 正文从本 turn 的 AgentState 安全补齐，纯格式空白差异以已发布 SSE 为权威，任何非空白正文分叉 fail closed；普通医疗结论强制追加统一免责声明和可追溯 citation，无证据补充提示则明确标记为无证据状态且不伪造 citation。
+6. 文本按句检查直接临床结论是否已有本轮 evidence：无 citation/Runtime evidence marker 时改写为待核验表述；有本地、联网或上传 citation 时保留结论。患者端仅在整段末尾追加一次“结合依据、完整病史与医生或药师复核”的风险提示，医生端不机械改写。红旗症状先发 120/急诊提示；AgentScope final-only 正文从本 turn 的 AgentState 安全补齐，纯格式空白差异以已发布 SSE 为权威，任何非空白正文分叉 fail closed；普通医疗结论强制追加统一免责声明和可追溯 citation，无证据补充提示则明确标记为无证据状态且不伪造 citation。
 7. 成功与失败终态都在 Redis lease 尚未释放时复验 owner，并以 PostgreSQL session 行锁同时校验 fencing token 与 Trace ID。成功路径原子提交 assistant、审计事件和 completed Trace 后才发送 `done`；失败路径原子提交 SYSTEM_ERROR、failed/cancelled Trace 和 Bad Case。
 
 ## 日常交流的提示语与预算

@@ -106,7 +106,7 @@ async def test_real_model_generates_and_agentscope_executes_reviewed_skill(
                 "custom-fall-followup-safety。它不接收参数，tools 只能包含 search_knowledge，"
                 "必须先用 search_knowledge "
                 "检索本地知识库，核对跌倒红旗征象、药物因素和就医时机，输出供医生复核的清单；"
-                "不得确定性诊断、不得建议自行停换药，"
+                "涉及停换药建议时必须给出本轮证据与适用条件，"
                 "并保留高风险立即就医规则。"
             )
         },
