@@ -32,7 +32,7 @@ export function LoginPage({ onAuthenticated, onGuest }: { onAuthenticated: (iden
       <CardHeader className="gap-3 text-center">
         <div className="mx-auto grid size-14 place-items-center rounded-2xl bg-primary text-primary-foreground"><Stethoscope className="size-7" /></div>
         <CardTitle className="text-2xl tracking-tight">GerClaw</CardTitle>
-        <CardDescription className="text-base">{mode === "login" ? "登录后进入您的专属工作台" : "创建您的工作台账户"}</CardDescription>
+        <CardDescription className="text-base">{mode === "login" ? "登录或以游客身份进入" : "创建您的工作台账户"}</CardDescription>
       </CardHeader>
       <CardContent>
         <form className="grid gap-4" onSubmit={submit}>
