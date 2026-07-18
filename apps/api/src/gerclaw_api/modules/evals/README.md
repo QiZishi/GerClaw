@@ -85,8 +85,8 @@ cd apps/api
 uv run gerclaw-eval-rag \
   --allow-external-rag \
   --cases evals/rag-retrieval-reviewed-v1.json \
-  --index-version markdown-heading-v1:lexical-cjk-ngram-v1:BAAI/bge-m3:1024 \
-  --top-k 5 --max-cases 6
+  --index-version markdown-heading-v1:lexical-cjk-ngram-v2:BAAI/bge-m3:1024 \
+  --top-k 5 --max-cases 8
 ```
 
 The case file must be a `rag-retrieval-case-set-v1` JSON object with only

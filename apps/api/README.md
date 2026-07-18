@@ -60,8 +60,8 @@ docker compose -f docker-compose.yml -f docker-compose.dev.yml \
 uv run python -m gerclaw_api.modules.evals.rag_cli \
   --allow-external-rag \
   --cases evals/rag-retrieval-reviewed-v1.json \
-  --index-version markdown-heading-v1:lexical-cjk-ngram-v1:BAAI/bge-m3:1024 \
-  --top-k 5 --max-cases 6
+  --index-version markdown-heading-v1:lexical-cjk-ngram-v2:BAAI/bge-m3:1024 \
+  --top-k 5 --max-cases 8
 ```
 
 该评测只验证特定合成问题对特定公共语料的召回契约；它不证明医学正确性、模型质量、完整临床 workflow 或系统吞吐能力。

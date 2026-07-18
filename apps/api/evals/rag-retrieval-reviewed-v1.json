@@ -9,7 +9,7 @@
         "d6966bb3d1eb8b868c61b8d9d97835a4683df979bbd0c5bb787f634f1b173f1b"
       ],
       "minimum_expected_hits": 1,
-      "index_version": "markdown-heading-v1:lexical-cjk-ngram-v1:BAAI/bge-m3:1024",
+      "index_version": "markdown-heading-v1:lexical-cjk-ngram-v2:BAAI/bge-m3:1024",
       "provenance": "synthetic_reviewed"
     },
     {
@@ -20,7 +20,7 @@
         "919cd37c8d54b4c56ab0e76003aa00f61c814777a94a5e6f7a114b84ade9bb00"
       ],
       "minimum_expected_hits": 1,
-      "index_version": "markdown-heading-v1:lexical-cjk-ngram-v1:BAAI/bge-m3:1024",
+      "index_version": "markdown-heading-v1:lexical-cjk-ngram-v2:BAAI/bge-m3:1024",
       "provenance": "synthetic_reviewed"
     },
     {
@@ -31,7 +31,7 @@
         "9777556288a7186f4004811907d505cb948eeb6da5d836606373216378733ae4"
       ],
       "minimum_expected_hits": 1,
-      "index_version": "markdown-heading-v1:lexical-cjk-ngram-v1:BAAI/bge-m3:1024",
+      "index_version": "markdown-heading-v1:lexical-cjk-ngram-v2:BAAI/bge-m3:1024",
       "provenance": "synthetic_reviewed"
     },
     {
@@ -42,7 +42,7 @@
         "915de3025cf54809b3943a882696b30bdbabae985d511b40eed3bc64ca23e127"
       ],
       "minimum_expected_hits": 1,
-      "index_version": "markdown-heading-v1:lexical-cjk-ngram-v1:BAAI/bge-m3:1024",
+      "index_version": "markdown-heading-v1:lexical-cjk-ngram-v2:BAAI/bge-m3:1024",
       "provenance": "synthetic_reviewed"
     },
     {
@@ -53,7 +53,35 @@
         "9522fd07f17778f5001f38801e10a13120b4b64d6c32b99d215f58040f6ac202"
       ],
       "minimum_expected_hits": 1,
-      "index_version": "markdown-heading-v1:lexical-cjk-ngram-v1:BAAI/bge-m3:1024",
+      "index_version": "markdown-heading-v1:lexical-cjk-ngram-v2:BAAI/bge-m3:1024",
+      "provenance": "synthetic_reviewed"
+    },
+    {
+      "case_id": "rag-retrieval.geriatric-anxiety-guideline",
+      "title": "老年焦虑综合评估的合成检索基线",
+      "synthetic_query": "老年人出现焦虑时，综合评估通常应与本人及照护者核对哪些方面？",
+      "expected_document_ids": [
+        "bac8c862f74fadc4c2a8845c43cdb74bb874d6433a6b2c168e1821aa96e8d5d4"
+      ],
+      "required_source_types": [
+        "guideline"
+      ],
+      "minimum_expected_hits": 1,
+      "index_version": "markdown-heading-v1:lexical-cjk-ngram-v2:BAAI/bge-m3:1024",
+      "provenance": "synthetic_reviewed"
+    },
+    {
+      "case_id": "rag-retrieval.pressure-injury-guideline",
+      "title": "压力性损伤预防与治疗的合成检索基线",
+      "synthetic_query": "老年人压力性损伤的预防与治疗计划通常需要评估哪些风险和护理措施？",
+      "expected_document_ids": [
+        "75c753c90737cf29f1356d652bfc1e0b3fcc7949ef06f3b6c3c68d836365968e"
+      ],
+      "required_source_types": [
+        "guideline"
+      ],
+      "minimum_expected_hits": 1,
+      "index_version": "markdown-heading-v1:lexical-cjk-ngram-v2:BAAI/bge-m3:1024",
       "provenance": "synthetic_reviewed"
     },
     {
@@ -63,7 +91,7 @@
       "expected_document_ids": [],
       "minimum_expected_hits": 0,
       "expect_no_evidence": true,
-      "index_version": "markdown-heading-v1:lexical-cjk-ngram-v1:BAAI/bge-m3:1024",
+      "index_version": "markdown-heading-v1:lexical-cjk-ngram-v2:BAAI/bge-m3:1024",
       "provenance": "synthetic_reviewed"
     }
   ]

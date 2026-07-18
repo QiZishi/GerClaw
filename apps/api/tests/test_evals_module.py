@@ -624,9 +624,13 @@ def test_committed_rag_case_set_stays_versioned_and_synthetic() -> None:
 
     loaded = load_rag_case_set(case_file)
 
-    assert len(loaded.cases) == 6
+    assert len(loaded.cases) == 8
     assert loaded.cases[0].case_id == "rag-retrieval.polypharmacy-safety-consensus"
     assert loaded.cases[0].provenance == "synthetic_reviewed"
+    assert loaded.cases[5].case_id == "rag-retrieval.geriatric-anxiety-guideline"
+    assert loaded.cases[5].required_source_types == ("guideline",)
+    assert loaded.cases[6].case_id == "rag-retrieval.pressure-injury-guideline"
+    assert loaded.cases[6].required_source_types == ("guideline",)
     assert len({case.case_id for case in loaded.cases}) == len(loaded.cases)
     assert all(case.provenance == "synthetic_reviewed" for case in loaded.cases)
     assert loaded.cases[-1].expect_no_evidence is True

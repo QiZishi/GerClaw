@@ -25,7 +25,7 @@ class LexicalVector:
 class LexicalEncoder:
     """Hash normalized Latin terms and Chinese n-grams into a stable sparse space."""
 
-    VERSION = "lexical-cjk-ngram-v1"
+    VERSION = "lexical-cjk-ngram-v2"
 
     @staticmethod
     def tokens(value: str) -> tuple[str, ...]:

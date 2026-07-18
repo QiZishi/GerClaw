@@ -150,6 +150,26 @@ def _chunk_from_payload(payload: dict[str, Any]) -> IndexChunk:
     )
 
 
+def _lexical_document_text(chunk: IndexChunk) -> str:
+    """Keep reviewed corpus classification searchable across document languages.
+
+    Category is provider-independent, public corpus metadata.  Repeating it
+    gives a bounded disease/topic label the same lexical emphasis as title
+    while keeping user queries, session material and PHI out of the index.
+    """
+
+    return "\n".join(
+        (
+            chunk.category,
+            chunk.category,
+            chunk.title,
+            chunk.title,
+            chunk.chapter,
+            chunk.content,
+        )
+    )
+
+
 class QdrantHybridStore:
     """Own one named-vector collection and expose bounded hybrid operations."""
 
@@ -247,9 +267,7 @@ class QdrantHybridStore:
         point_ids: list[models.ExtendedPointId] = []
         for item in chunks:
             chunk = item.chunk
-            lexical = LexicalEncoder.encode(
-                f"{chunk.title}\n{chunk.title}\n{chunk.chapter}\n{chunk.content}"
-            )
+            lexical = LexicalEncoder.encode(_lexical_document_text(chunk))
             payload: dict[str, Any] = {
                 "chunk_id": chunk.chunk_id,
                 "document_id": chunk.document_id,
