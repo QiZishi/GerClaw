@@ -61,7 +61,7 @@ apps/api (FastAPI)
 
 | 边界 | 当前强制控制 | 事实来源 / 未完成边界 |
 |---|---|---|
-| 身份与会话 | BFF 的账号/访客 HttpOnly cookie、短期 JWT、scope、tenant/actor 所有权、限流 | 患者、医生、管理员账号和基础 RBAC 已有；医生资质、患者授权和跨患者临床权限仍未实现 |
+| 身份与会话 | BFF 的账号/访客 HttpOnly cookie、短期 JWT、scope、tenant/actor 所有权、限流；患者可按资源向指定医生授予可撤回的限时读取权 | 患者、医生、管理员账号、基础 RBAC 与健康画像/CGA 摘要/处方草案授权已存在；医生资质和完整跨患者临床工作台仍未实现 |
 | 对话与 Trace | Pydantic/Zod、会话 lease、加密消息、PHI-free Trace | 反馈/Bad Case 的完整授权晋升、回放治理尚未完成 |
 | RAG | 本地 Markdown 白名单、内容净化、不可信证据隔离、Qdrant public payload | 当前知识库已真实进入 Chat；RAG 专项评测仍不完整 |
 | Memory | PostgreSQL 加密事实与 revision 审计；Qdrant 仅无 PHI reference vector | 生命周期删除、受控再识别与完整分类注册表未实现 |

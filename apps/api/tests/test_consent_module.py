@@ -14,6 +14,8 @@ from pydantic import ValidationError
 from gerclaw_api.api.routes import consent as consent_routes
 from gerclaw_api.auth import AuthContext
 from gerclaw_api.modules.consent.models import PatientAccessGrantCreate, PatientAccessGrantRevoke
+from gerclaw_api.modules.memory.models import HealthProfileRead
+from gerclaw_api.modules.memory.protocols import MemoryFactView
 from gerclaw_api.modules.prescription.models import PrescriptionDraftReviewRequest
 from gerclaw_api.repositories.consent import (
     PatientAccessGrantConflictError,
@@ -189,6 +191,89 @@ async def test_doctor_projections_fail_closed_without_current_grant(
                 await endpoint(PATIENT, SimpleNamespace(), doctor)
         assert denied.value.status_code == 404
         assert denied.value.detail["code"] == "PATIENT_ACCESS_NOT_FOUND"
+
+
+@pytest.mark.asyncio
+async def test_authorized_doctor_health_profile_excludes_unconfirmed_candidates(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    now = datetime.now(UTC)
+    confirmed = MemoryFactView(
+        id=uuid.uuid4(),
+        category="allergy",
+        memory_type="stable",
+        status="confirmed",
+        statement="用户自述: 对青霉素过敏",
+        details={},
+        confidence=0.99,
+        revision=1,
+        updated_at=now,
+    )
+    pending = MemoryFactView(
+        id=uuid.uuid4(),
+        category="condition",
+        memory_type="evolving",
+        status="pending",
+        statement="待确认: 高血压",
+        details={},
+        confidence=0.7,
+        revision=1,
+        updated_at=now,
+    )
+    profile = HealthProfileRead(
+        schema_version=1,
+        version=2,
+        profile={"allergies": [{"name": "青霉素"}]},
+        facts=[confirmed, pending],
+    )
+
+    class ActiveGrantRepository:
+        def __init__(self, _session: object) -> None:
+            pass
+
+        async def require_active_grant(self, **kwargs: object) -> None:
+            assert kwargs["resource_scope"] == "health_profile_read"
+
+    class FakeMemoryRepository:
+        def __init__(self, _session: object) -> None:
+            pass
+
+        async def get_user(self, **_kwargs: object) -> SimpleNamespace:
+            return SimpleNamespace(id=uuid.uuid4())
+
+    class FakeMemoryModule:
+        async def read_profile(self) -> HealthProfileRead:
+            return profile
+
+    monkeypatch.setattr(
+        consent_routes, "SqlAlchemyPatientAccessGrantRepository", ActiveGrantRepository
+    )
+    monkeypatch.setattr(consent_routes, "SqlAlchemyMemoryRepository", FakeMemoryRepository)
+    monkeypatch.setattr(
+        consent_routes, "create_memory_module", lambda **_kwargs: FakeMemoryModule()
+    )
+    monkeypatch.setattr(consent_routes, "FailoverChatModel", object)
+    request = SimpleNamespace(
+        app=SimpleNamespace(
+            state=SimpleNamespace(
+                agent_model=object(),
+                settings=object(),
+                rag_runtime=SimpleNamespace(embedding_model=object()),
+                memory_store=object(),
+            )
+        ),
+        state=SimpleNamespace(trace_id="trace_consent_profile_projection"),
+    )
+
+    result = await consent_routes.get_authorized_health_profile(
+        PATIENT,
+        request,
+        SimpleNamespace(),
+        _identity(role="doctor", scopes=frozenset({"memory:read"})),
+    )
+
+    assert result.profile == profile.profile
+    assert result.facts == [confirmed]
 
 
 @pytest.mark.asyncio

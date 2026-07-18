@@ -91,6 +91,14 @@ def _review_read(record: PrescriptionDraftReview) -> PrescriptionDraftReviewRead
     )
 
 
+def _doctor_health_profile_projection(profile: HealthProfileRead) -> HealthProfileRead:
+    """Doctors receive only facts already confirmed by the patient."""
+
+    return profile.model_copy(
+        update={"facts": [fact for fact in profile.facts if fact.status == "confirmed"]}
+    )
+
+
 @router.post("", response_model=PatientAccessGrantListRead, status_code=status.HTTP_201_CREATED)
 async def grant_access(
     payload: PatientAccessGrantCreate,
@@ -203,7 +211,7 @@ async def get_authorized_health_profile(
         session_id=_NO_SESSION,
         trace_id=str(request.state.trace_id),
     )
-    return await module.read_profile()
+    return _doctor_health_profile_projection(await module.read_profile())
 
 
 @router.get("/patients/{patient_actor_id}/cga-reports", response_model=CgaHistoryRead)

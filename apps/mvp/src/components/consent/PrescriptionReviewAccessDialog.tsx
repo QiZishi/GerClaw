@@ -18,10 +18,11 @@ import type { PatientAccessGrant } from "@/services/gerclaw/schemas";
 
 const doctorActorIdPattern = /^usr_account_[a-f0-9]{32}$/;
 const grantOptions: ReadonlyArray<{
-  scope: Exclude<PatientGrantResource, "health_profile_read">;
+  scope: PatientGrantResource;
   label: string;
   description: string;
 }> = [
+  { scope: "health_profile_read", label: "健康画像", description: "查看已确认的健康信息" },
   { scope: "prescription_draft_review", label: "五大处方草案", description: "查看草案并记录复核意见" },
   { scope: "cga_report_read", label: "已完成 CGA 报告", description: "查看已完成的筛查摘要" },
 ];
@@ -45,7 +46,7 @@ export function PrescriptionReviewAccessDialog({
 }) {
   const [grants, setGrants] = useState<PatientAccessGrant[]>([]);
   const [doctorActorId, setDoctorActorId] = useState("");
-  const [resourceScopes, setResourceScopes] = useState<Exclude<PatientGrantResource, "health_profile_read">[]>([
+  const [resourceScopes, setResourceScopes] = useState<PatientGrantResource[]>([
     "prescription_draft_review",
   ]);
   const [expiryDays, setExpiryDays] = useState(90);
@@ -119,7 +120,7 @@ export function PrescriptionReviewAccessDialog({
     }
   }
 
-  function toggleScope(scope: Exclude<PatientGrantResource, "health_profile_read">, checked: boolean) {
+  function toggleScope(scope: PatientGrantResource, checked: boolean) {
     setResourceScopes((current) => checked
       ? [...new Set([...current, scope])]
       : current.filter((item) => item !== scope)
@@ -185,7 +186,7 @@ export function PrescriptionReviewAccessDialog({
         <div className="border-t pt-4">
           <h3 className={cn("font-medium", seniorMode && "text-lg")}>当前授权</h3>
           {loading ? <InlineLoadingState className="min-h-20" message="正在读取授权" /> : grants.length === 0 ? (
-            <p className={cn("mt-2 text-muted-foreground", textClass)}>暂无医生复核授权</p>
+            <p className={cn("mt-2 text-muted-foreground", textClass)}>暂无医生资料授权</p>
           ) : (
             <ul className="mt-2 grid gap-2">
               {grants.map((grant) => (

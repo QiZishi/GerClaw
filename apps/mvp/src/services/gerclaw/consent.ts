@@ -15,7 +15,7 @@ export function listPrescriptionReviewGrants(): Promise<PatientAccessGrantList> 
 /** A patient chooses the bounded read projections that a specific doctor may use. */
 export function grantDoctorAccess(input: {
   doctorActorId: string;
-  resourceScopes: readonly Exclude<PatientGrantResource, "health_profile_read">[];
+  resourceScopes: readonly PatientGrantResource[];
   expiresAt: string;
 }): Promise<PatientAccessGrantList> {
   return gerclawRequest("access-grants", patientAccessGrantListSchema, {
