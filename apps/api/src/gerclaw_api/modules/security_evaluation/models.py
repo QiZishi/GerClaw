@@ -15,6 +15,7 @@ from gerclaw_api.modules.runtime.models import (
 
 STRICT = ConfigDict(extra="forbid", frozen=True)
 ASSET_NAME = r"^[a-z][a-z0-9_.-]{1,63}$"
+ASSET_VERSION = r"^(?:0|[1-9][0-9]{0,3})\.[0-9]{1,4}\.[0-9]{1,4}$"
 
 
 class SecurityAssetKind(StrEnum):
@@ -74,7 +75,9 @@ class SecurityRiskProfile(BaseModel):
     profile_version: str = Field(pattern=VERSION)
     asset_kind: SecurityAssetKind
     asset_name: str = Field(pattern=ASSET_NAME)
-    asset_version: str = Field(pattern=VERSION)
+    # Skill SemVer permits a `0.x.y` pre-1.0 lifecycle while Runtime policy
+    # versions remain on the stricter released-version contract.
+    asset_version: str = Field(pattern=ASSET_VERSION)
     owner_module: str = Field(pattern=r"^[a-z][a-z0-9_]{1,63}$")
     status: SecurityProfileStatus = SecurityProfileStatus.ACTIVE
     risk_level: RiskLevel
@@ -94,5 +97,5 @@ class SecurityEvaluationVerdict(BaseModel):
     profile_version: str = Field(pattern=VERSION)
     asset_kind: SecurityAssetKind
     asset_name: str = Field(pattern=ASSET_NAME)
-    asset_version: str = Field(pattern=VERSION)
+    asset_version: str = Field(pattern=ASSET_VERSION)
     allowed: bool = True

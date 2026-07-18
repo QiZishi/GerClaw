@@ -13,6 +13,7 @@ from gerclaw_api.modules.skill.generator import RealSkillGenerator, StructuredSk
 from gerclaw_api.modules.skill.loader import DEFAULT_ALLOWED_TOOLS, parse_skill_markdown
 from gerclaw_api.modules.skill.models import Skill, SkillDefinition, SkillInfo, SkillResult
 from gerclaw_api.modules.skill.registry import BuiltinSkillRegistry
+from gerclaw_api.modules.skill.security import enforce_skill_runtime_profile
 from gerclaw_api.security import JsonValue
 
 if TYPE_CHECKING:
@@ -90,6 +91,7 @@ class ProductionSkillModule:
         skill = await self.load_skill(skill_id)
         if not skill.definition.enabled:
             raise SkillDisabledError("Skill is disabled")
+        enforce_skill_runtime_profile(skill.definition)
         return skill
 
     async def register_markdown(
@@ -159,6 +161,8 @@ class ProductionSkillModule:
             )
             if replacement.skill_id != skill_id:
                 raise SkillConflictError("Skill id cannot change during update")
+            if _semantic_version(replacement.version) <= _semantic_version(current.version):
+                raise SkillConflictError("Skill behavior changes require a higher Semantic Version")
             existing = await self.list_skills()
             if any(
                 item.skill_id != skill_id and item.name.casefold() == replacement.name.casefold()
@@ -280,3 +284,10 @@ class SkillDefinitionRecordLike:
     revision: int
     created_at: object
     updated_at: object
+
+
+def _semantic_version(value: str) -> tuple[int, int, int]:
+    """Compare the already schema-validated SemVer form without a new dependency."""
+
+    major, minor, patch = value.split(".")
+    return int(major), int(minor), int(patch)

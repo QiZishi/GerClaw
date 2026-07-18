@@ -131,3 +131,79 @@ def enforce_skill_safety(definition: SkillDefinition) -> None:
     ]
     if findings:
         raise UnsafeSkillError(findings)
+
+
+def enforce_skill_runtime_profile(definition: SkillDefinition) -> None:
+    """Build and verify the server-owned risk profile for one loaded Skill.
+
+    The definition has already passed parser and safety validation. Every
+    profile field is derived from server constants and declared allowlisted
+    tools; browser and model content cannot submit or weaken a profile.
+    """
+
+    # Keep Runtime imports at the activation boundary. Package discovery also
+    # loads Agent/RAG modules and must not create a cycle through their own
+    # security admission checks.
+    from gerclaw_api.modules.runtime.models import DataClass, NetworkAccess, RiskLevel
+    from gerclaw_api.modules.security_evaluation import (
+        SecurityAssetKind,
+        SecurityControl,
+        SecurityProfileRegistry,
+        SecurityRiskProfile,
+        SecurityThreat,
+    )
+
+    declared_tools = frozenset(definition.tool_names)
+    external = "web_search" in declared_tools
+    evidence_backed = bool({"search_knowledge", "web_search"} & declared_tools)
+    threats = {
+        SecurityThreat.INDIRECT_PROMPT_INJECTION,
+        SecurityThreat.TOOL_MISUSE,
+        SecurityThreat.RESOURCE_EXHAUSTION,
+    }
+    if "search_memory" in declared_tools:
+        threats.update({SecurityThreat.MEMORY_POISONING, SecurityThreat.CROSS_PATIENT_ACCESS})
+    if evidence_backed:
+        threats.update({SecurityThreat.RAG_POISONING, SecurityThreat.HALLUCINATED_EVIDENCE})
+    if external:
+        threats.add(SecurityThreat.SENSITIVE_EGRESS)
+
+    controls = {
+        SecurityControl.INPUT_SCHEMA,
+        SecurityControl.OUTPUT_BOUNDARY,
+        SecurityControl.EXECUTION_BUDGET,
+        SecurityControl.UNTRUSTED_DATA_ISOLATION,
+        SecurityControl.PATIENT_OWNERSHIP,
+    }
+    if external:
+        controls.add(SecurityControl.EXTERNAL_EGRESS_REDACTION)
+    if evidence_backed:
+        controls.add(SecurityControl.EVIDENCE_PROVENANCE)
+
+    risk_level = RiskLevel.MEDIUM if external else RiskLevel.LOW
+    network_access = NetworkAccess.EXTERNAL if external else NetworkAccess.INTERNAL
+    data_classes = frozenset({DataClass.INTERNAL, DataClass.PHI})
+    profile = SecurityRiskProfile(
+        profile_id=f"security.skill.{definition.skill_id}",
+        profile_version="1.0.0",
+        asset_kind=SecurityAssetKind.SKILL,
+        asset_name=definition.skill_id,
+        asset_version=definition.version,
+        owner_module="skill",
+        risk_level=risk_level,
+        network_access=network_access,
+        data_classes=data_classes,
+        threats=frozenset(threats),
+        required_controls=frozenset(controls),
+        residual_risk=(
+            "Declarative Skill instructions remain untrusted and cannot supersede Runtime policy."
+        ),
+    )
+    SecurityProfileRegistry((profile,)).assess_skill(
+        name=definition.skill_id,
+        version=definition.version,
+        risk_level=risk_level,
+        network_access=network_access,
+        data_classes=data_classes,
+        evidence_backed=evidence_backed,
+    )

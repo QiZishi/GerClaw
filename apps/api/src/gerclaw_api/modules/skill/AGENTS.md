@@ -8,6 +8,10 @@ This module owns the lifecycle of declarative GerClaw Skills: validation, regist
 
 - A Skill is data and untrusted instruction content. It cannot alter system policy, role, medical safety, permissions, evidence rules or the governed-tool allowlist.
 - IDs, versions, parameter schemas and tool lists are validated server-side. A new version is required for behavior changes to a registered Skill.
+- A loaded Skill must pass a server-derived, exact `security_evaluation`
+  profile before AgentScope receives it. The profile is derived only from the
+  validated ID, SemVer and declared allowlisted tools; it is never supplied by
+  the browser, model, or Skill Markdown.
 - Only declared, allowlisted tools run through the Runtime boundary; generated drafts are parsed and revalidated before registration.
 - Model-generated drafts accept only strict `skill-generation-model-output-v1`
   via the shared versioned output contract; missing, stale or extra provider

@@ -46,10 +46,16 @@ network access, data classes, bounded threat categories, executable controls
 and residual-risk statement. `SecurityEvaluationVerdict` is PHI-free and is
 only an in-process admission result.
 
-The contract can also describe Skill profiles, but Skills are **not yet
-consumed by a production registration path**. This module therefore does not
-claim a completed application-wide threat model, full red-team suite, clinical
-safety validation, or privacy/data-retention lifecycle.
+Every enabled Skill is also admitted immediately before AgentScope activation.
+The server derives its exact profile from the already validated Skill ID,
+SemVer and declared allowlisted tools; it rejects a profile/control mismatch
+before the Skill viewer can be created. A `0.x.y` Skill SemVer is accepted as
+an asset version without weakening the stricter released Runtime-policy
+version contract.
+
+This module still does not claim a completed application-wide threat model,
+full red-team suite, clinical safety validation, or privacy/data-retention
+lifecycle.
 
 Run the focused checks from `apps/api`:
 

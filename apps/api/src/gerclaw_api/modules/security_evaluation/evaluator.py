@@ -288,6 +288,31 @@ class SecurityProfileRegistry:
             require_evidence_provenance=True,
         )
 
+    def assess_skill(
+        self,
+        *,
+        name: str,
+        version: str,
+        risk_level: RiskLevel,
+        network_access: NetworkAccess,
+        data_classes: frozenset[DataClass],
+        evidence_backed: bool,
+    ) -> SecurityEvaluationVerdict:
+        """Admit one validated declarative Skill before AgentScope receives it."""
+
+        return self._assess_runtime_asset(
+            asset_kind=SecurityAssetKind.SKILL,
+            name=name,
+            version=version,
+            owner_module="skill",
+            risk_level=risk_level,
+            network_access=network_access,
+            data_classes=data_classes,
+            require_patient_ownership=DataClass.PHI in data_classes,
+            require_egress_redaction=network_access is NetworkAccess.EXTERNAL,
+            require_evidence_provenance=evidence_backed,
+        )
+
     def _assess_runtime_asset(
         self,
         *,

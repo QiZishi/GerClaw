@@ -32,7 +32,7 @@ from gerclaw_api.modules.skill.loader import (
 from gerclaw_api.modules.skill.models import SKILL_MODEL_OUTPUT_SCHEMA_VERSION
 from gerclaw_api.modules.skill.quality import evaluate_skill_draft
 from gerclaw_api.modules.skill.registry import BuiltinSkillRegistry
-from gerclaw_api.modules.skill.security import UnsafeSkillError
+from gerclaw_api.modules.skill.security import UnsafeSkillError, enforce_skill_runtime_profile
 from gerclaw_api.modules.skill.skill_module import (
     ProductionSkillModule,
     SkillConflictError,
@@ -46,6 +46,7 @@ def _markdown(
     *,
     skill_id: str = "safe-followup",
     name: str = "安全随访",
+    version: str = "1.0.0",
     instructions: str = "# 工作流\n\n先核对用户信息，再检索本地证据，最后生成可复核的随访草稿。",
     tools: str = "  - search_knowledge",
     parameters: str = (
@@ -56,7 +57,7 @@ def _markdown(
 id: {skill_id}
 name: {name}
 description: 生成需要人工复核的随访草稿
-version: 1.0.0
+version: {version}
 category: followup
 parameters:
 {parameters}
@@ -641,7 +642,7 @@ async def test_production_module_custom_lifecycle_and_agentscope_resolution() ->
 
     updated = await module.update_skill(
         "safe-followup",
-        source_markdown=_markdown(name="安全随访新版"),
+        source_markdown=_markdown(name="安全随访新版", version="1.1.0"),
         enabled=None,
         expected_revision=1,
     )
@@ -703,6 +704,13 @@ async def test_production_module_update_delete_and_generation_fail_closed() -> N
             enabled=None,
             expected_revision=1,
         )
+    with pytest.raises(SkillConflictError, match="higher Semantic Version"):
+        await module.update_skill(
+            "safe-followup",
+            source_markdown=_markdown(name="同版本行为替换"),
+            enabled=None,
+            expected_revision=1,
+        )
 
 
 @pytest.mark.asyncio
@@ -715,7 +723,7 @@ async def test_update_preserves_disabled_state_and_rejects_duplicate_names() -> 
     )
     updated = await module.update_skill(
         "safe-followup",
-        source_markdown=_markdown(name="停用技能新版"),
+        source_markdown=_markdown(name="停用技能新版", version="1.1.0"),
         enabled=None,
         expected_revision=2,
     )
@@ -723,10 +731,20 @@ async def test_update_preserves_disabled_state_and_rejects_duplicate_names() -> 
     with pytest.raises(SkillConflictError, match="name"):
         await module.update_skill(
             "safe-followup",
-            source_markdown=_markdown(name="老年风险评估"),
+            source_markdown=_markdown(name="老年风险评估", version="1.2.0"),
             enabled=None,
             expected_revision=3,
         )
+
+
+def test_skill_runtime_profile_accepts_validated_pre_release_semver() -> None:
+    definition = parse_skill_markdown(
+        _markdown(version="0.4.0", tools="  - search_knowledge\n  - web_search"),
+        source="custom",
+        origin="text",
+    )
+
+    enforce_skill_runtime_profile(definition)
 
 
 @pytest.mark.asyncio
