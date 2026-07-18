@@ -2,19 +2,29 @@
 
 import { type FormEvent, useEffect, useState } from "react";
 import { Button } from "@/components/ui/button";
+import { Checkbox } from "@/components/ui/checkbox";
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { InlineLoadingState } from "@/components/ui/inline-loading-state";
 import { cn } from "@/lib/utils";
 import {
-  grantPrescriptionReviewAccess,
+  grantDoctorAccess,
   listPrescriptionReviewGrants,
-  revokePrescriptionReviewAccess,
+  revokeDoctorAccess,
+  type PatientGrantResource,
 } from "@/services/gerclaw/consent";
 import type { PatientAccessGrant } from "@/services/gerclaw/schemas";
 
 const doctorActorIdPattern = /^usr_account_[a-f0-9]{32}$/;
+const grantOptions: ReadonlyArray<{
+  scope: Exclude<PatientGrantResource, "health_profile_read">;
+  label: string;
+  description: string;
+}> = [
+  { scope: "prescription_draft_review", label: "五大处方草案", description: "查看草案并记录复核意见" },
+  { scope: "cga_report_read", label: "已完成 CGA 报告", description: "查看已完成的筛查摘要" },
+];
 
 function expiryAfter(days: number): string {
   return new Date(Date.now() + days * 86_400_000).toISOString();
@@ -35,6 +45,9 @@ export function PrescriptionReviewAccessDialog({
 }) {
   const [grants, setGrants] = useState<PatientAccessGrant[]>([]);
   const [doctorActorId, setDoctorActorId] = useState("");
+  const [resourceScopes, setResourceScopes] = useState<Exclude<PatientGrantResource, "health_profile_read">[]>([
+    "prescription_draft_review",
+  ]);
   const [expiryDays, setExpiryDays] = useState(90);
   const [loading, setLoading] = useState(false);
   const [pending, setPending] = useState(false);
@@ -63,6 +76,7 @@ export function PrescriptionReviewAccessDialog({
   function handleOpenChange(nextOpen: boolean) {
     if (!nextOpen) {
       setDoctorActorId("");
+      setResourceScopes(["prescription_draft_review"]);
       setError(null);
     }
     onOpenChange(nextOpen);
@@ -70,18 +84,19 @@ export function PrescriptionReviewAccessDialog({
 
   async function submit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
-    if (pending || !doctorActorIdPattern.test(doctorActorId.trim())) return;
+    if (pending || !doctorActorIdPattern.test(doctorActorId.trim()) || resourceScopes.length === 0) return;
     setPending(true);
     setError(null);
     try {
-      const response = await grantPrescriptionReviewAccess({
+      await grantDoctorAccess({
         doctorActorId,
+        resourceScopes,
         expiresAt: expiryAfter(expiryDays),
       });
-      setGrants(response.items.filter((item) => item.resource_scope === "prescription_draft_review"));
       setDoctorActorId("");
+      await refresh();
     } catch {
-      setError("授权未保存，请核对医生复核代码后重试。");
+      setError("授权未保存，请核对医生代码后重试。");
     } finally {
       setPending(false);
     }
@@ -92,7 +107,7 @@ export function PrescriptionReviewAccessDialog({
     setPending(true);
     setError(null);
     try {
-      const updated = await revokePrescriptionReviewAccess({
+      const updated = await revokeDoctorAccess({
         grantId: grant.id,
         expectedRevision: grant.revision,
       });
@@ -104,16 +119,23 @@ export function PrescriptionReviewAccessDialog({
     }
   }
 
+  function toggleScope(scope: Exclude<PatientGrantResource, "health_profile_read">, checked: boolean) {
+    setResourceScopes((current) => checked
+      ? [...new Set([...current, scope])]
+      : current.filter((item) => item !== scope)
+    );
+  }
+
   return (
     <Dialog open={open} onOpenChange={handleOpenChange}>
       <DialogContent className={cn("sm:max-w-md", seniorMode && "p-5")} showCloseButton={!seniorMode}>
         <DialogHeader>
-          <DialogTitle className={cn(seniorMode && "text-2xl")}>医生复核授权</DialogTitle>
-          <DialogDescription className={textClass}>仅允许医生查看并复核五大处方草案。</DialogDescription>
+          <DialogTitle className={cn(seniorMode && "text-2xl")}>医生资料授权</DialogTitle>
+          <DialogDescription className={textClass}>选择医生可查看的内容。</DialogDescription>
         </DialogHeader>
         <form className="mt-3 grid gap-3" onSubmit={submit}>
           <div className="grid gap-2">
-            <Label htmlFor="doctor-review-code" className={cn(seniorMode && "text-lg")}>医生复核代码</Label>
+            <Label htmlFor="doctor-review-code" className={cn(seniorMode && "text-lg")}>医生代码</Label>
             <Input
               id="doctor-review-code"
               value={doctorActorId}
@@ -126,6 +148,20 @@ export function PrescriptionReviewAccessDialog({
               className={cn("font-mono", seniorMode && "h-12 text-base")}
             />
           </div>
+          <fieldset className="grid gap-2">
+            <legend className={cn("font-medium", seniorMode && "text-lg")}>授权内容</legend>
+            {grantOptions.map((option) => (
+              <Label key={option.scope} htmlFor={`grant-${option.scope}`} className={cn("flex cursor-pointer items-start gap-3 rounded-lg border p-3", textClass)}>
+                <Checkbox
+                  id={`grant-${option.scope}`}
+                  checked={resourceScopes.includes(option.scope)}
+                  onCheckedChange={(value) => toggleScope(option.scope, value === true)}
+                  className="mt-1"
+                />
+                <span><span className="block font-medium">{option.label}</span><span className="text-muted-foreground">{option.description}</span></span>
+              </Label>
+            ))}
+          </fieldset>
           <div className="grid gap-2">
             <Label htmlFor="review-expiry" className={cn(seniorMode && "text-lg")}>授权期限</Label>
             <select
@@ -141,8 +177,8 @@ export function PrescriptionReviewAccessDialog({
           </div>
           {error && <p role="alert" className={cn("rounded-lg border border-destructive/40 bg-destructive/10 p-3 text-destructive", textClass)}>{error}</p>}
           <DialogFooter className={cn("gap-2", seniorMode && "flex-row justify-end gap-3")}>
-            <Button type="submit" disabled={pending || !doctorActorIdPattern.test(doctorActorId)} className={cn(seniorMode && "min-h-12 text-lg")}>
-              {pending ? "正在保存…" : "授权复核"}
+            <Button type="submit" disabled={pending || resourceScopes.length === 0 || !doctorActorIdPattern.test(doctorActorId)} className={cn(seniorMode && "min-h-12 text-lg")}>
+              {pending ? "正在保存…" : "保存授权"}
             </Button>
           </DialogFooter>
         </form>
@@ -156,9 +192,9 @@ export function PrescriptionReviewAccessDialog({
                 <li key={grant.id} className={cn("flex items-center justify-between gap-3 rounded-lg border p-3", textClass)}>
                   <div className="min-w-0">
                     <p className="truncate font-mono text-xs">{grant.doctor_actor_id}</p>
-                    <p className="text-muted-foreground">{grant.status === "active" ? `至 ${displayExpiry(grant.expires_at)}` : grant.status === "revoked" ? "已撤回" : "已到期"}</p>
+                    <p className="text-muted-foreground">{grantOptions.find((option) => option.scope === grant.resource_scope)?.label ?? grant.resource_scope} · {grant.status === "active" ? `至 ${displayExpiry(grant.expires_at)}` : grant.status === "revoked" ? "已撤回" : "已到期"}</p>
                   </div>
-                  {grant.status === "active" && <Button type="button" variant="outline" size="sm" disabled={pending} onClick={() => void revoke(grant)} className={cn(seniorMode && "min-h-11 text-base")}>撤回</Button>}
+                  {grant.status === "active" && <Button type="button" variant="outline" size="sm" disabled={pending} onClick={() => void revoke(grant)} className={cn(seniorMode && "min-h-12 text-base")}>撤回</Button>}
                 </li>
               ))}
             </ul>

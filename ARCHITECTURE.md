@@ -67,7 +67,7 @@ apps/api (FastAPI)
 | Memory | PostgreSQL 加密事实与 revision 审计；Qdrant 仅无 PHI reference vector | 生命周期删除、受控再识别与完整分类注册表未实现 |
 | 文档 | Next.js server-only MinerU BFF；FastAPI 加密会话资料登记与租户绑定 | 私有向量检索、病毒扫描、真实账号授权和 FastAPI Provider adapter 未完成 |
 | 语音 | 受限 `/api/gerclaw/voice/*` BFF 唯一代理 FastAPI Voice Runtime；有请求大小/格式约束、24kHz PCM16 与浏览器 WAV 封装播放 | 真实人声的质量、取消和浏览器播放端到端评测，以及 adapter version 协商未完成 |
-| CGA | PHQ-9、SAS、PSQI、Mini-Cog、MMSE 的版本化状态机、确定性计分、加密持久化、本人历史/同版本对照与报告导出 | Mini-Cog/MMSE 的绘图/动作/书写/阅读不作专业人员确认；医生授权仍未完成 |
+| CGA | PHQ-9、SAS、PSQI、Mini-Cog、MMSE 的版本化状态机、确定性计分、加密持久化、本人历史/同版本对照与报告导出；患者可向指定医生授权完成报告摘要 | Mini-Cog/MMSE 的绘图/动作/书写/阅读不作专业人员确认；医生仅可读取已授权的完成摘要，完整患者工作台仍未完成 |
 | 临床收集 | 五大处方的加密、版本化对话收集、MinerU 资料绑定、证据草案与导出；`medication-rules-v3` 的有限 DDI/剂量/Beers 审查 | 缺完整经临床治理批准的规则库、医生审批和患者授权发布；不能视为正式处方或诊断 |
 
 ## 5. 分层依赖

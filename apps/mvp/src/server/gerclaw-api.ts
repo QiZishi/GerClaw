@@ -70,6 +70,10 @@ const proxyRules: Array<{ pattern: RegExp; methods: ReadonlySet<string> }> = [
     methods: new Set(["GET"]),
   },
   {
+    pattern: /^access-grants\/patients\/usr_account_[a-f0-9]{32}\/cga-reports$/,
+    methods: new Set(["GET"]),
+  },
+  {
     pattern: new RegExp(
       `^access-grants/patients/usr_account_[a-f0-9]{32}/prescription-drafts/${uuidPattern}/reviews$`,
       "i"

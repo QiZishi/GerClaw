@@ -6,26 +6,29 @@ import {
   type PatientAccessGrantList,
 } from "./schemas";
 
-/** Patient-controlled access is deliberately restricted to non-executable draft review. */
+export type PatientGrantResource = PatientAccessGrant["resource_scope"];
+
 export function listPrescriptionReviewGrants(): Promise<PatientAccessGrantList> {
   return gerclawRequest("access-grants", patientAccessGrantListSchema);
 }
 
-export function grantPrescriptionReviewAccess(input: {
+/** A patient chooses the bounded read projections that a specific doctor may use. */
+export function grantDoctorAccess(input: {
   doctorActorId: string;
+  resourceScopes: readonly Exclude<PatientGrantResource, "health_profile_read">[];
   expiresAt: string;
 }): Promise<PatientAccessGrantList> {
   return gerclawRequest("access-grants", patientAccessGrantListSchema, {
     method: "POST",
     body: JSON.stringify({
       doctor_actor_id: input.doctorActorId.trim(),
-      resource_scopes: ["prescription_draft_review"],
+      resource_scopes: input.resourceScopes,
       expires_at: input.expiresAt,
     }),
   });
 }
 
-export function revokePrescriptionReviewAccess(input: {
+export function revokeDoctorAccess(input: {
   grantId: string;
   expectedRevision: number;
 }): Promise<PatientAccessGrant> {

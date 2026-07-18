@@ -62,6 +62,7 @@ import { toast } from "@/components/ui/toast";
 import { AccountDialog } from "@/components/account/AccountDialog";
 import { AccountDeactivationDialog } from "@/components/account/AccountDeactivationDialog";
 import { PrescriptionReviewAccessDialog } from "@/components/consent/PrescriptionReviewAccessDialog";
+import { DoctorCgaWorkspaceDialog } from "@/components/consent/DoctorCgaWorkspaceDialog";
 import { DoctorPrescriptionReviewDialog } from "@/components/consent/DoctorPrescriptionReviewDialog";
 import {
   getAccountIdentity,
@@ -121,6 +122,7 @@ export function Sidebar({ onNavigate }: SidebarProps) {
   const [accountDeactivationOpen, setAccountDeactivationOpen] = useState(false);
   const [prescriptionReviewAccessOpen, setPrescriptionReviewAccessOpen] = useState(false);
   const [doctorPrescriptionReviewOpen, setDoctorPrescriptionReviewOpen] = useState(false);
+  const [doctorCgaWorkspaceOpen, setDoctorCgaWorkspaceOpen] = useState(false);
 
   useEffect(() => {
     const frame = requestAnimationFrame(() => setMounted(true));
@@ -571,7 +573,7 @@ export function Sidebar({ onNavigate }: SidebarProps) {
               {account?.account_role === "patient" && (
                 <DropdownMenuItem className={cn("cursor-pointer", seniorMode && "min-h-12 text-base")} onClick={() => setPrescriptionReviewAccessOpen(true)}>
                   <ShieldCheck className="size-4" />
-                  医生复核授权
+                  医生资料授权
                 </DropdownMenuItem>
               )}
               {account?.account_role === "patient" && (
@@ -584,6 +586,12 @@ export function Sidebar({ onNavigate }: SidebarProps) {
                 <DropdownMenuItem className={cn("cursor-pointer", seniorMode && "min-h-12 text-base")} onClick={() => setDoctorPrescriptionReviewOpen(true)}>
                   <ShieldCheck className="size-4" />
                   五大处方草案复核
+                </DropdownMenuItem>
+              )}
+              {account?.account_role === "doctor" && (
+                <DropdownMenuItem className={cn("cursor-pointer", seniorMode && "min-h-12 text-base")} onClick={() => setDoctorCgaWorkspaceOpen(true)}>
+                  <Stethoscope className="size-4" />
+                  CGA 报告工作区
                 </DropdownMenuItem>
               )}
               {account?.account_role === "doctor" && (
@@ -748,6 +756,11 @@ export function Sidebar({ onNavigate }: SidebarProps) {
       {account?.account_role === "doctor" && <DoctorPrescriptionReviewDialog
         open={doctorPrescriptionReviewOpen}
         onOpenChange={setDoctorPrescriptionReviewOpen}
+        seniorMode={seniorMode}
+      />}
+      {account?.account_role === "doctor" && <DoctorCgaWorkspaceDialog
+        open={doctorCgaWorkspaceOpen}
+        onOpenChange={setDoctorCgaWorkspaceOpen}
         seniorMode={seniorMode}
       />}
     </aside>
