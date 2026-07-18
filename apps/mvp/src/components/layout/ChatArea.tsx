@@ -96,9 +96,11 @@ export function ChatArea() {
     setMounted(true);
   }, []);
 
-  // 老年模式退出功能二次确认弹窗
+  // Only workflows with a durable interruption consequence need confirmation.
   const [showExitConfirm, setShowExitConfirm] = useState(false);
-  const [exitConfirmType, setExitConfirmType] = useState<'default' | 'cga-in-progress' | 'cga-has-result' | 'cga-server' | 'clinical-intake'>('default');
+  const [exitConfirmType, setExitConfirmType] = useState<
+    "cga-server" | "clinical-intake" | "prescription"
+  >("cga-server");
   // 消息导出/分享弹窗：值为触发的消息 id（用于默认选中），null 表示关闭
   const [exportMessageId, setExportMessageId] = useState<string | null>(null);
   // 消息删除确认弹窗：值为待删除的消息 id，null 表示关闭
@@ -744,18 +746,18 @@ export function ChatArea() {
       setShowExitConfirm(true);
       return;
     }
-    if (chatAction === "prescription" || chatAction === "drug-review") {
+    if (chatAction === "drug-review") {
       setExitConfirmType('clinical-intake');
       setShowExitConfirm(true);
       return;
     }
-    if (chatAction === "chronic-care" || chatAction === "risk-alerts") {
-      doExitAction();
+    if (chatAction === "prescription") {
+      setExitConfirmType("prescription");
+      setShowExitConfirm(true);
       return;
     }
-    if (chatAction !== "none") {
-      setExitConfirmType('default');
-      setShowExitConfirm(true);
+    if (chatAction === "chronic-care" || chatAction === "risk-alerts" || chatAction === "companion") {
+      doExitAction();
       return;
     }
     doExitAction();
@@ -945,30 +947,34 @@ export function ChatArea() {
         defaultSelectedIds={exportMessageId ? [exportMessageId] : []}
       />
 
-      {/* 老年模式：退出功能二次确认弹窗 */}
+      {/* State-specific interruption confirmation; no generic unsaved-work warning. */}
       <Dialog open={showExitConfirm} onOpenChange={setShowExitConfirm}>
         <DialogContent className={cn("max-w-sm", seniorMode && "p-5")} showCloseButton={false}>
           <DialogHeader>
             <DialogTitle className={cn("flex items-center gap-2", seniorMode && "text-2xl")}>
               <AlertTriangle className="size-5 text-amber-500" />
-              {exitConfirmType === "cga-server" ? "确认暂时休息？" : exitConfirmType === "clinical-intake" ? "确认返回咨询？" : "确认退出？"}
+              {exitConfirmType === "cga-server"
+                ? "确认暂时休息？"
+                : exitConfirmType === "clinical-intake"
+                  ? "确认返回咨询？"
+                  : "停止生成并返回？"}
             </DialogTitle>
           </DialogHeader>
           <p className={cn("text-muted-foreground", seniorMode ? "text-lg leading-8" : "text-sm")}>
-            {exitConfirmType === 'cga-has-result'
-              ? "您已完成量表评估，退出后评估结果将丢失，确认退出吗？"
-              : exitConfirmType === 'cga-in-progress'
-                ? "退出后当前答题进度将不会保存，确认退出吗？"
-                : exitConfirmType === 'cga-server'
-                  ? "当前进度已安全保存。退出后，您下次可以从这道题继续。"
-                  : exitConfirmType === 'clinical-intake'
-                    ? "本次已提交的信息会保留在当前会话。"
-                : "退出后当前进度将不会保存，确定要退出吗？"}
+            {exitConfirmType === "cga-server"
+              ? "当前进度已安全保存。退出后，您下次可以从这道题继续。"
+              : exitConfirmType === "clinical-intake"
+                ? "本次已提交的信息会保留在当前会话。"
+                : "已收集的信息会保留在当前会话。若草案正在生成，系统会先安全停止；未完成内容不会保存为草案。"}
           </p>
           <DialogFooter className={cn("gap-2", seniorMode && "flex-row justify-end gap-3 p-5")}>
             <DialogClose render={<Button variant="outline" className={cn(seniorMode && "min-h-12 px-4 text-lg")}>取消</Button>} />
             <Button variant="destructive" className={cn(seniorMode && "min-h-12 px-4 text-lg")} onClick={doExitAction}>
-              {exitConfirmType === "cga-server" ? "保存并休息" : exitConfirmType === "clinical-intake" ? "返回咨询" : "确认退出"}
+              {exitConfirmType === "cga-server"
+                ? "保存并休息"
+                : exitConfirmType === "clinical-intake"
+                  ? "返回咨询"
+                  : "停止并返回"}
             </Button>
           </DialogFooter>
         </DialogContent>
