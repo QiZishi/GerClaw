@@ -1,214 +1,391 @@
 # GerClaw
 
-GerClaw 是面向老年患者、老年科医生与系统管理员的 Web 端 AI 辅助诊疗平台。它把多模态健康对话、CGA 综合评估、五大处方草案、用药审查、医学知识检索、语音交互与个人健康资料管理整合到一套可私有部署的系统中。
+面向老年患者与老年科医生的多模态 AI 诊疗与康养 Agent 应用。
 
-系统以循证辅助和人工复核为原则，不替代执业医生，不提供急救服务，也不把模型输出直接执行为处方或治疗操作。
+[快速开始](#快速开始) · [核心能力](#核心能力) · [系统架构](#系统架构) · [配置](#配置) · [项目结构](#项目结构) · [文档](#文档)
 
-## 产品简介
+![Python](https://img.shields.io/badge/Python-3.12%2B-3776AB)
+![FastAPI](https://img.shields.io/badge/FastAPI-0.116%2B-009688)
+![AgentScope](https://img.shields.io/badge/AgentScope-2.0.4-6C5CE7)
+![Next.js](https://img.shields.io/badge/Next.js-16-black)
+![Docker](https://img.shields.io/badge/Docker-Compose-2496ED)
 
-GerClaw 提供三个彼此隔离的使用空间：
+## 什么是 GerClaw？
 
-- 患者端：适老化对话、语音输入与播报、文件和图片解读、CGA 量表、健康记录、五大处方草案及历史记录。
-- 医生端：面向临床工作的患者资料整理、CGA 报告、处方草案、用药审查、证据检索、文档编辑、Skill 与辅助决策工具。
-- 管理端：账户、角色和系统运行配置管理；管理员可切换患者端与医生端视角。
+GerClaw 把健康对话、CGA 老年综合评估、五大处方、用药审查、长期记忆、医学 RAG、语音交互与病例文档解析整合为一套可本地运行、可容器化部署的全栈系统。
 
-登录页是统一入口。使用者可以登录已有账户、创建账户，也可以选择无账号进入患者端。访客数据仍写入后台用于运行质量分析，但访客历史不会在下一次进入时恢复。医生与患者之间没有即时通信或消息互通功能。
+系统提供三个相互隔离的工作台：
 
-## 核心功能
+- **患者端**：语音优先、适老化对话、健康画像、CGA、五大处方与历史记录。
+- **医生端**：临床资料整理、处方草案、用药审查、CGA 报告、循证检索与文档工具。
+- **管理端**：账户、角色、模型服务配置与 Bad Case 管理；管理员可切换工作台视角。
 
-| 功能 | 能力 |
-|---|---|
-| AI 健康对话 | 支持文本、语音、图片和已解析文档；保留会话、引用、反馈与执行状态 |
-| 五大处方 | 在聊天框接收最多 10 份资料和文本/语音信息，按模板最多补充询问 5 轮，生成药物、运动、营养、心理和康复处方草案 |
-| CGA | 提供 PHQ-9、SAS、PSQI、Mini-Cog、MMSE 评估、计分、报告、导出和题目预录音频 |
-| 用药审查 | 识别重复用药、部分 DDI、Beers 信号、剂量阈值与多重用药风险，并展示规则来源 |
-| 医学 RAG | 对外部挂载的 Markdown 医学知识库执行分块、Embedding、Hybrid Retrieval、Rerank 和引用回溯 |
-| 联网搜索 | AnySearch 为主、Tavily 为备用，将受治理的网页结果作为可追溯证据 |
-| Memory | 按账户和访客会话提取、检索和管理长期健康事实，不在向量库保存 PHI 正文 |
-| Skill | 导入 Markdown/ZIP Skill，使用自然语言生成或迭代 Skill 草稿，经人工审阅后保存 |
-| 文档工作台 | 单页单栏编辑，输入时实时渲染预览，并支持 Markdown、PDF、DOCX 导出 |
-| 多模态证据 | 图片进入支持视觉的模型上下文，同时获得 evidence ID，并以 base64 记录到受控 Trace |
-| MinerU 文档解析 | PDF 等病例资料通过 MinerU 转换为 Markdown，作为当前患者输入和处方证据，不写入公共知识库 |
+登录页是统一入口。用户可登录或注册，也可选择无账号进入患者端；游客数据进入后台质量分析，但游客历史不会在下一次访问时恢复。医生和患者之间不提供即时通信。
+
+## 为什么选择 GerClaw？
+
+- **多模态且可追溯**：文本、语音、PDF、Word、Markdown 与图片进入同一对话；图片和上传资料拥有 evidence ID，并进入受控 Trace。
+- **面向真实医疗工作流**：五大处方不是静态表单，而是最多 5 轮的信息补齐、证据检索、严格结构输出、规则审查和人工复核流程。
+- **AgentScope 原生能力**：使用 AgentScope 2.0.4 组织 Agent、Memory、RAG、Skill、工具调用与流式事件，不维护第二套简化 Agent 框架。
+- **适老化交互**：患者端采用大字号、大触控区、高对比度、文字标签、可控语音播放，以及稳定不闪烁的加载状态与已执行时间。
+- **可部署、可扩展**：PostgreSQL、Redis、Qdrant、FastAPI 与 Next.js 可通过 Docker Compose 一次启动；医学知识库使用外部只读挂载，便于持续扩充。
+
+## 目录
+
+- [快速开始](#快速开始)
+  - [Docker 一键部署](#docker-一键部署)
+  - [本地源码运行](#本地源码运行)
+- [开始使用](#开始使用)
+- [核心能力](#核心能力)
+- [系统架构](#系统架构)
+- [配置](#配置)
+- [医学知识库与 MinerU](#医学知识库与-mineru)
+- [Docker 管理](#docker-管理)
+- [项目结构](#项目结构)
+- [文档](#文档)
+- [医疗使用边界](#医疗使用边界)
 
 ## 快速开始
 
-### 运行条件
+### Docker 一键部署
 
-- Docker Engine 24 或更新版本
-- Docker Compose v2
-- 至少 8 GB 可用内存；索引大型知识库时建议 16 GB 以上
-- 可用的 LLM、Embedding 与 Rerank 服务配置
-- 需要语音、联网搜索或文档解析时，准备对应 Provider 配置
-
-### 一键部署
+运行条件：Docker Engine 24+、Docker Compose v2、至少 8 GB 可用内存；索引大型知识库时建议 16 GB 以上。
 
 ```bash
+git clone <your-gerclaw-repository-url>
+cd gerclaw-main-codex
 cp .env.example .env
 ```
 
-编辑 `.env`，至少完成以下配置：
+打开根目录 `.env`，填写留空的模型、联网搜索、MinerU、认证和数据加密密钥。数据加密密钥可这样生成：
 
-1. `AGENT_PRIMARY_*`：主模型 URL、API Key、模型名、协议与能力声明。
-2. `SILICONFLOW_API_KEY`、`EMBEDDING_MODEL`、`RERANK_MODEL`：知识库索引与检索。
-3. `GERCLAW_KNOWLEDGE_BASE_HOST_PATH`：宿主机医学知识库目录。
-4. 生产部署必须设置 `GERCLAW_AUTH_JWT_SECRET`、`GERCLAW_GUEST_IDENTITY_SECRET` 和 `GERCLAW_DATA_ENCRYPTION_KEY`。
+```bash
+openssl rand -base64 32
+```
 
-首次启动并建立知识库索引：
+首次构建、启动、迁移数据库并建立知识库索引：
 
 ```bash
 ./docker.sh init
 ```
 
-浏览器访问：
+启动完成后访问：
 
-- GerClaw Web：`http://127.0.0.1:3000`
-- API 健康检查：`http://127.0.0.1:8000/health/ready`
+- Web：`http://127.0.0.1:3000`
+- API readiness：`http://127.0.0.1:8000/health/ready`
 
-端口可通过 `.env` 中的 `WEB_PORT` 和 `API_PORT` 修改。
+### 本地源码运行
 
-## 配置指南
+本地源码方式不使用 Docker，需要预先安装：
 
-### 模型与服务
+- Python 3.12 或 3.13
+- Node.js 22 与 npm
+- PostgreSQL 16
+- Redis 7
+- Qdrant 1.18.x
 
-部署者可以在 `.env` 设置系统默认 Provider。登录账户还可以从“设置 → 模型与服务配置”保存自己的账户级配置；账户配置采用加密存储，读取页面只显示是否已配置，不回显 API Key。未设置账户覆盖时使用部署默认值。
-
-配置页包含：
-
-- 主模型、备用模型一、备用模型二
-- Embedding 与 Rerank
-- AnySearch 与 Tavily
-- ASR 与 TTS
-- MinerU
-
-每组配置下方都有默认折叠的获取与填写说明。模型插槽必须如实声明图片输入、工具调用和结构化输出能力；需要处理图片的对话必须选择支持 image input 的模型。
-
-### 关键环境变量
-
-| 配置组 | 主要变量 |
-|---|---|
-| Web/API | `WEB_PORT`、`API_PORT`、`GERCLAW_API_URL`、`GERCLAW_CORS_ORIGINS` |
-| 身份与加密 | `GERCLAW_AUTH_JWT_SECRET`、`GERCLAW_GUEST_IDENTITY_SECRET`、`GERCLAW_DATA_ENCRYPTION_KEY` |
-| Agent 模型 | `AGENT_PRIMARY_*`、`AGENT_BACKUP1_*`、`AGENT_BACKUP2_*` |
-| RAG | `SILICONFLOW_API_KEY`、`SILICONFLOW_URL`、`EMBEDDING_MODEL`、`RERANK_MODEL` |
-| 搜索 | `ANYSEARCH_*`、`TAVILY_*` |
-| 语音 | `MIMO_API_KEY`、`MIMO_ASR_URL`、`MIMO_TTS_URL`、`ASR_MODEL`、`TTS_MODEL`、`TTS_VOICE` |
-| 文档 | `MINERU_URL`、`MINERU_API_KEY`、`MINERU_ALLOWED_HOSTS` |
-| 知识库 | `GERCLAW_KNOWLEDGE_BASE_HOST_PATH`、`GERCLAW_RAG_COLLECTION_NAME` |
-
-完整字段、默认值和说明以 [.env.example](.env.example) 为准。Provider URL、模型名、协议、密钥和端口均从配置读取，不需要修改源码。
-
-## 使用指南
-
-### 患者端
-
-1. 在登录页登录、注册，或选择无账号使用。
-2. 从患者工作台选择健康对话、CGA、五大处方或个人健康记录。
-3. 在聊天框输入文字、录音，或上传图片和文档；长任务顶部会持续显示运行动画和已执行时间。
-4. 播放回答或量表题目时，可以暂停、继续、停止并查看播放进度。
-5. 医疗建议的风险提示集中显示在内容末尾，正文保留证据、条件和可操作信息。
-
-### 医生端
-
-1. 使用医生账户登录医生工作台。
-2. 选择临床对话、CGA、五大处方、用药审查、知识检索、文档或 Skill 工具。
-3. 检查模型结论的 evidence ID、引用来源、适用条件和输入资料。
-4. 将处方草案和量表结果作为辅助资料复核；系统不会自动签署、发布或执行临床决定。
-
-患者端和医生端的“帮助”按钮分别打开对应角色的完整教程，不展示另一端的操作说明。
-
-## Docker 管理
-
-根目录 [docker.sh](docker.sh) 是完整系统的统一入口：
+#### 1. 创建配置
 
 ```bash
-./docker.sh init       # 首次构建、启动、索引知识库并检查 readiness
-./docker.sh up         # 构建并启动 Web、API 和数据服务
-./docker.sh down       # 停止服务并保留数据库、缓存和向量卷
-./docker.sh restart    # 重启 Web 与 API
-./docker.sh index      # 在知识库变化后增量更新索引
-./docker.sh status     # 查看容器及 live/ready 状态
-./docker.sh logs       # 持续查看 Web 与 API 日志
-./docker.sh test       # 使用隔离测试数据库运行后端集成测试
+cp .env.example .env
 ```
 
-Compose 服务包括 Web、API、Alembic migration、PostgreSQL、Redis、Qdrant，以及按需执行的 RAG index 和 test-api。Web 与 API 容器使用非 root 用户运行，数据保存在命名卷中；`down` 不删除数据卷。
+根 `.env` 同时服务于 FastAPI、Next.js/BFF、脚本和 Docker。不要在 `apps/api`、`apps/mvp` 或其他子目录创建第二份环境文件。
 
-生产部署应在反向代理后启用 TLS，使用 Secret Manager 注入密钥，并根据容量需求改用托管 PostgreSQL、Redis 和 Qdrant。不要把数据库、Redis 或 Qdrant 端口直接暴露到公网。
+#### 2. 使用 Python venv 安装后端
 
-## 数据与知识库
+```bash
+python3.12 -m venv apps/api/.venv
+source apps/api/.venv/bin/activate
+python -m pip install --upgrade pip
+python -m pip install -e apps/api
+deactivate
+```
 
-知识库使用外部只读挂载，不复制进镜像。默认宿主机目录为 `../本地知识库/md`，可通过以下变量指定任意目录：
+如需运行测试与静态检查：
+
+```bash
+source apps/api/.venv/bin/activate
+python -m pip install pytest pytest-asyncio pytest-cov ruff mypy types-PyYAML
+deactivate
+```
+
+也可以在 `apps/api` 使用 `uv sync --all-extras --dev`。根启动器优先使用 `apps/api/.venv`，未安装 venv 时再使用 `uv`。
+
+#### 3. 安装前端
+
+```bash
+cd apps/mvp
+npm ci
+cd ../..
+```
+
+#### 4. 准备本地数据服务
+
+本地服务需与 `.env` 对应：
+
+| 服务 | 默认地址 | 默认数据库或凭据 |
+|---|---|---|
+| PostgreSQL | `127.0.0.1:5432` | 数据库 `gerclaw`，用户 `gerclaw` |
+| Redis | `127.0.0.1:6379` | 密码与 `REDIS_PASSWORD` 一致 |
+| Qdrant | `127.0.0.1:6333` | API Key 与 `GERCLAW_QDRANT_API_KEY` 一致 |
+
+`app.py` 会在子进程中把根配置的 Docker 服务名转换为本机地址，不修改 `.env`，也不输出密钥。
+
+#### 5. 建立医学知识索引
+
+```bash
+python3 app.py --index-only --no-docker
+```
+
+#### 6. 启动 Web 与 API
+
+```bash
+python3 app.py --no-docker
+```
+
+启动器会执行 Alembic migration，再并行启动 FastAPI 和 Next.js。仅启动前端可执行：
+
+```bash
+python3 app.py --frontend-only
+```
+
+## 开始使用
+
+1. 打开 `http://127.0.0.1:3000`。
+2. 登录已有账户、注册新账户，或选择无账号进入患者端。
+3. 患者可直接在聊天框输入文字、录音，或上传图片和病例文档；医生可从工作台进入临床对话、CGA、五大处方、用药审查与知识检索。
+4. 长任务会持续显示运行状态和已执行时间；语音播放支持播放、暂停、继续与停止。
+5. 点击引用或 evidence ID 查看本地知识库、联网资料或患者上传信息对应的依据。
+
+五大处方流程会在普通聊天框中接收最多 10 份资料以及文本或语音信息。MinerU 完成解析后，模型按输入模板判断缺失信息，并通过最多 5 轮对话补齐，再生成：
+
+1. 药物处方
+2. 运动处方
+3. 营养处方
+4. 心理处方
+5. 康复处方
+
+康复处方后端独立生成康复类型、功能评估、训练计划、辅助器具与安全注意事项。具体训练项目必须给出频次以及时长或强度；资料不足时会明确待完成的功能评估，不会用睡眠处方或普通运动建议替代。
+
+## 核心能力
+
+| 能力 | 说明 |
+|---|---|
+| AI 健康对话 | 文本、语音、图片、文档、多轮上下文、流式输出、取消与重新生成 |
+| 五大处方 | 最多 5 轮补充、273k 文档上下文、32,768 output token、证据绑定和医生复核 |
+| CGA | PHQ-9、SAS、PSQI、Mini-Cog、MMSE 的题目、计分、报告、导出与版本绑定音频 |
+| 用药审查 | DDI、剂量阈值、重复用药、多重用药和有限 Beers 信号，显示规则来源 |
+| Agentic RAG | Markdown 解析、章节切分、Dense + Sparse Hybrid Retrieval、RRF、Rerank 与引用定位 |
+| Memory | 账户或游客会话范围内的健康事实提取、检索、版本和生命周期管理 |
+| Skill | Markdown/ZIP 导入、自然语言生成、迭代、审阅、注册和会话级加载 |
+| MinerU | PDF 等病例资料解析为 Markdown，进入当前患者上下文与证据链，不写入公共知识库 |
+| ASR / TTS | MiMo 语音识别、合成、预录量表音频、播放协调与降级提示 |
+| 联网搜索 | AnySearch 主通道、Tavily 备用通道，结果经过结构校验并形成 evidence ID |
+| 文档工作台 | 单页单栏实时编辑与实时渲染，支持 Markdown、PDF、DOCX 导出 |
+| Trace / Bad Case | 请求、模型、工具、图片、证据、反馈和失败分类的可追踪记录 |
+
+## 系统架构
+
+```text
+Browser
+  └─ Next.js Web + server-only BFF
+       └─ FastAPI API
+            ├─ AgentScope Runtime / Harness
+            │    ├─ Model Router（主模型 + 两级备用）
+            │    ├─ Memory / Skill / Tool / Workflow
+            │    └─ RAG / Search / Voice / MinerU
+            ├─ PostgreSQL（账户、会话、临床产物、Trace）
+            ├─ Redis（限流、lease、取消与短期状态）
+            └─ Qdrant（医学知识向量与 PHI-free Memory reference）
+```
+
+前端只通过同源 BFF 访问后端和外部 Provider；模型、搜索、语音、Embedding、Rerank 与 MinerU 密钥不会进入浏览器 bundle。Agent 输出、工具参数、RAG 证据、流式事件和 API 响应均在边界处执行 Pydantic 或 Zod 结构校验。
+
+更完整的模块边界、数据流、部署拓扑和扩展策略见 [ARCHITECTURE.md](ARCHITECTURE.md)。
+
+## 配置
+
+仓库根 `.env` 是唯一配置源。[.env.example](.env.example) 与当前 `.env` 保持相同变量集合；除密钥外，变量值一致。模板中每个变量上方都有中文说明和配置方法。
+
+修改后可执行：
+
+```bash
+python3 scripts/check-root-env.py
+```
+
+该命令检查变量集合、非密钥值、中文注释和子目录环境文件，不打印任何密钥。
+
+主要配置组：
+
+| 配置组 | 变量 |
+|---|---|
+| 应用与端口 | `GERCLAW_APP_ENV`、`WEB_PORT`、`API_PORT`、`GERCLAW_API_URL` |
+| 身份与加密 | `GERCLAW_AUTH_JWT_SECRET`、`GERCLAW_GUEST_IDENTITY_SECRET`、`GERCLAW_DATA_ENCRYPTION_KEY` |
+| Agent 模型链 | `AGENT_PRIMARY_*`、`AGENT_BACKUP1_*`、`AGENT_BACKUP2_*` |
+| RAG | `SILICONFLOW_*`、`EMBEDDING_MODEL`、`RERANK_MODEL`、`GERCLAW_RAG_*` |
+| 搜索 | `ANYSEARCH_*`、`TAVILY_*` |
+| 语音 | `MIMO_*`、`ASR_MODEL`、`TTS_MODEL`、`TTS_VOICE` |
+| MinerU | `MINERU_URL`、`MINERU_API_KEY`、`MINERU_ALLOWED_HOSTS` |
+| 外挂知识库 | `GERCLAW_KNOWLEDGE_BASE_HOST_PATH`、`GERCLAW_KNOWLEDGE_BASE_PATH` |
+
+登录账户还可以在“设置 → 模型与服务配置”保存账户级 Provider 覆盖；密钥加密存储，页面只显示是否已配置，不回显原值。未配置账户覆盖时使用根 `.env`。
+
+## 医学知识库与 MinerU
+
+医学 RAG 语料不打入镜像，使用宿主机目录只读外挂：
 
 ```dotenv
 GERCLAW_KNOWLEDGE_BASE_HOST_PATH=/absolute/path/to/medical-knowledge/md
 ```
 
-外挂目录保持“主题文件夹 / Markdown 文档”的递归结构即可扩展语料。修改文档后执行：
+目录保持“主题文件夹 / Markdown 文档”的递归结构即可。新增、修改或删除文档后执行：
 
 ```bash
 ./docker.sh index
+# 本地源码模式：python3 app.py --index-only --no-docker
 ```
 
-索引器根据内容哈希增量处理文档。公共医学知识库进入 Qdrant；患者上传的文档、图片、聊天、量表答案和处方资料保存在账户或会话边界内，不会混入公共 RAG 语料。
+索引器根据内容哈希增量更新 Qdrant。患者上传的病例、检查报告和图片不会混入公共 RAG；它们只属于当前账户或会话，并作为患者资料证据进入模型上下文。
 
-PostgreSQL 是账户、会话、消息、临床产物、授权和 Trace 的事实源；Redis 保存限流、会话 lease 与取消状态；Qdrant 保存公共知识向量和不含 PHI 正文的 Memory reference vector。
+MinerU 使用真实接口解析 PDF 等文档。`MINERU_ALLOWED_HOSTS` 必须包含解析 API、签名上传与 Markdown 下载所需的 HTTPS 域名；解析结果受文档数量、文件大小和 273k 合并上下文限制。
 
-## 本地源码运行
-
-不使用 Docker 时，可从根目录启动：
+## Docker 管理
 
 ```bash
-python3 app.py
+./docker.sh init       # 首次构建、启动、迁移、索引并检查 readiness
+./docker.sh up         # 构建并启动全部服务
+./docker.sh down       # 停止服务，保留数据卷
+./docker.sh restart    # 重启 Web 与 API
+./docker.sh index      # 增量更新医学知识库索引
+./docker.sh status     # 查看容器和健康状态
+./docker.sh logs       # 查看 Web/API 日志
+./docker.sh test       # 使用隔离测试数据库运行后端测试
 ```
 
-该入口启动前端与 API，并输出本地访问地址。其他模式可通过以下命令查看：
+Compose 包含 Web、API、migration、PostgreSQL、Redis、Qdrant，以及按需运行的 RAG index 和 test-api。生产环境应置于 TLS 反向代理之后，使用 Secret Manager 注入密钥，并按容量需要替换为托管 PostgreSQL、Redis 与 Qdrant。
 
-```bash
-python3 app.py --help
-```
-
-## 安全与医疗声明
-
-- GerClaw 是辅助工具，不替代医生面诊、诊断、处方签署或紧急医疗服务。
-- 出现胸痛、呼吸困难、意识改变、疑似卒中等紧急情况时，应立即联系当地急救服务。
-- 模型可以在存在本地知识库、联网搜索或用户上传资料证据时给出诊断方向、用药调整候选和临床建议；用户必须结合证据和专业判断复核。
-- 患者端在高风险内容末尾统一提示风险；医生端保留证据绑定的完整建议，不做机械屏蔽。
-- 生产环境必须更换示例密码和密钥、启用 TLS、设置备份，并限制 Provider 和数据库网络访问。
-
-## 故障排查
-
-### 首次执行提示填写配置
-
-`docker.sh` 会在缺少 `.env` 时复制模板并退出。填写配置后重新执行 `./docker.sh init`。
-
-### API live 正常但 ready 失败
-
-执行 `./docker.sh status` 查看具体检查项。常见原因是知识库尚未索引、Embedding/Rerank 配置无效，或 PostgreSQL、Redis、Qdrant 尚未就绪。修正配置后执行 `./docker.sh index`。
-
-### Web 无法访问 API
-
-Docker 内部 BFF 固定使用 `http://api:8000`。检查 `web` 和 `api` 是否处于 healthy 状态，并通过 `./docker.sh logs` 查看请求错误。源码运行时，`GERCLAW_API_URL` 应指向本机 API 地址。
-
-### 知识库目录为空
-
-确认 `GERCLAW_KNOWLEDGE_BASE_HOST_PATH` 是 Docker 可读取的绝对路径，目录中包含 `.md` 文件。macOS 或 Windows 使用 Docker Desktop 时，还需要允许共享该宿主机目录。
-
-### Provider 调用失败
-
-检查 URL、API Key、模型名、协议和能力声明是否属于同一 Provider。账户级配置不完整时不会覆盖系统默认配置。
+迁移到其他服务器时复制代码和根 `.env`，挂载相同递归结构的医学知识库，并按数据库规范备份或恢复命名卷数据。
 
 ## 项目结构
 
+以下目录只展示版本库中的稳定源码、配置与用户文档；不会列出被 `.gitignore` 排除的环境文件、依赖、缓存、构建产物、工具目录或本地资料。
+
 ```text
-app.py                 本地源码启动入口
-docker.sh              完整 Docker 部署与管理入口
-docker-compose.yml     Web、API、数据服务和运维任务
-apps/mvp/              Next.js 前端与 server-only BFF
-apps/api/              FastAPI、AgentScope、领域模块和数据库迁移
-docs/references/       产品设计要求与报告模板
-docs/                  产品、安全、可靠性与维护文档
-ARCHITECTURE.md         系统架构说明
-开发复盘.md             项目问题、工程化设计与 Bad Case 复盘
+gerclaw-main-codex/
+├── .env.example                         唯一环境变量模板与中文配置说明
+├── app.py                               本地 API/Web/迁移/RAG 索引统一入口
+├── docker.sh                            Docker 初始化、启停、索引、日志和测试入口
+├── docker-compose.yml                   生产编排与运维任务
+├── docker-compose.dev.yml               本地数据服务端口映射
+├── README.md                            产品与使用说明
+├── ARCHITECTURE.md                      系统架构与模块边界
+├── apps/
+│   ├── api/                             FastAPI + AgentScope 后端
+│   │   ├── Dockerfile                   production/test 多阶段 Python 镜像
+│   │   ├── pyproject.toml               Python 依赖、CLI 与质量工具配置
+│   │   ├── uv.lock                      Python 依赖锁
+│   │   ├── alembic.ini                  Alembic 配置
+│   │   ├── migrations/
+│   │   │   ├── env.py                   异步迁移运行环境
+│   │   │   └── versions/                数据库版本迁移
+│   │   ├── scripts/                     SSE 与用药工作流性能脚本
+│   │   ├── tests/                       API、模块、契约与集成测试
+│   │   └── src/gerclaw_api/
+│   │       ├── main.py                  FastAPI/Uvicorn 入口
+│   │       ├── application.py           应用依赖装配与生命周期
+│   │       ├── config.py                根环境配置与 Provider 能力校验
+│   │       ├── auth.py                  JWT、角色、账户和游客身份
+│   │       ├── encryption.py            临床数据字段级加密
+│   │       ├── middleware.py            请求边界、限流、Trace 与错误处理
+│   │       ├── api/routes/              Chat、Auth、CGA、处方、RAG、Skill、Voice 路由
+│   │       ├── database/                SQLAlchemy 模型与异步会话
+│   │       ├── repositories/            账户、会话、处方、Memory、Trace 数据访问
+│   │       ├── services/                Chat、CGA、模型路由、处方与审计应用服务
+│   │       └── modules/
+│   │           ├── agent_harness/        Agent 执行、证据与输出治理
+│   │           ├── runtime/              注册、权限、预算、版本和工具契约
+│   │           ├── orchestration/        对话协调与状态推进
+│   │           ├── workflows/            医疗工作流注册与 profile
+│   │           ├── prescription/         五大处方输入、生成、康复校验与报告 schema
+│   │           ├── medication_review/    DDI、剂量、重复、多重用药与 Beers 规则
+│   │           ├── cga/                  五类 CGA 量表定义与计分
+│   │           ├── rag/                  解析、切分、索引、Hybrid Retrieval 与 Rerank
+│   │           ├── memory/               健康事实提取、存储、检索与压缩
+│   │           ├── skill/                Skill 导入、生成、质检、注册与执行
+│   │           ├── document/             私有上传文档管理
+│   │           ├── input_output/         文本、图片、附件和临床输入契约
+│   │           ├── voice/                ASR/TTS 适配与音频 schema
+│   │           ├── search/               AnySearch/Tavily、证据与降级
+│   │           ├── chronic_care/         慢病记录与随访结构
+│   │           ├── risk_alert/           风险信号与状态管理
+│   │           ├── observability_feedback/ Trace、反馈与 Bad Case
+│   │           ├── validation/           版本化结构校验
+│   │           ├── consent/              授权数据结构
+│   │           ├── identity/             账户密码能力
+│   │           ├── companion/            情感陪伴响应边界
+│   │           ├── evals/                RAG、Memory、Skill 与安全评测
+│   │           └── tools/                Agent 工具协议
+│   └── mvp/                              Next.js Web 与 server-only BFF
+│       ├── Dockerfile                    standalone 多阶段 Node 镜像
+│       ├── package.json                  dev/build/lint/test/start 命令
+│       ├── next.config.ts                根配置加载与公开变量白名单
+│       ├── public/audio/cga/              版本绑定的量表预录音频与 manifest
+│       ├── scripts/                      根配置启动与量表音频生成脚本
+│       └── src/
+│           ├── app/                      页面入口和同源 API Routes
+│           ├── components/
+│           │   ├── account/role/layout/  登录、角色工作台与三栏布局
+│           │   ├── chat/voice/           多模态对话、流式状态与播放控制
+│           │   ├── prescription/         五大处方补充对话、报告与医生复核
+│           │   ├── cga/drug-review/      CGA 和用药审查界面
+│           │   ├── editor/document/      实时编辑渲染与文件预览
+│           │   ├── skills/search/health/ Skill、搜索与健康画像
+│           │   ├── settings/help/        模型配置与角色分离教程
+│           │   └── ui/runtime/           无障碍组件、加载状态与执行时间线
+│           ├── server/                   BFF 地址、游客身份与服务端访问
+│           ├── services/                 API client、Zod schema、导出与 Provider 适配
+│           ├── stores/                   会话与界面状态
+│           ├── context/                  身份、主题和全局上下文
+│           ├── hooks/                    交互与数据 hooks
+│           ├── lib/                      Markdown、导出、语音与共享工具
+│           ├── generated/                CGA 音频版本 manifest
+│           ├── styles/                   全局视觉样式
+│           ├── types/                    前端 TypeScript 类型
+│           └── config/                   前端模型与显示配置
+├── docs/
+│   ├── references/                       产品设计要求与五大处方模板
+│   ├── product-specs/                    各业务功能产品契约
+│   ├── design-docs/                      核心原则与技术设计
+│   ├── exec-plans/                       版本化执行计划
+│   ├── PRD.md                            产品需求基线
+│   ├── FRONTEND.md / DESIGN.md           前端与视觉规范
+│   ├── SECURITY.md / RELIABILITY.md      安全与可靠性边界
+│   └── QUALITY_SCORE.md                  质量评价维度
+└── scripts/
+    ├── check-root-env.py                 根环境配置一致性检查
+    ├── docker-smoke.sh                   隔离 Docker 启动检查
+    ├── quality-gate.sh                   测试、迁移与 E2E 命令入口
+    └── generate_runtime_sbom.py          运行镜像 SBOM 生成
 ```
 
-系统设计与扩展边界见 [ARCHITECTURE.md](ARCHITECTURE.md)，完整开发复盘见 [开发复盘.md](开发复盘.md)。
+## 文档
+
+- [系统架构](ARCHITECTURE.md)
+- [产品需求](docs/PRD.md)
+- [前端规范](docs/FRONTEND.md)
+- [视觉设计](docs/DESIGN.md)
+- [安全边界](docs/SECURITY.md)
+- [可靠性](docs/RELIABILITY.md)
+- [质量标准](docs/QUALITY_SCORE.md)
+- [五大处方产品规格](docs/product-specs/五大处方.md)
+- [五大处方报告模板](docs/references/五大处方报告模板.md)
+
+## 医疗使用边界
+
+GerClaw 是临床辅助和健康管理工具，不替代医生面诊、诊断、处方签署或紧急医疗服务。
+
+- 医疗建议必须结合本地知识库、联网搜索或用户上传资料中的可追溯证据。
+- 存在证据的高风险建议可以输出；患者端在全文末尾统一提示风险，医生端保留完整证据与专业判断空间。
+- 没有对应证据的高风险结论不会作为可执行建议展示。
+- 出现胸痛、呼吸困难、意识改变、疑似卒中、自伤风险等紧急情况，应立即联系当地急救服务。
