@@ -15,6 +15,7 @@ from gerclaw_api.auth import (
     require_cga_read,
     require_clinical_intake_read,
     require_memory_read,
+    require_risk_alert_read,
 )
 from gerclaw_api.database.models import PrescriptionDraftReview
 from gerclaw_api.dependencies import get_database_session
@@ -42,6 +43,8 @@ from gerclaw_api.modules.prescription.models import (
     PrescriptionDraftReviewRead,
     PrescriptionDraftReviewRequest,
 )
+from gerclaw_api.modules.risk_alert.models import RiskAlertListRead
+from gerclaw_api.modules.risk_alert.service import RiskAlertService
 from gerclaw_api.repositories.cga import SqlAlchemyCgaRepository
 from gerclaw_api.repositories.consent import (
     PatientAccessGrantConflictError,
@@ -56,6 +59,7 @@ from gerclaw_api.repositories.prescription_draft import (
     PrescriptionDraftNotFoundError,
     SqlAlchemyPrescriptionDraftRepository,
 )
+from gerclaw_api.repositories.risk_alert import SqlAlchemyRiskAlertRepository
 from gerclaw_api.services.cga_service import CgaService
 from gerclaw_api.services.model_router import FailoverChatModel
 
@@ -65,6 +69,7 @@ Identity = Annotated[AuthContext, Depends(authenticate)]
 DoctorMemoryIdentity = Annotated[AuthContext, Depends(require_memory_read)]
 DoctorCgaIdentity = Annotated[AuthContext, Depends(require_cga_read)]
 DoctorPrescriptionIdentity = Annotated[AuthContext, Depends(require_clinical_intake_read)]
+DoctorRiskAlertIdentity = Annotated[AuthContext, Depends(require_risk_alert_read)]
 PatientActorId = Annotated[str, Path(pattern=r"^usr_account_[a-f0-9]{32}$")]
 _NO_SESSION = uuid.UUID(int=0)
 
@@ -372,6 +377,40 @@ async def list_authorized_medication_review_drafts(
             )
             for record in records
         )
+    )
+
+
+@router.get(
+    "/patients/{patient_actor_id}/risk-alerts",
+    response_model=RiskAlertListRead,
+)
+async def list_authorized_risk_alerts(
+    patient_actor_id: PatientActorId,
+    session: SessionDependency,
+    identity: DoctorRiskAlertIdentity,
+) -> RiskAlertListRead:
+    """Read a patient's current safety alerts after explicit scoped consent.
+
+    The projection is intentionally limited to the alert ledger. It does not
+    reveal the originating chat, assessment answers, medication list, Trace,
+    uploaded material or an emergency-contact workflow.
+    """
+
+    _require_doctor(identity)
+    try:
+        await SqlAlchemyPatientAccessGrantRepository(session).require_active_grant(
+            tenant_id=identity.tenant_id,
+            patient_actor_id=patient_actor_id,
+            doctor_actor_id=identity.actor_id,
+            resource_scope="risk_alert_read",
+        )
+    except PatientAccessGrantNotFoundError as error:
+        raise _not_found() from error
+    return await RiskAlertService(SqlAlchemyRiskAlertRepository(session)).list(
+        tenant_id=identity.tenant_id,
+        actor_id=patient_actor_id,
+        status=None,
+        limit=50,
     )
 
 

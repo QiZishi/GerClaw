@@ -335,6 +335,56 @@ async def test_authorized_doctor_can_read_only_saved_medication_review_artifacts
 
 
 @pytest.mark.asyncio
+async def test_authorized_doctor_can_read_only_current_risk_alerts(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    calls: list[dict[str, object]] = []
+    expected = SimpleNamespace(items=())
+
+    class FakeGrantRepository:
+        def __init__(self, _session: object) -> None:
+            pass
+
+        async def require_active_grant(self, **kwargs: object) -> None:
+            calls.append(kwargs)
+
+    class FakeRiskRepository:
+        def __init__(self, _session: object) -> None:
+            pass
+
+    class FakeRiskService:
+        def __init__(self, _repository: object) -> None:
+            pass
+
+        async def list(self, **kwargs: object) -> SimpleNamespace:
+            calls.append(kwargs)
+            return expected
+
+    monkeypatch.setattr(
+        consent_routes, "SqlAlchemyPatientAccessGrantRepository", FakeGrantRepository
+    )
+    monkeypatch.setattr(consent_routes, "SqlAlchemyRiskAlertRepository", FakeRiskRepository)
+    monkeypatch.setattr(consent_routes, "RiskAlertService", FakeRiskService)
+
+    result = await consent_routes.list_authorized_risk_alerts(
+        PATIENT,
+        SimpleNamespace(),
+        _identity(role="doctor", scopes=frozenset({"risk_alert:read"})),
+    )
+
+    assert result is expected
+    assert calls == [
+        {
+            "tenant_id": "tenant_public0001",
+            "patient_actor_id": PATIENT,
+            "doctor_actor_id": DOCTOR,
+            "resource_scope": "risk_alert_read",
+        },
+        {"tenant_id": "tenant_public0001", "actor_id": PATIENT, "status": None, "limit": 50},
+    ]
+
+
+@pytest.mark.asyncio
 async def test_authorized_doctor_health_profile_excludes_unconfirmed_candidates(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:

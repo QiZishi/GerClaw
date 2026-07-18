@@ -9,8 +9,10 @@ or make a clinical recommendation.
 
 ## Invariants
 
-- A risk alert is tenant- and actor-scoped. There is no cross-patient or
-  clinician queue until account, RBAC and patient authorisation are complete.
+- A risk alert is tenant- and actor-scoped. A doctor may read a patient's alert
+  ledger only through the explicit `risk_alert_read` consent scope plus the
+  ordinary `risk_alert:read` role scope; it is never a notification, write or
+  emergency-dispatch authority.
 - The source identity is a keyed fingerprint. Do not store assessment IDs,
   question IDs, answers, free text, or user identifiers in alert metadata.
 - Risk kind, severity and user-facing guidance are encrypted at rest. Read

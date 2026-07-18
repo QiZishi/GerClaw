@@ -761,7 +761,7 @@ export const patientAccessGrantSchema = z
   .object({
     id: z.string().uuid(),
     doctor_actor_id: z.string().regex(/^usr_account_[a-f0-9]{32}$/),
-    resource_scope: z.enum(["health_profile_read", "cga_report_read", "prescription_draft_review", "medication_review_read"]),
+    resource_scope: z.enum(["health_profile_read", "cga_report_read", "prescription_draft_review", "medication_review_read", "risk_alert_read"]),
     status: z.enum(["active", "revoked", "expired"]),
     expires_at: z.string().datetime(),
     revision: z.number().int().positive(),
@@ -779,7 +779,7 @@ export type PatientAccessGrantList = z.infer<typeof patientAccessGrantListSchema
 
 export const doctorPatientGrantScopeSchema = z
   .object({
-    resource_scope: z.enum(["health_profile_read", "cga_report_read", "prescription_draft_review", "medication_review_read"]),
+    resource_scope: z.enum(["health_profile_read", "cga_report_read", "prescription_draft_review", "medication_review_read", "risk_alert_read"]),
     expires_at: z.string().datetime(),
   })
   .strict();

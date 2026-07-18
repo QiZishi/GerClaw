@@ -14,8 +14,11 @@ only the authenticated owner's alert list and an idempotent acknowledgement;
 acknowledging does not dismiss an alert or change its urgency.
 
 It is deliberately not a clinician notification, emergency dispatch, diagnosis,
-or a replacement for medical care. Cross-patient queues, human escalation and
-contact notifications remain blocked on the account/RBAC/authorisation plan.
+or a replacement for medical care. A patient may explicitly grant a named doctor
+the read-only `risk_alert_read` scope; the doctor then sees only this alert
+ledger through the restricted workspace, never source chats, assessment answers,
+medication lists, attachments or Trace data. Human escalation and contact
+notifications remain outside this read-only boundary.
 
 The patient UI exposes **我的安全提醒** through a strict BFF allowlist. It
 shows only this caller's server-determined alerts and can submit the existing
