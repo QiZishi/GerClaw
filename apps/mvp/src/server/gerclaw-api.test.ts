@@ -7,6 +7,7 @@ const conditionId = "6cf3c10d-1d9e-4cfb-8d42-1e32fdb92911";
 const alertId = "8a3e70a1-8b3a-4a9b-9e6a-0148d6e1ef3b";
 const sessionId = "f177dc56-cf27-4c5f-8ebd-683d6a2d6e75";
 const intakeId = "8c711e7e-7ddd-47df-8863-1a0f3d183509";
+const approvalId = "8f711e7e-7ddd-47df-8863-1a0f3d183509";
 
 test("session proxy permits only the declared session lifecycle operations", () => {
   assert.equal(isAllowedGerclawProxyTarget("sessions", "POST"), true);
@@ -122,6 +123,16 @@ test("guest proxy keeps patient care flows but rejects every Skill endpoint", ()
   assert.equal(isGuestAllowedGerclawProxyTarget("cga/scales", "GET"), true);
   assert.equal(isGuestAllowedGerclawProxyTarget("skills", "GET"), false);
   assert.equal(isGuestAllowedGerclawProxyTarget("skills/health-education/execute", "POST"), false);
+});
+
+test("runtime approval proxy permits only a specific review or decision route", () => {
+  const root = `runtime/approvals/${approvalId}`;
+  assert.equal(isAllowedGerclawProxyTarget(root, "GET"), true);
+  assert.equal(isAllowedGerclawProxyTarget(`${root}/review`, "GET"), true);
+  assert.equal(isAllowedGerclawProxyTarget(`${root}/decision`, "POST"), true);
+  assert.equal(isAllowedGerclawProxyTarget(`${root}/review`, "POST"), false);
+  assert.equal(isAllowedGerclawProxyTarget("runtime/approvals", "GET"), false);
+  assert.equal(isAllowedGerclawProxyTarget("runtime/approvals/not-a-uuid/review", "GET"), false);
 });
 
 test("consent proxy permits only patient-owned grant and revoke operations", () => {

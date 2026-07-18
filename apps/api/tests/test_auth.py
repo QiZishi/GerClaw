@@ -7,7 +7,7 @@ from fastapi import HTTPException, Request
 from fastapi.security import HTTPAuthorizationCredentials
 from pydantic import ValidationError
 
-from gerclaw_api.api.routes.auth import read_account_session
+from gerclaw_api.api.routes.auth import _account_scopes, read_account_session
 from gerclaw_api.auth import (
     AuthContext,
     account_access_revocation_key,
@@ -149,6 +149,12 @@ async def test_account_session_read_only_accepts_verified_account_identity() -> 
             tenant_id="tenant_patient@example.com",
             scopes=frozenset(),
         )
+
+
+def test_only_clinician_and_administrator_accounts_receive_runtime_decision_scope() -> None:
+    assert "approval:decide" not in _account_scopes("patient")
+    assert "approval:decide" in _account_scopes("doctor")
+    assert "approval:decide" in _account_scopes("admin")
 
 
 @pytest.mark.asyncio

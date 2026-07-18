@@ -67,6 +67,7 @@ import { DoctorHealthProfileDialog } from "@/components/consent/DoctorHealthProf
 import { DoctorPatientDirectoryDialog } from "@/components/consent/DoctorPatientDirectoryDialog";
 import type { PatientGrantResource } from "@/services/gerclaw/consent";
 import { DoctorPrescriptionReviewDialog } from "@/components/consent/DoctorPrescriptionReviewDialog";
+import { RuntimeApprovalReviewDialog } from "@/components/runtime/RuntimeApprovalReviewDialog";
 import {
   getAccountIdentity,
   exitGuestSession,
@@ -128,6 +129,7 @@ export function Sidebar({ onNavigate }: SidebarProps) {
   const [doctorCgaWorkspaceOpen, setDoctorCgaWorkspaceOpen] = useState(false);
   const [doctorHealthProfileOpen, setDoctorHealthProfileOpen] = useState(false);
   const [doctorPatientDirectoryOpen, setDoctorPatientDirectoryOpen] = useState(false);
+  const [runtimeApprovalReviewOpen, setRuntimeApprovalReviewOpen] = useState(false);
   const [selectedPatientActorId, setSelectedPatientActorId] = useState<string | null>(null);
 
   useEffect(() => {
@@ -624,6 +626,12 @@ export function Sidebar({ onNavigate }: SidebarProps) {
                 </DropdownMenuItem>
               )}
               {account?.account_role === "doctor" && (
+                <DropdownMenuItem className={cn("cursor-pointer", seniorMode && "min-h-12 text-base")} onClick={() => setRuntimeApprovalReviewOpen(true)}>
+                  <ShieldCheck className="size-4" />
+                  操作授权复核
+                </DropdownMenuItem>
+              )}
+              {account?.account_role === "doctor" && (
                 <DropdownMenuItem className={cn("cursor-pointer", seniorMode && "min-h-12 text-base")} onClick={() => setDoctorPrescriptionReviewOpen(true)}>
                   <ShieldCheck className="size-4" />
                   五大处方草案复核
@@ -799,6 +807,11 @@ export function Sidebar({ onNavigate }: SidebarProps) {
         onOpenChange={(nextOpen) => closeSelectedPatientWorkspace(setDoctorPrescriptionReviewOpen, nextOpen)}
         seniorMode={seniorMode}
         initialPatientActorId={selectedPatientActorId}
+      />}
+      {account?.account_role === "doctor" && <RuntimeApprovalReviewDialog
+        open={runtimeApprovalReviewOpen}
+        onOpenChange={setRuntimeApprovalReviewOpen}
+        seniorMode={seniorMode}
       />}
       {account?.account_role === "doctor" && <DoctorCgaWorkspaceDialog
         open={doctorCgaWorkspaceOpen}

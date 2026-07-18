@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useRef, useState } from "react";
-import { Clock3, RefreshCw, ShieldAlert, XCircle } from "lucide-react";
+import { Clock3, Copy, RefreshCw, ShieldAlert, XCircle } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { cancelRuntimeApproval, readRuntimeApproval } from "@/services/gerclaw/approvals";
 import { GerclawApiError } from "@/services/gerclaw/client";
@@ -96,6 +96,19 @@ export function RuntimeApprovalCard({ data }: { data: RuntimeApprovalBlockData }
     }
   };
 
+  const copyApprovalId = async () => {
+    if (!navigator.clipboard) {
+      toast.show("暂时无法复制授权编号");
+      return;
+    }
+    try {
+      await navigator.clipboard.writeText(data.approvalId);
+      toast.show("授权编号已复制");
+    } catch {
+      toast.show("暂时无法复制授权编号");
+    }
+  };
+
   const expiry = new Date(data.expiresAt);
   const expiryLabel = Number.isNaN(expiry.getTime())
     ? "有效期由服务端确认"
@@ -132,6 +145,15 @@ export function RuntimeApprovalCard({ data }: { data: RuntimeApprovalBlockData }
         </p>
       )}
       <div className="mt-3 flex flex-wrap gap-2">
+        <Button
+          type="button"
+          variant="outline"
+          size={isSeniorPatient ? "default" : "sm"}
+          onClick={() => void copyApprovalId()}
+          className={cn("gap-1.5", isSeniorPatient && "min-h-12 px-4 text-base")}
+        >
+          <Copy className="size-3.5" aria-hidden />复制授权编号
+        </Button>
         <Button
           type="button"
           variant="outline"

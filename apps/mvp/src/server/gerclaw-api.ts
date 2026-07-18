@@ -54,8 +54,16 @@ const proxyRules: Array<{ pattern: RegExp; methods: ReadonlySet<string> }> = [
   { pattern: new RegExp(`^cga/assessments/${uuidPattern}/report$`, "i"), methods: new Set(["GET"]) },
   { pattern: new RegExp(`^cga/assessments/${uuidPattern}/comparison$`, "i"), methods: new Set(["GET"]) },
   {
-    pattern: /^runtime\/approvals\/[0-9a-f-]{36}(?:\/(?:cancel|decision|review))?$/,
-    methods: new Set(["GET", "POST"]),
+    pattern: /^runtime\/approvals\/[0-9a-f-]{36}$/,
+    methods: new Set(["GET"]),
+  },
+  {
+    pattern: /^runtime\/approvals\/[0-9a-f-]{36}\/review$/,
+    methods: new Set(["GET"]),
+  },
+  {
+    pattern: /^runtime\/approvals\/[0-9a-f-]{36}\/(?:cancel|decision)$/,
+    methods: new Set(["POST"]),
   },
   {
     pattern: /^chat\/trace_[A-Za-z0-9][A-Za-z0-9_.:-]{7,57}\/cancel$/,

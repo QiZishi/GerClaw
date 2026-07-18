@@ -271,6 +271,12 @@ def _account_scopes(account_role: Literal["patient", "doctor", "admin"]) -> set[
     """Account role is not a substitute for patient or clinical authorisation."""
 
     scopes = set(_ACCOUNT_SCOPES)
+    # A Runtime approval can only be decided by an active database user whose
+    # role matches the server-owned capability.  The scope merely makes the
+    # doctor/admin review endpoint reachable; it never grants patient data or
+    # bypasses that second role check.
+    if account_role in {"doctor", "admin"}:
+        scopes.add("approval:decide")
     if account_role == "admin":
         scopes.add("account:admin")
     return scopes

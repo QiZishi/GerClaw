@@ -135,6 +135,24 @@ export const approvalSchema = z
 
 export type RuntimeApproval = z.infer<typeof approvalSchema>;
 
+export const approvalReviewSchema = z
+  .object({
+    approval: approvalSchema,
+    arguments: z.record(z.string(), z.unknown()),
+  })
+  .strict();
+
+export const approvalGrantSchema = z
+  .object({
+    approval: approvalSchema,
+    // The server issues this one-time capability for a future server-side
+    // executor.  The browser never persists or displays it.
+    execution_token: z.string().min(32).max(256).nullable(),
+  })
+  .strict();
+
+export type RuntimeApprovalReview = z.infer<typeof approvalReviewSchema>;
+
 export const cgaScaleIdSchema = z.enum(["phq9", "sas", "psqi", "minicog", "mmse"]);
 const cgaOptionSchema = z.tuple([z.number().int().min(0).max(1439), z.string().min(1).max(80)]);
 export const cgaQuestionSchema = z
