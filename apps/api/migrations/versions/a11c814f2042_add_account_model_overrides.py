@@ -24,7 +24,9 @@ def upgrade() -> None:
         sa.Column("id", postgresql.UUID(as_uuid=True), nullable=False),
         sa.Column("tenant_id", sa.String(length=64), nullable=False),
         sa.Column("actor_id", sa.String(length=128), nullable=False),
-        sa.Column("configuration", postgresql.JSONB(astext_type=sa.Text()), nullable=False),
+        # EncryptedJSON serializes to authenticated ciphertext, so its physical
+        # representation must be text rather than PostgreSQL JSONB.
+        sa.Column("configuration", sa.Text(), nullable=False),
         sa.Column("revision", sa.Integer(), nullable=False, server_default="1"),
         sa.Column("created_at", sa.DateTime(timezone=True), server_default=sa.func.now(), nullable=False),
         sa.Column("updated_at", sa.DateTime(timezone=True), server_default=sa.func.now(), nullable=False),

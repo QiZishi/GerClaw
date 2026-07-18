@@ -154,6 +154,7 @@ async def integration_client(
                     "trace_events, messages, "
                     "skill_definition_revisions, session_skills, skill_definitions, "
                     "memory_fact_revisions, memory_facts, health_profiles, sessions, users, "
+                    "account_model_overrides, "
                     "execution_traces "
                     "RESTART IDENTITY CASCADE"
                 )

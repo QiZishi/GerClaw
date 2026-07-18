@@ -104,6 +104,72 @@ async def test_postgres_advisory_lock_serializes_independent_rag_index_workers(
 
 @pytest.mark.integration
 @pytest.mark.asyncio
+async def test_account_model_configuration_is_encrypted_owner_scoped_and_revision_fenced(
+    integration_client: tuple[AsyncClient, object],
+) -> None:
+    client, app = integration_client
+    account_token = create_access_token(
+        app.state.settings,
+        actor_id="usr_account_0123456789abcdef0123456789abcdef",
+        tenant_id="tenant_public0001",
+        role="patient",
+        account_role="patient",
+        scopes={"chat:write"},
+    )
+    account_headers = {"Authorization": f"Bearer {account_token}"}
+
+    initial = await client.get("/api/v1/auth/model-configuration", headers=account_headers)
+    assert initial.status_code == 200, initial.text
+    assert initial.json() == {"revision": 0, "slots": []}
+
+    payload = {
+        "expected_revision": 0,
+        "slots": [
+            {
+                "preference": "primary",
+                "url": "https://model.example.test/v1",
+                "api_key": "test-model-key-is-never-returned",
+                "model_name": "test-chat-model",
+                "protocol": "openai",
+                "supports_image_input": True,
+                "supports_tool_calling": True,
+                "supports_structured_output": True,
+            }
+        ],
+    }
+    saved = await client.put(
+        "/api/v1/auth/model-configuration", json=payload, headers=account_headers
+    )
+    assert saved.status_code == 200, saved.text
+    assert saved.json()["revision"] == 1
+    assert saved.json()["slots"][0]["preference"] == "primary"
+    assert "api_key" not in saved.json()["slots"][0]
+    assert saved.json()["slots"][0]["api_key_configured"] is True
+
+    stale = await client.put(
+        "/api/v1/auth/model-configuration", json=payload, headers=account_headers
+    )
+    assert stale.status_code == 409, stale.text
+    assert stale.json()["detail"]["code"] == "MODEL_CONFIGURATION_CONFLICT"
+
+    other_token = create_access_token(
+        app.state.settings,
+        actor_id="usr_account_fedcba9876543210fedcba9876543210",
+        tenant_id="tenant_public0001",
+        role="patient",
+        account_role="patient",
+        scopes={"chat:write"},
+    )
+    other = await client.get(
+        "/api/v1/auth/model-configuration",
+        headers={"Authorization": f"Bearer {other_token}"},
+    )
+    assert other.status_code == 200, other.text
+    assert other.json() == {"revision": 0, "slots": []}
+
+
+@pytest.mark.integration
+@pytest.mark.asyncio
 async def test_postgres_lock_session_loss_cancels_the_active_rag_writer(
     integration_client: tuple[AsyncClient, object],
 ) -> None:
