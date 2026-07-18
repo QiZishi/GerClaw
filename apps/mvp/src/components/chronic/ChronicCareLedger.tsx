@@ -1,10 +1,11 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { AlertCircle, BarChart3, ClipboardPlus, Plus, RefreshCw } from "lucide-react";
+import { AlertCircle, BarChart3, ClipboardPlus, Plus } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
+import { InlineLoadingState } from "@/components/ui/inline-loading-state";
 import { Label } from "@/components/ui/label";
 import { cn } from "@/lib/utils";
 import { toast } from "@/components/ui/toast";
@@ -220,9 +221,10 @@ export function ChronicCareLedger({ seniorMode }: ChronicCareLedgerProps) {
       </Card>
 
       {state === "loading" && (
-        <div className={cn("flex min-h-28 items-center justify-center gap-3 text-muted-foreground", seniorMode && "text-lg")} role="status" aria-live="polite">
-          <RefreshCw className="size-5 animate-spin" aria-hidden="true" /> 正在读取您的记录…
-        </div>
+        <InlineLoadingState
+          message="正在读取您的记录"
+          className={cn("min-h-28", seniorMode && "text-lg")}
+        />
       )}
 
       {state === "error" && (

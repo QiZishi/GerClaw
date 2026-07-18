@@ -20,7 +20,7 @@ loader wall or fake progress.
 | 007 | 限定开关的过渡属性 | MEDIUM | DONE |
 | 008 | 降低抽屉与高频控件的无障碍运动负担 | MEDIUM | DONE |
 | 009 | 使五大处方生成可感知且可安全停止 | HIGH | DONE |
-| 010 | 统一非对话加载反馈，避免旋转图标和状态闪烁 | MEDIUM | TODO |
+| 010 | 统一非对话加载反馈，避免旋转图标和状态闪烁 | MEDIUM | DONE |
 
 Executed in order 001 → 002 → 003 → 004. Plans 002 and 003 use the motion
 tokens and reduced-motion policy introduced by 001; plan 004 uses the shared
@@ -44,5 +44,4 @@ evidence confirm a user cancellation reaches a terminal cancelled Trace.
 The 2026-07-18 follow-up audit at `c5afd5b` found that the primary model and
 five-prescription flows remain aligned with this policy, but several passive
 ledger fetch states still use generic continuous spinners. Plan 010 is queued
-after the clinical work currently in flight; it does not alter model execution,
-medical results or cancellation semantics.
+without altering model execution, medical results or cancellation semantics.

@@ -1,9 +1,10 @@
 "use client";
 
 import { useCallback, useEffect, useState } from "react";
-import { AlertTriangle, CheckCircle2, RefreshCw } from "lucide-react";
+import { AlertTriangle, CheckCircle2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
+import { InlineLoadingState } from "@/components/ui/inline-loading-state";
 import { cn } from "@/lib/utils";
 import { toast } from "@/components/ui/toast";
 import { acknowledgeRiskAlert, listRiskAlerts } from "@/services/gerclaw/risk-alerts";
@@ -76,7 +77,7 @@ export function RiskAlertLedger({ seniorMode }: RiskAlertLedgerProps) {
         <p className={cn("text-muted-foreground", bodyClass)}>这里只显示系统已确定的本人提醒。“我已了解”不会解除风险、不会取消就医建议，也不会自动联系任何人。</p>
       </div>
 
-      {state === "loading" && <div className={cn("flex min-h-28 items-center justify-center gap-3 text-muted-foreground", seniorMode && "text-lg")} role="status"><RefreshCw className="size-5 animate-spin" aria-hidden="true" />正在读取安全提醒…</div>}
+      {state === "loading" && <InlineLoadingState message="正在读取安全提醒" className={cn("min-h-28", seniorMode && "text-lg")} />}
       {state === "error" && <Card className="border-destructive/40"><CardContent className="flex flex-col items-start gap-3 sm:flex-row sm:items-center sm:justify-between"><p className={cn("text-destructive", seniorMode && "text-lg")}>安全提醒暂时无法读取，请检查网络后重试。</p><Button type="button" variant="outline" onClick={() => void load()} className={cn("min-h-11", seniorMode && "min-h-12 text-lg")}>重新读取</Button></CardContent></Card>}
       {state === "ready" && active.length === 0 && <Card className="border-dashed"><CardContent className={cn("py-8 text-center text-muted-foreground", seniorMode && "py-10 text-lg")}>当前没有需要您查看的安全提醒。</CardContent></Card>}
       {state === "ready" && active.map((alert) => <Card key={alert.alert_id} className="border-2 border-red-500 bg-red-50/70 dark:bg-red-950/20"><CardHeader><CardTitle className={cn("flex items-center gap-2 text-red-900 dark:text-red-100", seniorMode && "text-xl")}><AlertTriangle className="size-5" aria-hidden="true" />{alert.title}</CardTitle><CardDescription className={cn("text-red-900/80 dark:text-red-100/80", bodyClass)}>{alert.message}</CardDescription></CardHeader><CardContent className="space-y-4"><p className={cn("font-medium text-red-950 dark:text-red-50", bodyClass)}>{alert.action}</p><p className={cn("text-muted-foreground", seniorMode ? "text-base" : "text-xs")}>创建于 {formatDateTime(alert.created_at)}</p><Button type="button" variant="outline" onClick={() => void acknowledge(alert)} disabled={acknowledgingId !== null} className={cn("min-h-11 border-red-400 text-red-900 hover:bg-red-100 dark:text-red-100", seniorMode && "min-h-12 px-5 text-lg")}>{acknowledgingId === alert.alert_id ? "正在记录" : "我已了解此提醒"}</Button></CardContent></Card>)}

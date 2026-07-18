@@ -1,7 +1,7 @@
 # 010 — 统一非对话加载反馈，避免旋转图标和状态闪烁
 
-- **Status**: TODO
-- **Commit**: c5afd5b
+- **Status**: DONE
+- **Commit**: pending
 - **Severity**: MEDIUM
 - **Category**: Purpose & frequency / accessibility / cohesion
 - **Estimated scope**: 5 files, focused state-presentation changes
@@ -103,3 +103,17 @@ refresh buttons so the pressed state remains clear, but do not use
 - **Done when**: passive read states use the same calm indicator as the
   product's model-running surface; no remaining `animate-spin` represents a
   generic fetch wait without a documented exception.
+
+## Execution record
+
+- Implemented a shared `InlineLoadingState` for passive fetches. It reuses the
+  existing three-dot Codex treatment, retains `role="status"`/`aria-live`, and
+  has no timer, fake percentage or secondary keyframe.
+- Converted the patient slow-chronic-record and risk-alert read states. The
+  administrator refresh icon is now static and its button text changes to
+  `正在刷新`; the content region uses the same status component.
+- `rg` now finds no component-level `animate-spin`; the remaining global CSS
+  rule is solely the reduced-motion compatibility override. `npm run lint`,
+  `npm test` and `npm run build` passed. A real browser opened the mandatory
+  login → guest patient → chronic record path with zero application console
+  errors; the local response completed too quickly to capture a pending state.
