@@ -259,6 +259,46 @@ class AgentRunService:
             raise
         return self.to_public_run(run)
 
+    async def interrupt_owned(
+        self,
+        run_id: uuid.UUID,
+        *,
+        tenant_id: str,
+        actor_id: str,
+        occurred_at: datetime | None = None,
+    ) -> AgentRunRead:
+        """Mark a lease-orphaned unfinished run as recoverable interrupted state."""
+
+        run = await self._locked_run(run_id, tenant_id=tenant_id, actor_id=actor_id)
+        current = self._lifecycle_state(run)
+        try:
+            updated = self._state_machine.transition(
+                current,
+                AgentRunStatus.INTERRUPTED,
+                expected_revision=current.revision,
+                fencing_token=current.fencing_token,
+                occurred_at=occurred_at,
+            )
+            run.status = updated.status.value
+            run.revision = updated.revision
+            run.warnings = list(updated.warnings)
+            run.completed_at = updated.completed_at
+            await self._stage_event(
+                run,
+                RunEventWrite(
+                    event_type="run.status",
+                    status=AgentRunStatus.INTERRUPTED.value,
+                    public_summary="服务中断, 可稍后恢复",
+                ),
+                occurred_at=occurred_at,
+            )
+            await self._repository.flush()
+            await self._repository.commit()
+        except BaseException:
+            await self._repository.rollback()
+            raise
+        return self.to_public_run(run)
+
     async def _locked_run(
         self,
         run_id: uuid.UUID,

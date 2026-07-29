@@ -328,3 +328,27 @@ async def test_owner_cancel_uses_stored_fence_and_remains_idempotent() -> None:
             tenant_id=TENANT,
             actor_id="usr_other",
         )
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "initial_status",
+    [AgentRunStatus.RUNNING, AgentRunStatus.WAITING_FOR_USER],
+)
+async def test_lease_orphan_can_be_marked_interrupted(
+    initial_status: AgentRunStatus,
+) -> None:
+    repository = _Repository()
+    service = AgentRunService(repository)
+    created = await service.create_run(_request(), tenant_id=TENANT, actor_id=ACTOR)
+    repository.runs[created.id].status = initial_status.value
+
+    interrupted = await service.interrupt_owned(
+        created.id,
+        tenant_id=TENANT,
+        actor_id=ACTOR,
+    )
+
+    assert interrupted.status is AgentRunStatus.INTERRUPTED
+    assert interrupted.completed_at is not None
+    assert repository.events[-1].status == "interrupted"
