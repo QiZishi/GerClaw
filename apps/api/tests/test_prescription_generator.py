@@ -328,6 +328,9 @@ async def test_generator_blocks_medication_candidate_when_step_prerequisites_are
         "建议停药。",
         "阿司匹林剂量上调至100mg每日一次。",
         "氯吡格雷75mg每日一次。",
+        "阿司匹林换氯吡格雷。",
+        "不要继续服用阿司匹林。",
+        "阿司匹林替成氯吡格雷。",
     ],
 )
 @pytest.mark.asyncio
@@ -373,12 +376,21 @@ async def test_generator_degrades_to_review_baseline_for_uncited_medication_chan
     assert "开始服用某药" not in draft.model_dump_json()
 
 
+@pytest.mark.parametrize(
+    "precaution",
+    [
+        "涉及停用或减量时，请结合相应证据和完整病史复核。",
+        "不要自行停药，应由医生结合完整病史复核。",
+    ],
+)
 @pytest.mark.asyncio
-async def test_generator_keeps_evidence_review_medication_precaution() -> None:
+async def test_generator_keeps_evidence_review_medication_precaution(
+    precaution: str,
+) -> None:
     content = _content().model_copy(
         update={
             "medication": _content().medication.model_copy(
-                update={"precautions": ("涉及停用或减量时，请结合相应证据和完整病史复核。",)}
+                update={"precautions": (precaution,)}
             )
         }
     )
@@ -388,7 +400,7 @@ async def test_generator_keeps_evidence_review_medication_precaution() -> None:
     ).generate(_prepared())  # type: ignore[arg-type]
 
     assert draft.health_assessment.summary == content.health_assessment.summary
-    assert draft.medication.precautions == ("涉及停用或减量时，请结合相应证据和完整病史复核。",)
+    assert draft.medication.precautions == (precaution,)
 
 
 @pytest.mark.asyncio

@@ -32,11 +32,14 @@ _ACTION_PATTERNS: tuple[tuple[MedicationActionKind, re.Pattern[str]], ...] = (
     ),
     (
         MedicationActionKind.STOP,
-        re.compile(r"(?:停用|停药|停止(?:服用|使用|用药)?|撤掉|撤除)"),
+        re.compile(
+            r"(?:(?:不要|不再|别再|停止|暂停|中止)(?:继续)?(?:服用|使用|吃)"
+            r"|停用|停药|停服|停止用药|撤掉|撤除)"
+        ),
     ),
     (
         MedicationActionKind.REPLACE,
-        re.compile(r"(?:替换为?|换成|改成|改为|改用|更换为?)"),
+        re.compile(r"(?:替换为?|替(?:换)?成|替为|换(?:成|为|用)?|改成|改为|改用|更换为?)"),
     ),
     (
         MedicationActionKind.DOSE_CHANGE,

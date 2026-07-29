@@ -96,8 +96,9 @@ PHI-free Trace payloads.
 
 Medication-action enforcement uses the code-owned `MedicationActionClassifier`,
 which normalizes start, stop, replacement and dose-change aliases such as
-`改为`, `换成`, `改用`, `停药`, explicit dose changes and a newly proposed
-dose-frequency regimen. Negated or conditional guardrails remain visible. A regimen
+`改为`, `换成`, bare `换`, `替成`, `改用`, `停药`, “不要继续服用”,
+explicit dose changes and a newly proposed dose-frequency regimen. Negated or conditional
+guardrails such as “不要自行停药” remain visible. A regimen
 in `medication_items` is accepted as a record only when it matches the caller's
 current-medication input; it is not treated as permission to recommend that regimen.
 
