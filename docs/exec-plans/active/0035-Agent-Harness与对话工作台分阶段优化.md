@@ -20,7 +20,7 @@ GerClaw 保持老年医学定位。眼科病灶定位不在本计划范围。在
 | 1 | Harness 模块化与稳定合同 | 已完成：两轮审阅问题修复，最终独立审阅 ACCEPT |
 | 2 | Run 事实源、状态机和恢复 | 已完成：两轮 P1 修复、真实 GUI 对抗审计、最终独立复审 ACCEPT |
 | 3 | ClinicalState、动态规划与医疗门禁 | 已完成：四轮独立审阅修复、真实 GUI 与最终 ACCEPT |
-| 4 | 证据、Memory 与受治理能力组合 | 实现与真实 GUI 审计完成，等待独立复审 |
+| 4 | 证据、Memory 与受治理能力组合 | 已修复首轮独立审阅问题，真实 GUI 复验完成，等待最终复审 |
 | 5 | 对话工作台 UI 与交互重构 | 未开始 |
 | 6 | 受控离线自进化 | 未开始 |
 | 7 | 最终回归、真实 GUI 对抗审阅与发布 | 未开始 |
@@ -520,7 +520,7 @@ Skill 的 optional checkpoint 尚未接入 AgentScope 实际工具完成回调�
 
 完成 Evidence/Citation 真实闭环、Memory proposed/confirmed/conflict 治理和受治理 GerClaw 能力清单；附件、解析、检索和临床观察跨节点复用。
 
-截至 2026-07-30，阶段 4 按模块完成四个独立生产变更：
+截至 2026-07-30，阶段 4 先按模块完成四个独立生产变更：
 
 - `35cc20e` 建立本地 Evidence/Citation admission：绝对相关性阈值、来源状态与等级、真实采用文本、locator、
   去重和不可核验降级均由代码治理；模型不能自行创造可发布 Citation。
@@ -532,11 +532,30 @@ Skill 的 optional checkpoint 尚未接入 AgentScope 实际工具完成回调�
   同轮 ClinicalState、附件投影、本地检索结果可复用。AgentScope Skill 成功结果会完成匹配的 optional 动态计划
   checkpoint，关闭阶段 3 遗留 P2；预取失败路径不会再同时写入失败与成功结果。
 
-组合回归实际执行 18 个 Harness、Evidence、RAG、Memory 和 Chat 测试文件，结果为
-`217 passed, 1 skipped, 1 warning`；warning 是本地 Qdrant HTTP payload-index 提示。阶段内最终定向结果还包括：
+首轮独立审阅没有放行阶段 4。审阅者先发现 core profile 会绕过语义召回过滤泄露 restricted/expired Memory，
+随后最终以 P1 拒绝未绑定的模型引用 marker 和“只有能力目录/选择、没有实际 owner 调用”的能力闭环，并以 P2
+指出所谓“能力 GUI 证据”只是浏览器上下文中的 API 请求和登录页截图，并非可见的能力操作界面。问题按模块修复
+并分别提交：
 
-- 能力模块后端 95/95；Ruff 全部通过；Mypy 检查 263 个源文件通过。
-- 前端 BFF/能力契约 24/24、Chat 合同 10/10；ESLint 和 Next production build 均通过。
+- `8c55851` 统一 core profile 与语义召回的 eligibility，只允许 confirmed、standard、未过期且用户已启用的
+  Memory 进入上下文；core profile 改为本轮临时过滤投影并保留 provenance。
+- `605f3df` 引入服务端唯一的 `[C#]` 公开引用 marker。模型的 `[E#]`/`[W#]` 仅能引用本轮已 admission 的
+  Evidence/Web source，越界、伪造或直接输出 `[C#]` 均 fail closed；前端只把服务端 `[C#]` 渲染为可交互
+  Popover，普通数字方括号不再误绑定。
+- `2bb8a39` 增加 `GovernedCapabilityRuntime`，只把 allowlist 中且确实进入动态计划的 CGA、用药审查、
+  五大处方和报告能力分派给注入的现有 owner service；Chat/BFF 增加严格的手动选择合同，恢复和重生成保留选择。
+- `2927a50` 将 owner 调用移到 Run 创建前的计划确定阶段，避免 mandatory ASK 时产生越界副作用，并把去内容化
+  `capability_results` 持久化进加密 Run plan，形成可恢复、可审计的执行证据。
+
+初版组合回归实际执行 18 个 Harness、Evidence、RAG、Memory 和 Chat 测试文件，结果为
+`217 passed, 1 skipped, 1 warning`；warning 是本地 Qdrant HTTP payload-index 提示。审阅修复后的定向结果
+还包括：
+
+- Memory 后端 105 passed、1 skipped；Evidence/引用后端 81 passed；能力/Chat 最终 83 passed。各模块 Ruff
+  和 Mypy 均通过。
+- 前端引用渲染 4/4、BFF/能力契约 24/24、Chat 合同 10/10；ESLint 和 Next production build 均通过。
+- 独立审阅者在修复前自行运行 159 项相关测试，全部通过但仍基于生产语义给出 REJECT；测试通过没有替代对信任
+  边界和实际 owner 调用的代码审查。
 - 开发中一次误写了不存在的 `test_agent_harness_integration.py`，pytest 因无测试而退出；随后立即改为真实测试
   路径。一次未加 `--no-cov` 的定向运行虽有 91 个测试通过，但暴露 `orchestrator.py` 914 行超过 800 行门禁及
   定向集合覆盖率不足；共享结果逻辑随后抽为独立模块，最终 `orchestrator.py` 为 790 行，正确命令全部通过。
@@ -560,15 +579,30 @@ network route/mock。全新访客在 GUI 输入“老年人如何预防跌倒？
 
 桌面截图为 `apps/mvp/output/playwright/stage4-evidence/cited-chat-desktop.png`，390×844 手机截图为
 `apps/mvp/output/playwright/stage4-evidence/cited-chat-mobile.png`；手机实测
-`viewportWidth=documentWidth=bodyWidth=390`、`overflowX=false`。能力目录的独立 BFF GUI 证据为
-`apps/mvp/output/playwright/stage4-capabilities/desktop.png`。完整 Trace 为
-`apps/mvp/.playwright-cli/traces/trace-1785355601132.trace`，能力目录 Trace 为
-`apps/mvp/.playwright-cli/traces/trace-1785355297551.trace`。最终浏览器 console 为
-0 error / 0 warning，network 中 account、RAG、session 和 chat 请求均为 2xx。
+`viewportWidth=documentWidth=bodyWidth=390`、`overflowX=false`。原
+`apps/mvp/output/playwright/stage4-capabilities/desktop.png` 只证明浏览器上下文可读取 BFF catalog，
+截图本身仍是登录页，不能称为可见 GUI 能力证据；手动能力选择控件属于阶段 5，不在本阶段伪装为已完成。
+
+修复后重新用全新访客在真实 GUI 输入“请开始老年综合评估，并说明有哪些评估入口。”。回答中的 `[C#]` 被渲染
+为“查看引用”按钮；点击后 Popover 展示真实来源、实际采用文本和无公开链接提示，截图为
+`apps/mvp/output/playwright/stage4-rereview/inline-citation-popover.png`。同次 Run
+`bb962971-8318-45d5-80ef-e6e56aa0ffbd` 的加密 plan 经应用层解密后包含
+`gerclaw.cga` owner 结果 `cga-workspace:<conversation_id>`，证明自动选择实际进入动态计划并调用现有
+`CgaService`，而不是只返回 catalog；页面完成态截图为
+`apps/mvp/output/playwright/stage4-rereview/owner-capability-completed.png`。该连接动作只连接可恢复 CGA
+工作台，不会在用户未选择量表时擅自启动 PHQ-9 等具体评估。
+
+最终另开 Playwright CLI headless 会话复核登录/访客入口，390×844 实测
+`viewportWidth=documentWidth=bodyWidth=390`、`overflowX=false`，截图为
+`apps/mvp/output/playwright/stage4-rereview/mobile-current.png`；console 为 0 error / 0 warning，
+account 请求 200。主要 Trace 为 `apps/mvp/.playwright-cli/traces/trace-1785359066064.trace`，移动复核 Trace
+为 `apps/mvp/.playwright-cli/traces/trace-1785359634581.trace`。聊天 network 中 account、session、chat 和
+Run 查询均为 2xx；后端日志确认 Memory search/write、唯一聊天终态和 Run GET 均完成。
 
 已知限制如实保留：部分知识库 Markdown 的题名元数据只有“·指南与共识·”或“·专家论坛·”，因此引用卡题名
 不够具体；卡片仍展示可核对的实际采用摘录、章节和本地来源，并明确提示无公开原文链接。该数据清洗问题不影响
-本阶段“不得伪造引用”的安全门，但应在后续知识库质量工作中改进。阶段 4 尚待独立审阅，不提前标记完成。
+本阶段“不得伪造引用”的安全门，但应在后续知识库质量工作中改进。阶段 4 修复后尚待同一独立审阅者最终复审，
+不提前标记完成。
 
 ### 阶段 5
 
