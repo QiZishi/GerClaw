@@ -24,6 +24,7 @@ from gerclaw_api.modules.agent_harness.context_snapshot import (
     UploadedInputProjector,
     render_untrusted_clinical_state,
 )
+from gerclaw_api.modules.agent_harness.evidence import bind_citation_markers
 from gerclaw_api.modules.agent_harness.planning import (
     AgentFactory,
     ClinicalDecisionCoordinator,
@@ -643,6 +644,35 @@ class ProductionAgentHarness:
             raise EmptyAgentResponseError("model completed without public text")
         governance.complete(answer_node)
         governance_result = governance.finish()
+        reusable_evidence = turn_results.evidence_for(
+            "report.compose"
+            if governance.answer_capability() == "report.compose"
+            else "answer.compose"
+        )
+        additional_local_citations = citations_from_results(
+            reusable_evidence + agentic_results,
+            minimum_score=self._config.evidence_min_score,
+            limit=self._config.evidence_top_k,
+        )
+        local_citations = list(initial_citations)
+        local_source_ids = {item.source_id for item in local_citations}
+        local_citations.extend(
+            item
+            for item in additional_local_citations
+            if item.source_id not in local_source_ids
+        )
+        web_citations = citations_from_search_results(search_results)
+        citations = [*local_citations, *web_citations]
+        if self._uploaded_documents:
+            citations.extend(attachment_projector.document_citations())
+        if self._uploaded_images:
+            citations.extend(attachment_projector.image_citations())
+        model_text = bind_citation_markers(
+            model_text,
+            local_citation_count=len(initial_citations),
+            web_citation_count=len(web_citations),
+            web_citation_offset=len(local_citations),
+        )
         patient_clinical_risk_notice_applied = bool(
             self._runtime_principal is not None
             and self._runtime_principal.role in {ActorRole.GUEST, ActorRole.PATIENT}
@@ -657,21 +687,6 @@ class ProductionAgentHarness:
         budget.add_output(disclaimer_delta)
         await self._emit(stream_callback, "text_delta", {"content": disclaimer_delta})
 
-        reusable_evidence = turn_results.evidence_for(
-            "report.compose"
-            if governance.answer_capability() == "report.compose"
-            else "answer.compose"
-        )
-        citations = citations_from_results(
-            reusable_evidence + agentic_results,
-            minimum_score=self._config.evidence_min_score,
-            limit=self._config.evidence_top_k,
-        )
-        citations.extend(citations_from_search_results(search_results))
-        if self._uploaded_documents:
-            citations.extend(attachment_projector.document_citations())
-        if self._uploaded_images:
-            citations.extend(attachment_projector.image_citations())
         evidence_backed_clinical_conclusion_allowed = bool(citations)
         safe_tool_names: list[JsonValue] = []
         response = AgentResponse(

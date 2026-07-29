@@ -5,6 +5,10 @@ injected `EvidenceAdmissionPolicy`. Local results are admitted only after the
 `local-rag-evidence-v1` provenance contract, absolute relevance threshold, source-authority
 ordering (`guideline` → `consensus` → `textbook` → `literature`), and ID/adopted-text
 deduplication. Retrieval remains owned by `rag`; no duplicate retriever was introduced.
+Model-facing `[E#]` and `[W#]` markers are range-checked against the exact admitted local and
+web lists before the terminal event, then normalized to reserved `[C#]` markers. A model cannot
+emit `[C#]` directly, and any missing or out-of-range source fails the turn closed. The client
+creates an inline citation control only for these server-owned markers.
 
 Invalid, incomplete, or below-threshold records fail closed. The public citation excerpt is
 the exact bounded `adopted_text`; absent institution/version metadata stays absent internally

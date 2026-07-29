@@ -2,7 +2,13 @@
 
 from __future__ import annotations
 
-from gerclaw_api.modules.agent_harness.evidence import EvidenceAdmissionPolicy
+import pytest
+
+from gerclaw_api.modules.agent_harness.evidence import (
+    CitationMarkerValidationError,
+    EvidenceAdmissionPolicy,
+    bind_citation_markers,
+)
 from gerclaw_api.modules.rag.protocols import RetrievalResult
 
 
@@ -107,3 +113,23 @@ def test_admission_rejects_invalid_provenance_without_approximation() -> None:
     invalid.metadata.pop("chapter")
 
     assert policy.citations_from_local_results([invalid]) == []
+
+
+def test_citation_markers_bind_only_to_admitted_terminal_positions() -> None:
+    assert (
+        bind_citation_markers(
+            "本地建议 [E2], 联网补充 [W1]。",
+            local_citation_count=2,
+            web_citation_count=1,
+            web_citation_offset=3,
+        )
+        == "本地建议 [C2], 联网补充 [C4]。"
+    )
+    for text in ("越界 [E3]", "越界 [W2]", "绕过 [C1]", "零编号 [E0]"):
+        with pytest.raises(CitationMarkerValidationError):
+            bind_citation_markers(
+                text,
+                local_citation_count=2,
+                web_citation_count=1,
+                web_citation_offset=3,
+            )

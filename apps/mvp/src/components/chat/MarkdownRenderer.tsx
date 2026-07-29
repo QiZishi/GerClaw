@@ -7,6 +7,7 @@ import { createHighlighter, type Highlighter } from "shiki";
 import { Check, Copy } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { CitationPopover } from "@/components/search/CitationPopover";
+import { findCitationMatches } from "@/lib/citation-markers";
 import { useAppStore } from "@/stores/appStore";
 import type { Citation } from "@/types";
 import { MARKDOWN_GFM_OPTIONS, normalizeChatMarkdown } from "@/lib/markdown-gfm";
@@ -216,20 +217,6 @@ function CodeBlock({ lang, code }: { lang: string; code: string }) {
   );
 }
 
-function findCitationMatches(text: string): Array<{ fullMatch: string; citeId: number; index: number }> {
-  const regex = /\[(\d+)\]/g;
-  const matches: Array<{ fullMatch: string; citeId: number; index: number }> = [];
-  let match;
-  while ((match = regex.exec(text)) !== null) {
-    matches.push({
-      fullMatch: match[0],
-      citeId: parseInt(match[1], 10),
-      index: match.index,
-    });
-  }
-  return matches;
-}
-
 interface TextWithCitationsProps {
   text: string;
   citations?: Citation[];
@@ -264,14 +251,7 @@ function TextWithCitations({ text, citations }: TextWithCitationsProps): ReactNo
         />
       );
     } else {
-      parts.push(
-        <sup
-          key={`s-${key++}`}
-          className="text-blue-600 dark:text-blue-400 font-semibold text-[0.7em] ml-0.5"
-        >
-          [{citeId}]
-        </sup>
-      );
+      parts.push(<Fragment key={`t-${key++}`}>{fullMatch}</Fragment>);
     }
 
     lastIndex = startIndex + fullMatch.length;

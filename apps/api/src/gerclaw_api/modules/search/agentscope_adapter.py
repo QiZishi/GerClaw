@@ -55,6 +55,7 @@ def build_web_search_tool(module: SearchModule) -> FunctionTool:
             query, max_results=max_results, domain=cast(SearchDomain, domain)
         )
         capture = _SEARCH_CAPTURE.get()
+        first_marker = len(capture) + 1 if capture is not None else 1
         if capture is not None:
             capture.extend(results)
         lines = [
@@ -63,7 +64,7 @@ def build_web_search_tool(module: SearchModule) -> FunctionTool:
         ]
         if not results:
             lines.append("未找到可追溯且达到最低来源要求的结果。")
-        for index, result in enumerate(results, 1):
+        for index, result in enumerate(results, first_marker):
             lines.extend(
                 [
                     f"[W{index}] [{result.authority_level}级] {result.title}",
