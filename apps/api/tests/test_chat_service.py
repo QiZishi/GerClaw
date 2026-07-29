@@ -699,6 +699,9 @@ async def test_owned_turn_streams_only_after_durable_success(unit_settings: Sett
     assert traces.finishes[-1].status is TraceStatus.COMPLETED
     assert len(run_journal.start_requests) == 1
     assert run_journal.start_requests[0].route is RouteKind.QUICK
+    dynamic_plan = cast(dict[str, Any], run_journal.start_requests[0].plan["dynamic_plan"])
+    assert dynamic_plan["route"] == "quick"
+    assert cast(list[dict[str, Any]], dynamic_plan["nodes"])[0]["capability"] == "answer.quick"
     assert run_journal.start_requests[0].fencing_token == 17
     assert run_journal.answer_message_ids
     assert run_journal.events[-1].event_type == "done"

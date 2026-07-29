@@ -23,6 +23,10 @@ class ResolvedHarnessConfig(BaseModel):
     deep_route_min_characters: int = Field(default=1_200, ge=100, le=4_000)
     deep_route_attachment_count: int = Field(default=2, ge=1, le=20)
     deep_route_capability_count: int = Field(default=2, ge=1, le=20)
+    model_output_reserve_tokens: int = Field(default=2_048, ge=256, le=16_384)
+    model_input_overhead_tokens: int = Field(default=1_024, ge=128, le=8_192)
+    image_input_estimate_tokens: int = Field(default=1_024, ge=128, le=16_384)
+    savi_minimum_score: int = Field(default=1, ge=-12, le=12)
 
     @classmethod
     def from_settings(cls, settings: Settings) -> "ResolvedHarnessConfig":
@@ -42,4 +46,8 @@ class ResolvedHarnessConfig(BaseModel):
             deep_route_min_characters=settings.agent_deep_route_min_characters,
             deep_route_attachment_count=settings.agent_deep_route_attachment_count,
             deep_route_capability_count=settings.agent_deep_route_capability_count,
+            model_output_reserve_tokens=settings.agent_model_output_reserve_tokens,
+            model_input_overhead_tokens=settings.agent_model_input_overhead_tokens,
+            image_input_estimate_tokens=settings.agent_image_input_estimate_tokens,
+            savi_minimum_score=settings.agent_savi_minimum_score,
         )

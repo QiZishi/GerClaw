@@ -10,18 +10,14 @@ from collections.abc import AsyncIterator, Awaitable, Callable
 from datetime import UTC, datetime
 from typing import Any
 
-from agentscope.agent import Agent
 from agentscope.message import (
     AssistantMsg,
-    Msg,
     SystemMsg,
     ToolCallBlock,
     UserMsg,
 )
-from agentscope.middleware import Mem0Middleware, RAGMiddleware
 from agentscope.model import ChatModelBase
 from agentscope.skill import Skill as AgentScopeSkill
-from agentscope.tool import Toolkit
 from pydantic import BaseModel
 
 from gerclaw_api.config import Settings
@@ -32,7 +28,12 @@ from gerclaw_api.modules.agent_harness.context_snapshot import (
     ProductionContextSnapshotAssembler,
     UploadedInputProjector,
 )
-from gerclaw_api.modules.agent_harness.planning import AgentFactory, ProductionAgentFactory
+from gerclaw_api.modules.agent_harness.planning import (
+    AgentFactory,
+    DynamicPlan,
+    ProductionAgentFactory,
+    TurnPlanningCoordinator,
+)
 from gerclaw_api.modules.agent_harness.plugin_runtime import (
     ApprovalCallback,
     ApprovalCoordinator,
@@ -48,11 +49,8 @@ from gerclaw_api.modules.agent_harness.protocols import (
     StreamEvent,
 )
 from gerclaw_api.modules.agent_harness.routing import (
-    DeterministicRouter,
     RouteDecision,
     RouteKind,
-    RoutingInput,
-    RoutingPolicy,
 )
 from gerclaw_api.modules.agent_harness.run_lifecycle import (
     CanonicalTextStream,
@@ -154,6 +152,7 @@ class ProductionAgentHarness:
         tool_registry_factory: ToolRegistryFactory = build_production_tool_registry,
         agent_factory: AgentFactory | None = None,
         route_decision: RouteDecision | None = None,
+        dynamic_plan: DynamicPlan | None = None,
     ) -> None:
         companion = is_companion_workflow(workflow)
         build_core_runtime_asset_security_registry().assess_agent(
@@ -171,14 +170,6 @@ class ProductionAgentHarness:
         )
         self._config = resolved_config or ResolvedHarnessConfig.from_settings(settings)
         self._components = components or HarnessComponents()
-        self._router = self._components.router or DeterministicRouter(
-            RoutingPolicy(
-                quick_max_characters=self._config.quick_route_max_characters,
-                deep_min_characters=self._config.deep_route_min_characters,
-                deep_attachment_count=self._config.deep_route_attachment_count,
-                deep_capability_count=self._config.deep_route_capability_count,
-            )
-        )
         self._route_decision = route_decision
         self._run_lifecycle = self._components.run_lifecycle or ProductionRunLifecycle()
         self._context_assembler = (
@@ -210,6 +201,15 @@ class ProductionAgentHarness:
         self._execution_budget = execution_budget or ExecutionBudget(
             max_steps=self._config.max_react_iterations,
             max_output_bytes=self._config.max_output_bytes,
+        )
+        self._turn_planning = TurnPlanningCoordinator.from_config(
+            config=self._config,
+            execution_budget=self._execution_budget,
+            model_context_tokens=self._model.context_size,
+            router=self._components.router,
+            planner=self._components.planner,
+            route_decision=route_decision,
+            dynamic_plan=dynamic_plan,
         )
         self._approval_callback = approval_callback
         self._agent_factory = agent_factory or ProductionAgentFactory(
@@ -303,18 +303,16 @@ class ProductionAgentHarness:
         companion = is_companion_workflow(self._workflow)
         medical_content = is_medical_message(user_message) and not companion
         high_risk_codes = detect_high_risk(user_message)
-        route_decision = self._route_decision or self._router.decide(
-            RoutingInput(
-                message=user_message,
-                has_images=bool(self._uploaded_images),
-                has_documents=bool(self._uploaded_documents),
-                image_count=len(self._uploaded_images),
-                document_count=len(self._uploaded_documents),
-                selected_capabilities=tuple(self._loaded_skill_ids),
-                medical_content=medical_content,
-                high_risk_detected=bool(high_risk_codes),
-            )
+        prepared_turn = self._turn_planning.prepare(
+            message=user_message,
+            medical_content=medical_content,
+            image_count=len(self._uploaded_images),
+            document_count=len(self._uploaded_documents),
+            capabilities=tuple(self._loaded_skill_ids),
+            high_risk_detected=bool(high_risk_codes),
         )
+        route_decision = prepared_turn.route_decision
+        dynamic_plan = prepared_turn.dynamic_plan
         # A pure request to summarize/read an attachment should not fabricate
         # unrelated medical context.  Once the user asks for a medical
         # interpretation (for example a blood-pressure or medication report),
@@ -363,6 +361,7 @@ class ProductionAgentHarness:
                     "emergency_short_circuit": True,
                     "route": route_decision.route.value,
                     "route_reason": route_decision.reason_code,
+                    "plan_node_ids": [node.node_id for node in dynamic_plan.nodes],
                 },
             )
             await self._emit(
@@ -400,6 +399,7 @@ class ProductionAgentHarness:
                 },
             )
             try:
+                budget.add_tool_call()
                 evidence_results = await self._rag_module.retrieve(
                     user_message, top_k=self._config.evidence_top_k
                 )
@@ -498,6 +498,20 @@ class ProductionAgentHarness:
                 )
             )
 
+        preflight = self._turn_planning.check_model(
+            usage=budget.snapshot(),
+            text_values=(
+                user_message,
+                context.profile_context,
+                context.session_summary,
+                *(item.text for item in context.conversation_history),
+                *(item.content for item in self._uploaded_documents),
+                *(item.excerpt for item in initial_citations),
+            ),
+            image_count=len(self._uploaded_images),
+        )
+        if not preflight.allowed:
+            raise RuntimeBudgetExceededError(preflight.reason_code)
         turn_toolkit = await build_turn_toolkit(
             config=self._config,
             rag_module=self._rag_module,
@@ -515,7 +529,7 @@ class ProductionAgentHarness:
                 or route_decision.route is RouteKind.QUICK
             ),
         )
-        agent = self._build_agent(
+        agent = self._agent_factory.build(
             session_id=session_id,
             state_context=state_context,
             toolkit=turn_toolkit.toolkit,
@@ -647,6 +661,8 @@ class ProductionAgentHarness:
                 "evidence_backed_clinical_conclusion": evidence_backed_clinical_conclusion_allowed,
                 "route": route_decision.route.value,
                 "route_reason": route_decision.reason_code,
+                "plan_node_ids": [node.node_id for node in dynamic_plan.nodes],
+                "model_preflight": preflight.model_dump(mode="json"),
             },
         )
         await self._emit(
@@ -749,29 +765,6 @@ class ProductionAgentHarness:
             capabilities=capabilities,
             input_models=input_models,
             emit=emit,
-        )
-
-    def _build_agent(
-        self,
-        *,
-        session_id: str,
-        state_context: list[Msg],
-        toolkit: Toolkit,
-        rag_middleware: RAGMiddleware,
-        memory_middleware: Mem0Middleware,
-        high_risk: bool,
-        document_focused: bool,
-        retrieval_disabled: bool,
-    ) -> Agent:
-        return self._agent_factory.build(
-            session_id=session_id,
-            state_context=state_context,
-            toolkit=toolkit,
-            rag_middleware=rag_middleware,
-            memory_middleware=memory_middleware,
-            high_risk=high_risk,
-            document_focused=document_focused,
-            retrieval_disabled=retrieval_disabled,
         )
 
     def _render_uploaded_documents(self) -> str:

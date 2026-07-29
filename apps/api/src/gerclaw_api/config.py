@@ -133,6 +133,10 @@ class Settings(BaseSettings):
     agent_deep_route_min_characters: int = Field(default=1_200, ge=100, le=4_000)
     agent_deep_route_attachment_count: int = Field(default=2, ge=1, le=20)
     agent_deep_route_capability_count: int = Field(default=2, ge=1, le=20)
+    agent_model_output_reserve_tokens: int = Field(default=2_048, ge=256, le=16_384)
+    agent_model_input_overhead_tokens: int = Field(default=1_024, ge=128, le=8_192)
+    agent_image_input_estimate_tokens: int = Field(default=1_024, ge=128, le=16_384)
+    agent_savi_minimum_score: int = Field(default=1, ge=-12, le=12)
     document_max_markdown_characters: int = Field(default=1_000_000, ge=10_000, le=2_000_000)
     # The five-prescription conversation may combine up to ten MinerU-extracted
     # reports.  This is a hard aggregate input budget, not a silent truncation

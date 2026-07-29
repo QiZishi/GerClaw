@@ -1,18 +1,26 @@
 # Planning
 
-Current implementation defines versioned `PlanNode` and `DynamicPlan` boundaries with
-unique-node, reference, and cycle validation. `ProductionAgentFactory` owns the translation
-from the resolved Harness config into an isolated AgentScope `Agent`; the public Harness
-injects it through the `AgentFactory` Protocol. The existing bounded ReAct loop remains
-active; no parallel planner has been activated.
+The package defines versioned `PlanNode`/`DynamicPlan` boundaries, the production
+`DeterministicPlanner`, ordinal `SAVIActionSelector`, and `ModelBudgetPreflight`.
+`ProductionAgentFactory` remains the only translation from resolved Harness configuration into
+an isolated AgentScope `Agent`.
 
-Failure to validate prevents execution. Stage 3 will inject a planner and add budget
-preflight, fallback execution, and checkpoint persistence. Measure success with plan
-shape tests, capability-only dependencies, bounded node counts, and no extra work on Quick
-routes.
+Plan shape changes with route, medical intent, attachment count, selected/available
+capabilities, and report intent. Quick has only `answer.quick`; Emergency has only the
+deterministic safety node; Standard/Deep add attachment, evidence, governed capability, and
+answer/report nodes as needed. Every node declares its checkpoint and resource ceiling, while
+Runtime remains the accounting authority. The complete plan is persisted inside `AgentRun.plan`
+without replacing the resume metadata.
 
-Consumers: the current run-lifecycle executor and the future DAG orchestrator. Configuration:
-only the injected model, workflow, capability manifests, and `ResolvedHarnessConfig`. Known
-limit: contracts validate shape/cycles but do not execute or persist nodes. Acceptance:
-invalid references/cycles fail, valid plans serialize deterministically, and AgentScope
-construction remains replaceable without changing the facade.
+SAVI first removes invalid/redundant actions, then prioritizes mandatory safety or treatment
+prerequisites. Remaining ASK/EXAM/ANSWER candidates use bounded ordinal gains and costs; no
+fake probability is produced. Equal-value ASK is preferred over EXAM. The model preflight
+checks remaining model/tool/token budgets and the provider context window before construction.
+
+Consumers: Chat persists plans and the Harness enforces plan/budget decisions. Configuration:
+all thresholds and reserves arrive through `ResolvedHarnessConfig`. Failure semantics:
+unavailable capability, invalid DAG, aggregate plan overflow, or model preflight failure stops
+the next side effect with a stable code. Known limit: the existing AgentScope ReAct executor
+still performs nodes serially rather than scheduling independent DAG branches. Acceptance:
+route-sensitive plans, valid capability references, deterministic SAVI fixtures, and zero model
+calls after a failed preflight.

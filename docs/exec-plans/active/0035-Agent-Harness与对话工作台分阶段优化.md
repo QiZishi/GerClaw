@@ -19,7 +19,7 @@ GerClaw 保持老年医学定位。眼科病灶定位不在本计划范围。在
 | 0 | 冻结基线与真实运行审计 | 已完成：HTTP/API/测试、Playwright GUI、清理及独立审阅通过 |
 | 1 | Harness 模块化与稳定合同 | 已完成：两轮审阅问题修复，最终独立审阅 ACCEPT |
 | 2 | Run 事实源、状态机和恢复 | 已完成：两轮 P1 修复、真实 GUI 对抗审计、最终独立复审 ACCEPT |
-| 3 | ClinicalState、动态规划与医疗门禁 | 未开始 |
+| 3 | ClinicalState、动态规划与医疗门禁 | 进行中：ClinicalState、确定性路由、动态 DAG/SAVI/预算预检已实现 |
 | 4 | 证据、Memory 与受治理能力组合 | 未开始 |
 | 5 | 对话工作台 UI 与交互重构 | 未开始 |
 | 6 | 受控离线自进化 | 未开始 |
@@ -426,6 +426,14 @@ Qdrant 容器；未删除 volume。3000、8000、5432、6379、6333 均无监听
 ### 阶段 3
 
 实现版本化 `ClinicalState` reducer、Quick/Standard/Deep/Emergency 路由、动态 DAG、模型前预算预检、SAVI 风格动作选择、C3 候选证据结构和 STEP 风格治疗门禁。红旗必须在首次模型调用前短路。
+
+截至 2026-07-30：
+
+- `3c4b762` 实现来源约束的 `ClinicalState` reducer；同值合并 provenance，冲突候选不覆盖，unknown 不转成阴性证据。
+- `bf8718c` 接入确定性四级路由并把决策写入 `AgentRun.route`；Emergency 在模型前短路。
+- `3dc484a` 根据真实测试日志关闭 Quick 的 Memory/RAG middleware、检索工具和 Memory 更新。
+- 当前变更集实现 route/附件/能力/报告意图驱动的动态 DAG、离散 SAVI 动作选择和模型调用前预算/上下文预检；完整 DAG 保留在恢复兼容的 `AgentRun.plan.dynamic_plan`。
+- 已通过阶段 3 当前相关后端用例 77/77、Run 恢复/重生成契约 29/29、Ruff、Mypy；C3、STEP、阶段 GUI 和独立审阅尚未执行，不得判定本阶段完成。
 
 ### 阶段 4
 

@@ -33,6 +33,7 @@ from gerclaw_api.modules.input_output import ImageInput
 from gerclaw_api.modules.memory.models import MemoryUpdateResult
 from gerclaw_api.modules.memory.protocols import MemoryMessage, UserProfile
 from gerclaw_api.modules.rag.protocols import RetrievalResult
+from gerclaw_api.modules.runtime.budget import RuntimeBudgetExceededError
 from gerclaw_api.modules.runtime.models import (
     ActorRole,
     ApprovalRead,
@@ -944,6 +945,42 @@ async def test_system_capability_explanation_bypasses_evidence(unit_settings: Se
 
 
 @pytest.mark.asyncio
+async def test_model_context_preflight_rejects_oversized_document_before_model_call(
+    unit_settings: Settings,
+) -> None:
+    document = UploadedDocumentContext(
+        document_id="108815d7-05bf-4c2a-a977-cd034f390fab",
+        filename="oversized-context.md",
+        content="血压记录。" * 20_000,
+    )
+    model = _HarnessModel(text="不应调用模型。")
+    rag = _HarnessRAG([])
+    harness = _harness(
+        unit_settings,
+        model=model,
+        rag=rag,
+        uploaded_documents=[document],
+    )
+    context = await harness.assemble_context(
+        "108815d7-05bf-4c2a-a977-cd034f390fab",
+        "usr_patient00000001",
+        [],
+        [str(document.document_id)],
+    )
+
+    with pytest.raises(RuntimeBudgetExceededError, match="MODEL_CONTEXT_WINDOW_EXCEEDED"):
+        await harness.process_message(
+            "请总结上传文档内容",
+            "108815d7-05bf-4c2a-a977-cd034f390fab",
+            context,
+            lambda _event: None,
+        )
+
+    assert model.calls == 0
+    assert rag.calls == []
+
+
+@pytest.mark.asyncio
 async def test_high_risk_notice_is_first_public_text(unit_settings: Settings) -> None:
     model = _HarnessModel(text="请立即就医。")
     rag = _HarnessRAG([_evidence()])
@@ -1216,8 +1253,6 @@ async def test_wall_clock_watchdog_interrupts_a_stalled_agent_event_stream(
     async def stalled_events() -> AsyncGenerator[str, None]:
         await __import__("asyncio").sleep(1.05)
         yield "too late"
-
-    from gerclaw_api.modules.runtime.budget import RuntimeBudgetExceededError
 
     with pytest.raises(RuntimeBudgetExceededError, match="RUNTIME_WALL_CLOCK_EXCEEDED"):
         async for _event in harness._bounded_agent_events(stalled_events()):

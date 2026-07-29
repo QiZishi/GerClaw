@@ -2,15 +2,28 @@
 
 from __future__ import annotations
 
+from enum import StrEnum
 from typing import Literal, Protocol
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
+from gerclaw_api.modules.agent_harness.routing import RouteKind
 from gerclaw_api.security import JsonValue
 
 
 class PlanningError(RuntimeError):
     """Stable plan construction failure."""
+
+
+class PlanNodeBudget(BaseModel):
+    """Per-node declared resource ceiling, never an accounting authority."""
+
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    model_calls: int = Field(default=0, ge=0, le=50)
+    tool_calls: int = Field(default=0, ge=0, le=50)
+    input_tokens: int = Field(default=0, ge=0, le=1_000_000)
+    output_tokens: int = Field(default=0, ge=0, le=100_000)
 
 
 class PlanNode(BaseModel):
@@ -20,7 +33,7 @@ class PlanNode(BaseModel):
     required: bool = True
     dependencies: tuple[str, ...] = Field(default=(), max_length=20)
     capability: str = Field(min_length=1, max_length=128)
-    budget: dict[str, JsonValue] = Field(default_factory=dict)
+    budget: PlanNodeBudget = Field(default_factory=PlanNodeBudget)
     public_summary: str = Field(min_length=1, max_length=240)
     output_schema: dict[str, JsonValue] = Field(default_factory=dict)
     fallback: tuple[str, ...] = Field(default=(), max_length=10)
@@ -37,6 +50,7 @@ class DynamicPlan(BaseModel):
     model_config = ConfigDict(extra="forbid", frozen=True)
 
     schema_version: Literal["1.0"] = "1.0"
+    route: RouteKind = RouteKind.STANDARD
     nodes: tuple[PlanNode, ...] = Field(min_length=1, max_length=50)
 
     @model_validator(mode="after")
@@ -72,6 +86,94 @@ class DynamicPlan(BaseModel):
         return self
 
 
+class PlanRequest(BaseModel):
+    """Validated facts that may change plan shape."""
+
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    route: RouteKind
+    medical_content: bool = False
+    image_count: int = Field(default=0, ge=0, le=10)
+    document_count: int = Field(default=0, ge=0, le=10)
+    selected_capabilities: tuple[str, ...] = Field(default=(), max_length=50)
+    available_capabilities: tuple[str, ...] = Field(default=(), max_length=100)
+    report_requested: bool = False
+
+
 class Planner(Protocol):
-    def build(self, *, capabilities: tuple[str, ...]) -> DynamicPlan:
+    def build(self, request: PlanRequest) -> DynamicPlan:
         """Build a bounded DAG without executing its nodes."""
+
+
+class ActionKind(StrEnum):
+    ASK = "ask"
+    EXAM = "exam"
+    ANSWER = "answer"
+
+
+class ActionCandidate(BaseModel):
+    """One code-rankable action using ordinal, not probabilistic, values."""
+
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    action_id: str = Field(pattern=r"^[a-z][a-z0-9_]{0,63}$")
+    kind: ActionKind
+    public_summary: str = Field(min_length=1, max_length=240)
+    hypothesis_links: tuple[str, ...] = Field(default=(), max_length=20)
+    safety_required: bool = False
+    treatment_prerequisite: bool = False
+    already_known: bool = False
+    catalog_valid: bool = True
+    diagnostic_gain: int = Field(default=0, ge=0, le=3)
+    comorbidity_gain: int = Field(default=0, ge=0, le=3)
+    treatment_gain: int = Field(default=0, ge=0, le=3)
+    safety_gain: int = Field(default=0, ge=0, le=3)
+    token_cost: int = Field(default=0, ge=0, le=3)
+    action_cost: int = Field(default=0, ge=0, le=3)
+    invasiveness: int = Field(default=0, ge=0, le=3)
+    redundancy: int = Field(default=0, ge=0, le=3)
+
+    @model_validator(mode="after")
+    def require_decision_link(self) -> ActionCandidate:
+        if (
+            self.kind is not ActionKind.ANSWER
+            and not self.safety_required
+            and not self.treatment_prerequisite
+            and not self.hypothesis_links
+        ):
+            raise ValueError("ASK/EXAM action requires a clinical decision link")
+        return self
+
+
+class RankedAction(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    candidate: ActionCandidate
+    score: int = Field(ge=-12, le=12)
+
+
+class ActionSelection(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    selected: RankedAction | None = None
+    rejected_action_ids: tuple[str, ...] = Field(default=(), max_length=50)
+    should_stop: bool
+    reason_code: str = Field(min_length=1, max_length=64)
+
+
+class ModelCallEstimate(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    estimated_input_tokens: int = Field(ge=0, le=1_000_000)
+    output_reserve_tokens: int = Field(ge=1, le=100_000)
+    additional_model_calls: int = Field(default=1, ge=1, le=50)
+    additional_tool_calls: int = Field(default=0, ge=0, le=50)
+
+
+class BudgetPreflightDecision(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    allowed: bool
+    reason_code: str = Field(min_length=1, max_length=64)
+    estimated_input_tokens: int = Field(ge=0)
+    output_reserve_tokens: int = Field(ge=1)
