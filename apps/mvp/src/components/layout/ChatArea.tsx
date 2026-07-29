@@ -35,7 +35,11 @@ import { RiskAlertLedger } from "@/components/risk-alert/RiskAlertLedger";
 import { useAppStore } from "@/stores/appStore";
 import { useChatStore } from "@/stores/chatStore";
 import { cn } from "@/lib/utils";
-import { resumeAgentRun, streamAgentChat } from "@/services/gerclaw/chat";
+import {
+  attachAgentRun,
+  resumeAgentRun,
+  streamAgentChat,
+} from "@/services/gerclaw/chat";
 import {
   readRecoverableRun,
   replayAgentRunEvents,
@@ -365,6 +369,8 @@ export function ChatArea() {
     resume?: {
       runId: string;
       publicSummaries: string[];
+      mode: "attach" | "resume";
+      afterSequence: number;
     }
   ) => {
     const userBlocks: MessageBlock[] = [];
@@ -438,7 +444,14 @@ export function ChatArea() {
 
     const streamTurn: typeof streamAgentChat = resume
       ? (_input, signal, callbacks) =>
-          resumeAgentRun(resume.runId, signal, callbacks)
+          resume.mode === "attach"
+            ? attachAgentRun(
+                resume.runId,
+                resume.afterSequence,
+                signal,
+                callbacks
+              )
+            : resumeAgentRun(resume.runId, signal, callbacks)
       : streamAgentChat;
     void streamTurn(
       {
@@ -764,6 +777,8 @@ export function ChatArea() {
         {
           runId: run.id,
           publicSummaries,
+          mode: run.status === "running" ? "attach" : "resume",
+          afterSequence: replay.next_after_sequence,
         }
       );
     } catch (error) {

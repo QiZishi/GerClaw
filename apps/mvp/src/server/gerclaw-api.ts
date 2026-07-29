@@ -74,7 +74,10 @@ const proxyRules: Array<{ pattern: RegExp; methods: ReadonlySet<string> }> = [
     methods: new Set(["GET"]),
   },
   {
-    pattern: new RegExp(`^runs/${uuidPattern}/(?:events|answer-versions)$`, "i"),
+    pattern: new RegExp(
+      `^runs/${uuidPattern}/(?:events|stream|answer-versions)$`,
+      "i"
+    ),
     methods: new Set(["GET"]),
   },
   {

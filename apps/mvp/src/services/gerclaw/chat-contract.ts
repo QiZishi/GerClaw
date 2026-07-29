@@ -39,6 +39,7 @@ export const chatDoneEventSchema = z
     safety: safetySchema,
     replayed: z.boolean(),
     timestamp: z.number().finite().nonnegative(),
+    sequence: z.number().int().positive().optional(),
   })
   .strict()
   .refine(
@@ -49,7 +50,10 @@ export const chatDoneEventSchema = z
         value.answer_version_id,
         value.answer_version,
       ];
-      return metadata.every((item) => item === null) || metadata.every((item) => item !== null);
+      const answerMetadataValid =
+        metadata.every((item) => item === null) ||
+        metadata.every((item) => item !== null);
+      return answerMetadataValid && (value.sequence === undefined || value.run_id !== null);
     },
     "answer version metadata must be complete"
   );

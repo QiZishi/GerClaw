@@ -1,11 +1,31 @@
 import { z } from "zod";
 import { GerclawApiError, gerclawRequest } from "./client";
 import { chatDoneEventSchema } from "./chat-contract";
+import {
+  advanceDurableCursor,
+  DurableStreamCursorError,
+  type CursorMetadata,
+  type DurableStreamCursor,
+} from "./durable-stream";
+import {
+  cancelAgentRun,
+  readAgentRun,
+} from "./runs";
+import { canReconnectStream, followDurableRun } from "./run-stream";
 import { ensureBackendSession } from "./skills";
 import { getGerclawVisitorId } from "./visitor";
 import type { Citation, ImageAttachment } from "@/types";
 
-const streamMetadataSchema = z.object({ timestamp: z.number().finite().nonnegative() });
+const durableCursorShape = {
+  run_id: z.string().uuid().optional(),
+  sequence: z.number().int().positive().optional(),
+};
+const streamMetadataSchema = z
+  .object({
+    timestamp: z.number().finite().nonnegative(),
+    ...durableCursorShape,
+  })
+  .strict();
 const agentStartSchema = streamMetadataSchema.extend({
   agent: z.enum(["gerclaw_geriatric_specialist", "gerclaw_emotional_companion"]),
   status: z.enum(["running", "replay"]),
@@ -21,6 +41,7 @@ const toolCallSchema = z
     tool_name: z.string().min(1).max(128),
     status: z.literal("running"),
     timestamp: z.number().finite().nonnegative(),
+    ...durableCursorShape,
   })
   .strict();
 const toolResultSchema = z
@@ -34,6 +55,7 @@ const toolResultSchema = z
     skill: z.string().min(1).max(100).optional(),
     version: z.string().min(1).max(100).optional(),
     timestamp: z.number().finite().nonnegative(),
+    ...durableCursorShape,
   })
   .strict();
 type ChatReference = z.infer<typeof chatDoneEventSchema>["references"][number];
@@ -43,6 +65,8 @@ const errorSchema = z
     message: z.string(),
     trace_id: z.string(),
     retriable: z.boolean(),
+    timestamp: z.number().finite().nonnegative().optional(),
+    ...durableCursorShape,
   })
   .passthrough();
 const cancelledSchema = z
@@ -50,6 +74,8 @@ const cancelledSchema = z
     trace_id: z.string(),
     status: z.literal("cancelled"),
     message: z.string(),
+    timestamp: z.number().finite().nonnegative().optional(),
+    ...durableCursorShape,
   })
   .strict();
 const cancellationRequestedSchema = z
@@ -67,6 +93,7 @@ const approvalRequiredSchema = z
     policy_version: z.string().min(1),
     tool_version: z.string().min(1),
     timestamp: z.number().finite().nonnegative(),
+    ...durableCursorShape,
   })
   .strict();
 const safetyNoticeSchema = z
@@ -74,6 +101,7 @@ const safetyNoticeSchema = z
     codes: z.array(z.string().min(1).max(80)).min(1).max(10),
     content: z.string().min(1).max(1_000),
     timestamp: z.number().finite().nonnegative(),
+    ...durableCursorShape,
   })
   .strict();
 
@@ -156,10 +184,31 @@ function parseEventBlock(block: string): { event: string; data: unknown } | null
   }
 }
 
+function acceptDurableEvent(
+  metadata: CursorMetadata,
+  cursor: DurableStreamCursor
+): boolean {
+  try {
+    return advanceDurableCursor(metadata, cursor);
+  } catch (error) {
+    const message =
+      error instanceof DurableStreamCursorError &&
+      error.message === "durable cursor run changed"
+        ? "流式响应的运行标识发生变化"
+        : "流式响应缺少完整的续传位置";
+    throw new GerclawApiError(
+      message,
+      "CHAT_STREAM_INVALID",
+      502
+    );
+  }
+}
+
 async function consumeAgentStream(
   response: Response,
   traceId: string,
-  callbacks: AgentChatCallbacks
+  callbacks: AgentChatCallbacks,
+  cursor: DurableStreamCursor
 ): Promise<void> {
   if (!response.body) {
     throw new GerclawApiError(
@@ -178,13 +227,17 @@ async function consumeAgentStream(
     const parsed = parseEventBlock(block);
     if (!parsed) return;
     if (parsed.event === "agent_start") {
-      agentStartSchema.parse(parsed.data);
+      const event = agentStartSchema.parse(parsed.data);
+      acceptDurableEvent(event, cursor);
     } else if (parsed.event === "text_delta") {
-      callbacks.onText?.(textDeltaSchema.parse(parsed.data).content);
+      const event = textDeltaSchema.parse(parsed.data);
+      if (acceptDurableEvent(event, cursor)) callbacks.onText?.(event.content);
     } else if (parsed.event === "thinking") {
-      callbacks.onThinking?.(thinkingSchema.parse(parsed.data).content);
+      const event = thinkingSchema.parse(parsed.data);
+      if (acceptDurableEvent(event, cursor)) callbacks.onThinking?.(event.content);
     } else if (parsed.event === "tool_call") {
       const tool = toolCallSchema.parse(parsed.data);
+      if (!acceptDurableEvent(tool, cursor)) return;
       callbacks.onToolCall?.({
         id: tool.tool_call_id,
         name: tool.tool_name,
@@ -192,6 +245,7 @@ async function consumeAgentStream(
       });
     } else if (parsed.event === "tool_result") {
       const tool = toolResultSchema.parse(parsed.data);
+      if (!acceptDurableEvent(tool, cursor)) return;
       callbacks.onToolResult?.({
         id: tool.tool_call_id,
         name: tool.tool_name,
@@ -201,6 +255,7 @@ async function consumeAgentStream(
       });
     } else if (parsed.event === "approval_required") {
       const approval = approvalRequiredSchema.parse(parsed.data);
+      if (!acceptDurableEvent(approval, cursor)) return;
       callbacks.onApprovalRequired?.({
         id: approval.approval_id,
         toolName: approval.tool_name,
@@ -210,9 +265,20 @@ async function consumeAgentStream(
       });
     } else if (parsed.event === "safety_notice") {
       const notice = safetyNoticeSchema.parse(parsed.data);
-      callbacks.onSafetyNotice?.(notice);
+      if (acceptDurableEvent(notice, cursor)) callbacks.onSafetyNotice?.(notice);
     } else if (parsed.event === "done") {
       const doneEvent = chatDoneEventSchema.parse(parsed.data);
+      if (
+        !acceptDurableEvent(
+          {
+            run_id: doneEvent.run_id ?? undefined,
+            sequence: doneEvent.sequence,
+          },
+          cursor
+        )
+      ) {
+        return;
+      }
       sawTerminal = true;
       callbacks.onDone?.(
         doneEvent.full_text,
@@ -229,10 +295,12 @@ async function consumeAgentStream(
       );
     } else if (parsed.event === "cancelled") {
       const cancelled = cancelledSchema.parse(parsed.data);
+      if (!acceptDurableEvent(cancelled, cursor)) return;
       sawTerminal = true;
       callbacks.onCancelled?.(cancelled.trace_id, cancelled.message);
     } else if (parsed.event === "error") {
       const error = errorSchema.parse(parsed.data);
+      if (!acceptDurableEvent(error, cursor)) return;
       throw new GerclawApiError(error.message, error.code, 500, error.trace_id);
     } else {
       throw new GerclawApiError(
@@ -292,6 +360,8 @@ export async function streamAgentChat(
   callbacks: AgentChatCallbacks
 ): Promise<void> {
   let traceId = `trace_${crypto.randomUUID().replaceAll("-", "")}`;
+  let backendSessionId: string | undefined;
+  const cursor: DurableStreamCursor = { lastSequence: 0 };
   const transportController = new AbortController();
   let requestStarted = false;
   let cancellationFailureReported = false;
@@ -315,6 +385,7 @@ export async function streamAgentChat(
   signal.addEventListener("abort", handleCancellationRequest, { once: true });
   try {
     const sessionId = await ensureBackendSession(input.localSessionId);
+    backendSessionId = sessionId;
     if (signal.aborted) {
       callbacks.onCancelled?.(traceId, "回答已在发送前停止。");
       return;
@@ -359,7 +430,21 @@ export async function streamAgentChat(
       );
     }
 
-    await consumeAgentStream(response, traceId, callbacks);
+    try {
+      await consumeAgentStream(response, traceId, callbacks, cursor);
+    } catch (error) {
+      if (!canReconnectStream(error) || signal.aborted) throw error;
+      await followDurableRun(
+        {
+          sessionId: backendSessionId,
+          traceId,
+          cursor,
+        },
+        transportController.signal,
+        (nextResponse, nextTraceId, nextCursor) =>
+          consumeAgentStream(nextResponse, nextTraceId, callbacks, nextCursor)
+      );
+    }
   } catch (error) {
     if (cancellationFailureReported) return;
     const apiError =
@@ -383,12 +468,13 @@ export async function resumeAgentRun(
   callbacks: AgentChatCallbacks
 ): Promise<void> {
   let traceId = `trace_${crypto.randomUUID().replaceAll("-", "")}`;
+  const cursor: DurableStreamCursor = { runId, lastSequence: 0 };
   const transportController = new AbortController();
   let requestStarted = false;
   let cancellationFailureReported = false;
   const handleCancellationRequest = () => {
     if (!requestStarted) return;
-    void requestAgentCancellation(traceId).catch((error) => {
+    void cancelAgentRun(runId).catch((error) => {
       cancellationFailureReported = true;
       transportController.abort();
       callbacks.onError?.(
@@ -434,7 +520,21 @@ export async function resumeAgentRun(
         traceId
       );
     }
-    await consumeAgentStream(response, traceId, callbacks);
+    try {
+      await consumeAgentStream(response, traceId, callbacks, cursor);
+    } catch (error) {
+      if (!canReconnectStream(error) || signal.aborted) throw error;
+      await followDurableRun(
+        {
+          runId,
+          traceId,
+          cursor,
+        },
+        transportController.signal,
+        (nextResponse, nextTraceId, nextCursor) =>
+          consumeAgentStream(nextResponse, nextTraceId, callbacks, nextCursor)
+      );
+    }
   } catch (error) {
     if (cancellationFailureReported) return;
     const apiError =
@@ -447,6 +547,67 @@ export async function resumeAgentRun(
             traceId
           );
     callbacks.onError?.(apiError);
+  } finally {
+    signal.removeEventListener("abort", handleCancellationRequest);
+  }
+}
+
+export async function attachAgentRun(
+  runId: string,
+  afterSequence: number,
+  signal: AbortSignal,
+  callbacks: AgentChatCallbacks
+): Promise<void> {
+  let traceId: string | undefined;
+  const cursor: DurableStreamCursor = { runId, lastSequence: afterSequence };
+  const transportController = new AbortController();
+  let cancellationFailureReported = false;
+  const handleCancellationRequest = () => {
+    void cancelAgentRun(runId).catch((error) => {
+      cancellationFailureReported = true;
+      transportController.abort();
+      callbacks.onError?.(
+        error instanceof GerclawApiError
+          ? error
+          : new GerclawApiError(
+              "暂时无法安全停止，请稍后重试",
+              "CHAT_CANCELLATION_UNAVAILABLE",
+              503,
+              traceId
+            )
+      );
+    });
+  };
+  signal.addEventListener("abort", handleCancellationRequest, { once: true });
+  try {
+    if (signal.aborted) {
+      callbacks.onCancelled?.("", "回答已在续传前停止。");
+      return;
+    }
+    const run = await readAgentRun(runId);
+    traceId = run.trace_id;
+    await followDurableRun(
+      {
+        runId,
+        traceId,
+        cursor,
+      },
+      transportController.signal,
+      (nextResponse, nextTraceId, nextCursor) =>
+        consumeAgentStream(nextResponse, nextTraceId, callbacks, nextCursor)
+    );
+  } catch (error) {
+    if (cancellationFailureReported) return;
+    callbacks.onError?.(
+      error instanceof GerclawApiError
+        ? error
+        : new GerclawApiError(
+            error instanceof Error ? error.message : "回答续传失败",
+            "RUN_STREAM_CLIENT_FAILED",
+            500,
+            traceId
+          )
+    );
   } finally {
     signal.removeEventListener("abort", handleCancellationRequest);
   }

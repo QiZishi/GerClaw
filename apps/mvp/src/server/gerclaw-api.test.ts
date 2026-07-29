@@ -25,6 +25,7 @@ test("session proxy permits only the declared session lifecycle operations", () 
 test("Run proxy exposes only owner-scoped lifecycle and resource operations", () => {
   assert.equal(isAllowedGerclawProxyTarget(`runs/${runId}`, "GET"), true);
   assert.equal(isAllowedGerclawProxyTarget(`runs/${runId}/events`, "GET"), true);
+  assert.equal(isAllowedGerclawProxyTarget(`runs/${runId}/stream`, "GET"), true);
   assert.equal(isAllowedGerclawProxyTarget(`runs/${runId}/cancel`, "POST"), true);
   assert.equal(isAllowedGerclawProxyTarget(`runs/${runId}/resume`, "POST"), true);
   assert.equal(isAllowedGerclawProxyTarget(`runs/${runId}/feedback`, "PUT"), true);
