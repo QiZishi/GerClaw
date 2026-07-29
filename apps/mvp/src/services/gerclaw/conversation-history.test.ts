@@ -2,6 +2,13 @@ import assert from "node:assert/strict";
 import test from "node:test";
 
 import { toFrontendSession } from "./conversation-session-presenter.ts";
+import { canHydrateConversationHistory } from "./conversation-hydration-policy.ts";
+
+test("hydrates server history only while the local session is still empty", () => {
+  assert.equal(canHydrateConversationHistory(0), true);
+  assert.equal(canHydrateConversationHistory(1), false);
+  assert.equal(canHydrateConversationHistory(2), false);
+});
 
 test("marks a persisted prescription session for chat-native restore without exposing its content", () => {
   const session = toFrontendSession(

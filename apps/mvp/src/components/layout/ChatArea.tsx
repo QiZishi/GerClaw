@@ -32,6 +32,7 @@ import { cn } from "@/lib/utils";
 import { streamAgentChat } from "@/services/gerclaw/chat";
 import { readSessionSkills, replaceSessionSkills } from "@/services/gerclaw/skills";
 import { readConversationMessages, toFrontendMessages } from "@/services/gerclaw/conversation-history";
+import { canHydrateConversationHistory } from "@/services/gerclaw/conversation-hydration-policy";
 import { registerParsedDocument } from "@/services/gerclaw/documents";
 import { fivePrescriptionDraftToMarkdown } from "@/services/gerclaw/prescription-report";
 import type { FivePrescriptionDraft } from "@/services/gerclaw/schemas";
@@ -188,12 +189,16 @@ export function ChatArea() {
       .then((response) => {
         if (!live) return;
         loadedHistorySessionIdsRef.current.add(currentSessionId);
+        const localMessages = useChatStore.getState().getMessages(currentSessionId);
+        if (!canHydrateConversationHistory(localMessages.length)) return;
         setMessages(currentSessionId, toFrontendMessages(response));
       })
       .catch(() => {
         // Keep an empty new session usable; never substitute another session's history.
         if (!live) return;
         loadedHistorySessionIdsRef.current.add(currentSessionId);
+        const localMessages = useChatStore.getState().getMessages(currentSessionId);
+        if (!canHydrateConversationHistory(localMessages.length)) return;
         setMessages(currentSessionId, []);
       });
     return () => { live = false; };

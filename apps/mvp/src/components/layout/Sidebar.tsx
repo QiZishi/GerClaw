@@ -148,7 +148,11 @@ export function Sidebar({ onNavigate }: SidebarProps) {
     void getAccountIdentity().then((identity) => {
       if (!identity) return;
       setAccount(identity);
-      setRole(identity.role);
+      // Home already owns account-to-workspace hydration. A slower duplicate
+      // identity response must not clear the conversation selected by Home.
+      if (useAppStore.getState().role !== identity.role) {
+        setRole(identity.role);
+      }
     });
   }, [mounted, setRole]);
 
