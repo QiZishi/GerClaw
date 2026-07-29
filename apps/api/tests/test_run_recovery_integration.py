@@ -10,7 +10,7 @@ import pytest
 from httpx import AsyncClient
 from sqlalchemy import select
 
-from gerclaw_api.database.models import AgentRun, RunEvent
+from gerclaw_api.database.models import AgentRun, AnswerVersion, RunEvent
 from gerclaw_api.domain.chat_schemas import ChatRequest
 from gerclaw_api.domain.run_schemas import AgentRunCreate
 from gerclaw_api.domain.trace_schemas import TraceStartRequest
@@ -351,3 +351,134 @@ async def test_explicit_resume_adopts_interrupted_run_and_completes_it(
     replayed_resume = await client.post(f"/api/v1/runs/{run_id}/resume")
     assert replayed_resume.status_code == 409
     assert replayed_resume.json()["error"]["code"] == "RUN_RESOURCE_CONFLICT"
+
+
+@pytest.mark.integration
+@pytest.mark.asyncio
+async def test_explicit_resume_reuses_source_input_for_interrupted_regeneration(
+    integration_client: tuple[AsyncClient, object],
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    client, app = integration_client
+    session_id = uuid.uuid4()
+    source_trace_id = "trace_resume_regeneration_source_0001"
+    interrupted_trace_id = "trace_resume_regeneration_retry_0001"
+    message_text = "请给我一般健康建议"
+    assert (
+        await client.post("/api/v1/sessions", json={"session_id": str(session_id)})
+    ).status_code == 201
+    monkeypatch.setattr(chat_service_module, "ProductionAgentHarness", _ResumeHarness)
+    source_response = await client.post(
+        "/api/v1/chat",
+        headers={"X-Trace-ID": source_trace_id},
+        json={
+            "session_id": str(session_id),
+            "message": message_text,
+            "channel": "web",
+        },
+    )
+    assert source_response.status_code == 200, source_response.text
+    assert "event: done" in source_response.text
+
+    async with app.state.database.session() as session:
+        source_run = await session.scalar(
+            select(AgentRun).where(AgentRun.trace_id == source_trace_id)
+        )
+        assert source_run is not None
+        assert source_run.current_answer_version_id is not None
+        source_run_id = source_run.id
+        source_input_message_id = source_run.input_message_id
+        source_answer_version_id = source_run.current_answer_version_id
+
+    regeneration = ChatRequest(
+        session_id=session_id,
+        message=message_text,
+        regenerate_from_run_id=source_run_id,
+        expected_current_answer_version_id=source_answer_version_id,
+    )
+    workflow = get_default_workflow_registry().validate_context(
+        regeneration.workflow,
+        loaded_skill_count=0,
+        uploaded_file_count=0,
+        uploaded_image_count=0,
+    )
+    async with app.state.database.session() as session:
+        conversation_service = ConversationService(
+            SqlAlchemyConversationRepository(session)
+        )
+        old_fence = await conversation_service.next_fencing_token()
+        await TraceService(SqlAlchemyTraceRepository(session)).start_trace(
+            TraceStartRequest(
+                session_id=session_id,
+                execution_type="agent.chat",
+                attributes={
+                    "channel": regeneration.channel,
+                    "feature": "medical_chat",
+                    "module": "agent_harness",
+                    "operation": "process_message",
+                    "request_fingerprint": _fingerprint(
+                        regeneration, app.state.settings
+                    ),
+                    "workflow": workflow.workflow_id.value,
+                    "workflow_version": workflow.version,
+                    "workflow_owner_module": workflow.owner_module,
+                },
+            ),
+            "request_resume_regeneration_retry_0001",
+            trace_id=interrupted_trace_id,
+            tenant_id=TENANT,
+            actor_id=ACTOR,
+        )
+        run_service = AgentRunService(SqlAlchemyAgentRunRepository(session))
+        interrupted_run = await run_service.create_run(
+            AgentRunCreate(
+                conversation_id=session_id,
+                input_message_id=source_input_message_id,
+                trace_id=interrupted_trace_id,
+                route=RouteKind.STANDARD,
+                context_snapshot={},
+                plan={
+                    "loaded_skill_count": 0,
+                    "uploaded_document_count": 0,
+                    "uploaded_image_count": 0,
+                    "workflow": workflow.workflow_id.value,
+                    "regenerate_from_run_id": str(source_run_id),
+                    "expected_current_answer_version_id": str(
+                        source_answer_version_id
+                    ),
+                },
+                fencing_token=old_fence,
+            ),
+            tenant_id=TENANT,
+            actor_id=ACTOR,
+        )
+        await run_service.interrupt_owned(
+            interrupted_run.id,
+            tenant_id=TENANT,
+            actor_id=ACTOR,
+        )
+        interrupted_run_id = interrupted_run.id
+
+    resumed = await client.post(
+        f"/api/v1/runs/{interrupted_run_id}/resume",
+    )
+    assert resumed.status_code == 200, resumed.text
+    assert "event: done" in resumed.text
+    assert resumed.headers["x-trace-id"] == interrupted_trace_id
+    assert f'"answer_group_run_id":"{source_run_id}"' in resumed.text
+
+    async with app.state.database.session() as session:
+        completed_run = await session.get(AgentRun, interrupted_run_id)
+        versions = list(
+            (
+                await session.scalars(
+                    select(AnswerVersion)
+                    .where(AnswerVersion.run_id == source_run_id)
+                    .order_by(AnswerVersion.version)
+                )
+            ).all()
+        )
+    assert completed_run is not None and completed_run.status == "completed"
+    assert len(versions) == 2
+    assert [version.is_current for version in versions] == [False, True]
+    assert versions[1].producer_run_id == interrupted_run_id

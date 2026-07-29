@@ -63,7 +63,6 @@ class SqlAlchemyRunResumeRepository:
                     Message.id == AgentRun.input_message_id,
                     Message.tenant_id == AgentRun.tenant_id,
                     Message.session_id == AgentRun.conversation_id,
-                    Message.trace_id == AgentRun.trace_id,
                 ),
             )
             .join(
