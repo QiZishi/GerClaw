@@ -385,6 +385,9 @@ class AnswerVersion(Base):
     run_id: Mapped[uuid.UUID] = mapped_column(
         ForeignKey("agent_runs.id", ondelete="CASCADE"), nullable=False, index=True
     )
+    producer_run_id: Mapped[uuid.UUID] = mapped_column(
+        ForeignKey("agent_runs.id", ondelete="CASCADE"), nullable=False, index=True
+    )
     answer_group_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), nullable=False)
     assistant_message_id: Mapped[uuid.UUID | None] = mapped_column(
         ForeignKey("messages.id", ondelete="SET NULL"), nullable=True

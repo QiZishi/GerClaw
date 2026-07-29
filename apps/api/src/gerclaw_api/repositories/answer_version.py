@@ -32,6 +32,16 @@ class AnswerVersionRepository(Protocol):
     ) -> Message | None:
         """Return an assistant message from the run's conversation."""
 
+    async def get_owned_producer_run(
+        self,
+        run_id: uuid.UUID,
+        *,
+        tenant_id: str,
+        actor_id: str,
+        conversation_id: uuid.UUID,
+    ) -> AgentRun | None:
+        """Return the generation Run only within the same owned conversation."""
+
     async def get_by_message(
         self,
         run_id: uuid.UUID,
@@ -104,6 +114,22 @@ class SqlAlchemyAnswerVersionRepository:
             Message.role == "assistant",
         )
         return cast(Message | None, await self._session.scalar(statement))
+
+    async def get_owned_producer_run(
+        self,
+        run_id: uuid.UUID,
+        *,
+        tenant_id: str,
+        actor_id: str,
+        conversation_id: uuid.UUID,
+    ) -> AgentRun | None:
+        statement = select(AgentRun).where(
+            AgentRun.id == run_id,
+            AgentRun.tenant_id == tenant_id,
+            AgentRun.actor_id == actor_id,
+            AgentRun.conversation_id == conversation_id,
+        )
+        return cast(AgentRun | None, await self._session.scalar(statement))
 
     async def get_by_message(
         self,

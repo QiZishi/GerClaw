@@ -57,9 +57,10 @@ export const runEventPageSchema = z
 
 export const answerVersionSchema = z
   .object({
-    schema_version: z.literal("1.0"),
+    schema_version: z.literal("1.1"),
     id: z.string().uuid(),
     run_id: z.string().uuid(),
+    producer_run_id: z.string().uuid(),
     answer_group_id: z.string().uuid(),
     assistant_message_id: z.string().uuid().nullable(),
     version: z.number().int().positive(),

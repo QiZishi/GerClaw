@@ -665,6 +665,7 @@ async def test_run_api_replays_and_reconciles_owned_resources(
     versions = await client.get(f"/api/v1/runs/{run_id}/answer-versions")
     assert versions.status_code == 200, versions.text
     version = versions.json()["versions"][0]
+    assert version["producer_run_id"] == str(run_id)
     selected = await client.put(
         f"/api/v1/runs/{run_id}/answer-versions/{version['id']}/current",
         json={"expected_current_version_id": version["id"]},

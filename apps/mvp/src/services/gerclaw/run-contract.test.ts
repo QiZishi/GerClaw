@@ -3,6 +3,7 @@ import test from "node:test";
 
 import {
   agentRunSchema,
+  answerVersionSchema,
   artifactWriteSchema,
   feedbackReconcileSchema,
   runEventPageSchema,
@@ -49,6 +50,21 @@ test("Run contracts accept the versioned strict backend shape", () => {
 
   assert.equal(run.status, "completed");
   assert.equal(page.events[0].sequence, 2);
+  assert.equal(
+    answerVersionSchema.parse({
+      schema_version: "1.1",
+      id: "61d69147-5c5a-4cd1-a5c1-696c64f6150b",
+      run_id: runId,
+      producer_run_id: runId,
+      answer_group_id: "a85bf860-a7bc-4a16-bdbe-cf268ebbb6bf",
+      assistant_message_id: messageId,
+      version: 1,
+      is_current: true,
+      supersedes_id: null,
+      created_at: now,
+    }).producer_run_id,
+    runId
+  );
 });
 
 test("Run contracts reject extra fields, oversized payloads and invalid feedback", () => {

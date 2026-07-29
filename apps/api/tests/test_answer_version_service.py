@@ -21,8 +21,14 @@ ACTOR = "usr_patient_unit0001"
 
 
 class _Repository:
-    def __init__(self, run: AgentRun, messages: list[Message]) -> None:
+    def __init__(
+        self,
+        run: AgentRun,
+        messages: list[Message],
+        producer_runs: list[AgentRun],
+    ) -> None:
         self.run = run
+        self.runs = {item.id: item for item in [run, *producer_runs]}
         self.messages = {message.id: message for message in messages}
         self.versions: list[AnswerVersion] = []
         self.flushes = 0
@@ -60,6 +66,27 @@ class _Repository:
         ):
             return None
         return message
+
+    async def get_owned_producer_run(
+        self,
+        run_id: uuid.UUID,
+        *,
+        tenant_id: str,
+        actor_id: str,
+        conversation_id: uuid.UUID,
+    ) -> AgentRun | None:
+        run = self.runs.get(run_id)
+        if (
+            run is None
+            or run.tenant_id != tenant_id
+            or run.actor_id != actor_id
+            or run.conversation_id != conversation_id
+        ):
+            return None
+        return run
+
+    def producer_for(self, message: Message) -> AgentRun:
+        return next(run for run in self.runs.values() if run.trace_id == message.trace_id)
 
     async def get_by_message(
         self,
@@ -124,7 +151,7 @@ def _fixtures() -> tuple[_Repository, list[Message]]:
         actor_id=ACTOR,
         conversation_id=conversation_id,
         input_message_id=uuid.uuid4(),
-        trace_id="trace_answer_version_unit",
+        trace_id="trace_answer_0",
         route="standard",
         status="completed",
         context_snapshot={},
@@ -152,7 +179,28 @@ def _fixtures() -> tuple[_Repository, list[Message]]:
         )
         for index in range(2)
     ]
-    return _Repository(run, messages), messages
+    producer = AgentRun(
+        id=uuid.uuid4(),
+        tenant_id=TENANT,
+        actor_id=ACTOR,
+        conversation_id=conversation_id,
+        input_message_id=run.input_message_id,
+        trace_id="trace_answer_1",
+        route="standard",
+        status="completed",
+        context_snapshot={},
+        plan={},
+        warnings=[],
+        current_answer_version_id=None,
+        fencing_token=4,
+        last_sequence=1,
+        revision=2,
+        started_at=datetime.now(UTC),
+        completed_at=datetime.now(UTC),
+        created_at=datetime.now(UTC),
+        updated_at=datetime.now(UTC),
+    )
+    return _Repository(run, messages, [producer]), messages
 
 
 @pytest.mark.asyncio
@@ -168,7 +216,10 @@ async def test_register_preserves_history_and_moves_current_pointer() -> None:
     )
     second = await service.register(
         repository.run.id,
-        AnswerVersionRegister(assistant_message_id=messages[1].id),
+        AnswerVersionRegister(
+            assistant_message_id=messages[1].id,
+            producer_run_id=repository.producer_for(messages[1]).id,
+        ),
         tenant_id=TENANT,
         actor_id=ACTOR,
     )
@@ -196,7 +247,10 @@ async def test_registration_is_idempotent_without_reselecting_old_version() -> N
     )
     await service.register(
         repository.run.id,
-        AnswerVersionRegister(assistant_message_id=messages[1].id),
+        AnswerVersionRegister(
+            assistant_message_id=messages[1].id,
+            producer_run_id=repository.producer_for(messages[1]).id,
+        ),
         tenant_id=TENANT,
         actor_id=ACTOR,
     )
@@ -224,7 +278,10 @@ async def test_select_uses_optimistic_current_pointer_and_keeps_all_versions() -
     )
     second = await service.register(
         repository.run.id,
-        AnswerVersionRegister(assistant_message_id=messages[1].id),
+        AnswerVersionRegister(
+            assistant_message_id=messages[1].id,
+            producer_run_id=repository.producer_for(messages[1]).id,
+        ),
         tenant_id=TENANT,
         actor_id=ACTOR,
     )
@@ -285,3 +342,20 @@ async def test_inconsistent_current_pointer_is_rejected() -> None:
             actor_id=ACTOR,
         )
     assert repository.rollbacks == 1
+
+
+@pytest.mark.asyncio
+async def test_registration_rejects_message_not_produced_by_declared_run() -> None:
+    repository, messages = _fixtures()
+    service = AnswerVersionService(repository)
+
+    with pytest.raises(AnswerVersionNotFoundError):
+        await service.register(
+            repository.run.id,
+            AnswerVersionRegister(
+                assistant_message_id=messages[0].id,
+                producer_run_id=uuid.uuid4(),
+            ),
+            tenant_id=TENANT,
+            actor_id=ACTOR,
+        )

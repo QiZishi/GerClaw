@@ -382,13 +382,15 @@ class _RunJournal:
         *,
         tenant_id: str,
         actor_id: str,
+        answer_group_run_id: uuid.UUID | None = None,
     ) -> AnswerVersionRead:
-        del tenant_id, actor_id
+        del tenant_id, actor_id, answer_group_run_id
         assert run_id == self.run_id
         self.answer_message_ids.append(assistant_message_id)
         return AnswerVersionRead(
             id=uuid.uuid4(),
             run_id=run_id,
+            producer_run_id=run_id,
             answer_group_id=uuid.uuid4(),
             assistant_message_id=assistant_message_id,
             version=1,

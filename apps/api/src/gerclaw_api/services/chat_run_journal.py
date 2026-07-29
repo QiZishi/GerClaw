@@ -51,6 +51,7 @@ class ChatRunJournal(Protocol):
         *,
         tenant_id: str,
         actor_id: str,
+        answer_group_run_id: uuid.UUID | None = None,
     ) -> AnswerVersionRead:
         """Register the committed assistant message as a new answer version."""
 
@@ -117,13 +118,17 @@ class DatabaseChatRunJournal:
         *,
         tenant_id: str,
         actor_id: str,
+        answer_group_run_id: uuid.UUID | None = None,
     ) -> AnswerVersionRead:
         async with self._database.session() as session:
             return await AnswerVersionService(
                 SqlAlchemyAnswerVersionRepository(session)
             ).register(
-                run_id,
-                AnswerVersionRegister(assistant_message_id=assistant_message_id),
+                answer_group_run_id or run_id,
+                AnswerVersionRegister(
+                    assistant_message_id=assistant_message_id,
+                    producer_run_id=run_id,
+                ),
                 tenant_id=tenant_id,
                 actor_id=actor_id,
             )

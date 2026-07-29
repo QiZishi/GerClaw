@@ -49,6 +49,16 @@ class AnswerVersionService:
         if message is None:
             await self._repository.rollback()
             raise AnswerVersionNotFoundError(str(request.assistant_message_id))
+        producer_run_id = request.producer_run_id or run.id
+        producer_run = await self._repository.get_owned_producer_run(
+            producer_run_id,
+            tenant_id=tenant_id,
+            actor_id=actor_id,
+            conversation_id=run.conversation_id,
+        )
+        if producer_run is None or message.trace_id != producer_run.trace_id:
+            await self._repository.rollback()
+            raise AnswerVersionNotFoundError(str(producer_run_id))
         existing = await self._repository.get_by_message(
             run.id, request.assistant_message_id
         )
@@ -75,6 +85,7 @@ class AnswerVersionService:
         version = AnswerVersion(
             id=uuid.uuid4(),
             run_id=run.id,
+            producer_run_id=producer_run.id,
             answer_group_id=answer_group_id,
             assistant_message_id=message.id,
             version=version_number,
@@ -179,6 +190,7 @@ class AnswerVersionService:
         return AnswerVersionRead(
             id=version.id,
             run_id=version.run_id,
+            producer_run_id=version.producer_run_id,
             answer_group_id=version.answer_group_id,
             assistant_message_id=version.assistant_message_id,
             version=version.version,

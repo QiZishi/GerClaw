@@ -125,9 +125,10 @@ class AgentRunRead(BaseModel):
 class AnswerVersionRead(BaseModel):
     model_config = ConfigDict(extra="forbid", frozen=True)
 
-    schema_version: Literal["1.0"] = "1.0"
+    schema_version: Literal["1.1"] = "1.1"
     id: uuid.UUID
     run_id: uuid.UUID
+    producer_run_id: uuid.UUID
     answer_group_id: uuid.UUID
     assistant_message_id: uuid.UUID | None = None
     version: int = Field(ge=1)
@@ -142,6 +143,7 @@ class AnswerVersionRegister(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     assistant_message_id: uuid.UUID
+    producer_run_id: uuid.UUID | None = None
 
 
 class AnswerVersionSelect(BaseModel):
