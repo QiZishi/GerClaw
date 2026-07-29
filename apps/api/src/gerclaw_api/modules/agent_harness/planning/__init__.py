@@ -5,6 +5,13 @@ from gerclaw_api.modules.agent_harness.planning.agent_factory import (
     AgentFactory,
     ProductionAgentFactory,
 )
+from gerclaw_api.modules.agent_harness.planning.clarification import (
+    emit_deterministic_clarification,
+)
+from gerclaw_api.modules.agent_harness.planning.clinical_decision import (
+    ClinicalDecisionCoordinator,
+    TurnClinicalDecision,
+)
 from gerclaw_api.modules.agent_harness.planning.contracts import (
     ActionCandidate,
     ActionKind,
@@ -18,6 +25,12 @@ from gerclaw_api.modules.agent_harness.planning.contracts import (
     PlanNodeBudget,
     PlanRequest,
     RankedAction,
+)
+from gerclaw_api.modules.agent_harness.planning.execution import (
+    DynamicPlanExecutor,
+    PlanExecutionSnapshot,
+    PlanNodeStatus,
+    TurnExecutionGovernance,
 )
 from gerclaw_api.modules.agent_harness.planning.planner import (
     DeterministicPlanner,
@@ -38,12 +51,16 @@ __all__ = [
     "ActionSelection",
     "AgentFactory",
     "BudgetPreflightDecision",
+    "ClinicalDecisionCoordinator",
     "DeterministicPlanner",
     "DynamicPlan",
+    "DynamicPlanExecutor",
     "ModelBudgetPreflight",
     "ModelCallEstimate",
+    "PlanExecutionSnapshot",
     "PlanNode",
     "PlanNodeBudget",
+    "PlanNodeStatus",
     "PlanRequest",
     "Planner",
     "PlanningError",
@@ -51,7 +68,10 @@ __all__ = [
     "ProductionAgentFactory",
     "RankedAction",
     "SAVIActionSelector",
+    "TurnClinicalDecision",
+    "TurnExecutionGovernance",
     "TurnPlanningCoordinator",
     "approximate_input_tokens",
+    "emit_deterministic_clarification",
     "requests_report",
 ]

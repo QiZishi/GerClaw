@@ -2,15 +2,28 @@
 
 from __future__ import annotations
 
-import pytest
+from datetime import UTC, datetime
 
+import pytest
+from pydantic import ValidationError
+
+from gerclaw_api.modules.agent_harness.clinical_state import (
+    ClinicalFact,
+    ClinicalState,
+    DifferentialCandidate,
+    DifferentialPriority,
+    FactProvenance,
+)
 from gerclaw_api.modules.agent_harness.planning import (
     ActionCandidate,
     ActionKind,
+    ClinicalDecisionCoordinator,
     DeterministicPlanner,
+    DynamicPlanExecutor,
     ModelBudgetPreflight,
     ModelCallEstimate,
     PlanningError,
+    PlanNodeStatus,
     PlanRequest,
     SAVIActionSelector,
 )
@@ -24,6 +37,27 @@ def _planner(**budget_updates: int) -> DeterministicPlanner:
     return DeterministicPlanner(
         execution_budget=budget,
         output_reserve_tokens=2_048,
+    )
+
+
+def _reported_state(*, unknowns: tuple[str, ...] = ()) -> ClinicalState:
+    return ClinicalState(
+        facts=(
+            ClinicalFact(
+                fact_id="fact_dizziness",
+                category="chief_complaint",
+                value="老人最近头晕",
+                status="reported",
+                provenance=(
+                    FactProvenance(
+                        source_type="user",
+                        source_id="message-1",
+                        observed_at=datetime(2026, 7, 29, tzinfo=UTC),
+                    ),
+                ),
+            ),
+        ),
+        unknowns=unknowns,
     )
 
 
@@ -56,9 +90,78 @@ def test_dynamic_plan_changes_with_route_attachments_and_capabilities() -> None:
     assert deep.nodes[-1].dependencies == (
         "inspect_attachments",
         "retrieve_evidence",
-        "capability_1",
     )
+    assert deep.nodes[2].required is False
     assert all(node.checkpoint for node in deep.nodes)
+
+
+def test_treatment_unknown_forces_ask_and_builds_clarification_only_plan() -> None:
+    decision = ClinicalDecisionCoordinator(minimum_score=1).prepare(
+        state=_reported_state(unknowns=("当前用药与剂量", "药物过敏史")),
+        message="这些药需要怎么调整剂量?",
+        has_attachments=False,
+    )
+
+    assert decision.action_selection.selected is not None
+    assert decision.action_selection.selected.candidate.kind is ActionKind.ASK
+    assert decision.action_selection.reason_code == "mandatory_prerequisite"
+
+    plan = _planner().build(
+        PlanRequest(
+            route=RouteKind.STANDARD,
+            medical_content=True,
+            selected_action="ask",
+        )
+    )
+    assert [node.capability for node in plan.nodes] == ["clinical.ask"]
+    assert plan.nodes[0].budget.model_calls == 0
+    assert plan.nodes[0].budget.tool_calls == 0
+
+
+def test_diagnostic_direction_is_source_linked_and_never_a_diagnosis() -> None:
+    decision = ClinicalDecisionCoordinator(minimum_score=1).prepare(
+        state=_reported_state(),
+        message="老人最近头晕可能是什么原因?",
+        has_attachments=False,
+    )
+
+    candidate = decision.differential_assessment.candidates[0]
+    assert candidate.supporting_fact_ids == ("fact_dizziness",)
+    assert candidate.missing_information
+    assert decision.differential_assessment.is_diagnosis is False
+
+    with pytest.raises(ValidationError, match="cannot assert a diagnosis"):
+        DifferentialCandidate(
+            candidate_id="unsafe",
+            label="老人就是脑梗方向",
+            priority=DifferentialPriority.CONSIDER,
+            supporting_fact_ids=("fact_dizziness",),
+        )
+
+
+def test_dynamic_plan_executor_enforces_dependencies_and_skips_optional_nodes() -> None:
+    plan = _planner().build(
+        PlanRequest(
+            route=RouteKind.DEEP,
+            medical_content=True,
+            selected_capabilities=("gerclaw.cga",),
+            available_capabilities=("gerclaw.cga",),
+        )
+    )
+    executor = DynamicPlanExecutor(plan)
+
+    with pytest.raises(PlanningError, match="PLAN_DEPENDENCY_INCOMPLETE"):
+        executor.start_capability("answer.compose")
+
+    evidence_node = executor.start_capability("evidence.retrieve")
+    executor.complete(evidence_node)
+    answer_node = executor.start_capability("answer.compose")
+    executor.complete(answer_node)
+    snapshot = executor.finalize()
+
+    assert snapshot.statuses["retrieve_evidence"] is PlanNodeStatus.COMPLETED
+    assert snapshot.statuses["capability_1"] is PlanNodeStatus.SKIPPED
+    assert snapshot.statuses["answer"] is PlanNodeStatus.COMPLETED
 
 
 def test_dynamic_plan_rejects_unavailable_capability_and_aggregate_budget() -> None:

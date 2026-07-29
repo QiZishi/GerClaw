@@ -40,6 +40,7 @@ from gerclaw_api.modules.agent_harness.clinical_state import (
 )
 from gerclaw_api.modules.agent_harness.config import ResolvedHarnessConfig
 from gerclaw_api.modules.agent_harness.planning import (
+    ClinicalDecisionCoordinator,
     DeterministicPlanner,
     PlanRequest,
     requests_report,
@@ -429,20 +430,6 @@ class ChatService:
             max_steps=resolved_harness_config.max_react_iterations,
             max_output_bytes=resolved_harness_config.max_output_bytes,
         )
-        dynamic_plan = DeterministicPlanner(
-            execution_budget=execution_budget,
-            output_reserve_tokens=resolved_harness_config.model_output_reserve_tokens,
-        ).build(
-            PlanRequest(
-                route=route_decision.route,
-                medical_content=medical_content,
-                image_count=len(payload.images),
-                document_count=len(payload.uploaded_files),
-                selected_capabilities=tuple(str(item) for item in payload.loaded_skills),
-                available_capabilities=tuple(str(item) for item in payload.loaded_skills),
-                report_requested=requests_report(payload.message),
-            )
-        )
         memory_refs: list[str]
         if emergency_route:
             history = []
@@ -538,6 +525,33 @@ class ChatService:
                 observed_at=datetime.now(UTC),
                 red_flag_codes=high_risk_codes,
             )
+        clinical_decision = ClinicalDecisionCoordinator(
+            minimum_score=resolved_harness_config.savi_minimum_score
+        ).prepare(
+            state=clinical_state,
+            message=payload.message,
+            has_attachments=bool(payload.images or payload.uploaded_files),
+        )
+        selected_action = (
+            clinical_decision.action_selection.selected.candidate.kind.value
+            if clinical_decision.action_selection.selected is not None
+            else "answer"
+        )
+        dynamic_plan = DeterministicPlanner(
+            execution_budget=execution_budget,
+            output_reserve_tokens=resolved_harness_config.model_output_reserve_tokens,
+        ).build(
+            PlanRequest(
+                route=route_decision.route,
+                medical_content=medical_content,
+                image_count=len(payload.images),
+                document_count=len(payload.uploaded_files),
+                selected_capabilities=tuple(str(item) for item in payload.loaded_skills),
+                available_capabilities=tuple(str(item) for item in payload.loaded_skills),
+                report_requested=requests_report(payload.message),
+                selected_action=selected_action,
+            )
+        )
         if self._run_journal is not None:
             run = await self._run_journal.start(
                 AgentRunCreate(
@@ -565,6 +579,7 @@ class ChatService:
                         ],
                         "workflow": workflow.workflow_id.value,
                         "dynamic_plan": dynamic_plan.model_dump(mode="json"),
+                        "clinical_decision": clinical_decision.model_dump(mode="json"),
                         **(
                             {
                                 "regenerate_from_run_id": str(
@@ -645,6 +660,7 @@ class ChatService:
             execution_budget=execution_budget,
             route_decision=route_decision,
             dynamic_plan=dynamic_plan,
+            clinical_decision=clinical_decision,
         )
         context = await harness.assemble_context(
             str(payload.session_id),

@@ -255,6 +255,7 @@ def safety_decision(
     evidence_backed_clinical_conclusion_allowed: bool = False,
     patient_clinical_risk_notice_applied: bool = False,
     evidence_unavailable: bool = False,
+    clinical_clarification: bool = False,
 ) -> SafetyDecision:
     """Return the mandatory explicit safety decision persisted with every reply."""
 
@@ -272,6 +273,8 @@ def safety_decision(
         notices.append("high_risk_escalation_checked")
     if evidence_unavailable:
         notices.append("evidence_unavailable_clarification")
+    if clinical_clarification:
+        notices.append("clinical_clarification")
     if evidence_backed_clinical_conclusion_allowed:
         notices.append("evidence_backed_clinical_conclusion_allowed")
     if patient_clinical_risk_notice_applied:

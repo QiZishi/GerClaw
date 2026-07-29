@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from typing import Literal
+
 from pydantic import BaseModel, ConfigDict
 
 from gerclaw_api.modules.agent_harness.config import ResolvedHarnessConfig
@@ -110,6 +112,7 @@ class TurnPlanningCoordinator:
         document_count: int,
         capabilities: tuple[str, ...],
         high_risk_detected: bool,
+        selected_action: Literal["ask", "exam", "answer"] = "answer",
     ) -> PreparedTurnPlan:
         route = self._route_decision or self._router.decide(
             RoutingInput(
@@ -132,6 +135,7 @@ class TurnPlanningCoordinator:
                 selected_capabilities=capabilities,
                 available_capabilities=capabilities,
                 report_requested=requests_report(message),
+                selected_action=selected_action,
             )
         )
         if plan.route is not route.route:

@@ -98,6 +98,7 @@ class PlanRequest(BaseModel):
     selected_capabilities: tuple[str, ...] = Field(default=(), max_length=50)
     available_capabilities: tuple[str, ...] = Field(default=(), max_length=100)
     report_requested: bool = False
+    selected_action: Literal["ask", "exam", "answer"] = "answer"
 
 
 class Planner(Protocol):

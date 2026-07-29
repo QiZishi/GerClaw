@@ -19,6 +19,7 @@ _BUILTIN_CAPABILITIES = frozenset(
         "answer.compose",
         "answer.quick",
         "attachment.inspect",
+        "clinical.ask",
         "evidence.retrieve",
         "report.compose",
         "safety.emergency",
@@ -81,6 +82,20 @@ class DeterministicPlanner:
                 ),
             )
 
+        if request.selected_action == "ask":
+            return DynamicPlan(
+                route=request.route,
+                nodes=(
+                    PlanNode(
+                        node_id="clarify_unknowns",
+                        capability="clinical.ask",
+                        public_summary="正在确认影响判断的关键信息",
+                        output_schema={"type": "object", "required": ["questions"]},
+                        checkpoint=True,
+                    ),
+                ),
+            )
+
         nodes: list[PlanNode] = []
         prerequisites: list[str] = []
         if request.document_count or request.image_count:
@@ -113,6 +128,7 @@ class DeterministicPlanner:
             nodes.append(
                 PlanNode(
                     node_id=node_id,
+                    required=False,
                     dependencies=tuple(prerequisites),
                     capability=capability,
                     budget=PlanNodeBudget(tool_calls=1),
@@ -121,7 +137,6 @@ class DeterministicPlanner:
                     checkpoint=True,
                 )
             )
-            prerequisites.append(node_id)
 
         answer_capability = (
             "report.compose"

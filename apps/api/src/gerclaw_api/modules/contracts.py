@@ -20,6 +20,7 @@ _UNSAFE_DIAGNOSIS = re.compile(
     r"|就是(?!说|建议|提示|参考|说明|可能|需要)"
 )
 _EVIDENCE_UNAVAILABLE_NOTICE = "evidence_unavailable_clarification"
+_CLINICAL_CLARIFICATION_NOTICE = "clinical_clarification"
 
 
 class ExecutionContext(BaseModel):
@@ -119,11 +120,22 @@ class AgentResponse(BaseModel):
                 raise ValueError("evidence-unavailable clarification requires an explicit notice")
             if self.structured.get("model_invoked") is not False:
                 raise ValueError("evidence-unavailable clarification must not use model output")
+        clinical_clarification = (
+            self.structured.get("response_kind") == "clinical_clarification"
+        )
+        if clinical_clarification:
+            if self.citations:
+                raise ValueError("clinical clarification must not claim citations")
+            if _CLINICAL_CLARIFICATION_NOTICE not in self.safety.notices:
+                raise ValueError("clinical clarification requires an explicit notice")
+            if self.structured.get("model_invoked") is not False:
+                raise ValueError("clinical clarification must not use model output")
         if (
             self.medical_content
             and not self.citations
             and not self.emergency_short_circuit
             and not evidence_unavailable
+            and not clinical_clarification
         ):
             raise ValueError("medical output requires at least one traceable citation")
         return self

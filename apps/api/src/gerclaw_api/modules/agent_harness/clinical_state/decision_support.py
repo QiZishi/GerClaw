@@ -5,7 +5,7 @@ from __future__ import annotations
 from enum import StrEnum
 from typing import Literal
 
-from pydantic import BaseModel, ConfigDict, Field, model_validator
+from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
 from gerclaw_api.modules.agent_harness.clinical_state.contracts import (
     BoundedClinicalText,
@@ -32,6 +32,15 @@ class DifferentialCandidate(BaseModel):
     opposing_fact_ids: tuple[str, ...] = Field(default=(), max_length=50)
     residual_fact_ids: tuple[str, ...] = Field(default=(), max_length=50)
     missing_information: tuple[BoundedClinicalText, ...] = Field(default=(), max_length=50)
+
+    @field_validator("label")
+    @classmethod
+    def require_non_diagnostic_direction_label(cls, label: str) -> str:
+        if not any(marker in label for marker in ("方向", "可能", "待评估", "需排除")):
+            raise ValueError("differential label must be explicitly non-diagnostic")
+        if any(marker in label for marker in ("确诊", "诊断为", "就是", "一定是", "已经患有")):
+            raise ValueError("differential label cannot assert a diagnosis")
+        return label
 
     @model_validator(mode="after")
     def reject_duplicate_or_overlapping_evidence(self) -> DifferentialCandidate:

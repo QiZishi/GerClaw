@@ -1085,6 +1085,67 @@ async def test_medical_turn_reduces_prior_clinical_state_into_run_snapshot(
 
 
 @pytest.mark.asyncio
+async def test_treatment_unknown_returns_persisted_ask_without_model_or_rag(
+    unit_settings: Settings,
+) -> None:
+    class _FailingRAG:
+        async def retrieve(self, *_args: object, **_kwargs: object) -> list[object]:
+            raise AssertionError("RAG must not run before a mandatory treatment prerequisite")
+
+    class _FailingModel(_TextModel):
+        async def _call_api(
+            self,
+            model_name: str,
+            messages: list[Msg],
+            tools: list[dict[str, Any]] | None = None,
+            tool_choice: ToolChoice | None = None,
+            **kwargs: Any,
+        ) -> ChatResponse | AsyncGenerator[ChatResponse, None]:
+            del model_name, messages, tools, tool_choice, kwargs
+            raise AssertionError("model must not run before a mandatory treatment prerequisite")
+
+    session_id = uuid.uuid4()
+    run_journal = _RunJournal()
+    run_journal.clinical_state = ClinicalState(
+        unknowns=("当前全部用药与剂量", "药物过敏史"),
+    )
+    service = ChatService(
+        settings=unit_settings,
+        conversation=cast(Any, _ConversationFacade(session_id)),
+        traces=cast(Any, _TraceFacade(created=True, session_id=session_id)),
+        lease=cast(Any, _OwnedLease()),
+        model=cast(Any, _FailingModel()),
+        rag_module=cast(Any, _FailingRAG()),
+        memory_factory=_memory_factory(),
+        run_journal=run_journal,
+    )
+
+    async def callback(_event: object) -> None:
+        return None
+
+    response = await service.process(
+        ChatRequest(session_id=session_id, message="这些药需要怎么调整剂量?"),
+        identity=AuthContext(
+            actor_id="usr_patient_unit0001",
+            tenant_id="tenant_public0001",
+            scopes=frozenset({"chat:write"}),
+        ),
+        request_id="request_chat_treatment_ask_0001",
+        trace_id="trace_chat_treatment_ask_0001",
+        callback=cast(Any, callback),
+    )
+
+    dynamic_plan = cast(dict[str, Any], run_journal.start_requests[0].plan["dynamic_plan"])
+    assert [node["capability"] for node in dynamic_plan["nodes"]] == ["clinical.ask"]
+    action = cast(dict[str, Any], response.structured["action_selection"])
+    assert cast(dict[str, Any], action["selected"])["candidate"]["kind"] == "ask"
+    assert response.structured["model_invoked"] is False
+    assert "当前全部用药与剂量" in response.text
+    execution = cast(dict[str, Any], response.structured["plan_execution"])
+    assert execution["statuses"] == {"clarify_unknowns": "completed"}
+
+
+@pytest.mark.asyncio
 async def test_cancelled_running_skill_viewer_gets_a_terminal_audit_event(
     unit_settings: Settings,
 ) -> None:

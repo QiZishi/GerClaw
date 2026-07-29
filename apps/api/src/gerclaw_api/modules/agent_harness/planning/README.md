@@ -1,7 +1,8 @@
 # Planning
 
 The package defines versioned `PlanNode`/`DynamicPlan` boundaries, the production
-`DeterministicPlanner`, ordinal `SAVIActionSelector`, and `ModelBudgetPreflight`.
+`DeterministicPlanner`, ordinal `SAVIActionSelector`, `ClinicalDecisionCoordinator`,
+`DynamicPlanExecutor`, and `ModelBudgetPreflight`.
 `ProductionAgentFactory` remains the only translation from resolved Harness configuration into
 an isolated AgentScope `Agent`.
 
@@ -16,11 +17,23 @@ SAVI first removes invalid/redundant actions, then prioritizes mandatory safety 
 prerequisites. Remaining ASK/EXAM/ANSWER candidates use bounded ordinal gains and costs; no
 fake probability is produced. Equal-value ASK is preferred over EXAM. The model preflight
 checks remaining model/tool/token budgets and the provider context window before construction.
+The selected action changes the production plan: mandatory missing treatment information
+produces a deterministic `clinical.ask` node and returns before retrieval or model execution.
+Uploaded material can select EXAM, while ANSWER enters the evidence and composition path.
+
+`DynamicPlanExecutor` is the run-time checkpoint authority. A node cannot start until every
+declared dependency completed; required nodes must complete before the unique terminal result;
+unselected optional capability nodes are recorded as skipped. C3 differential directions are
+constructed only from sourced, non-conflicted `ClinicalState` facts, explicitly marked as
+non-diagnostic, and passed to the model as code-owned constraints rather than model-created
+facts.
 
 Consumers: Chat persists plans and the Harness enforces plan/budget decisions. Configuration:
 all thresholds and reserves arrive through `ResolvedHarnessConfig`. Failure semantics:
 unavailable capability, invalid DAG, aggregate plan overflow, or model preflight failure stops
-the next side effect with a stable code. Known limit: the existing AgentScope ReAct executor
-still performs nodes serially rather than scheduling independent DAG branches. Acceptance:
-route-sensitive plans, valid capability references, deterministic SAVI fixtures, and zero model
-calls after a failed preflight.
+the next side effect with a stable code. Known limit: governed capabilities selected for the
+AgentScope ReAct layer remain optional plan nodes because that layer does not yet expose a
+per-tool completion callback; they are reported as skipped unless a code-owned executor runs
+them. Acceptance: route-sensitive plans, valid capability references, deterministic SAVI
+fixtures, enforced checkpoint transitions, source-linked non-diagnostic directions, and zero
+model calls after a failed preflight.

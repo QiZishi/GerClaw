@@ -27,9 +27,13 @@ from gerclaw_api.modules.agent_harness.context_snapshot import (
 )
 from gerclaw_api.modules.agent_harness.planning import (
     AgentFactory,
+    ClinicalDecisionCoordinator,
     DynamicPlan,
     ProductionAgentFactory,
+    TurnClinicalDecision,
+    TurnExecutionGovernance,
     TurnPlanningCoordinator,
+    emit_deterministic_clarification,
 )
 from gerclaw_api.modules.agent_harness.plugin_runtime import (
     ApprovalCallback,
@@ -146,6 +150,7 @@ class ProductionAgentHarness:
         agent_factory: AgentFactory | None = None,
         route_decision: RouteDecision | None = None,
         dynamic_plan: DynamicPlan | None = None,
+        clinical_decision: TurnClinicalDecision | None = None,
     ) -> None:
         companion = is_companion_workflow(workflow)
         build_core_runtime_asset_security_registry().assess_agent(
@@ -206,6 +211,7 @@ class ProductionAgentHarness:
             dynamic_plan=dynamic_plan,
         )
         self._approval_callback = approval_callback
+        self._clinical_decision = clinical_decision
         self._agent_factory = agent_factory or ProductionAgentFactory(
             model=model,
             config=self._config,
@@ -298,6 +304,14 @@ class ProductionAgentHarness:
         companion = is_companion_workflow(self._workflow)
         medical_content = is_medical_message(user_message) and not companion
         high_risk_codes = detect_high_risk(user_message)
+        clinical_decision = self._clinical_decision or ClinicalDecisionCoordinator(
+            minimum_score=self._config.savi_minimum_score
+        ).prepare(
+            state=context.clinical_state,
+            message=user_message,
+            has_attachments=bool(self._uploaded_documents or self._uploaded_images),
+        )
+        selected = clinical_decision.action_selection.selected
         prepared_turn = self._turn_planning.prepare(
             message=user_message,
             medical_content=medical_content,
@@ -305,9 +319,17 @@ class ProductionAgentHarness:
             document_count=len(self._uploaded_documents),
             capabilities=tuple(self._loaded_skill_ids),
             high_risk_detected=bool(high_risk_codes),
+            selected_action=(
+                selected.candidate.kind.value if selected is not None else "answer"
+            ),
         )
         route_decision = prepared_turn.route_decision
         dynamic_plan = prepared_turn.dynamic_plan
+        governance = TurnExecutionGovernance(
+            plan=dynamic_plan,
+            decision=clinical_decision,
+            clinical_state=context.clinical_state,
+        )
         # A pure request to summarize/read an attachment should not fabricate
         # unrelated medical context.  Once the user asks for a medical
         # interpretation (for example a blood-pressure or medication report),
@@ -325,53 +347,47 @@ class ProductionAgentHarness:
         )
         safe_high_risk_codes: list[JsonValue] = list(high_risk_codes)
         if route_decision.route is RouteKind.EMERGENCY:
-            await self._emit(
-                stream_callback,
-                "safety_notice",
-                {"codes": safe_high_risk_codes, "content": HIGH_RISK_NOTICE},
-            )
-            high_risk_text = HIGH_RISK_NOTICE + "\n\n"
-            budget.add_output(high_risk_text)
-            await self._emit(stream_callback, "text_delta", {"content": high_risk_text})
-            disclaimer_delta = MEDICAL_DISCLAIMER
-            budget.add_output(disclaimer_delta)
-            await self._emit(stream_callback, "text_delta", {"content": disclaimer_delta})
-            response = AgentResponse(
-                text=high_risk_text + disclaimer_delta,
-                citations=[],
-                safety=safety_decision(high_risk_codes),
-                medical_content=True,
-                emergency_short_circuit=True,
+            emergency_node = governance.checkpoint("safety.emergency")
+            governance.complete(emergency_node)
+            return await emit_deterministic_clarification(
+                body=HIGH_RISK_NOTICE,
+                high_risk_codes=high_risk_codes,
+                emit=lambda kind, data: self._emit(stream_callback, kind, data),
+                budget=budget,
                 structured={
-                    "model_invoked": False,
-                    "model_preference": None,
-                    "model_attempt_count": 0,
-                    "model_failures": 0,
-                    "input_tokens": 0,
-                    "output_tokens": 0,
-                    "tool_names": [],
-                    "high_risk_codes": safe_high_risk_codes,
-                    "search_attempts": [],
                     "loaded_skill_ids": list(context.loaded_skills),
                     "emergency_short_circuit": True,
                     "route": route_decision.route.value,
                     "route_reason": route_decision.reason_code,
                     "plan_node_ids": [node.node_id for node in dynamic_plan.nodes],
+                    **governance.finish(),
                 },
+                emergency_short_circuit=True,
             )
-            await self._emit(
-                stream_callback,
-                "done",
-                {
-                    "full_text": response.text,
-                    "references": [],
-                    "safety": response.safety.model_dump(mode="json"),
+        if governance.should_ask:
+            ask_node = governance.checkpoint("clinical.ask")
+            governance.complete(ask_node)
+            return await emit_deterministic_clarification(
+                body=governance.clarification_text(),
+                high_risk_codes=high_risk_codes,
+                emit=lambda kind, data: self._emit(stream_callback, kind, data),
+                budget=budget,
+                structured={
+                    "response_kind": "clinical_clarification",
+                    "route": route_decision.route.value,
+                    "route_reason": route_decision.reason_code,
+                    "plan_node_ids": [node.node_id for node in dynamic_plan.nodes],
+                    **governance.finish(),
                 },
+                clinical_clarification=True,
             )
-            return response
+        if self._uploaded_documents or self._uploaded_images:
+            attachment_node = governance.checkpoint("attachment.inspect")
+            governance.complete(attachment_node)
 
         evidence_results = []
         if should_prefetch_local_evidence:
+            evidence_node = governance.checkpoint("evidence.retrieve")
             await self._emit(
                 stream_callback,
                 "reasoning_summary",
@@ -429,6 +445,7 @@ class ProductionAgentHarness:
                     "result_count": len(evidence_results),
                 },
             )
+            governance.complete(evidence_node)
         initial_citations = citations_from_results(evidence_results)
         if (
             should_prefetch_local_evidence
@@ -436,11 +453,23 @@ class ProductionAgentHarness:
             and not has_uploaded_evidence
             and not can_search_for_evidence
         ):
-            return await self._emit_evidence_unavailable_clarification(
-                context=context,
+            answer_node = governance.checkpoint(governance.answer_capability())
+            governance.complete(answer_node)
+            return await emit_deterministic_clarification(
+                body=_EVIDENCE_UNAVAILABLE_CLARIFICATION,
                 high_risk_codes=high_risk_codes,
-                stream_callback=stream_callback,
+                emit=lambda kind, data: self._emit(stream_callback, kind, data),
                 budget=budget,
+                structured={
+                    "loaded_skill_ids": list(context.loaded_skills),
+                    "document_focused": False,
+                    "evidence_state": "unavailable",
+                    "route": route_decision.route.value,
+                    "route_reason": route_decision.reason_code,
+                    "plan_node_ids": [node.node_id for node in dynamic_plan.nodes],
+                    **governance.finish(),
+                },
+                evidence_unavailable=True,
             )
         state_context = [
             UserMsg(name="user", content=item.text)
@@ -473,6 +502,12 @@ class ProductionAgentHarness:
             state_context.insert(
                 0,
                 AssistantMsg(name="clinical_state", content=clinical_state_context),
+            )
+        differential_json, differential_context = governance.differential_prompt_context()
+        if differential_context is not None:
+            state_context.insert(
+                0,
+                AssistantMsg(name="clinical_decision", content=differential_context),
             )
         if self._uploaded_documents:
             state_context.append(
@@ -508,6 +543,7 @@ class ProductionAgentHarness:
                 context.profile_context,
                 context.session_summary,
                 clinical_state_json,
+                differential_json,
                 *(item.text for item in context.conversation_history),
                 *(item.content for item in self._uploaded_documents),
                 *(item.excerpt for item in initial_citations),
@@ -547,6 +583,7 @@ class ProductionAgentHarness:
             document_focused=document_focused,
             retrieval_disabled=route_decision.route is RouteKind.QUICK,
         )
+        answer_node = governance.checkpoint(governance.answer_capability())
 
         skill_metadata: dict[str, tuple[str, str]] = {}
         for skill in self._agent_skills:
@@ -597,7 +634,7 @@ class ProductionAgentHarness:
                     "RUNTIME_WALL_CLOCK_EXCEEDED"
                 ),
             )
-            selected = next(
+            selected_model_preference = next(
                 (
                     attempt.preference
                     for attempt in reversed(attempts)
@@ -609,6 +646,8 @@ class ProductionAgentHarness:
         model_text = stream_result.text
         if not model_text.strip():
             raise EmptyAgentResponseError("model completed without public text")
+        governance.complete(answer_node)
+        governance_result = governance.finish()
         patient_clinical_risk_notice_applied = bool(
             self._runtime_principal is not None
             and self._runtime_principal.role in {ActorRole.GUEST, ActorRole.PATIENT}
@@ -652,7 +691,7 @@ class ProductionAgentHarness:
             medical_content=medical_content,
             structured={
                 "model_invoked": True,
-                "model_preference": selected,
+                "model_preference": selected_model_preference,
                 "model_attempt_count": sum(
                     1 for attempt in attempts if attempt.outcome == "started"
                 ),
@@ -671,6 +710,7 @@ class ProductionAgentHarness:
                 "route_reason": route_decision.reason_code,
                 "plan_node_ids": [node.node_id for node in dynamic_plan.nodes],
                 "model_preflight": preflight.model_dump(mode="json"),
+                **governance_result,
             },
         )
         await self._emit(
@@ -679,56 +719,6 @@ class ProductionAgentHarness:
             {
                 "full_text": response.text,
                 "references": [item.model_dump(mode="json") for item in response.citations],
-                "safety": response.safety.model_dump(mode="json"),
-            },
-        )
-        return response
-
-    async def _emit_evidence_unavailable_clarification(
-        self,
-        *,
-        context: AgentContext,
-        high_risk_codes: list[str],
-        stream_callback: StreamCallback,
-        budget: RuntimeBudgetTracker,
-    ) -> AgentResponse:
-        """Finish a medical turn usefully when no evidence source is available.
-
-        This is deliberately a deterministic clarification, not a model fallback:
-        it avoids inventing a diagnosis, medicine change, or citation while still
-        leaving the user with a concrete next action and a completed chat turn.
-        """
-
-        text = f"{_EVIDENCE_UNAVAILABLE_CLARIFICATION}\n\n{MEDICAL_DISCLAIMER}"
-        budget.check_wall_clock()
-        budget.add_output(text)
-        await self._emit(stream_callback, "text_delta", {"content": text})
-        response = AgentResponse(
-            text=text,
-            citations=[],
-            safety=safety_decision(high_risk_codes, evidence_unavailable=True),
-            medical_content=True,
-            structured={
-                "model_invoked": False,
-                "model_preference": None,
-                "model_attempt_count": 0,
-                "model_failures": 0,
-                "input_tokens": 0,
-                "output_tokens": 0,
-                "tool_names": [],
-                "high_risk_codes": list(high_risk_codes),
-                "search_attempts": [],
-                "loaded_skill_ids": list(context.loaded_skills),
-                "document_focused": False,
-                "evidence_state": "unavailable",
-            },
-        )
-        await self._emit(
-            stream_callback,
-            "done",
-            {
-                "full_text": response.text,
-                "references": [],
                 "safety": response.safety.model_dump(mode="json"),
             },
         )
