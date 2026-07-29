@@ -912,6 +912,8 @@ async def test_non_medical_small_talk_bypasses_evidence(unit_settings: Settings)
     assert not response.medical_content
     assert response.citations == []
     assert rag.calls == []
+    assert response.structured["route"] == "quick"
+    assert response.structured["route_reason"] == "short_non_medical"
 
 
 @pytest.mark.asyncio
@@ -961,6 +963,7 @@ async def test_high_risk_notice_is_first_public_text(unit_settings: Settings) ->
     assert "立即" in response.text
     assert "high_risk_escalation_applied" in response.safety.notices
     assert response.structured["emergency_short_circuit"] is True
+    assert response.structured["route"] == "emergency"
     assert model.calls == 0
     assert rag.calls == []
 

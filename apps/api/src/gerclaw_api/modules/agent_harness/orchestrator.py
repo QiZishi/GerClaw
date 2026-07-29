@@ -47,6 +47,13 @@ from gerclaw_api.modules.agent_harness.protocols import (
     ConversationHistoryMessage,
     StreamEvent,
 )
+from gerclaw_api.modules.agent_harness.routing import (
+    DeterministicRouter,
+    RouteDecision,
+    RouteKind,
+    RoutingInput,
+    RoutingPolicy,
+)
 from gerclaw_api.modules.agent_harness.run_lifecycle import (
     CanonicalTextStream,
     EmptyAgentResponseError,
@@ -146,6 +153,7 @@ class ProductionAgentHarness:
         components: HarnessComponents | None = None,
         tool_registry_factory: ToolRegistryFactory = build_production_tool_registry,
         agent_factory: AgentFactory | None = None,
+        route_decision: RouteDecision | None = None,
     ) -> None:
         companion = is_companion_workflow(workflow)
         build_core_runtime_asset_security_registry().assess_agent(
@@ -163,6 +171,15 @@ class ProductionAgentHarness:
         )
         self._config = resolved_config or ResolvedHarnessConfig.from_settings(settings)
         self._components = components or HarnessComponents()
+        self._router = self._components.router or DeterministicRouter(
+            RoutingPolicy(
+                quick_max_characters=self._config.quick_route_max_characters,
+                deep_min_characters=self._config.deep_route_min_characters,
+                deep_attachment_count=self._config.deep_route_attachment_count,
+                deep_capability_count=self._config.deep_route_capability_count,
+            )
+        )
+        self._route_decision = route_decision
         self._run_lifecycle = self._components.run_lifecycle or ProductionRunLifecycle()
         self._context_assembler = (
             self._components.context_snapshot_assembler
@@ -276,6 +293,19 @@ class ProductionAgentHarness:
         )
         companion = is_companion_workflow(self._workflow)
         medical_content = is_medical_message(user_message) and not companion
+        high_risk_codes = detect_high_risk(user_message)
+        route_decision = self._route_decision or self._router.decide(
+            RoutingInput(
+                message=user_message,
+                has_images=bool(self._uploaded_images),
+                has_documents=bool(self._uploaded_documents),
+                image_count=len(self._uploaded_images),
+                document_count=len(self._uploaded_documents),
+                selected_capabilities=tuple(self._loaded_skill_ids),
+                medical_content=medical_content,
+                high_risk_detected=bool(high_risk_codes),
+            )
+        )
         # A pure request to summarize/read an attachment should not fabricate
         # unrelated medical context.  Once the user asks for a medical
         # interpretation (for example a blood-pressure or medication report),
@@ -291,9 +321,8 @@ class ProductionAgentHarness:
         can_search_for_evidence = (
             self._search_module is not None and self._search_enabled and not document_focused
         )
-        high_risk_codes = detect_high_risk(user_message)
         safe_high_risk_codes: list[JsonValue] = list(high_risk_codes)
-        if high_risk_codes:
+        if route_decision.route is RouteKind.EMERGENCY:
             await self._emit(
                 stream_callback,
                 "safety_notice",
@@ -323,6 +352,8 @@ class ProductionAgentHarness:
                     "search_attempts": [],
                     "loaded_skill_ids": list(context.loaded_skills),
                     "emergency_short_circuit": True,
+                    "route": route_decision.route.value,
+                    "route_reason": route_decision.reason_code,
                 },
             )
             await self._emit(
@@ -469,7 +500,11 @@ class ProductionAgentHarness:
             principal=self._runtime_principal,
             skills=self._agent_skills,
             registry_factory=self._tool_registry_factory,
-            tools_disabled=document_focused or companion,
+            tools_disabled=(
+                document_focused
+                or companion
+                or route_decision.route is RouteKind.QUICK
+            ),
         )
         agent = self._build_agent(
             session_id=session_id,
@@ -600,6 +635,8 @@ class ProductionAgentHarness:
                 "loaded_skill_ids": list(context.loaded_skills),
                 "document_focused": document_focused,
                 "evidence_backed_clinical_conclusion": evidence_backed_clinical_conclusion_allowed,
+                "route": route_decision.route.value,
+                "route_reason": route_decision.reason_code,
             },
         )
         await self._emit(

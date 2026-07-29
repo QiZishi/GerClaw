@@ -38,6 +38,7 @@ from gerclaw_api.domain.trace_schemas import (
     TraceFinishRequest,
     TraceStartRequest,
 )
+from gerclaw_api.modules.agent_harness.routing import RouteKind
 from gerclaw_api.modules.agent_harness.run_lifecycle import RunFenceConflictError
 from gerclaw_api.modules.memory.models import MemoryUpdateResult
 from gerclaw_api.modules.memory.protocols import MemoryMessage, UserProfile
@@ -698,6 +699,7 @@ async def test_owned_turn_streams_only_after_durable_success(unit_settings: Sett
     ]
     assert traces.finishes[-1].status is TraceStatus.COMPLETED
     assert len(run_journal.start_requests) == 1
+    assert run_journal.start_requests[0].route is RouteKind.QUICK
     assert run_journal.start_requests[0].fencing_token == 17
     assert run_journal.answer_message_ids
     assert run_journal.events[-1].event_type == "done"

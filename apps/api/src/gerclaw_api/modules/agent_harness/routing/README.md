@@ -1,14 +1,19 @@
 # Routing
 
-The package currently defines the versioned construction boundary and deterministic route
-vocabulary. Existing red-flag and document/companion branching remains in the facade until
-stage 3 moves it behind a `Router`.
+The package defines the versioned construction boundary, route vocabulary, injected
+`RoutingPolicy`, and production `DeterministicRouter`. Emergency always wins. Multiple
+capabilities, multiple attachments, explicitly complex deliverables, and large requests select
+Deep; ordinary medical/attachment work selects Standard; only short non-medical requests
+without attachments or capabilities select Quick.
 
-Invalid input fails before model execution. Emergency decisions set `model_allowed=false`.
-Measure success with stable reason codes, zero model calls before red-flag output, and no
-RAG/planner work for Quick non-medical requests.
+Invalid input fails before model execution. Emergency decisions set `model_allowed=false`;
+Quick disables the turn tool registry, so it cannot call RAG, Memory, Search, Skill, or a
+complex planner. Thresholds are resolved from `Settings` into `ResolvedHarnessConfig`; this
+package reads no environment.
 
-Consumer: the future Harness router injected at composition. Configuration: validated
-thresholds from `ResolvedHarnessConfig`, never environment reads. Known limit: no production
-router is activated yet. Acceptance: deterministic fixture results and unchanged emergency
-short-circuit tests.
+Consumers: `ChatService` persists the decision on `AgentRun`, and the Harness enforces the same
+decision before any model call. Failure semantics: invalid contracts fail closed; Emergency
+emits the existing deterministic 120/急诊 notice and unique terminal response. Known limit:
+route selection governs orchestration cost and safety, not clinical validity. Acceptance:
+deterministic fixture results, zero model calls before red-flag output, and zero tool calls for
+Quick.

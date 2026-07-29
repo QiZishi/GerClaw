@@ -19,6 +19,10 @@ class ResolvedHarnessConfig(BaseModel):
     approval_ttl_seconds: int = Field(ge=60, le=86_400)
     context_trigger_ratio: float = Field(gt=0, lt=1)
     context_reserve_ratio: float = Field(gt=0, lt=1)
+    quick_route_max_characters: int = Field(default=160, ge=1, le=1_000)
+    deep_route_min_characters: int = Field(default=1_200, ge=100, le=4_000)
+    deep_route_attachment_count: int = Field(default=2, ge=1, le=20)
+    deep_route_capability_count: int = Field(default=2, ge=1, le=20)
 
     @classmethod
     def from_settings(cls, settings: Settings) -> "ResolvedHarnessConfig":
@@ -34,4 +38,8 @@ class ResolvedHarnessConfig(BaseModel):
             approval_ttl_seconds=settings.agent_approval_ttl_seconds,
             context_trigger_ratio=settings.agent_context_trigger_ratio,
             context_reserve_ratio=settings.agent_context_reserve_ratio,
+            quick_route_max_characters=settings.agent_quick_route_max_characters,
+            deep_route_min_characters=settings.agent_deep_route_min_characters,
+            deep_route_attachment_count=settings.agent_deep_route_attachment_count,
+            deep_route_capability_count=settings.agent_deep_route_capability_count,
         )

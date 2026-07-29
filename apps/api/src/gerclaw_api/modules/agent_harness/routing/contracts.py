@@ -26,8 +26,22 @@ class RoutingInput(BaseModel):
     message: str = Field(min_length=1, max_length=50_000)
     has_images: bool = False
     has_documents: bool = False
+    image_count: int = Field(default=0, ge=0, le=10)
+    document_count: int = Field(default=0, ge=0, le=10)
     selected_capabilities: tuple[str, ...] = Field(default=(), max_length=50)
+    medical_content: bool = False
     high_risk_detected: bool = False
+
+
+class RoutingPolicy(BaseModel):
+    """Injected deterministic thresholds; this module never reads environment."""
+
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    quick_max_characters: int = Field(ge=1, le=1_000)
+    deep_min_characters: int = Field(ge=100, le=4_000)
+    deep_attachment_count: int = Field(ge=1, le=20)
+    deep_capability_count: int = Field(ge=1, le=20)
 
 
 class RouteDecision(BaseModel):

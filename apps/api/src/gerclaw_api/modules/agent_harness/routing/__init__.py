@@ -6,6 +6,16 @@ from gerclaw_api.modules.agent_harness.routing.contracts import (
     Router,
     RoutingError,
     RoutingInput,
+    RoutingPolicy,
 )
+from gerclaw_api.modules.agent_harness.routing.router import DeterministicRouter
 
-__all__ = ["RouteDecision", "RouteKind", "Router", "RoutingError", "RoutingInput"]
+__all__ = [
+    "DeterministicRouter",
+    "RouteDecision",
+    "RouteKind",
+    "Router",
+    "RoutingError",
+    "RoutingInput",
+    "RoutingPolicy",
+]

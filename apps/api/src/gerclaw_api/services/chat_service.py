@@ -32,9 +32,14 @@ from gerclaw_api.modules.agent_harness import (
     StreamEvent,
     UnsupportedAgentContextError,
 )
-from gerclaw_api.modules.agent_harness.routing import RouteKind
+from gerclaw_api.modules.agent_harness.config import ResolvedHarnessConfig
+from gerclaw_api.modules.agent_harness.routing import (
+    DeterministicRouter,
+    RoutingInput,
+    RoutingPolicy,
+)
 from gerclaw_api.modules.agent_harness.run_lifecycle import RunTerminalConflictError
-from gerclaw_api.modules.agent_harness.safety import detect_high_risk
+from gerclaw_api.modules.agent_harness.safety import detect_high_risk, is_medical_message
 from gerclaw_api.modules.companion.policy import is_companion_workflow
 from gerclaw_api.modules.contracts import AgentRequest, AgentResponse, ExecutionContext
 from gerclaw_api.modules.document import DocumentService
@@ -439,18 +444,33 @@ class ChatService:
                 )
             ).id
         )
-        if self._run_journal is not None:
-            route = (
-                RouteKind.EMERGENCY
-                if detect_high_risk(payload.message)
-                else RouteKind.STANDARD
+        resolved_harness_config = ResolvedHarnessConfig.from_settings(self._settings)
+        route_decision = DeterministicRouter(
+            RoutingPolicy(
+                quick_max_characters=resolved_harness_config.quick_route_max_characters,
+                deep_min_characters=resolved_harness_config.deep_route_min_characters,
+                deep_attachment_count=resolved_harness_config.deep_route_attachment_count,
+                deep_capability_count=resolved_harness_config.deep_route_capability_count,
             )
+        ).decide(
+            RoutingInput(
+                message=payload.message,
+                has_images=bool(payload.images),
+                has_documents=bool(payload.uploaded_files),
+                image_count=len(payload.images),
+                document_count=len(payload.uploaded_files),
+                selected_capabilities=tuple(str(item) for item in payload.loaded_skills),
+                medical_content=is_medical_message(payload.message) and not companion,
+                high_risk_detected=bool(detect_high_risk(payload.message)),
+            )
+        )
+        if self._run_journal is not None:
             run = await self._run_journal.start(
                 AgentRunCreate(
                     conversation_id=payload.session_id,
                     input_message_id=user_message_id,
                     trace_id=trace_id,
-                    route=route,
+                    route=route_decision.route,
                     context_snapshot={
                         "history_message_count": len(history),
                         "memory_reference_count": len(memory_refs),
@@ -544,6 +564,8 @@ class ChatService:
             uploaded_images=payload.images,
             runtime_principal=_runtime_principal(identity, user_id=conversation.user_id),
             approval_callback=persist_approval,
+            resolved_config=resolved_harness_config,
+            route_decision=route_decision,
         )
         context = await harness.assemble_context(
             str(payload.session_id),

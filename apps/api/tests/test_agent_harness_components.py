@@ -18,9 +18,11 @@ from gerclaw_api.modules.agent_harness.evolution_signals import EvolutionSignal
 from gerclaw_api.modules.agent_harness.planning import DynamicPlan, PlanNode
 from gerclaw_api.modules.agent_harness.plugin_runtime import PluginManifest
 from gerclaw_api.modules.agent_harness.routing import (
+    DeterministicRouter,
     RouteDecision,
     RouteKind,
     RoutingInput,
+    RoutingPolicy,
 )
 from gerclaw_api.modules.agent_harness.run_lifecycle import (
     CanonicalTextStream,
@@ -153,6 +155,43 @@ def test_routing_contract_is_versioned_and_forbids_unknown_fields() -> None:
         )
     with pytest.raises(ValidationError):
         RoutingInput(message="hello", unexpected=True)  # type: ignore[call-arg]
+
+
+def test_deterministic_router_covers_quick_standard_deep_and_emergency() -> None:
+    router = DeterministicRouter(
+        RoutingPolicy(
+            quick_max_characters=80,
+            deep_min_characters=1_000,
+            deep_attachment_count=2,
+            deep_capability_count=2,
+        )
+    )
+
+    assert router.decide(RoutingInput(message="1 + 1 = ?")).route is RouteKind.QUICK
+    assert router.decide(
+        RoutingInput(message="老人最近头晕", medical_content=True)
+    ).route is RouteKind.STANDARD
+    assert router.decide(
+        RoutingInput(
+            message="请综合评估并生成报告",
+            medical_content=True,
+        )
+    ).route is RouteKind.DEEP
+    assert router.decide(
+        RoutingInput(
+            message="请使用能力",
+            selected_capabilities=("gerclaw.cga", "gerclaw.medication_review"),
+        )
+    ).route is RouteKind.DEEP
+    emergency = router.decide(
+        RoutingInput(
+            message="您好",
+            selected_capabilities=("gerclaw.cga", "gerclaw.medication_review"),
+            high_risk_detected=True,
+        )
+    )
+    assert emergency.route is RouteKind.EMERGENCY
+    assert emergency.model_allowed is False
 
 
 def test_resolved_config_is_validated_and_immutable() -> None:

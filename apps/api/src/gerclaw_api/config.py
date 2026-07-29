@@ -129,6 +129,10 @@ class Settings(BaseSettings):
     agent_approval_ttl_seconds: int = Field(default=900, ge=60, le=86_400)
     agent_context_trigger_ratio: float = Field(default=0.85, gt=0, lt=1)
     agent_context_reserve_ratio: float = Field(default=0.2, gt=0, lt=1)
+    agent_quick_route_max_characters: int = Field(default=160, ge=1, le=1_000)
+    agent_deep_route_min_characters: int = Field(default=1_200, ge=100, le=4_000)
+    agent_deep_route_attachment_count: int = Field(default=2, ge=1, le=20)
+    agent_deep_route_capability_count: int = Field(default=2, ge=1, le=20)
     document_max_markdown_characters: int = Field(default=1_000_000, ge=10_000, le=2_000_000)
     # The five-prescription conversation may combine up to ten MinerU-extracted
     # reports.  This is a hard aggregate input budget, not a silent truncation
