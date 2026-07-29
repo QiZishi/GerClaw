@@ -90,6 +90,7 @@ from gerclaw_api.services.run_feedback_service import (
     RunFeedbackConflictError,
     RunFeedbackNotFoundError,
 )
+from gerclaw_api.services.run_recovery_service import StaleAgentRunReconciler
 from gerclaw_api.services.trace_service import (
     TraceConflictError,
     TraceNotFoundError,
@@ -159,6 +160,11 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             search_runtime=search_runtime,
         )
         try:
+            await StaleAgentRunReconciler(
+                database,
+                redis_client,
+                batch_size=resolved.agent_run_recovery_batch_size,
+            ).reconcile()
             yield
         finally:
             await chat_cancellations.aclose()

@@ -464,6 +464,8 @@ async def test_application_lifespan_owns_and_closes_every_runtime_dependency(
     model = FakeClosable()
     cancellation = FakeClosable()
     cancellation.start = AsyncMock()  # type: ignore[attr-defined]
+    reconciler = AsyncMock()
+    reconciler.reconcile = AsyncMock(return_value=0)
 
     monkeypatch.setattr(application, "configure_logging", lambda _level: None)
     monkeypatch.setattr(application, "configure_field_encryption", lambda **_kwargs: None)
@@ -476,6 +478,11 @@ async def test_application_lifespan_owns_and_closes_every_runtime_dependency(
     monkeypatch.setattr(application, "create_memory_store", lambda _settings, _qdrant: object())
     monkeypatch.setattr(application, "build_agentic_rag_middleware", lambda _module: object())
     monkeypatch.setattr(application, "ChatCancellationRegistry", lambda _redis: cancellation)
+    monkeypatch.setattr(
+        application,
+        "StaleAgentRunReconciler",
+        lambda *_args, **_kwargs: reconciler,
+    )
     monkeypatch.setattr(application, "FailoverChatModel", lambda _configs: model)
 
     app = application.create_app(make_settings(agent_model_configs=[]))
@@ -485,6 +492,7 @@ async def test_application_lifespan_owns_and_closes_every_runtime_dependency(
         assert app.state.qdrant is qdrant
         assert app.state.agent_model is model
         cancellation.start.assert_awaited_once()  # type: ignore[attr-defined]
+        reconciler.reconcile.assert_awaited_once()
 
     assert all(
         item.closed for item in (database, redis, qdrant, rag, search, voice, model, cancellation)

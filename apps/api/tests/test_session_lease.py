@@ -52,6 +52,10 @@ async def test_lease_acquires_rejects_competitor_and_releases_owner() -> None:
     lease = SessionLease(cast(Any, redis), ttl_seconds=60)
     session_id = uuid.uuid4()
     key = f"gerclaw:chat:lease:tenant_public0001:{session_id}"
+    assert key == SessionLease.key_for(
+        tenant_id="tenant_public0001",
+        session_id=session_id,
+    )
 
     async with lease.acquire(
         tenant_id="tenant_public0001", session_id=session_id, fencing_token=1

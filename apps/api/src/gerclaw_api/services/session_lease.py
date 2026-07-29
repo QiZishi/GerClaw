@@ -78,6 +78,12 @@ class SessionLease:
         self._redis = redis
         self._ttl_seconds = ttl_seconds
 
+    @staticmethod
+    def key_for(*, tenant_id: str, session_id: uuid.UUID) -> str:
+        """Return the sole shared key format used by workers and recovery."""
+
+        return f"gerclaw:chat:lease:{tenant_id}:{session_id}"
+
     @asynccontextmanager
     async def acquire(
         self,
@@ -88,7 +94,7 @@ class SessionLease:
     ) -> AsyncIterator[SessionLeaseGuard]:
         if fencing_token <= 0:
             raise ValueError("fencing_token must be positive")
-        key = f"gerclaw:chat:lease:{tenant_id}:{session_id}"
+        key = self.key_for(tenant_id=tenant_id, session_id=session_id)
         owner_value = f"{fencing_token}:{secrets.token_urlsafe(32)}"
         try:
             acquired = await self._redis.set(key, owner_value, nx=True, ex=self._ttl_seconds)
