@@ -1,32 +1,9 @@
 "use client";
 
 import { useState, useRef, useEffect, useLayoutEffect } from "react";
-import Image from "next/image";
-import {
-  Check,
-  ClipboardCheck,
-  FileSearch,
-  ImageIcon,
-  Mic,
-  Paperclip,
-  Pill,
-  SendHorizonal,
-  Square,
-  UserRound,
-  X,
-} from "lucide-react";
 import { Button } from "@/components/ui/button";
-import {
-  Tooltip,
-  TooltipContent,
-  TooltipTrigger,
-} from "@/components/ui/tooltip";
 import { useAppStore } from "@/stores/appStore";
 import { useSkillStore } from "@/stores/skillStore";
-import { SkillTag } from "@/components/skills/SkillTag";
-import { SkillSelector } from "@/components/skills/SkillSelector";
-import { FileTag } from "@/components/document/FileTag";
-import { DocumentToolCard } from "@/components/document/DocumentToolCard";
 import { replaceSessionSkills } from "@/services/gerclaw/skills";
 import { INPUT_LIMITS, MEDICAL_DISCLAIMER, ALLOWED_IMAGE_MIME_TYPES } from "@/lib/constants";
 import { toast } from "@/components/ui/toast";
@@ -44,15 +21,17 @@ import {
   DialogFooter,
   DialogClose,
 } from "@/components/ui/dialog";
-import type { FileTag as UploadFileTag, ImageAttachment, Role } from "@/types";
-
-interface PendingImage {
-  id: string;
-  mimeType: string;
-  base64: string;
-  previewUrl: string;
-  alt?: string;
-}
+import type { FileTag as UploadFileTag, ImageAttachment } from "@/types";
+import {
+  ComposerAttachmentTray,
+  type PendingComposerImage as PendingImage,
+} from "@/components/chat/composer/ComposerAttachmentTray";
+import {
+  ComposerToolbar,
+  type ComposerAction,
+} from "@/components/chat/composer/ComposerToolbar";
+import { ComposerRecordingPanel } from "@/components/chat/composer/ComposerRecordingPanel";
+import { ComposerSubmitControl } from "@/components/chat/composer/ComposerSubmitControl";
 
 export interface ChatDocumentAttachment {
   localId: string;
@@ -89,34 +68,6 @@ interface ChatInputProps {
   placeholderOverride?: string;
 }
 
-function WaveformBars({ audioLevel }: { audioLevel: number }) {
-  const barCount = 28;
-  return (
-    <div className="flex items-center justify-center gap-[3px] flex-1 px-4 overflow-hidden">
-      {Array.from({ length: barCount }).map((_, i) => {
-        const centerDist = Math.abs(i - barCount / 2) / (barCount / 2);
-        const baseHeight = 4 + (1 - centerDist) * 8;
-        const levelMultiplier = 0.4 + audioLevel * 1.8;
-        const height = Math.min(baseHeight * levelMultiplier, 28);
-        const scaleY = Math.max(height / 28, 0.06);
-        const isActive = audioLevel > 0.05;
-        return (
-          <div
-            key={i}
-            className={cn(
-              "h-7 w-[3px] origin-center rounded-full transition-[transform,background-color] duration-100 ease-[var(--motion-ease-out)] motion-reduce:transition-none",
-              isActive ? "bg-gray-800 dark:bg-gray-200" : "bg-gray-300 dark:bg-gray-600"
-            )}
-            style={{
-              transform: `scaleY(${scaleY})`,
-            }}
-          />
-        );
-      })}
-    </div>
-  );
-}
-
 const ALLOWED_FILE_EXT = [".pdf", ".docx", ".md", ".txt", ".png", ".jpg", ".jpeg", ".gif", ".webp"];
 const ALLOWED_FILE_MIME = [
   "application/pdf",
@@ -139,155 +90,6 @@ function documentMediaType(file: File): string | null {
   if (extension === "md") return "text/markdown";
   if (extension === "txt") return "text/plain";
   return null;
-}
-
-function FunctionButtonGroup({
-  disabled,
-  role,
-  mounted,
-  seniorMode,
-  onSetChatAction,
-  onPickImage,
-  onPickFile,
-  prescriptionConversation,
-  isGuest,
-}: {
-  disabled: boolean;
-  role: Role;
-  mounted: boolean;
-  seniorMode: boolean;
-  onSetChatAction: (action: "prescription" | "cga" | "drug-review" | "health-profile") => void;
-  onPickImage: () => void;
-  onPickFile: () => void;
-  prescriptionConversation: boolean;
-  isGuest: boolean;
-}) {
-  const isDoctor = mounted && role === "doctor";
-  return (
-    <div className="flex min-w-0 flex-1 items-center gap-1 overflow-x-auto overscroll-x-contain pb-1">
-      <Tooltip>
-        <TooltipTrigger
-          render={
-            <Button
-              variant="ghost"
-              size={seniorMode ? "default" : "icon"}
-              className={cn("btn-icon shrink-0", seniorMode && "order-1 h-12 gap-2 px-3 text-base")}
-              onClick={onPickImage}
-              aria-label="上传图片"
-              disabled={disabled}
-            />
-          }
-        >
-          <ImageIcon className="size-4" />
-          {seniorMode && <span>图片</span>}
-        </TooltipTrigger>
-        <TooltipContent>上传图片</TooltipContent>
-      </Tooltip>
-      <Tooltip>
-        <TooltipTrigger
-          render={
-            <Button
-              variant="ghost"
-              size={seniorMode ? "default" : "icon"}
-              className={cn("btn-icon shrink-0", seniorMode && "order-2 h-12 gap-2 px-3 text-base")}
-              onClick={onPickFile}
-              aria-label="上传文件或图片"
-              disabled={disabled}
-            />
-          }
-        >
-          <Paperclip className="size-4" />
-          {seniorMode && <span>文件</span>}
-        </TooltipTrigger>
-        <TooltipContent>上传文件（PDF/DOCX/MD/图片）</TooltipContent>
-      </Tooltip>
-      {!isGuest && !prescriptionConversation && <SkillSelector showLabel={seniorMode}>
-        <Button
-          variant="ghost"
-          size={seniorMode ? "default" : "icon"}
-          className={cn("btn-icon shrink-0", seniorMode && "order-3 h-12 min-w-24 px-4 text-lg")}
-          aria-label="选择当前对话的临床技能"
-          disabled={disabled}
-        />
-      </SkillSelector>}
-      {!prescriptionConversation && <Tooltip>
-        <TooltipTrigger
-          render={
-            <Button
-              variant="ghost"
-              size={seniorMode ? "default" : "icon"}
-              className={cn("btn-icon shrink-0", seniorMode && "order-4 h-12 gap-2 px-3 text-base")}
-              onClick={() => onSetChatAction("prescription")}
-              aria-label="五大处方信息收集"
-              disabled={disabled}
-            />
-          }
-        >
-          <Pill className="size-4" />
-          {seniorMode && <span>处方信息</span>}
-        </TooltipTrigger>
-        <TooltipContent>五大处方信息收集</TooltipContent>
-      </Tooltip>}
-      {!prescriptionConversation && <Tooltip>
-        <TooltipTrigger
-          render={
-            <Button
-              variant="ghost"
-              size={seniorMode ? "default" : "icon"}
-              className={cn("btn-icon shrink-0", seniorMode && "order-5 h-12 gap-2 px-3 text-base")}
-              onClick={() => onSetChatAction("cga")}
-              aria-label="老年综合评估"
-              disabled={disabled}
-            />
-          }
-        >
-          <ClipboardCheck className="size-4" />
-          {seniorMode && <span>评估</span>}
-        </TooltipTrigger>
-        <TooltipContent>老年综合评估</TooltipContent>
-      </Tooltip>}
-      {!prescriptionConversation && isDoctor && (
-        <Tooltip>
-          <TooltipTrigger
-            render={
-              <Button
-                variant="ghost"
-                size={seniorMode ? "default" : "icon"}
-                className={cn("btn-icon shrink-0", seniorMode && "order-6 h-12 gap-2 px-3 text-base")}
-                onClick={() => onSetChatAction("drug-review")}
-                aria-label="用药信息收集"
-                disabled={disabled}
-              />
-            }
-          >
-            <FileSearch className="size-4" />
-            {seniorMode && <span>用药信息</span>}
-          </TooltipTrigger>
-          <TooltipContent>用药信息收集</TooltipContent>
-        </Tooltip>
-      )}
-      {!prescriptionConversation && mounted && role === "patient" && (
-        <Tooltip>
-          <TooltipTrigger
-            render={
-              <Button
-                variant="ghost"
-                size={seniorMode ? "default" : "icon"}
-                className={cn("btn-icon shrink-0", seniorMode && "order-7 h-12 gap-2 px-3 text-base")}
-                onClick={() => onSetChatAction("health-profile")}
-                aria-label="查看我的健康记录"
-                disabled={disabled}
-              />
-            }
-          >
-            <UserRound className="size-4" />
-            {seniorMode && <span>档案</span>}
-          </TooltipTrigger>
-          <TooltipContent>查看我的健康记录</TooltipContent>
-        </Tooltip>
-      )}
-    </div>
-  );
 }
 
 export function ChatInput({
@@ -314,7 +116,7 @@ export function ChatInput({
   const isOnline = useAppStore((s) => s.isOnline);
   const asrAvailable = useAppStore((s) => s.asrAvailable);
 
-  const handleStartAction = (action: "prescription" | "cga" | "drug-review" | "health-profile") => {
+  const handleStartAction = (action: ComposerAction) => {
     if (onStartAction) {
       onStartAction(action);
       return;
@@ -873,110 +675,32 @@ export function ChatInput({
 
   if (isRecording) {
     return (
-      <div className="border-t border-border bg-background px-4 py-3">
-        <div className="max-w-3xl mx-auto">
-          <div className="flex items-center gap-3 rounded-xl bg-muted/70 px-3 py-3">
-            <button
-              type="button"
-              onClick={handleRecordingCancel}
-              className={cn(
-                "flex items-center justify-center shrink-0 rounded-full bg-gray-200 dark:bg-gray-700 text-gray-600 dark:text-gray-300 hover:bg-gray-300 dark:hover:bg-gray-600 transition-colors",
-                seniorMode ? "size-14" : "size-11"
-              )}
-              aria-label="取消录音"
-            >
-              <X className={cn(seniorMode ? "size-6" : "size-5")} />
-            </button>
-
-            <WaveformBars audioLevel={audioLevel} />
-
-            <span className={cn(
-              "shrink-0 tabular-nums font-medium text-gray-700 dark:text-gray-300 min-w-[48px] text-center",
-              seniorMode ? "text-xl" : "text-lg"
-            )}>
-              {formatDuration(recordingDuration)}
-            </span>
-
-            <button
-              type="button"
-              onClick={handleRecordingFinish}
-              className={cn(
-                "flex items-center justify-center shrink-0 rounded-full transition-colors",
-                seniorMode ? "size-14" : "size-11",
-                "bg-indigo-600 hover:bg-indigo-700 text-white"
-              )}
-              aria-label="完成录音"
-            >
-              <Check className={cn(seniorMode ? "size-6" : "size-5")} strokeWidth={3} />
-            </button>
-          </div>
-        </div>
-      </div>
+      <ComposerRecordingPanel
+        audioLevel={audioLevel}
+        duration={formatDuration(recordingDuration)}
+        seniorMode={seniorMode}
+        onCancel={handleRecordingCancel}
+        onFinish={() => void handleRecordingFinish()}
+      />
     );
   }
 
   return (
     <div className="border-t border-border bg-background px-4 py-3">
       <div className="max-w-3xl mx-auto">
-        {(!companionMode && (loadedSkillIds.length > 0 || pendingImages.length > 0 || pendingDocuments.length > 0)) && (
-          <div className="flex flex-wrap gap-2 mb-2">
-            {pendingDocuments.map((file) => (
-              <div key={file.id} className="min-w-0 space-y-2">
-                {file.status === "done" ? (
-                  <DocumentToolCard
-                    data={file}
-                    onRemove={(id) => removePendingDocument(id)}
-                  />
-                ) : (
-                  <FileTag
-                    data={file}
-                    onRetry={file.status === "failed" ? retryPendingDocument : undefined}
-                    onCancel={file.status === "parsing" ? cancelPendingDocument : undefined}
-                    onRemove={file.status === "failed" ? (id) => void removePendingDocument(id) : undefined}
-                  />
-                )}
-              </div>
-            ))}
-            {pendingImages.map((img) => (
-              <div key={img.id} className="relative size-16 group">
-                <Image
-                  src={img.previewUrl}
-                  alt={img.alt ?? "上传图片"}
-                  fill
-                  sizes="64px"
-                  unoptimized
-                  className="rounded-md border border-border object-cover"
-                />
-                <button
-                  type="button"
-                  onClick={() => removePendingImage(img.id)}
-                  className={cn(
-                    "absolute -top-1.5 -right-1.5 size-5 rounded-full bg-destructive text-destructive-foreground flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity shadow",
-                    seniorMode && "static mt-1 min-h-12 w-full gap-1 rounded-md px-2 text-base opacity-100"
-                  )}
-                  aria-label="移除图片"
-                >
-                  <X className="size-3" />
-                  {seniorMode && <span>移除图片</span>}
-                </button>
-              </div>
-            ))}
-            {loadedSkillIds.map((id) => (
-              <SkillTag
-                key={id}
-                skill={
-                  availableSkills.find((skill) => skill.skill_id === id) ?? {
-                    skill_id: id,
-                    name: "正在读取技能",
-                    source: "builtin",
-                  }
-                }
-                removable
-                onRemove={(skillId) => void handleRemoveLoadedSkill(skillId)}
-                className={cn(seniorMode && "min-h-12 px-3 text-lg")}
-              />
-            ))}
-          </div>
+        {!companionMode && (
+          <ComposerAttachmentTray
+            documents={pendingDocuments}
+            images={pendingImages}
+            loadedSkillIds={loadedSkillIds}
+            availableSkills={availableSkills}
+            seniorMode={seniorMode}
+            onCancelDocument={cancelPendingDocument}
+            onRetryDocument={retryPendingDocument}
+            onRemoveDocument={(id) => void removePendingDocument(id)}
+            onRemoveImage={removePendingImage}
+            onRemoveSkill={(id) => void handleRemoveLoadedSkill(id)}
+          />
         )}
         {!companionMode && hasUnboundParsedDocuments && (
           <p className={cn("mb-2 rounded-lg border border-primary/20 bg-primary/5 px-3 py-2 text-muted-foreground", seniorMode ? "text-lg leading-8" : "text-sm")} role="status">
@@ -1027,12 +751,12 @@ export function ChatInput({
                 仅使用当前对话，不读取健康档案、资料或技能
               </p>
             ) : (
-              <FunctionButtonGroup
+              <ComposerToolbar
                 disabled={isTranscribing || contextLoading || isSending}
                 role={role}
                 mounted={mounted}
                 seniorMode={seniorMode}
-                onSetChatAction={handleStartAction}
+                onAction={handleStartAction}
                 onPickImage={handleImageSelect}
                 onPickFile={handleFileSelect}
                 prescriptionConversation={prescriptionConversation}
@@ -1041,86 +765,20 @@ export function ChatInput({
             )}
 
             <div className="flex items-center gap-1">
-              {isGenerating ? (
-                <Tooltip>
-                  <TooltipTrigger
-                    render={
-                      <Button
-                        variant="destructive"
-                        size={seniorMode ? "default" : "icon"}
-                        className={cn("btn-icon", seniorMode && "h-12 gap-2 px-3 text-base")}
-                        onClick={onStop}
-                        aria-label="停止生成"
-                      />
-                    }
-                  >
-                  <Square className="size-4 fill-current" />
-                  {seniorMode && <span>停止</span>}
-                  </TooltipTrigger>
-                  <TooltipContent>停止生成</TooltipContent>
-                </Tooltip>
-              ) : isTranscribing ? (
-                <div className="flex items-center gap-2 px-1" role="status" aria-live="polite">
-                  <span className={cn("whitespace-nowrap text-primary", seniorMode ? "text-lg" : "text-sm")}>
-                    正在识别语音
-                  </span>
-                  <Button
-                    type="button"
-                    variant="outline"
-                    size={seniorMode ? "default" : "sm"}
-                    className={cn("shrink-0", seniorMode && "min-h-12 px-3 text-base")}
-                    onClick={handleTranscriptionCancel}
-                  >
-                    取消识别
-                  </Button>
-                </div>
-              ) : text.trim() || (pendingImages.length > 0 && !hasUnboundParsedDocuments) ? (
-                <Tooltip>
-                  <TooltipTrigger
-                    render={
-                      <Button
-                        variant="default"
-                        size={seniorMode ? "default" : "icon"}
-                        className={cn("btn-icon", seniorMode && "h-12 gap-2 px-3 text-base")}
-                        onClick={() => void handleSend()}
-                        aria-label={isSending ? "正在提交" : "发送"}
-                        disabled={!isOnline || contextLoading || isSending}
-                      />
-                    }
-                  >
-                  <SendHorizonal className="size-4" />
-                  {seniorMode && <span>发送</span>}
-                  </TooltipTrigger>
-                  <TooltipContent>
-                    {!isOnline ? "网络已断开，请检查网络连接" : "发送"}
-                  </TooltipContent>
-                </Tooltip>
-              ) : (
-                <Tooltip>
-                  <TooltipTrigger
-                    render={
-                      <Button
-                        variant="ghost"
-                        size={seniorMode ? "default" : "icon"}
-                        className={cn("btn-icon", seniorMode && "h-12 gap-2 px-3 text-base")}
-                        onClick={handleMicStart}
-                        aria-label={micDisabled ? "语音服务暂时不可用" : "语音输入"}
-                        disabled={micDisabled}
-                      />
-                    }
-                  >
-                  <Mic className={cn(seniorMode ? "size-5" : "size-4")} />
-                  {seniorMode && <span>说话</span>}
-                  </TooltipTrigger>
-                  <TooltipContent>
-                    {!isOnline 
-                      ? "网络已断开，语音服务暂不可用" 
-                      : !asrAvailable 
-                        ? "语音服务暂时不可用" 
-                        : "语音输入"}
-                  </TooltipContent>
-                </Tooltip>
-              )}
+              <ComposerSubmitControl
+                isGenerating={Boolean(isGenerating)}
+                isTranscribing={isTranscribing}
+                isSending={isSending}
+                canSend={Boolean(text.trim()) || (pendingImages.length > 0 && !hasUnboundParsedDocuments)}
+                isOnline={isOnline}
+                asrAvailable={asrAvailable}
+                micDisabled={micDisabled}
+                seniorMode={seniorMode}
+                onSend={() => void handleSend()}
+                onStop={onStop}
+                onMicStart={() => void handleMicStart()}
+                onCancelTranscription={handleTranscriptionCancel}
+              />
             </div>
           </div>
         </div>
