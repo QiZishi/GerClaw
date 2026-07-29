@@ -52,6 +52,44 @@ def test_every_component_has_agent_instructions_and_reader_documentation() -> No
         assert (root / component / "README.md").is_file()
 
 
+def test_root_harness_is_a_small_compatibility_facade() -> None:
+    root = (
+        Path(__file__).parents[1]
+        / "src"
+        / "gerclaw_api"
+        / "modules"
+        / "agent_harness"
+    )
+    facade = (root / "harness.py").read_text(encoding="utf-8")
+
+    assert len(facade.splitlines()) <= 100
+    for concrete_owner in (
+        "FailoverChatModel",
+        "HybridRAGModule",
+        "ProductionMemoryModule",
+        "GovernedToolRegistry",
+    ):
+        assert concrete_owner not in facade
+
+
+def test_component_packages_do_not_read_environment_directly() -> None:
+    root = (
+        Path(__file__).parents[1]
+        / "src"
+        / "gerclaw_api"
+        / "modules"
+        / "agent_harness"
+    )
+
+    for component in _COMPONENTS:
+        source = "\n".join(
+            path.read_text(encoding="utf-8")
+            for path in (root / component).glob("*.py")
+        )
+        assert "os.getenv(" not in source
+        assert "os.environ[" not in source
+
+
 def test_component_injection_bundle_is_independently_constructible() -> None:
     components = HarnessComponents()
 
