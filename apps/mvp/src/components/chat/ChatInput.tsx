@@ -8,8 +8,6 @@ import { replaceSessionSkills } from "@/services/gerclaw/skills";
 import { INPUT_LIMITS, MEDICAL_DISCLAIMER, ALLOWED_IMAGE_MIME_TYPES } from "@/lib/constants";
 import { toast } from "@/components/ui/toast";
 import { cn } from "@/lib/utils";
-import { useAudioRecorder } from "@/hooks/useAudioRecorder";
-import { recognizeAudio } from "@/services/voice/asr";
 import {
   Dialog,
   DialogContent,
@@ -31,6 +29,10 @@ import {
   useComposerAttachments,
 } from "@/components/chat/composer/useComposerAttachments";
 import { shouldSubmitComposerKey } from "@/components/chat/composer/composer-contract";
+import {
+  formatRecordingDuration,
+  useComposerVoice,
+} from "@/components/chat/composer/useComposerVoice";
 import type {
   ChatDocumentAttachment,
   ChatSendAccepted,
@@ -91,11 +93,9 @@ export function ChatInput({
   };
 
   const [text, setText] = useState("");
-  const [isTranscribing, setIsTranscribing] = useState(false);
   const [selectedCapabilityIds, setSelectedCapabilityIds] = useState<string[]>([]);
   const previousSessionIdRef = useRef<string | undefined>(currentSessionId);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
-  const transcriptionAbortRef = useRef<AbortController | null>(null);
   const {
     pendingImages,
     pendingDocuments,
@@ -119,6 +119,25 @@ export function ChatInput({
     buildDocuments,
     applyDocumentBindings,
   } = useComposerAttachments(currentSessionId);
+  const {
+    isRecording,
+    recordingDuration,
+    audioLevel,
+    isTranscribing,
+    micDisabled,
+    resetVoice,
+    startVoice,
+    cancelVoice,
+    finishVoice,
+    cancelTranscription,
+  } = useComposerVoice({
+    textAreaRef: textareaRef,
+    setText,
+    isOnline,
+    asrAvailable,
+    isGenerating: Boolean(isGenerating),
+    isSending,
+  });
 
   const handleRemoveLoadedSkill = async (id: string) => {
     const next = loadedSkillIds.filter((skillId) => skillId !== id);
@@ -140,17 +159,6 @@ export function ChatInput({
     }
   }, [loadedSkillIds.length, refreshSkills, skillStatus]);
 
-  const {
-    isRecording,
-    recordingDuration,
-    audioLevel,
-    startRecording,
-    stopRecording,
-    cancelRecording,
-  } = useAudioRecorder();
-
-  const micDisabled = !isOnline || !asrAvailable || isTranscribing || isGenerating || isSending;
-
   useLayoutEffect(() => {
     const previousSessionId = previousSessionIdRef.current;
     previousSessionIdRef.current = currentSessionId;
@@ -160,10 +168,7 @@ export function ChatInput({
     resetAttachments();
     setSelectedCapabilityIds([]);
     setText("");
-    transcriptionAbortRef.current?.abort();
-    transcriptionAbortRef.current = null;
-    setIsTranscribing(false);
-    cancelRecording();
+    resetVoice();
     if (textareaRef.current) {
       textareaRef.current.style.height = "52px";
     }
@@ -171,20 +176,14 @@ export function ChatInput({
       toast.show("已切换会话，未发送的文字、图片和文档已清空；原会话资料不会自动带入新对话");
     }
   }, [
-    cancelRecording,
     currentSessionId,
     hasAttachments,
     isRecording,
     isTranscribing,
     resetAttachments,
+    resetVoice,
     text,
   ]);
-
-  useEffect(() => {
-    return () => {
-      transcriptionAbortRef.current?.abort();
-    };
-  }, []);
 
   useEffect(() => {
     if (textareaRef.current) {
@@ -262,83 +261,14 @@ export function ChatInput({
     ta.style.height = `${Math.max(52, Math.min(ta.scrollHeight, 200))}px`;
   };
 
-  const formatDuration = (seconds: number): string => {
-    const m = Math.floor(seconds / 60);
-    const s = seconds % 60;
-    return `${m}:${s.toString().padStart(2, "0")}`;
-  };
-
-  const handleMicStart = async () => {
-    if (isTranscribing || isGenerating) return;
-    try {
-      await startRecording();
-    } catch (err) {
-      const message = err instanceof Error ? err.message : "无法启动录音";
-      toast.show(message);
-    }
-  };
-
-  const handleRecordingCancel = () => {
-    try {
-      cancelRecording();
-    } catch {
-      toast.show("取消录音失败");
-    }
-  };
-
-  const handleTranscriptionCancel = () => {
-    const controller = transcriptionAbortRef.current;
-    if (!controller) return;
-    controller.abort();
-    transcriptionAbortRef.current = null;
-    setIsTranscribing(false);
-    toast.show("已取消语音识别，您可以继续编辑或重新录音。");
-  };
-
-  const handleRecordingFinish = async () => {
-    try {
-      const blob = await stopRecording();
-      const controller = new AbortController();
-      transcriptionAbortRef.current = controller;
-      setIsTranscribing(true);
-      try {
-        const recognizedText = await recognizeAudio(blob, controller.signal);
-        if (!controller.signal.aborted && recognizedText) {
-          setText((prev) => {
-            const newText = prev ? prev + " " + recognizedText : recognizedText;
-            return newText.slice(0, INPUT_LIMITS.maxMessageLength);
-          });
-          setTimeout(() => {
-            if (textareaRef.current) {
-              textareaRef.current.style.height = "auto";
-              textareaRef.current.style.height = `${Math.max(52, Math.min(textareaRef.current.scrollHeight, 200))}px`;
-              textareaRef.current.focus();
-            }
-          }, 50);
-        }
-      } catch {
-        if (!controller.signal.aborted) {
-          toast.show("语音识别失败，请重试");
-        }
-      } finally {
-        if (transcriptionAbortRef.current === controller) {
-          transcriptionAbortRef.current = null;
-          setIsTranscribing(false);
-        }
-      }
-    } catch {
-      toast.show("录音失败，请重试");
-    }
-  };
-
   if (isRecording) {
     return (
       <ComposerRecordingPanel
         audioLevel={audioLevel}
-        duration={formatDuration(recordingDuration)}
+        duration={formatRecordingDuration(recordingDuration)}
         seniorMode={seniorMode}
-        onCancel={handleRecordingCancel}
-        onFinish={() => void handleRecordingFinish()}
+        onCancel={cancelVoice}
+        onFinish={() => void finishVoice()}
       />
     );
   }
@@ -482,8 +412,8 @@ export function ChatInput({
                 seniorMode={seniorMode}
                 onSend={() => void handleSend()}
                 onStop={onStop}
-                onMicStart={() => void handleMicStart()}
-                onCancelTranscription={handleTranscriptionCancel}
+                onMicStart={() => void startVoice()}
+                onCancelTranscription={cancelTranscription}
               />
             </div>
           </div>
