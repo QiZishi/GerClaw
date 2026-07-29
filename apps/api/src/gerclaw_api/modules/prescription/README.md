@@ -94,6 +94,13 @@ recordable, and deterministic medication rules still run when a current list is
 available. The private TreatmentContext is never returned by the API or written to
 PHI-free Trace payloads.
 
+Medication-action enforcement uses the code-owned `MedicationActionClassifier`,
+which normalizes start, stop, replacement and dose-change aliases such as
+`改为`, `换成`, `改用`, `停药`, explicit dose changes and a newly proposed
+dose-frequency regimen. Negated or conditional guardrails remain visible. A regimen
+in `medication_items` is accepted as a record only when it matches the caller's
+current-medication input; it is not treated as permission to recommend that regimen.
+
 Both roles receive the complete cited candidate; the report ends with one unified
 risk notice. The model cannot create, override or explain deterministic rule findings.
 

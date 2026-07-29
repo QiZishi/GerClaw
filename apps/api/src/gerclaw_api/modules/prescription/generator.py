@@ -34,6 +34,10 @@ from gerclaw_api.modules.medication_review.rules_engine import (
     MedicationRulesInputError,
     review_medication_list,
 )
+from gerclaw_api.modules.prescription.medication_actions import (
+    MedicationActionClassifier,
+    is_reported_medication_record,
+)
 from gerclaw_api.modules.prescription.models import (
     FIVE_PRESCRIPTION_MODEL_OUTPUT_SCHEMA_VERSION,
     EvidenceSource,
@@ -214,6 +218,7 @@ class EvidenceBoundPrescriptionGenerator:
             self._reject_unsupported_medication_directives(
                 draft,
                 actionable_medication_allowed=gate.actionable_treatment_allowed,
+                reported_medications=prepared.answers.get("current_medications", ""),
             )
             return draft
         except (ValidationError, UnattributableMedicationDirectiveError):
@@ -590,6 +595,7 @@ class EvidenceBoundPrescriptionGenerator:
         draft: FivePrescriptionDraft,
         *,
         actionable_medication_allowed: bool,
+        reported_medications: str,
     ) -> None:
         """Require evidence-bound recommendation slots for medication changes.
 
@@ -599,13 +605,18 @@ class EvidenceBoundPrescriptionGenerator:
         fields have neither guarantee and must fail closed.
         """
 
-        directive_terms = ("开始", "停用", "加用", "减量", "增量", "替换", "调剂量", "调整剂量")
-        negation_markers = ("不", "勿", "禁", "避免", "未")
+        classifier = MedicationActionClassifier()
         uncited_fields = (
-            *draft.medication.medication_items,
             *draft.medication.monitoring_requirements,
             *draft.medication.precautions,
         )
+        for field in draft.medication.medication_items:
+            if is_reported_medication_record(field, reported_medications):
+                continue
+            if classifier.classify(field, include_regimen=True):
+                raise UnattributableMedicationDirectiveError(
+                    "medication change candidate lacks evidence or STEP prerequisites"
+                )
         fields = list(uncited_fields)
         if not actionable_medication_allowed:
             fields.extend(
@@ -613,22 +624,13 @@ class EvidenceBoundPrescriptionGenerator:
                 for recommendation in draft.medication.recommendations
             )
         for field in fields:
-            for clause in re.split(r"[。；;\n]", field):
-                for term in directive_terms:
-                    for match in re.finditer(re.escape(term), clause):
-                        # A conditional risk notice (for example, "涉及停用或
-                        # 减量时") describes a review boundary, not a medication
-                        # proposal. It must stay visible rather than triggering
-                        # a false safety failure.
-                        prefix = clause[max(0, match.start() - 12) : match.start()]
-                        suffix = clause[match.end() : match.end() + 12]
-                        if any(marker in prefix for marker in negation_markers):
-                            continue
-                        if "涉及" in prefix and "时" in suffix:
-                            continue
-                        raise UnattributableMedicationDirectiveError(
-                            "medication change candidate lacks evidence or STEP prerequisites"
-                        )
+            if classifier.classify(
+                field,
+                include_regimen=not actionable_medication_allowed,
+            ):
+                raise UnattributableMedicationDirectiveError(
+                    "medication change candidate lacks evidence or STEP prerequisites"
+                )
 
     @staticmethod
     def _treatment_context(prepared: PreparedPrescriptionInput) -> TreatmentContext:

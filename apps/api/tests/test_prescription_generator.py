@@ -319,6 +319,43 @@ async def test_generator_blocks_medication_candidate_when_step_prerequisites_are
     assert "开始服用某药" not in draft.model_dump_json()
 
 
+@pytest.mark.parametrize(
+    "directive",
+    [
+        "把阿司匹林改为氯吡格雷75mg每日一次。",
+        "建议换成氯吡格雷。",
+        "建议改用氯吡格雷。",
+        "建议停药。",
+        "阿司匹林剂量上调至100mg每日一次。",
+        "氯吡格雷75mg每日一次。",
+    ],
+)
+@pytest.mark.asyncio
+async def test_generator_blocks_medication_action_aliases_without_step_prerequisites(
+    directive: str,
+) -> None:
+    proposal = _content().model_copy(
+        update={
+            "medication": _content().medication.model_copy(
+                update={
+                    "recommendations": (
+                        _content()
+                        .medication.recommendations[0]
+                        .model_copy(update={"content": directive}),
+                    )
+                }
+            )
+        }
+    )
+
+    draft = await EvidenceBoundPrescriptionGenerator(
+        model=_Model(proposal), rag_module=_RAG([_result()])
+    ).generate(_prepared())  # type: ignore[arg-type]
+
+    assert "基础待审核草案" in draft.health_assessment.summary
+    assert directive not in draft.model_dump_json()
+
+
 @pytest.mark.asyncio
 async def test_generator_degrades_to_review_baseline_for_uncited_medication_change() -> None:
     unsupported = _content().model_copy(
