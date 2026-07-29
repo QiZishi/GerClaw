@@ -352,9 +352,11 @@ ClinicalState 限界、Context typed error 和 Planning 文档 P2 已在 ACCEPT 
   fail closed，不猜测或静默丢弃。regeneration 恢复按 source Run 读取原输入，不要求新 Run 的 Trace 与原
   Message Trace 相同。
 - 浏览器 transport 断开只分离 SSE consumer，不等同于用户取消；owner producer 继续持有 lease/fencing 并持久化
-  RunEvent。登录账户刷新后先重放公开事件：`running` Run 从最后 sequence 通过 GET stream 继续跟随，
-  `interrupted` Run 才显式 POST resume。前端按 Run ID 和单调 sequence 去重、拒绝跨 Run 游标；停止仍走显式取消协议。
-  访客历史按既有产品边界不跨页面恢复。
+  RunEvent。同一页面的 transport reconnect 从已渲染的最后 sequence 继续；页面刷新后的历史 hydration 没有渲染任何
+  RunEvent，因此 `running` Run 必须从 sequence 0 通过 GET stream 完整重建，避免 Run 恰在 history/recoverable
+  查询间完成时订阅到终态之后的空流。`interrupted` Run 才显式 POST resume；若恢复检查时 Run 已终态，则重新读取
+  PostgreSQL 消息。前端按 Run ID 和单调 sequence 去重、拒绝跨 Run 游标；停止仍走显式取消协议。访客历史按既有产品
+  边界不跨页面恢复。
 - 公共 SSE Pydantic 校验边界使用 `exclude_none` 投影可选字段，保证实时和重放 `tool_result` 与前端 Zod
   “缺省或有效值”合同一致；Schema 漂移继续 fail closed，不能把部分输出包装成成功。
 
@@ -368,6 +370,7 @@ ClinicalState 限界、Context typed error 和 Planning 文档 P2 已在 ACCEPT 
 公共 SSE 可选字段合同：30 targeted passed（`--no-cov`）
 应用与配置：47 passed
 前端 BFF/Run/聊天历史：21 + 2 + 7 passed
+刷新终态竞态策略：10 chat tests passed
 Ruff：All checks passed
 Mypy：Success: no issues found in 244 source files
 ESLint：0 warnings
@@ -386,6 +389,10 @@ Next production build：passed
   `done`，会话仍只有 user/assistant 各一条；
 - 首次真实普通医疗问题审计还发现 `tool_result` 可选字段被序列化成 `null` 的 Pydantic/Zod 漂移，修复并提交
   `87b743c` 后复验通过。另一次模型自主调用 `search_knowledge` 的失败如实落成唯一 `failed` Run，页面没有伪成功；
+- 独立复审发现 Run 恰在 refresh 查询期间完成时会丢弃已重放 `done` 并订阅空流，判定 P1、阶段 2 拒绝关闭。
+  `04c1bf2` 将历史恢复与实时 reconnect 的 cursor 所有权分开：运行中历史恢复从 0 重建，终态刷新数据库消息。
+  Playwright CLI 仅注入“history 尚无 assistant、recoverable 仍显示 running”的竞态快照，其余 Run read、SSE 和 UI
+  均走真实系统；请求确认 `GET /stream?after_sequence=0`，最终仍只有一条 user 和一条 assistant，console 0/0；
 - 桌面与 390×844 移动端均无横向溢出，console 0 error / 0 warning，后端无 ERROR、Traceback 或 5xx；
 - 证据：
   `output/playwright/stage2-resume/recovered-emergency.png`、
@@ -399,7 +406,12 @@ Next production build：passed
   `output/playwright/stage2-live-reconnect/console-success.txt`、
   `output/playwright/stage2-live-reconnect/durable-state-success.txt`、
   `output/playwright/stage2-live-reconnect/app-fixed.log` 和
-  `.playwright-cli/traces/trace-1785344802903.trace`。
+  `.playwright-cli/traces/trace-1785344802903.trace`。终态竞态证据为
+  `output/playwright/stage2-terminal-race/recovered-terminal-race.png`、
+  `output/playwright/stage2-terminal-race/requests.txt`、
+  `output/playwright/stage2-terminal-race/console.txt`、
+  `output/playwright/stage2-terminal-race/app.log` 和
+  `.playwright-cli/traces/trace-1785345955687.trace`。
 
 审计后已删除测试会话并停用精确测试账户，浏览器已关闭。移动端 sticky Composer 对较长急症卡的既有遮挡问题仍登记在
 阶段 5；本阶段未用恢复功能扩大 UI 重构范围。
