@@ -72,6 +72,45 @@ def test_root_harness_is_a_small_compatibility_facade() -> None:
         assert concrete_owner not in facade
 
 
+def test_run_lifecycle_depends_only_on_protocol_safe_boundaries() -> None:
+    root = (
+        Path(__file__).parents[1]
+        / "src"
+        / "gerclaw_api"
+        / "modules"
+        / "agent_harness"
+    )
+    source = "\n".join(
+        path.read_text(encoding="utf-8")
+        for path in (root / "run_lifecycle").glob("*.py")
+    )
+
+    for forbidden_owner in (
+        "gerclaw_api.modules.memory",
+        "gerclaw_api.modules.rag",
+        "gerclaw_api.modules.search",
+        "gerclaw_api.modules.runtime",
+        "gerclaw_api.modules.skill",
+        "gerclaw_api.modules.workflows",
+    ):
+        assert forbidden_owner not in source
+
+
+def test_composition_entry_is_bounded_after_component_extraction() -> None:
+    root = (
+        Path(__file__).parents[1]
+        / "src"
+        / "gerclaw_api"
+        / "modules"
+        / "agent_harness"
+    )
+    orchestrator = (root / "orchestrator.py").read_text(encoding="utf-8")
+
+    assert len(orchestrator.splitlines()) <= 800
+    assert "self._components.run_lifecycle" in orchestrator
+    assert "self._components.context_snapshot_assembler" in orchestrator
+
+
 def test_component_packages_do_not_read_environment_directly() -> None:
     root = (
         Path(__file__).parents[1]

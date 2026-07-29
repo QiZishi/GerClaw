@@ -12,6 +12,10 @@ from gerclaw_api.modules.agent_harness.plugin_runtime.contracts import (
     ToolRegistryFactory,
     ToolRegistryPort,
 )
+from gerclaw_api.modules.agent_harness.plugin_runtime.turn_toolkit import (
+    TurnToolkit,
+    build_turn_toolkit,
+)
 
 __all__ = [
     "ApprovalCallback",
@@ -22,4 +26,6 @@ __all__ = [
     "PluginRuntimeError",
     "ToolRegistryFactory",
     "ToolRegistryPort",
+    "TurnToolkit",
+    "build_turn_toolkit",
 ]

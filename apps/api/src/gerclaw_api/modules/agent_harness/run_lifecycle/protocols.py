@@ -18,3 +18,16 @@ class RunLifecycle(Protocol):
         evidence_available: Callable[[], bool],
     ) -> SafeSentenceBuffer:
         """Create an isolated medical sentence guard for one run."""
+
+
+class ProductionRunLifecycle:
+    """Stateless production factory for public stream guards."""
+
+    def canonical_stream(self) -> CanonicalTextStream:
+        return CanonicalTextStream()
+
+    def sentence_buffer(
+        self,
+        evidence_available: Callable[[], bool],
+    ) -> SafeSentenceBuffer:
+        return SafeSentenceBuffer(evidence_available)

@@ -52,5 +52,47 @@ class ContextSnapshotAssembler(Protocol):
         *,
         execution: ExecutionContext,
         history: tuple[ConversationHistoryMessage, ...],
+        system_instructions: tuple[str, ...],
+        tool_names: tuple[str, ...],
+        profile_ref: str | None,
+        profile_context: str,
+        profile_version: int,
+        memory_refs: tuple[str, ...],
+        session_summary: str,
+        loaded_skills: tuple[str, ...],
+        uploaded_files: tuple[str, ...],
     ) -> AgentContext:
         """Build one actor-scoped, bounded immutable snapshot."""
+
+
+class ProductionContextSnapshotAssembler:
+    """Construct the validated immutable snapshot from already scoped inputs."""
+
+    def assemble(
+        self,
+        *,
+        execution: ExecutionContext,
+        history: tuple[ConversationHistoryMessage, ...],
+        system_instructions: tuple[str, ...],
+        tool_names: tuple[str, ...],
+        profile_ref: str | None,
+        profile_context: str,
+        profile_version: int,
+        memory_refs: tuple[str, ...],
+        session_summary: str,
+        loaded_skills: tuple[str, ...],
+        uploaded_files: tuple[str, ...],
+    ) -> AgentContext:
+        return AgentContext(
+            execution=execution,
+            system_instructions=list(system_instructions),
+            tool_names=list(tool_names),
+            profile_ref=profile_ref,
+            profile_context=profile_context,
+            profile_version=profile_version,
+            memory_refs=list(memory_refs),
+            session_summary=session_summary,
+            loaded_skills=list(loaded_skills),
+            uploaded_files=list(uploaded_files),
+            conversation_history=list(history),
+        )

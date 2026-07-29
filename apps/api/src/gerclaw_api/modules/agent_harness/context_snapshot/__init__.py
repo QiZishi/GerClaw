@@ -5,6 +5,7 @@ from gerclaw_api.modules.agent_harness.context_snapshot.models import (
     ContextSnapshotAssembler,
     ContextSnapshotError,
     ConversationHistoryMessage,
+    ProductionContextSnapshotAssembler,
 )
 from gerclaw_api.modules.agent_harness.context_snapshot.uploaded_input import (
     UploadedInputProjector,
@@ -15,5 +16,6 @@ __all__ = [
     "ContextSnapshotAssembler",
     "ContextSnapshotError",
     "ConversationHistoryMessage",
+    "ProductionContextSnapshotAssembler",
     "UploadedInputProjector",
 ]

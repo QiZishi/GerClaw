@@ -6,8 +6,8 @@ import asyncio
 import re
 from collections.abc import AsyncIterator, Callable
 
+from gerclaw_api.modules.agent_harness.run_lifecycle.errors import AgentHarnessError
 from gerclaw_api.modules.agent_harness.safety import sanitize_medical_text
-from gerclaw_api.modules.runtime.budget import RuntimeBudgetExceededError
 
 _SENTENCE_END = re.compile(r"[。！？!?\n]")  # noqa: RUF001
 
@@ -16,6 +16,7 @@ async def bounded_events[EventT](
     events: AsyncIterator[EventT],
     *,
     wall_clock_seconds: float,
+    timeout_error_factory: Callable[[], Exception] | None = None,
 ) -> AsyncIterator[EventT]:
     """Cancel a stalled model/tool stream at the configured Runtime boundary."""
 
@@ -24,7 +25,12 @@ async def bounded_events[EventT](
             async for event in events:
                 yield event
     except TimeoutError as error:
-        raise RuntimeBudgetExceededError("RUNTIME_WALL_CLOCK_EXCEEDED") from error
+        public_error = (
+            timeout_error_factory()
+            if timeout_error_factory is not None
+            else AgentHarnessError("agent stream exceeded its wall-clock limit")
+        )
+        raise public_error from error
 
 
 class SafeSentenceBuffer:
