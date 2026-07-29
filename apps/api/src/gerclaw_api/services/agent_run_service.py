@@ -185,8 +185,9 @@ class AgentRunService:
                 occurred_at=occurred_at,
             )
             if updated is current:
+                result = self.to_public_run(run)
                 await self._repository.rollback()
-                return self.to_public_run(run)
+                return result
             run.status = updated.status.value
             run.revision = updated.revision
             run.warnings = list(updated.warnings)
