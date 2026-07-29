@@ -115,7 +115,7 @@ Web 前端以 `apps/mvp/` 为唯一实现入口，并通过同源 BFF 整合 `ap
 - `src/app/api/gerclaw/[...path]/route.ts` 只代理显式 allowlist 路径；访客 JWT 放在 HttpOnly/SameSite cookie，浏览器 JavaScript 不读取 token。
 - 浏览器在任何 BFF 请求前同步生成并持久化 32 位 visitor ID，同时随请求头发送；BFF 首次响应再写 HttpOnly visitor/JWT cookie。并发首请求因此使用同一身份输入，不会各自产生 actor A/B。独立 `GERCLAW_GUEST_IDENTITY_SECRET` 只在 BFF/FastAPI 间签名并稳定派生后端 `actor_id`；短期 JWT 到期不改变访客身份。
 - FastAPI SSE 必须出现 `done` 才视为成功；用户停止必须出现 `cancelled` 才视为服务端终态确认。连接提前结束、Schema 错误和工具失败均显式失败，不把部分输出包装成成功。
-- 登录账户刷新会话历史后，前端查询当前会话的 recoverable Run，先以 `after_sequence` 重放经过 Zod 校验的公开事件，再显式恢复同一 Run/Trace；新聊天与恢复共用同一 SSE parser 和取消协议。恢复中的 Run 只更新所属会话，不能劫持用户正在查看的其他会话。访客历史仍按既有边界不跨页面恢复。
+- 登录账户刷新会话历史后，前端查询当前会话的 recoverable Run，先以 `after_sequence` 重放经过 Zod 校验的公开事件；`running` Run 通过 GET stream 从最后 sequence 继续跟随，`interrupted` Run 才显式 POST resume。新聊天、续传与恢复共用同一 SSE parser 和取消协议；游标按 Run ID 绑定、sequence 单调去重，跨 Run 或缺半边游标 fail closed。恢复中的 Run 只更新所属会话，不能劫持用户正在查看的其他会话。访客历史仍按既有边界不跨页面恢复。
 - 会话切换从后端读取 Skill 选择；仅显式新建且继承输入上下文的 session 才执行首次写入，切换已有空会话不得用当前标签覆盖其后端选择。刷新后点回会话会从真实 Skill 列表恢复中文名称。
 - 左侧历史会话的重命名、置顶与删除均有明确入口；重命名立即持久化并给出文字反馈，删除必须经过“确认删除”对话框。删除当前会话后回到可直接开始咨询的空状态，不遗留失效面板或选择状态。身份模式切换同样先说明会话会保留在本机，再由用户明确确认；患者老年模式下这些确认框仅使用带文字、至少 48px 的取消/确认按钮。
 - 新建会话的首条成功回复完成后，标题必须由该条用户提问更新；标题计算从当前 store 读取会话，不能使用发送前 render 捕获的旧会话列表。

@@ -342,39 +342,50 @@ ClinicalState 限界、Context typed error 和 Planning 文档 P2 已在 ACCEPT 
   expected current version；fencing 或版本校验失败会整体 rollback，旧 worker 不能留下孤立回答或覆盖新版本。
 - Redis worker lease 与启动恢复 guard 使用同一 Lua 互斥协议。恢复器只有取得 guard 后才能把无主
   `running/waiting_for_user` Run 标记为 `interrupted`；worker 在 guard 存在时不能取得 lease，消除了先
-  `EXISTS` 后写数据库的 TOCTOU。guard TTL 由
-  `GERCLAW_AGENT_RUN_RECOVERY_GUARD_TTL_SECONDS` 配置，Redis 异常 fail closed。
+  `EXISTS` 后写数据库的 TOCTOU。guard 在整个数据库事务期间按 owner token 续租，并在 commit 前再次确认
+  owner；guard 丢失或 Redis 异常均 rollback、fail closed。TTL 由
+  `GERCLAW_AGENT_RUN_RECOVERY_GUARD_TTL_SECONDS` 配置。
 - 新增 `GET /api/v1/conversations/{conversation_id}/recoverable-run`、
   `GET /api/v1/runs/{run_id}/events?after_sequence=N` 和
-  `POST /api/v1/runs/{run_id}/resume`。恢复服务只接受当前主体的 `interrupted` Run，且要求无已提交回答、
+  `GET /api/v1/runs/{run_id}/stream?after_sequence=N`、`POST /api/v1/runs/{run_id}/resume`。恢复服务只接受当前主体的 `interrupted` Run，且要求无已提交回答、
   Trace 仍为 running，并从加密持久化输入精确重建文本、Skill、文档、图片和 regeneration 身份；材料损坏时
-  fail closed，不猜测或静默丢弃。
-- 登录账户刷新会话历史后，前端查询 recoverable Run，先按 `after_sequence` 重放公开事件，再显式恢复同一
-  Run/Trace。新聊天和恢复共用有界 Zod SSE parser；停止仍走原显式取消协议。访客历史按既有产品边界不跨页面恢复。
-- 浏览器 transport 断开仍取消当前 producer，避免无人消费；进程崩溃或启动恢复产生的 `interrupted` Run
-  才进入显式恢复路径。恢复只重建原请求并依靠 AnswerVersion/fencing 防止陈旧写入，不把断流片段当成已完成回答。
+  fail closed，不猜测或静默丢弃。regeneration 恢复按 source Run 读取原输入，不要求新 Run 的 Trace 与原
+  Message Trace 相同。
+- 浏览器 transport 断开只分离 SSE consumer，不等同于用户取消；owner producer 继续持有 lease/fencing 并持久化
+  RunEvent。登录账户刷新后先重放公开事件：`running` Run 从最后 sequence 通过 GET stream 继续跟随，
+  `interrupted` Run 才显式 POST resume。前端按 Run ID 和单调 sequence 去重、拒绝跨 Run 游标；停止仍走显式取消协议。
+  访客历史按既有产品边界不跨页面恢复。
+- 公共 SSE Pydantic 校验边界使用 `exclude_none` 投影可选字段，保证实时和重放 `tool_result` 与前端 Zod
+  “缺省或有效值”合同一致；Schema 漂移继续 fail closed，不能把部分输出包装成成功。
 
 针对性验证：
 
 ```text
 成功终态/版本/fencing：38 unit passed；14 real chat integration passed
-恢复 lease/guard：7 unit passed；3 real recovery integration passed
+恢复 lease/guard：20 unit passed；4 real recovery integration passed
 显式恢复：36 unit passed；3 real recovery integration passed
+实时 sequence stream 与断线续传：60 unit passed；4 real integration passed
+公共 SSE 可选字段合同：30 targeted passed（`--no-cov`）
 应用与配置：47 passed
-前端 BFF/Run/聊天历史：21 + 2 + 4 passed
+前端 BFF/Run/聊天历史：21 + 2 + 7 passed
 Ruff：All checks passed
 Mypy：Success: no issues found in 244 source files
 ESLint：0 warnings
 Next production build：passed
 ```
 
-真实 Playwright CLI 使用本地真实 PostgreSQL、Redis、API 和 Next.js，以测试患者账户和一个有效
-`interrupted` Run 审计刷新恢复：
+真实 Playwright CLI 使用本地真实 PostgreSQL、Redis、API、Next.js 和实际模型，以测试患者账户审计
+`interrupted` 恢复和运行中刷新续流：
 
 - 网络顺序为 history 200 → recoverable-run 200 → `events?after_sequence=0` 200 → resume 200；
 - 页面显示“正在恢复上次中断的回答”，最终仅有一条用户消息和一条 assistant 回答；
 - “我现在胸痛并且呼吸困难”在模型前走急症短路，正文明确“立即拨打 120 或尽快前往急诊”并包含统一免责声明；
 - API 回读确认 2 条消息、AnswerVersion 1、完成后 recoverable Run 为 null；
+- 运行中页面刷新后，网络顺序为 history → recoverable-run → events → Run read →
+  `GET /runs/{id}/stream?after_sequence=2`；同一 Run 最终为 `completed`、sequence 1–5 单调、只有一个
+  `done`，会话仍只有 user/assistant 各一条；
+- 首次真实普通医疗问题审计还发现 `tool_result` 可选字段被序列化成 `null` 的 Pydantic/Zod 漂移，修复并提交
+  `87b743c` 后复验通过。另一次模型自主调用 `search_knowledge` 的失败如实落成唯一 `failed` Run，页面没有伪成功；
 - 桌面与 390×844 移动端均无横向溢出，console 0 error / 0 warning，后端无 ERROR、Traceback 或 5xx；
 - 证据：
   `output/playwright/stage2-resume/recovered-emergency.png`、
@@ -382,7 +393,13 @@ Next production build：passed
   `output/playwright/stage2-resume/requests.txt`、
   `output/playwright/stage2-resume/console.txt`、
   `output/playwright/stage2-resume/app.log` 和
-  `.playwright-cli/traces/trace-1785342025605.trace`。
+  `.playwright-cli/traces/trace-1785342025605.trace`；运行中刷新证据为
+  `output/playwright/stage2-live-reconnect/desktop-reconnect-success.png`、
+  `output/playwright/stage2-live-reconnect/requests-success.txt`、
+  `output/playwright/stage2-live-reconnect/console-success.txt`、
+  `output/playwright/stage2-live-reconnect/durable-state-success.txt`、
+  `output/playwright/stage2-live-reconnect/app-fixed.log` 和
+  `.playwright-cli/traces/trace-1785344802903.trace`。
 
 审计后已删除测试会话并停用精确测试账户，浏览器已关闭。移动端 sticky Composer 对较长急症卡的既有遮挡问题仍登记在
 阶段 5；本阶段未用恢复功能扩大 UI 重构范围。
