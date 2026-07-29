@@ -243,6 +243,24 @@ def test_clinical_state_requires_trusted_provenance() -> None:
 
     assert state.facts[0].status == "reported"
     assert state.unknowns == ("持续时间",)
+    with pytest.raises(ValidationError, match="trusted-tool"):
+        ClinicalFact(
+            fact_id="symptom-2",
+            category="symptom",
+            value="头晕",
+            status="confirmed",
+            provenance=(provenance,),
+        )
+    with pytest.raises(ValidationError, match="bounded"):
+        ClinicalFact(
+            fact_id="symptom-3",
+            category="symptom",
+            value="a" * 5_001,
+            status="reported",
+            provenance=(provenance,),
+        )
+    with pytest.raises(ValidationError):
+        ClinicalState(unknowns=("a" * 5_001,))
 
 
 def test_evidence_and_plugin_contracts_keep_capability_owners_external() -> None:
