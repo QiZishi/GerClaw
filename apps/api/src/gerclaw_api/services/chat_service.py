@@ -569,6 +569,28 @@ class ChatService:
                 selected_action=selected_action,
             )
         )
+        capability_results = []
+        planned_capabilities = {node.capability for node in dynamic_plan.nodes}
+        selected_owner_capabilities = [
+            item
+            for item in capability_selection.selected
+            if item.capability_id in planned_capabilities
+        ]
+        if selected_owner_capabilities and not emergency_route:
+            if self._capability_runtime is None:
+                raise UnsupportedAgentContextError("governed capability owners are unavailable")
+            for selected_capability in selected_owner_capabilities:
+                capability_results.append(
+                    await self._capability_runtime.invoke(
+                        selected_capability.capability_id,
+                        {
+                            "tenant_id": identity.tenant_id,
+                            "actor_id": identity.actor_id,
+                            "session_id": str(payload.session_id),
+                            "trace_id": trace_id,
+                        },
+                    )
+                )
         if self._run_journal is not None:
             run = await self._run_journal.start(
                 AgentRunCreate(
@@ -589,6 +611,9 @@ class ChatService:
                         "requested_capability_ids": payload.requested_capabilities,
                         "governed_capabilities": [
                             item.model_dump(mode="json") for item in capability_selection.selected
+                        ],
+                        "capability_results": [
+                            item.model_dump(mode="json") for item in capability_results
                         ],
                         "uploaded_document_count": len(payload.uploaded_files),
                         "uploaded_document_ids": [str(item) for item in payload.uploaded_files],
@@ -617,28 +642,6 @@ class ChatService:
                 actor_id=identity.actor_id,
             )
             self._active_run_id = run.id
-        capability_results = []
-        planned_capabilities = {node.capability for node in dynamic_plan.nodes}
-        selected_owner_capabilities = [
-            item
-            for item in capability_selection.selected
-            if item.capability_id in planned_capabilities
-        ]
-        if selected_owner_capabilities and not emergency_route:
-            if self._capability_runtime is None:
-                raise UnsupportedAgentContextError("governed capability owners are unavailable")
-            for selected_capability in selected_owner_capabilities:
-                capability_results.append(
-                    await self._capability_runtime.invoke(
-                        selected_capability.capability_id,
-                        {
-                            "tenant_id": identity.tenant_id,
-                            "actor_id": identity.actor_id,
-                            "session_id": str(payload.session_id),
-                            "trace_id": trace_id,
-                        },
-                    )
-                )
         if payload.uploaded_files and self._document_service is None and not emergency_route:
             raise UnsupportedAgentContextError("uploaded document storage is unavailable")
         uploaded_documents = (
