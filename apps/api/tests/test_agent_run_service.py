@@ -300,3 +300,31 @@ async def test_stale_worker_cannot_write_terminal_and_cancel_replay_is_idempoten
 
     assert replay == cancelled
     assert len(repository.events) == 1
+
+
+@pytest.mark.asyncio
+async def test_owner_cancel_uses_stored_fence_and_remains_idempotent() -> None:
+    repository = _Repository()
+    service = AgentRunService(repository)
+    created = await service.create_run(_request(), tenant_id=TENANT, actor_id=ACTOR)
+
+    cancelled = await service.cancel_owned(
+        created.id,
+        tenant_id=TENANT,
+        actor_id=ACTOR,
+    )
+    replay = await service.cancel_owned(
+        created.id,
+        tenant_id=TENANT,
+        actor_id=ACTOR,
+    )
+
+    assert cancelled.status is AgentRunStatus.CANCELLED
+    assert replay == cancelled
+    assert [event.status for event in repository.events] == ["cancelled"]
+    with pytest.raises(AgentRunNotFoundError):
+        await service.cancel_owned(
+            created.id,
+            tenant_id=TENANT,
+            actor_id="usr_other",
+        )
