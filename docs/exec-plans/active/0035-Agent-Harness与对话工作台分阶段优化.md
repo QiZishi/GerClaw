@@ -20,7 +20,7 @@ GerClaw 保持老年医学定位。眼科病灶定位不在本计划范围。在
 | 1 | Harness 模块化与稳定合同 | 已完成：两轮审阅问题修复，最终独立审阅 ACCEPT |
 | 2 | Run 事实源、状态机和恢复 | 已完成：两轮 P1 修复、真实 GUI 对抗审计、最终独立复审 ACCEPT |
 | 3 | ClinicalState、动态规划与医疗门禁 | 已完成：四轮独立审阅修复、真实 GUI 与最终 ACCEPT |
-| 4 | 证据、Memory 与受治理能力组合 | 未开始 |
+| 4 | 证据、Memory 与受治理能力组合 | 实现与真实 GUI 审计完成，等待独立复审 |
 | 5 | 对话工作台 UI 与交互重构 | 未开始 |
 | 6 | 受控离线自进化 | 未开始 |
 | 7 | 最终回归、真实 GUI 对抗审阅与发布 | 未开始 |
@@ -519,6 +519,56 @@ Skill 的 optional checkpoint 尚未接入 AgentScope 实际工具完成回调�
 ### 阶段 4
 
 完成 Evidence/Citation 真实闭环、Memory proposed/confirmed/conflict 治理和受治理 GerClaw 能力清单；附件、解析、检索和临床观察跨节点复用。
+
+截至 2026-07-30，阶段 4 按模块完成四个独立生产变更：
+
+- `35cc20e` 建立本地 Evidence/Citation admission：绝对相关性阈值、来源状态与等级、真实采用文本、locator、
+  去重和不可核验降级均由代码治理；模型不能自行创造可发布 Citation。
+- `3b19ced` 修复 Reranker 故障回退：失败时保留真实 BM25/向量混合候选及原始分数，不用空结果或伪造排序替代。
+- `ca0adef` 将 Memory recall 收紧为 `confirmed` 且未冲突、未过期、非 restricted、用户已启用的事实；
+  新写入默认 `proposed`，鉴别方向不进入长期事实，冲突 confirmed 记录不注入模型上下文。
+- `27bad11` 建立受治理的 `PluginManifest` catalog，allowlist 仅包含现有 CGA、用药审查、五大处方和报告产物；
+  自动、Workflow 和手动选择共用同一清单。共享结果引用严格绑定 tenant、actor、session、trace 和允许消费者；
+  同轮 ClinicalState、附件投影、本地检索结果可复用。AgentScope Skill 成功结果会完成匹配的 optional 动态计划
+  checkpoint，关闭阶段 3 遗留 P2；预取失败路径不会再同时写入失败与成功结果。
+
+组合回归实际执行 18 个 Harness、Evidence、RAG、Memory 和 Chat 测试文件，结果为
+`217 passed, 1 skipped, 1 warning`；warning 是本地 Qdrant HTTP payload-index 提示。阶段内最终定向结果还包括：
+
+- 能力模块后端 95/95；Ruff 全部通过；Mypy 检查 263 个源文件通过。
+- 前端 BFF/能力契约 24/24、Chat 合同 10/10；ESLint 和 Next production build 均通过。
+- 开发中一次误写了不存在的 `test_agent_harness_integration.py`，pytest 因无测试而退出；随后立即改为真实测试
+  路径。一次未加 `--no-cov` 的定向运行虽有 91 个测试通过，但暴露 `orchestrator.py` 914 行超过 800 行门禁及
+  定向集合覆盖率不足；共享结果逻辑随后抽为独立模块，最终 `orchestrator.py` 为 790 行，正确命令全部通过。
+
+阶段 0 记录的空索引已用项目自带 `gerclaw-rag-index` 真实修复，没有写入版本库或调用非配置 Provider：
+
+- 对仓库现有 436 份 Markdown 完成全量同步，真实 SiliconFlow `BAAI/bge-m3` embedding、PostgreSQL advisory
+  lock 和 Qdrant 均参与；结果为 `discovered=436`、`indexed=436`、`chunks_written=39837`、
+  `failed=0`、`deleted=0`。
+- 紧接着再次同步得到 `discovered=436`、`skipped=436`、`indexed=0`、`chunks_written=0`、
+  `failed=0`，验证幂等。
+- 通过真实 Next.js BFF 查询“老年人跌倒预防建议”，HTTP 200 并返回 3 条实际知识库结果，包含跌倒预防指南
+  对比文献和《老年人衰弱预防中国专家共识(2022)》；浏览器 console 为 0 error / 0 warning。
+
+最终 Playwright CLI 审计使用真实 PostgreSQL、Redis、Qdrant、FastAPI、Next.js 和当前模型 Provider，没有
+network route/mock。全新访客在 GUI 输入“老年人如何预防跌倒？请给出有来源的建议。”，真实创建会话并执行
+医学检索；BFF `POST /api/gerclaw/chat` 返回 200，页面公开阶段显示医学检索完成（约 865 ms），完整请求约
+19.4 秒。回答在对应陈述附近使用 5 个 Evidence ID，统一免责声明可见；“查看全部”打开的引用面板逐条展示
+本次实际采用文本、来源类型和无公开链接时的核验提示。后端日志确认 Memory 搜索、受治理写入、聊天终态均完成，
+没有把 Provider payload 或私有推理暴露到页面。
+
+桌面截图为 `apps/mvp/output/playwright/stage4-evidence/cited-chat-desktop.png`，390×844 手机截图为
+`apps/mvp/output/playwright/stage4-evidence/cited-chat-mobile.png`；手机实测
+`viewportWidth=documentWidth=bodyWidth=390`、`overflowX=false`。能力目录的独立 BFF GUI 证据为
+`apps/mvp/output/playwright/stage4-capabilities/desktop.png`。完整 Trace 为
+`apps/mvp/.playwright-cli/traces/trace-1785355601132.trace`，能力目录 Trace 为
+`apps/mvp/.playwright-cli/traces/trace-1785355297551.trace`。最终浏览器 console 为
+0 error / 0 warning，network 中 account、RAG、session 和 chat 请求均为 2xx。
+
+已知限制如实保留：部分知识库 Markdown 的题名元数据只有“·指南与共识·”或“·专家论坛·”，因此引用卡题名
+不够具体；卡片仍展示可核对的实际采用摘录、章节和本地来源，并明确提示无公开原文链接。该数据清洗问题不影响
+本阶段“不得伪造引用”的安全门，但应在后续知识库质量工作中改进。阶段 4 尚待独立审阅，不提前标记完成。
 
 ### 阶段 5
 
