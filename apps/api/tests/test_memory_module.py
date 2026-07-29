@@ -1407,19 +1407,31 @@ async def test_recall_excludes_proposed_conflicted_expired_and_restricted_facts(
     user_id = uuid.uuid4()
     repository = _Repository(user_id=user_id, session_id=uuid.uuid4())
     vector_store = _VectorStore()
-    active = _fact(user_id=user_id, entity="青霉素")
+    active = _fact(user_id=user_id, entity="青霉素", statement="用户自述对青霉素过敏")
     restricted = _fact(
         user_id=user_id,
         entity="磺胺",
+        statement="用户自述对磺胺过敏",
         access_level="restricted",
     )
     expired = _fact(
         user_id=user_id,
         entity="头孢",
+        statement="用户自述对头孢过敏",
         expires_at=_now() - timedelta(days=1),
     )
-    proposed = _fact(user_id=user_id, entity="阿司匹林", status="proposed")
-    conflicted = _fact(user_id=user_id, entity="布洛芬", status="conflicted")
+    proposed = _fact(
+        user_id=user_id,
+        entity="阿司匹林",
+        statement="用户自述对阿司匹林过敏",
+        status="proposed",
+    )
+    conflicted = _fact(
+        user_id=user_id,
+        entity="布洛芬",
+        statement="用户自述对布洛芬过敏",
+        status="conflicted",
+    )
     repository.facts.extend([active, restricted, expired, proposed, conflicted])
     profile = await repository.lock_or_create_profile(
         tenant_id="tenant_memory0001",
@@ -1441,8 +1453,15 @@ async def test_recall_excludes_proposed_conflicted_expired_and_restricted_facts(
         "usr_memory_unit0001",
         query="过敏史",
     )
+    rendered, _version, refs = await module.core_profile_context()
 
     assert [fact.id for fact in recalled.relevant_facts] == [active.id]
+    assert active.statement in rendered
+    assert restricted.statement not in rendered
+    assert expired.statement not in rendered
+    assert proposed.statement not in rendered
+    assert conflicted.statement not in rendered
+    assert refs == [str(active.id)]
 
 
 @pytest.mark.asyncio
@@ -2025,7 +2044,7 @@ async def test_memory_short_term_compression_decision_and_adapter_fail_closed() 
     rendered, version, refs = await module.core_profile_context()
     assert "青霉素" in rendered
     assert version >= 1
-    assert refs == []
+    assert refs == [str(pending.id)]
     await module.save_message(
         str(session_id),
         MemoryMessage(role="user", content=[{"type": "text", "text": "补充消息"}]),

@@ -147,6 +147,17 @@ def _fact_view(fact: MemoryFact, *, relevance_score: float | None = None) -> Mem
         raise MemoryDataError("stored memory fact is invalid") from error
 
 
+def _is_cross_session_recall_eligible(fact: MemoryFact, *, now: datetime) -> bool:
+    """Keep every prompt projection behind the same owner-controlled recall gate."""
+
+    expires_at = getattr(fact, "expires_at", None)
+    return (
+        fact.status == "confirmed"
+        and (fact.access_level or "standard") == "standard"
+        and (expires_at is None or cast(datetime, expires_at) > now)
+    )
+
+
 def _revision_view(revision: MemoryFactRevision) -> MemoryFactRevisionRead:
     """Validate a decrypted pre-mutation snapshot before returning it to its owner."""
 
@@ -296,11 +307,7 @@ class ProductionMemoryModule:
             confirmed = [
                 fact
                 for fact in confirmed
-                if (fact.access_level or "standard") == "standard"
-                and (
-                    getattr(fact, "expires_at", None) is None
-                    or cast(datetime, fact.expires_at) > now
-                )
+                if _is_cross_session_recall_eligible(fact, now=now)
             ]
             if confirmed:
                 embedding = await self._embedding_model([normalized_query])
@@ -334,11 +341,7 @@ class ProductionMemoryModule:
                         fact is None
                         or fact.revision != candidate.revision
                         or fact.vector_revision != candidate.revision
-                        or (fact.access_level or "standard") != "standard"
-                        or (
-                            getattr(fact, "expires_at", None) is not None
-                            and cast(datetime, fact.expires_at) <= now
-                        )
+                        or not _is_cross_session_recall_eligible(fact, now=now)
                     ):
                         continue
                     relevant.append(_fact_view(fact, relevance_score=candidate.score))
@@ -626,10 +629,22 @@ class ProductionMemoryModule:
         profile = await self.get_long_term(self._actor_id)
         if not profile.cross_session_recall_enabled:
             return "", profile.version, []
+        now = datetime.now(UTC)
+        confirmed = await self._repository.list_facts(
+            tenant_id=self._tenant_id,
+            user_id=self._user_id,
+            statuses=["confirmed"],
+            limit=200,
+        )
+        eligible = [
+            fact
+            for fact in confirmed
+            if _is_cross_session_recall_eligible(fact, now=now)
+        ]
         return (
-            render_core_profile(profile.profile),
+            render_core_profile(rebuild_profile(eligible)),
             profile.version,
-            profile.provenance_refs,
+            [str(fact.id) for fact in eligible],
         )
 
     async def read_profile(self) -> HealthProfileRead:
