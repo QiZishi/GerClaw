@@ -20,5 +20,10 @@ This module owns the production, one-turn AgentScope ReAct orchestration and saf
 ## Change and test rules
 
 - Keep all external calls behind the Runtime governed toolkit and preserve fail-closed SSE terminal states.
+- Root `harness.py` is a compatibility facade/composition entry. New route, plan, clinical
+  state, snapshot, lifecycle, evidence, capability, or evolution logic belongs in its named
+  component package and depends on Protocol/public contracts rather than concrete owners.
+- Thresholds, limits, timeouts, retries, and candidate counts must enter through
+  `Settings` → `ResolvedHarnessConfig`; component packages may not read environment variables.
 - Prompt changes must retain evidence, emergency, privacy and injection boundaries; run `tests/test_agent_harness.py` and `tests/test_agent_harness_safety.py`.
 - Re-run chat/session cancellation and contract tests for changes to lease, events, persistence or client-visible payloads.

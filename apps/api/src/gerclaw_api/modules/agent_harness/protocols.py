@@ -6,39 +6,21 @@ from collections.abc import Awaitable, Callable
 from datetime import datetime
 from typing import Literal, Protocol
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict
 
-from gerclaw_api.modules.contracts import AgentResponse, ExecutionContext
+from gerclaw_api.modules.agent_harness.context_snapshot import (
+    AgentContext,
+    ConversationHistoryMessage,
+)
+from gerclaw_api.modules.contracts import AgentResponse
 from gerclaw_api.security import JsonValue
 
-
-class ConversationHistoryMessage(BaseModel):
-    """Bounded decrypted history supplied to an isolated AgentScope state."""
-
-    model_config = ConfigDict(extra="forbid")
-
-    role: Literal["user", "assistant"]
-    text: str = Field(min_length=1, max_length=50_000)
-
-
-class AgentContext(BaseModel):
-    """Nine-source context assembled before entering the AgentScope ReAct loop."""
-
-    model_config = ConfigDict(extra="forbid")
-
-    execution: ExecutionContext
-    system_instructions: list[str] = Field(max_length=20)
-    tool_names: list[str] = Field(max_length=100)
-    profile_ref: str | None = None
-    profile_context: str = Field(default="", max_length=20_000)
-    profile_version: int = Field(default=0, ge=0)
-    memory_refs: list[str] = Field(default_factory=list, max_length=100)
-    session_summary: str = Field(default="", max_length=20_000)
-    loaded_skills: list[str] = Field(default_factory=list, max_length=50)
-    uploaded_files: list[str] = Field(default_factory=list, max_length=20)
-    conversation_history: list[ConversationHistoryMessage] = Field(
-        default_factory=list, max_length=200
-    )
+__all__ = [
+    "AgentContext",
+    "AgentHarness",
+    "ConversationHistoryMessage",
+    "StreamEvent",
+]
 
 
 class StreamEvent(BaseModel):

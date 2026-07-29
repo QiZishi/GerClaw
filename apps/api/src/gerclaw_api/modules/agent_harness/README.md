@@ -2,6 +2,23 @@
 
 对应设计要求 §4.2、§4.5、§4.6、§4.16、§9、§14、§16.2。当前实现以 AgentScope 2.0.4 `Agent` + `ReActConfig` 为唯一 ReAct 主循环；每个 turn 创建隔离的 `AgentState`，PostgreSQL 加密会话才是可恢复事实源。
 
+## 组件边界
+
+根包保留公共 facade 与组合入口，组件合同位于：
+
+- `routing`：Quick/Standard/Deep/Emergency 决策合同；
+- `planning`：`PlanNode` 与有界动态 DAG；
+- `clinical_state`：带 provenance 的临床事实、未知和冲突；
+- `context_snapshot`：版本化、限长的一轮上下文；
+- `run_lifecycle`：稳定错误与安全文本流原语；
+- `evidence`：可核验 evidence/citation 元数据；
+- `plugin_runtime`：受治理能力清单与复用结果引用；
+- `evolution_signals`：严格去内容化的离线演化信号。
+
+阶段 1 仅激活了 `context_snapshot`、`run_lifecycle` 和统一
+`ResolvedHarnessConfig` 的等价迁移；其余合同先建立独立构造和测试边界，后续阶段按门禁注入，
+不会与现有 Runtime、Memory、RAG、Search、Skill 或 Workflow 形成重复实现。
+
 ## 执行链路
 
 1. API 根据签名 JWT 派生 tenant/actor；PostgreSQL sequence 为每次租约尝试分配单调 fencing token，Redis owner-token lease 串行化同一 session。
