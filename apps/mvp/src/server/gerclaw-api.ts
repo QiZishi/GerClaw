@@ -82,6 +82,10 @@ const proxyRules: Array<{ pattern: RegExp; methods: ReadonlySet<string> }> = [
     methods: new Set(["POST"]),
   },
   {
+    pattern: new RegExp(`^runs/${uuidPattern}/resume$`, "i"),
+    methods: new Set(["POST"]),
+  },
+  {
     pattern: new RegExp(`^runs/${uuidPattern}/feedback$`, "i"),
     methods: new Set(["GET", "PUT"]),
   },
@@ -98,6 +102,13 @@ const proxyRules: Array<{ pattern: RegExp; methods: ReadonlySet<string> }> = [
   },
   {
     pattern: new RegExp(`^conversations/${uuidPattern}/artifacts$`, "i"),
+    methods: new Set(["GET"]),
+  },
+  {
+    pattern: new RegExp(
+      `^conversations/${uuidPattern}/recoverable-run$`,
+      "i"
+    ),
     methods: new Set(["GET"]),
   },
   {

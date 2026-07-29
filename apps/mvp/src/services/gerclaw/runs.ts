@@ -10,6 +10,7 @@ import {
   artifactWriteSchema,
   feedbackReconcileSchema,
   feedbackStateSchema,
+  recoverableRunSchema,
   runEventPageSchema,
   type AgentRun,
   type AnswerVersion,
@@ -23,6 +24,13 @@ const pathId = (value: string): string => encodeURIComponent(value);
 
 export function readAgentRun(runId: string): Promise<AgentRun> {
   return gerclawRequest(`runs/${pathId(runId)}`, agentRunSchema);
+}
+
+export function readRecoverableRun(conversationId: string) {
+  return gerclawRequest(
+    `conversations/${pathId(conversationId)}/recoverable-run`,
+    recoverableRunSchema
+  );
 }
 
 export function replayAgentRunEvents(

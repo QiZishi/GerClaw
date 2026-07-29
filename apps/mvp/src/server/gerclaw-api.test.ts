@@ -26,6 +26,7 @@ test("Run proxy exposes only owner-scoped lifecycle and resource operations", ()
   assert.equal(isAllowedGerclawProxyTarget(`runs/${runId}`, "GET"), true);
   assert.equal(isAllowedGerclawProxyTarget(`runs/${runId}/events`, "GET"), true);
   assert.equal(isAllowedGerclawProxyTarget(`runs/${runId}/cancel`, "POST"), true);
+  assert.equal(isAllowedGerclawProxyTarget(`runs/${runId}/resume`, "POST"), true);
   assert.equal(isAllowedGerclawProxyTarget(`runs/${runId}/feedback`, "PUT"), true);
   assert.equal(isAllowedGerclawProxyTarget(`runs/${runId}/artifacts`, "POST"), true);
   assert.equal(
@@ -41,6 +42,13 @@ test("Run proxy exposes only owner-scoped lifecycle and resource operations", ()
   );
   assert.equal(isAllowedGerclawProxyTarget(`artifacts/${versionId}`, "DELETE"), true);
   assert.equal(isAllowedGerclawProxyTarget(`runs/${runId}/events`, "POST"), false);
+  assert.equal(
+    isAllowedGerclawProxyTarget(
+      `conversations/${sessionId}/recoverable-run`,
+      "GET"
+    ),
+    true
+  );
   assert.equal(isAllowedGerclawProxyTarget("runs/not-a-uuid", "GET"), false);
   assert.equal(isAllowedGerclawProxyTarget(`artifacts/${versionId}/export`, "GET"), false);
 });

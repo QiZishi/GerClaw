@@ -6,6 +6,7 @@ import {
   answerVersionSchema,
   artifactWriteSchema,
   feedbackReconcileSchema,
+  recoverableRunSchema,
   runEventPageSchema,
 } from "./run-contract.ts";
 
@@ -49,6 +50,13 @@ test("Run contracts accept the versioned strict backend shape", () => {
   });
 
   assert.equal(run.status, "completed");
+  assert.equal(
+    recoverableRunSchema.parse({
+      conversation_id: conversationId,
+      run: { ...run, status: "interrupted" },
+    }).run?.id,
+    runId
+  );
   assert.equal(page.events[0].sequence, 2);
   assert.equal(
     answerVersionSchema.parse({

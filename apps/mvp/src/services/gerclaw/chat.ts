@@ -156,6 +156,124 @@ function parseEventBlock(block: string): { event: string; data: unknown } | null
   }
 }
 
+async function consumeAgentStream(
+  response: Response,
+  traceId: string,
+  callbacks: AgentChatCallbacks
+): Promise<void> {
+  if (!response.body) {
+    throw new GerclawApiError(
+      "智能体响应缺少流式内容",
+      "CHAT_STREAM_INVALID",
+      502,
+      traceId
+    );
+  }
+  const reader = response.body.getReader();
+  const decoder = new TextDecoder();
+  let buffer = "";
+  let sawTerminal = false;
+
+  const processBlock = (block: string) => {
+    const parsed = parseEventBlock(block);
+    if (!parsed) return;
+    if (parsed.event === "agent_start") {
+      agentStartSchema.parse(parsed.data);
+    } else if (parsed.event === "text_delta") {
+      callbacks.onText?.(textDeltaSchema.parse(parsed.data).content);
+    } else if (parsed.event === "thinking") {
+      callbacks.onThinking?.(thinkingSchema.parse(parsed.data).content);
+    } else if (parsed.event === "tool_call") {
+      const tool = toolCallSchema.parse(parsed.data);
+      callbacks.onToolCall?.({
+        id: tool.tool_call_id,
+        name: tool.tool_name,
+        status: tool.status,
+      });
+    } else if (parsed.event === "tool_result") {
+      const tool = toolResultSchema.parse(parsed.data);
+      callbacks.onToolResult?.({
+        id: tool.tool_call_id,
+        name: tool.tool_name,
+        status: tool.status,
+        durationMs: tool.duration_ms,
+        results: tool.results,
+      });
+    } else if (parsed.event === "approval_required") {
+      const approval = approvalRequiredSchema.parse(parsed.data);
+      callbacks.onApprovalRequired?.({
+        id: approval.approval_id,
+        toolName: approval.tool_name,
+        expiresAt: approval.expires_at,
+        policyVersion: approval.policy_version,
+        toolVersion: approval.tool_version,
+      });
+    } else if (parsed.event === "safety_notice") {
+      const notice = safetyNoticeSchema.parse(parsed.data);
+      callbacks.onSafetyNotice?.(notice);
+    } else if (parsed.event === "done") {
+      const doneEvent = chatDoneEventSchema.parse(parsed.data);
+      sawTerminal = true;
+      callbacks.onDone?.(
+        doneEvent.full_text,
+        doneEvent.references.map(toCitation),
+        doneEvent.trace_id,
+        doneEvent.run_id === null
+          ? null
+          : {
+              runId: doneEvent.run_id,
+              answerGroupRunId: doneEvent.answer_group_run_id!,
+              answerVersionId: doneEvent.answer_version_id!,
+              answerVersion: doneEvent.answer_version!,
+            }
+      );
+    } else if (parsed.event === "cancelled") {
+      const cancelled = cancelledSchema.parse(parsed.data);
+      sawTerminal = true;
+      callbacks.onCancelled?.(cancelled.trace_id, cancelled.message);
+    } else if (parsed.event === "error") {
+      const error = errorSchema.parse(parsed.data);
+      throw new GerclawApiError(error.message, error.code, 500, error.trace_id);
+    } else {
+      throw new GerclawApiError(
+        "流式响应包含不支持的事件",
+        "CHAT_STREAM_INVALID",
+        502,
+        traceId
+      );
+    }
+  };
+
+  try {
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      buffer += decoder.decode(value, { stream: true }).replaceAll("\r\n", "\n");
+      const blocks = buffer.split("\n\n");
+      buffer = blocks.pop() ?? "";
+      for (const block of blocks) {
+        processBlock(block);
+      }
+    }
+    buffer += decoder.decode().replaceAll("\r\n", "\n");
+    if (buffer.trim()) processBlock(buffer);
+    if (!sawTerminal) {
+      throw new GerclawApiError(
+        "智能体连接提前中断，请重试",
+        "CHAT_STREAM_INCOMPLETE",
+        502,
+        traceId
+      );
+    }
+  } finally {
+    try {
+      reader.releaseLock();
+    } catch {
+      // Abort can invalidate the reader before cleanup; the request is already cancelled.
+    }
+  }
+}
+
 export async function streamAgentChat(
   input: {
     localSessionId: string;
@@ -241,100 +359,7 @@ export async function streamAgentChat(
       );
     }
 
-    const reader = response.body.getReader();
-    const decoder = new TextDecoder();
-    let buffer = "";
-    let sawTerminal = false;
-
-    const processBlock = (block: string) => {
-      const parsed = parseEventBlock(block);
-      if (!parsed) return;
-      if (parsed.event === "agent_start") {
-        agentStartSchema.parse(parsed.data);
-      } else if (parsed.event === "text_delta") {
-        callbacks.onText?.(textDeltaSchema.parse(parsed.data).content);
-      } else if (parsed.event === "thinking") {
-        callbacks.onThinking?.(thinkingSchema.parse(parsed.data).content);
-      } else if (parsed.event === "tool_call") {
-        const tool = toolCallSchema.parse(parsed.data);
-        callbacks.onToolCall?.({ id: tool.tool_call_id, name: tool.tool_name, status: tool.status });
-      } else if (parsed.event === "tool_result") {
-        const tool = toolResultSchema.parse(parsed.data);
-        callbacks.onToolResult?.({
-          id: tool.tool_call_id,
-          name: tool.tool_name,
-          status: tool.status,
-          durationMs: tool.duration_ms,
-          results: tool.results,
-        });
-      } else if (parsed.event === "approval_required") {
-        const approval = approvalRequiredSchema.parse(parsed.data);
-        callbacks.onApprovalRequired?.({
-          id: approval.approval_id,
-          toolName: approval.tool_name,
-          expiresAt: approval.expires_at,
-          policyVersion: approval.policy_version,
-          toolVersion: approval.tool_version,
-        });
-      } else if (parsed.event === "safety_notice") {
-        const notice = safetyNoticeSchema.parse(parsed.data);
-        callbacks.onSafetyNotice?.(notice);
-      } else if (parsed.event === "done") {
-        const doneEvent = chatDoneEventSchema.parse(parsed.data);
-        sawTerminal = true;
-        callbacks.onDone?.(
-          doneEvent.full_text,
-          doneEvent.references.map(toCitation),
-          doneEvent.trace_id,
-          doneEvent.run_id === null
-            ? null
-            : {
-                runId: doneEvent.run_id,
-                answerGroupRunId: doneEvent.answer_group_run_id!,
-                answerVersionId: doneEvent.answer_version_id!,
-                answerVersion: doneEvent.answer_version!,
-              }
-        );
-      } else if (parsed.event === "cancelled") {
-        const cancelled = cancelledSchema.parse(parsed.data);
-        sawTerminal = true;
-        callbacks.onCancelled?.(cancelled.trace_id, cancelled.message);
-      } else if (parsed.event === "error") {
-        const error = errorSchema.parse(parsed.data);
-        throw new GerclawApiError(error.message, error.code, 500, error.trace_id);
-      } else {
-        throw new GerclawApiError("流式响应包含不支持的事件", "CHAT_STREAM_INVALID", 502, traceId);
-      }
-    };
-
-    try {
-      while (true) {
-        const { done, value } = await reader.read();
-        if (done) break;
-        buffer += decoder.decode(value, { stream: true }).replaceAll("\r\n", "\n");
-        const blocks = buffer.split("\n\n");
-        buffer = blocks.pop() ?? "";
-        for (const block of blocks) {
-          processBlock(block);
-        }
-      }
-      buffer += decoder.decode().replaceAll("\r\n", "\n");
-      if (buffer.trim()) processBlock(buffer);
-      if (!sawTerminal) {
-        throw new GerclawApiError(
-          "智能体连接提前中断，请重试",
-          "CHAT_STREAM_INCOMPLETE",
-          502,
-          traceId
-        );
-      }
-    } finally {
-      try {
-        reader.releaseLock();
-      } catch {
-        // Abort can invalidate the reader before cleanup; the request is already cancelled.
-      }
-    }
+    await consumeAgentStream(response, traceId, callbacks);
   } catch (error) {
     if (cancellationFailureReported) return;
     const apiError =
@@ -343,6 +368,81 @@ export async function streamAgentChat(
         : new GerclawApiError(
             error instanceof Error ? error.message : "智能体调用失败",
             "CHAT_CLIENT_FAILED",
+            500,
+            traceId
+          );
+    callbacks.onError?.(apiError);
+  } finally {
+    signal.removeEventListener("abort", handleCancellationRequest);
+  }
+}
+
+export async function resumeAgentRun(
+  runId: string,
+  signal: AbortSignal,
+  callbacks: AgentChatCallbacks
+): Promise<void> {
+  let traceId = `trace_${crypto.randomUUID().replaceAll("-", "")}`;
+  const transportController = new AbortController();
+  let requestStarted = false;
+  let cancellationFailureReported = false;
+  const handleCancellationRequest = () => {
+    if (!requestStarted) return;
+    void requestAgentCancellation(traceId).catch((error) => {
+      cancellationFailureReported = true;
+      transportController.abort();
+      callbacks.onError?.(
+        error instanceof GerclawApiError
+          ? error
+          : new GerclawApiError(
+              "暂时无法安全停止，请稍后重试",
+              "CHAT_CANCELLATION_UNAVAILABLE",
+              503,
+              traceId
+            )
+      );
+    });
+  };
+  signal.addEventListener("abort", handleCancellationRequest, { once: true });
+  try {
+    if (signal.aborted) {
+      callbacks.onCancelled?.(traceId, "回答已在恢复前停止。");
+      return;
+    }
+    requestStarted = true;
+    const response = await fetch(
+      `/api/gerclaw/runs/${encodeURIComponent(runId)}/resume`,
+      {
+        method: "POST",
+        headers: {
+          "X-GerClaw-Visitor-ID": getGerclawVisitorId(),
+        },
+        credentials: "same-origin",
+        cache: "no-store",
+        signal: transportController.signal,
+      }
+    );
+    traceId = response.headers.get("x-trace-id") ?? traceId;
+    if (!response.ok || !response.body) {
+      const payload = (await response.json().catch(() => null)) as {
+        error?: { code?: string; message?: string };
+      } | null;
+      throw new GerclawApiError(
+        payload?.error?.message ?? "中断的回答暂时无法恢复",
+        payload?.error?.code ?? "RUN_RESUME_FAILED",
+        response.status,
+        traceId
+      );
+    }
+    await consumeAgentStream(response, traceId, callbacks);
+  } catch (error) {
+    if (cancellationFailureReported) return;
+    const apiError =
+      error instanceof GerclawApiError
+        ? error
+        : new GerclawApiError(
+            error instanceof Error ? error.message : "中断的回答恢复失败",
+            "RUN_RESUME_CLIENT_FAILED",
             500,
             traceId
           );

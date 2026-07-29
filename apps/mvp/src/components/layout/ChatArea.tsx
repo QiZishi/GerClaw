@@ -1,6 +1,12 @@
 "use client";
 
-import { useCallback, useEffect, useRef, useState } from "react";
+import {
+  useCallback,
+  useEffect,
+  useEffectEvent,
+  useRef,
+  useState,
+} from "react";
 
 import {
   ArrowLeft,
@@ -29,7 +35,11 @@ import { RiskAlertLedger } from "@/components/risk-alert/RiskAlertLedger";
 import { useAppStore } from "@/stores/appStore";
 import { useChatStore } from "@/stores/chatStore";
 import { cn } from "@/lib/utils";
-import { streamAgentChat } from "@/services/gerclaw/chat";
+import { resumeAgentRun, streamAgentChat } from "@/services/gerclaw/chat";
+import {
+  readRecoverableRun,
+  replayAgentRunEvents,
+} from "@/services/gerclaw/runs";
 import { readSessionSkills, replaceSessionSkills } from "@/services/gerclaw/skills";
 import { readConversationMessages, toFrontendMessages } from "@/services/gerclaw/conversation-history";
 import { canHydrateConversationHistory } from "@/services/gerclaw/conversation-hydration-policy";
@@ -87,6 +97,7 @@ export function ChatArea() {
   const skillSelectionLoadRef = useRef(0);
   const pendingSkillSelectionRef = useRef(new Map<string, string[]>());
   const loadedHistorySessionIdsRef = useRef(new Set<string>());
+  const checkedRecoverySessionIdsRef = useRef(new Set<string>());
   const [skillSelectionReadySessionId, setSkillSelectionReadySessionId] = useState<string | null>(null);
   const skillSelectionReadySessionIdRef = useRef<string | null>(null);
 
@@ -174,35 +185,6 @@ export function ChatArea() {
         }
       });
   }, [currentSessionId, isGuest, setLoadedSkills]);
-
-  useEffect(() => {
-    if (
-      isGuest ||
-      !currentSessionId ||
-      skillSelectionReadySessionId !== currentSessionId ||
-      loadedHistorySessionIdsRef.current.has(currentSessionId)
-    ) {
-      return;
-    }
-    let live = true;
-    void readConversationMessages(currentSessionId)
-      .then((response) => {
-        if (!live) return;
-        loadedHistorySessionIdsRef.current.add(currentSessionId);
-        const localMessages = useChatStore.getState().getMessages(currentSessionId);
-        if (!canHydrateConversationHistory(localMessages.length)) return;
-        setMessages(currentSessionId, toFrontendMessages(response));
-      })
-      .catch(() => {
-        // Keep an empty new session usable; never substitute another session's history.
-        if (!live) return;
-        loadedHistorySessionIdsRef.current.add(currentSessionId);
-        const localMessages = useChatStore.getState().getMessages(currentSessionId);
-        if (!canHydrateConversationHistory(localMessages.length)) return;
-        setMessages(currentSessionId, []);
-      });
-    return () => { live = false; };
-  }, [currentSessionId, isGuest, setMessages, skillSelectionReadySessionId]);
 
   // 仅健康画像由右侧面板承载；其余入口均由各自的真实后端流程承载。
   useEffect(() => {
@@ -379,7 +361,11 @@ export function ChatArea() {
       expectedCurrentAnswerVersionId: string;
     },
     replaceMessageId?: string,
-    replacementSnapshot?: Message
+    replacementSnapshot?: Message,
+    resume?: {
+      runId: string;
+      publicSummaries: string[];
+    }
   ) => {
     const userBlocks: MessageBlock[] = [];
     if (images && images.length > 0) {
@@ -437,13 +423,24 @@ export function ChatArea() {
       addMessage(assistantMsg);
     }
     initMessageThinking(assistantMsgId, initialThinkingBlockId);
+    for (const summary of resume?.publicSummaries ?? []) {
+      appendMessageThinking(
+        assistantMsgId,
+        initialThinkingBlockId,
+        `${summary}\n`
+      );
+    }
 
     const toolCallBlockMap = new Map<string, string>();
     let thinkingFinished = false;
     let emergencyShortCircuit = false;
     abortControllerRef.current = new AbortController();
 
-    void streamAgentChat(
+    const streamTurn: typeof streamAgentChat = resume
+      ? (_input, signal, callbacks) =>
+          resumeAgentRun(resume.runId, signal, callbacks)
+      : streamAgentChat;
+    void streamTurn(
       {
         localSessionId: sid,
         message: text,
@@ -717,6 +714,104 @@ export function ChatArea() {
       }
     );
 };
+
+  const resumeInterruptedRun = useEffectEvent(async (
+    sessionId: string,
+    restoredMessages: Message[]
+  ) => {
+    if (checkedRecoverySessionIdsRef.current.has(sessionId)) return;
+    checkedRecoverySessionIdsRef.current.add(sessionId);
+    try {
+      const recoverable = await readRecoverableRun(sessionId);
+      const run = recoverable.run;
+      if (!run) return;
+      const replay = await replayAgentRunEvents(
+        run.id,
+        0,
+        200
+      );
+      if (
+        useAppStore.getState().currentSessionId !== sessionId ||
+        useChatStore.getState().isGenerating
+      ) {
+        return;
+      }
+      const sourceMessage = restoredMessages.find(
+        (message) => message.id === run.input_message_id
+      );
+      if (!sourceMessage || sourceMessage.role !== "user") {
+        toast.show("中断的回答缺少原始提问，未自动恢复");
+        return;
+      }
+      const publicSummaries = Array.from(
+        new Set(
+          replay.events
+            .map((event) => event.public_summary)
+            .filter((summary): summary is string => Boolean(summary))
+        )
+      ).slice(-20);
+      toast.show("正在恢复上次中断的回答");
+      doSend(
+        sessionId,
+        getTextFromMessage(sourceMessage),
+        true,
+        undefined,
+        [],
+        sourceMessage.workflow ?? "standard",
+        undefined,
+        undefined,
+        undefined,
+        {
+          runId: run.id,
+          publicSummaries,
+        }
+      );
+    } catch (error) {
+      toast.show(
+        error instanceof Error ? error.message : "中断的回答暂时无法恢复"
+      );
+    }
+  });
+
+  useEffect(() => {
+    if (
+      isGuest ||
+      !currentSessionId ||
+      skillSelectionReadySessionId !== currentSessionId ||
+      loadedHistorySessionIdsRef.current.has(currentSessionId)
+    ) {
+      return;
+    }
+    let live = true;
+    void readConversationMessages(currentSessionId)
+      .then((response) => {
+        if (!live) return;
+        loadedHistorySessionIdsRef.current.add(currentSessionId);
+        const localMessages =
+          useChatStore.getState().getMessages(currentSessionId);
+        if (!canHydrateConversationHistory(localMessages.length)) return;
+        const restoredMessages = toFrontendMessages(response);
+        setMessages(currentSessionId, restoredMessages);
+        void resumeInterruptedRun(currentSessionId, restoredMessages);
+      })
+      .catch(() => {
+        // Keep an empty new session usable; never substitute another session's history.
+        if (!live) return;
+        loadedHistorySessionIdsRef.current.add(currentSessionId);
+        const localMessages =
+          useChatStore.getState().getMessages(currentSessionId);
+        if (!canHydrateConversationHistory(localMessages.length)) return;
+        setMessages(currentSessionId, []);
+      });
+    return () => {
+      live = false;
+    };
+  }, [
+    currentSessionId,
+    isGuest,
+    setMessages,
+    skillSelectionReadySessionId,
+  ]);
 
   const handleExampleClick = (text: string) => {
     handleSend(text);

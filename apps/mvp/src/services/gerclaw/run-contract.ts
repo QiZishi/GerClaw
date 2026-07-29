@@ -55,6 +55,13 @@ export const runEventPageSchema = z
   })
   .strict();
 
+export const recoverableRunSchema = z
+  .object({
+    conversation_id: z.string().uuid(),
+    run: agentRunSchema.nullable(),
+  })
+  .strict();
+
 export const answerVersionSchema = z
   .object({
     schema_version: z.literal("1.1"),
@@ -138,6 +145,7 @@ export const feedbackStateSchema = z
   .strict();
 
 export type AgentRun = z.infer<typeof agentRunSchema>;
+export type RecoverableRun = z.infer<typeof recoverableRunSchema>;
 export type RunEventPage = z.infer<typeof runEventPageSchema>;
 export type AnswerVersion = z.infer<typeof answerVersionSchema>;
 export type Artifact = z.infer<typeof artifactSchema>;
