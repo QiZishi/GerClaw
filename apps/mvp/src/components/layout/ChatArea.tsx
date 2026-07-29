@@ -764,7 +764,10 @@ export function ChatArea() {
         const currentMessages = toFrontendMessages(
           await readConversationMessages(sessionId)
         );
-        if (useAppStore.getState().currentSessionId === sessionId) {
+        if (
+          useAppStore.getState().currentSessionId === sessionId &&
+          !useChatStore.getState().isGenerating
+        ) {
           setMessages(sessionId, currentMessages);
         }
         return;
