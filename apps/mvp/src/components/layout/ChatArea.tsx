@@ -41,9 +41,11 @@ import {
   streamAgentChat,
 } from "@/services/gerclaw/chat";
 import {
+  readAgentRun,
   readRecoverableRun,
   replayAgentRunEvents,
 } from "@/services/gerclaw/runs";
+import { planConversationRecovery } from "@/services/gerclaw/conversation-recovery";
 import { readSessionSkills, replaceSessionSkills } from "@/services/gerclaw/skills";
 import { readConversationMessages, toFrontendMessages } from "@/services/gerclaw/conversation-history";
 import { canHydrateConversationHistory } from "@/services/gerclaw/conversation-hydration-policy";
@@ -738,11 +740,12 @@ export function ChatArea() {
       const recoverable = await readRecoverableRun(sessionId);
       const run = recoverable.run;
       if (!run) return;
-      const replay = await replayAgentRunEvents(
-        run.id,
-        0,
-        200
-      );
+      const replay =
+        run.status === "interrupted"
+          ? await replayAgentRunEvents(run.id, 0, 200)
+          : undefined;
+      const currentRun =
+        run.status === "interrupted" ? await readAgentRun(run.id) : run;
       if (
         useAppStore.getState().currentSessionId !== sessionId ||
         useChatStore.getState().isGenerating
@@ -756,13 +759,16 @@ export function ChatArea() {
         toast.show("中断的回答缺少原始提问，未自动恢复");
         return;
       }
-      const publicSummaries = Array.from(
-        new Set(
-          replay.events
-            .map((event) => event.public_summary)
-            .filter((summary): summary is string => Boolean(summary))
-        )
-      ).slice(-20);
+      const recovery = planConversationRecovery(currentRun, replay);
+      if (recovery.action === "refresh-history") {
+        const currentMessages = toFrontendMessages(
+          await readConversationMessages(sessionId)
+        );
+        if (useAppStore.getState().currentSessionId === sessionId) {
+          setMessages(sessionId, currentMessages);
+        }
+        return;
+      }
       toast.show("正在恢复上次中断的回答");
       doSend(
         sessionId,
@@ -776,9 +782,9 @@ export function ChatArea() {
         undefined,
         {
           runId: run.id,
-          publicSummaries,
-          mode: run.status === "running" ? "attach" : "resume",
-          afterSequence: replay.next_after_sequence,
+          publicSummaries: recovery.publicSummaries,
+          mode: recovery.mode,
+          afterSequence: recovery.afterSequence,
         }
       );
     } catch (error) {

@@ -19,7 +19,7 @@
     "test:gerclaw-proxy": "node --test src/server/gerclaw-api.test.ts",
     "test:feedback": "node --test src/services/gerclaw/feedback.test.ts",
     "test:runs": "node --test src/services/gerclaw/run-contract.test.ts",
-    "test:chat": "node --test src/services/gerclaw/chat.test.ts src/services/gerclaw/conversation-history.test.ts",
+    "test:chat": "node --test src/services/gerclaw/chat.test.ts src/services/gerclaw/conversation-history.test.ts src/services/gerclaw/conversation-recovery.test.ts",
     "test:prescription-report": "node --test src/services/gerclaw/prescription-report.test.ts"
   },
   "dependencies": {
