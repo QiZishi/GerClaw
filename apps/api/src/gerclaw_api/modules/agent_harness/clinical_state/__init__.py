@@ -23,6 +23,9 @@ from gerclaw_api.modules.agent_harness.clinical_state.treatment import (
     TreatmentGateMode,
     TreatmentIntent,
 )
+from gerclaw_api.modules.agent_harness.clinical_state.user_observation import (
+    UserMessageClinicalProjector,
+)
 
 __all__ = [
     "C3DifferentialValidator",
@@ -40,4 +43,5 @@ __all__ = [
     "TreatmentGateDecision",
     "TreatmentGateMode",
     "TreatmentIntent",
+    "UserMessageClinicalProjector",
 ]

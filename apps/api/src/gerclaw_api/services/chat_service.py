@@ -32,6 +32,12 @@ from gerclaw_api.modules.agent_harness import (
     StreamEvent,
     UnsupportedAgentContextError,
 )
+from gerclaw_api.modules.agent_harness.clinical_state import (
+    ClinicalState,
+    ClinicalStateReducer,
+    DeterministicClinicalStateReducer,
+    UserMessageClinicalProjector,
+)
 from gerclaw_api.modules.agent_harness.config import ResolvedHarnessConfig
 from gerclaw_api.modules.agent_harness.planning import (
     DeterministicPlanner,
@@ -168,6 +174,7 @@ class ChatService:
         risk_alert_service: RiskAlertService | None = None,
         run_journal: ChatRunJournal | None = None,
         input_output: ProductionInputOutputModule | None = None,
+        clinical_state_reducer: ClinicalStateReducer | None = None,
     ) -> None:
         self._settings = settings
         self._conversation = conversation
@@ -185,6 +192,9 @@ class ChatService:
         self._active_run_id: uuid.UUID | None = None
         self._answer_group_run_id: uuid.UUID | None = None
         self._input_output = input_output or ProductionInputOutputModule()
+        self._clinical_state_reducer = (
+            clinical_state_reducer or DeterministicClinicalStateReducer()
+        )
 
     async def process(
         self,
@@ -356,6 +366,8 @@ class ChatService:
             uploaded_image_count=len(payload.images),
         )
         companion = is_companion_workflow(cast(Any, workflow.workflow_id.value))
+        medical_content = is_medical_message(payload.message) and not companion
+        high_risk_codes = tuple(detect_high_risk(payload.message))
         resolved_harness_config = ResolvedHarnessConfig.from_settings(self._settings)
         route_decision = DeterministicRouter(
             RoutingPolicy(
@@ -372,8 +384,8 @@ class ChatService:
                 image_count=len(payload.images),
                 document_count=len(payload.uploaded_files),
                 selected_capabilities=tuple(str(item) for item in payload.loaded_skills),
-                medical_content=is_medical_message(payload.message) and not companion,
-                high_risk_detected=bool(detect_high_risk(payload.message)),
+                medical_content=medical_content,
+                high_risk_detected=bool(high_risk_codes),
             )
         )
         emergency_route = route_decision.route is RouteKind.EMERGENCY
@@ -423,7 +435,7 @@ class ChatService:
         ).build(
             PlanRequest(
                 route=route_decision.route,
-                medical_content=is_medical_message(payload.message) and not companion,
+                medical_content=medical_content,
                 image_count=len(payload.images),
                 document_count=len(payload.uploaded_files),
                 selected_capabilities=tuple(str(item) for item in payload.loaded_skills),
@@ -507,6 +519,25 @@ class ChatService:
                 )
             ).id
         )
+        clinical_state = (
+            await self._run_journal.read_clinical_state(
+                payload.session_id,
+                tenant_id=identity.tenant_id,
+                actor_id=identity.actor_id,
+            )
+            if self._run_journal is not None
+            else ClinicalState()
+        )
+        if medical_content:
+            clinical_state = UserMessageClinicalProjector(
+                self._clinical_state_reducer
+            ).project(
+                clinical_state,
+                message_id=user_message_id,
+                message=payload.message,
+                observed_at=datetime.now(UTC),
+                red_flag_codes=high_risk_codes,
+            )
         if self._run_journal is not None:
             run = await self._run_journal.start(
                 AgentRunCreate(
@@ -518,6 +549,7 @@ class ChatService:
                         "history_message_count": len(history),
                         "memory_reference_count": len(memory_refs),
                         "profile_version": profile_version,
+                        "clinical_state": clinical_state.model_dump(mode="json"),
                     },
                     plan={
                         "loaded_skill_count": len(payload.loaded_skills),
@@ -599,6 +631,7 @@ class ChatService:
             profile_version=profile_version,
             memory_refs=memory_refs,
             session_summary=session_summary,
+            clinical_state=clinical_state,
             search_module=self._search_module,
             search_enabled=workflow.search_enabled,
             workflow=cast(Any, workflow.workflow_id.value),

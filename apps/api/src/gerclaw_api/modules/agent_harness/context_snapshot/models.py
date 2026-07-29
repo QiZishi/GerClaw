@@ -4,6 +4,7 @@ from typing import Annotated, Literal, Protocol
 
 from pydantic import BaseModel, ConfigDict, Field, StringConstraints
 
+from gerclaw_api.modules.agent_harness.clinical_state import ClinicalState
 from gerclaw_api.modules.contracts import ExecutionContext
 
 BoundedReference = Annotated[
@@ -35,6 +36,7 @@ class AgentContext(BaseModel):
     profile_version: int = Field(default=0, ge=0)
     memory_refs: list[BoundedReference] = Field(default_factory=list, max_length=100)
     session_summary: str = Field(default="", max_length=20_000)
+    clinical_state: ClinicalState = Field(default_factory=ClinicalState)
     loaded_skills: list[BoundedReference] = Field(default_factory=list, max_length=50)
     uploaded_files: list[BoundedReference] = Field(default_factory=list, max_length=20)
     conversation_history: list[ConversationHistoryMessage] = Field(
@@ -59,6 +61,7 @@ class ContextSnapshotAssembler(Protocol):
         profile_version: int,
         memory_refs: tuple[str, ...],
         session_summary: str,
+        clinical_state: ClinicalState,
         loaded_skills: tuple[str, ...],
         uploaded_files: tuple[str, ...],
     ) -> AgentContext:
@@ -80,6 +83,7 @@ class ProductionContextSnapshotAssembler:
         profile_version: int,
         memory_refs: tuple[str, ...],
         session_summary: str,
+        clinical_state: ClinicalState,
         loaded_skills: tuple[str, ...],
         uploaded_files: tuple[str, ...],
     ) -> AgentContext:
@@ -92,6 +96,7 @@ class ProductionContextSnapshotAssembler:
             profile_version=profile_version,
             memory_refs=list(memory_refs),
             session_summary=session_summary,
+            clinical_state=clinical_state,
             loaded_skills=list(loaded_skills),
             uploaded_files=list(uploaded_files),
             conversation_history=list(history),

@@ -39,6 +39,15 @@ class AgentRunRepository(Protocol):
     ) -> AgentRun | None:
         """Return an idempotently created actor-owned run."""
 
+    async def get_latest_owned_run_for_conversation(
+        self,
+        conversation_id: uuid.UUID,
+        *,
+        tenant_id: str,
+        actor_id: str,
+    ) -> AgentRun | None:
+        """Return the latest actor-owned snapshot for one conversation."""
+
     async def add_run(self, run: AgentRun) -> None:
         """Stage one run."""
 
@@ -104,6 +113,25 @@ class SqlAlchemyAgentRunRepository:
         )
         if for_update:
             statement = statement.with_for_update().execution_options(populate_existing=True)
+        return cast(AgentRun | None, await self._session.scalar(statement))
+
+    async def get_latest_owned_run_for_conversation(
+        self,
+        conversation_id: uuid.UUID,
+        *,
+        tenant_id: str,
+        actor_id: str,
+    ) -> AgentRun | None:
+        statement = (
+            select(AgentRun)
+            .where(
+                AgentRun.conversation_id == conversation_id,
+                AgentRun.tenant_id == tenant_id,
+                AgentRun.actor_id == actor_id,
+            )
+            .order_by(AgentRun.created_at.desc(), AgentRun.id.desc())
+            .limit(1)
+        )
         return cast(AgentRun | None, await self._session.scalar(statement))
 
     async def add_run(self, run: AgentRun) -> None:

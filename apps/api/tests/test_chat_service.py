@@ -38,6 +38,11 @@ from gerclaw_api.domain.trace_schemas import (
     TraceFinishRequest,
     TraceStartRequest,
 )
+from gerclaw_api.modules.agent_harness.clinical_state import (
+    ClinicalFact,
+    ClinicalState,
+    FactProvenance,
+)
 from gerclaw_api.modules.agent_harness.routing import RouteKind
 from gerclaw_api.modules.agent_harness.run_lifecycle import RunFenceConflictError
 from gerclaw_api.modules.memory.models import MemoryUpdateResult
@@ -350,6 +355,7 @@ class _RunJournal:
         self.transitions: list[AgentRunStatus] = []
         self.regeneration: RunRegenerationContext | None = None
         self.completion_error: Exception | None = None
+        self.clinical_state = ClinicalState()
 
     async def resolve_regeneration(
         self,
@@ -377,6 +383,16 @@ class _RunJournal:
             answer_version_id=uuid.uuid4(),
             answer_version=1,
         )
+
+    async def read_clinical_state(
+        self,
+        conversation_id: uuid.UUID,
+        *,
+        tenant_id: str,
+        actor_id: str,
+    ) -> ClinicalState:
+        del conversation_id, tenant_id, actor_id
+        return self.clinical_state
 
     async def start(
         self,
@@ -1004,6 +1020,68 @@ async def test_emergency_bypasses_skill_memory_and_document_dependencies(
     assert response.structured["model_invoked"] is False
     assert response.structured["tool_names"] == []
     assert "立即拨打 120" in response.text
+
+
+@pytest.mark.asyncio
+async def test_medical_turn_reduces_prior_clinical_state_into_run_snapshot(
+    unit_settings: Settings,
+) -> None:
+    session_id = uuid.uuid4()
+    run_journal = _RunJournal()
+    run_journal.clinical_state = ClinicalState(
+        facts=(
+            ClinicalFact(
+                fact_id="allergy:penicillin",
+                category="allergy",
+                value="青霉素",
+                status="reported",
+                provenance=(
+                    FactProvenance(
+                        source_type="user",
+                        source_id="message:prior",
+                        observed_at=datetime(2026, 7, 1, tzinfo=UTC),
+                    ),
+                ),
+            ),
+        ),
+        unknowns=("当前用药",),
+    )
+    service = ChatService(
+        settings=unit_settings,
+        conversation=cast(Any, _ConversationFacade(session_id)),
+        traces=cast(Any, _TraceFacade(created=True, session_id=session_id)),
+        lease=cast(Any, _OwnedLease()),
+        model=cast(Any, _TextModel()),
+        rag_module=cast(Any, _NoopRAG()),
+        memory_factory=_memory_factory(),
+        run_journal=run_journal,
+    )
+
+    async def callback(_event: object) -> None:
+        return None
+
+    await service.process(
+        ChatRequest(session_id=session_id, message="老人最近头晕"),
+        identity=AuthContext(
+            actor_id="usr_patient_unit0001",
+            tenant_id="tenant_public0001",
+            scopes=frozenset({"chat:write"}),
+        ),
+        request_id="request_chat_clinical_state_0001",
+        trace_id="trace_chat_clinical_state_0001",
+        callback=cast(Any, callback),
+    )
+
+    persisted = ClinicalState.model_validate(
+        run_journal.start_requests[0].context_snapshot["clinical_state"]
+    )
+    assert persisted.unknowns == ("当前用药",)
+    assert persisted.facts[0].fact_id == "allergy:penicillin"
+    current = persisted.facts[1]
+    assert current.category == "chief_complaint"
+    assert current.value == "老人最近头晕"
+    assert current.status == "reported"
+    assert current.provenance[0].source_type == "user"
 
 
 @pytest.mark.asyncio

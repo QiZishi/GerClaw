@@ -1,5 +1,6 @@
 """Independent construction tests for Agent Harness component boundaries."""
 
+import uuid
 from datetime import UTC, datetime
 from pathlib import Path
 
@@ -12,6 +13,7 @@ from gerclaw_api.modules.agent_harness.clinical_state import (
     ClinicalState,
     DeterministicClinicalStateReducer,
     FactProvenance,
+    UserMessageClinicalProjector,
 )
 from gerclaw_api.modules.agent_harness.evidence import EvidenceRecord
 from gerclaw_api.modules.agent_harness.evolution_signals import EvolutionSignal
@@ -408,6 +410,36 @@ def test_clinical_state_reducer_resolves_only_explicit_unknown_labels() -> None:
 
     assert reduced.unknowns == ("是否跌倒",)
     assert reduced.facts == ()
+
+
+def test_user_message_projector_is_idempotent_and_records_red_flags() -> None:
+    projector = UserMessageClinicalProjector(DeterministicClinicalStateReducer())
+    message_id = uuid.uuid4()
+    observed_at = datetime.now(UTC)
+
+    state = projector.project(
+        ClinicalState(unknowns=("当前用药",)),
+        message_id=message_id,
+        message="老人突然胸痛",
+        observed_at=observed_at,
+        red_flag_codes=("chest_pain",),
+    )
+    replayed = projector.project(
+        state,
+        message_id=message_id,
+        message="老人突然胸痛",
+        observed_at=datetime.now(UTC),
+        red_flag_codes=("chest_pain",),
+    )
+
+    assert replayed == state
+    assert state.unknowns == ("当前用药",)
+    assert [fact.category for fact in state.facts] == ["chief_complaint", "red_flag"]
+    assert all(fact.status == "reported" for fact in state.facts)
+    assert all(
+        fact.provenance[0].source_id == f"message:{message_id}"
+        for fact in state.facts
+    )
 
 
 def test_evidence_and_plugin_contracts_keep_capability_owners_external() -> None:

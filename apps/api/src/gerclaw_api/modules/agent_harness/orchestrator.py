@@ -10,23 +10,20 @@ from collections.abc import AsyncIterator, Awaitable, Callable
 from datetime import UTC, datetime
 from typing import Any
 
-from agentscope.message import (
-    AssistantMsg,
-    SystemMsg,
-    ToolCallBlock,
-    UserMsg,
-)
+from agentscope.message import AssistantMsg, SystemMsg, ToolCallBlock, UserMsg
 from agentscope.model import ChatModelBase
 from agentscope.skill import Skill as AgentScopeSkill
 from pydantic import BaseModel
 
 from gerclaw_api.config import Settings
+from gerclaw_api.modules.agent_harness.clinical_state import ClinicalState
 from gerclaw_api.modules.agent_harness.components import HarnessComponents
 from gerclaw_api.modules.agent_harness.config import ResolvedHarnessConfig
 from gerclaw_api.modules.agent_harness.context_snapshot import (
     ContextSnapshotError,
     ProductionContextSnapshotAssembler,
     UploadedInputProjector,
+    render_untrusted_clinical_state,
 )
 from gerclaw_api.modules.agent_harness.planning import (
     AgentFactory,
@@ -48,10 +45,7 @@ from gerclaw_api.modules.agent_harness.protocols import (
     ConversationHistoryMessage,
     StreamEvent,
 )
-from gerclaw_api.modules.agent_harness.routing import (
-    RouteDecision,
-    RouteKind,
-)
+from gerclaw_api.modules.agent_harness.routing import RouteDecision, RouteKind
 from gerclaw_api.modules.agent_harness.run_lifecycle import (
     CanonicalTextStream,
     EmptyAgentResponseError,
@@ -78,9 +72,7 @@ from gerclaw_api.modules.contracts import AgentResponse, ExecutionContext
 from gerclaw_api.modules.document import UploadedDocumentContext
 from gerclaw_api.modules.input_output import ImageInput
 from gerclaw_api.modules.memory.protocols import MemoryModule
-from gerclaw_api.modules.rag import (
-    capture_agentic_rag_results,
-)
+from gerclaw_api.modules.rag import capture_agentic_rag_results
 from gerclaw_api.modules.rag.protocols import RAGModule
 from gerclaw_api.modules.runtime.budget import (
     RuntimeBudgetExceededError,
@@ -137,6 +129,7 @@ class ProductionAgentHarness:
         profile_version: int = 0,
         memory_refs: list[str] | None = None,
         session_summary: str = "",
+        clinical_state: ClinicalState | None = None,
         search_module: SearchModule | None = None,
         search_enabled: bool = True,
         workflow: CompanionWorkflow = "standard",
@@ -186,6 +179,7 @@ class ProductionAgentHarness:
         self._profile_version = profile_version
         self._memory_refs = memory_refs or []
         self._session_summary = session_summary
+        self._clinical_state = clinical_state or ClinicalState()
         self._search_module = search_module
         self._search_enabled = search_enabled
         self._workflow = workflow
@@ -272,6 +266,7 @@ class ProductionAgentHarness:
             profile_version=self._profile_version,
             memory_refs=tuple(self._memory_refs),
             session_summary=self._session_summary,
+            clinical_state=self._clinical_state,
             loaded_skills=tuple(loaded_skills),
             uploaded_files=tuple(uploaded_files),
             history=tuple(self._history),
@@ -471,6 +466,14 @@ class ProductionAgentHarness:
                 0,
                 AssistantMsg(name="memory", content=context.profile_context),
             )
+        clinical_state_json, clinical_state_context = render_untrusted_clinical_state(
+            context.clinical_state
+        )
+        if clinical_state_context is not None:
+            state_context.insert(
+                0,
+                AssistantMsg(name="clinical_state", content=clinical_state_context),
+            )
         if self._uploaded_documents:
             state_context.append(
                 UserMsg(
@@ -504,6 +507,7 @@ class ProductionAgentHarness:
                 user_message,
                 context.profile_context,
                 context.session_summary,
+                clinical_state_json,
                 *(item.text for item in context.conversation_history),
                 *(item.content for item in self._uploaded_documents),
                 *(item.excerpt for item in initial_citations),

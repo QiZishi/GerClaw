@@ -20,6 +20,10 @@ from gerclaw_api.domain.run_schemas import (
     RunEventWrite,
     RunRegenerationContext,
 )
+from gerclaw_api.modules.agent_harness.clinical_state import (
+    ClinicalState,
+    ClinicalStateError,
+)
 from gerclaw_api.repositories.agent_run import SqlAlchemyAgentRunRepository
 from gerclaw_api.repositories.answer_version import SqlAlchemyAnswerVersionRepository
 from gerclaw_api.repositories.run_regeneration import (
@@ -60,6 +64,15 @@ class ChatRunJournal(Protocol):
         actor_id: str,
     ) -> RunAnswerContext | None:
         """Restore version metadata for a completed same-Trace replay."""
+
+    async def read_clinical_state(
+        self,
+        conversation_id: uuid.UUID,
+        *,
+        tenant_id: str,
+        actor_id: str,
+    ) -> ClinicalState:
+        """Restore the latest encrypted, actor-owned clinical snapshot."""
 
     async def append(
         self,
@@ -158,6 +171,34 @@ class DatabaseChatRunJournal:
             )
             await version_repository.rollback()
             return result
+
+    async def read_clinical_state(
+        self,
+        conversation_id: uuid.UUID,
+        *,
+        tenant_id: str,
+        actor_id: str,
+    ) -> ClinicalState:
+        async with self._database.session() as session:
+            repository = SqlAlchemyAgentRunRepository(session)
+            run = await repository.get_latest_owned_run_for_conversation(
+                conversation_id,
+                tenant_id=tenant_id,
+                actor_id=actor_id,
+            )
+            if run is None:
+                await repository.rollback()
+                return ClinicalState()
+            raw_state = run.context_snapshot.get("clinical_state")
+            await repository.rollback()
+            if raw_state is None:
+                return ClinicalState()
+            try:
+                return ClinicalState.model_validate(raw_state)
+            except ValueError as exc:
+                raise ClinicalStateError(
+                    "PERSISTED_CLINICAL_STATE_INVALID"
+                ) from exc
 
     async def start(
         self,

@@ -1,5 +1,8 @@
 """Versioned, bounded context snapshot contracts."""
 
+from gerclaw_api.modules.agent_harness.context_snapshot.clinical_projection import (
+    render_untrusted_clinical_state,
+)
 from gerclaw_api.modules.agent_harness.context_snapshot.models import (
     AgentContext,
     ContextSnapshotAssembler,
@@ -18,4 +21,5 @@ __all__ = [
     "ConversationHistoryMessage",
     "ProductionContextSnapshotAssembler",
     "UploadedInputProjector",
+    "render_untrusted_clinical_state",
 ]
