@@ -3,13 +3,12 @@
 from __future__ import annotations
 
 import asyncio
-import hashlib
 import inspect
 import json
 import logging
 import time
 from collections.abc import AsyncIterator, Awaitable, Callable
-from datetime import UTC, datetime, timedelta
+from datetime import UTC, datetime
 from typing import Any, cast
 
 from agentscope.agent import Agent
@@ -36,7 +35,7 @@ from agentscope.middleware import Mem0Middleware, RAGMiddleware
 from agentscope.model import ChatModelBase
 from agentscope.skill import Skill as AgentScopeSkill
 from agentscope.tool import Toolkit
-from pydantic import BaseModel, ValidationError
+from pydantic import BaseModel
 
 from gerclaw_api.config import Settings
 from gerclaw_api.domain.trace_schemas import bounded_trace_duration_ms
@@ -44,7 +43,11 @@ from gerclaw_api.modules.agent_harness.components import HarnessComponents
 from gerclaw_api.modules.agent_harness.config import ResolvedHarnessConfig
 from gerclaw_api.modules.agent_harness.context_snapshot import UploadedInputProjector
 from gerclaw_api.modules.agent_harness.planning import AgentFactory, ProductionAgentFactory
-from gerclaw_api.modules.agent_harness.plugin_runtime import ToolRegistryFactory
+from gerclaw_api.modules.agent_harness.plugin_runtime import (
+    ApprovalCallback,
+    ApprovalCoordinator,
+    ToolRegistryFactory,
+)
 from gerclaw_api.modules.agent_harness.plugin_runtime.production import (
     build_chat_toolkit,
     build_production_tool_registry,
@@ -89,17 +92,13 @@ from gerclaw_api.modules.rag.protocols import RAGModule
 from gerclaw_api.modules.runtime.budget import RuntimeBudgetExceededError, RuntimeBudgetTracker
 from gerclaw_api.modules.runtime.models import (
     ActorRole,
-    ApprovalCreate,
-    ApprovalRead,
     DataClass,
     ExecutionBudget,
     NetworkAccess,
     RiskLevel,
     RuntimePrincipal,
     ToolCapability,
-    ToolInvocationRequest,
 )
-from gerclaw_api.modules.runtime.permission import POLICY_VERSION
 from gerclaw_api.modules.search import (
     build_web_search_tool,
     capture_agent_search_results,
@@ -118,7 +117,6 @@ from gerclaw_api.security import JsonValue
 from gerclaw_api.services.model_router import capture_model_attempts
 
 StreamCallback = Callable[[StreamEvent], Awaitable[None] | None]
-ApprovalCallback = Callable[[ApprovalCreate], Awaitable[ApprovalRead]]
 _EVIDENCE_UNAVAILABLE_CLARIFICATION = (
     "目前缺少可核验的资料，暂不适合据此作个体化判断。"
     "请补充症状出现和变化、近期检查或完整用药信息，我可以结合这些资料继续说明。"
@@ -952,77 +950,23 @@ class ProductionAgentHarness:
         input_models: dict[str, type[BaseModel]],
         stream_callback: StreamCallback,
     ) -> tuple[str, ...]:
-        """Park every AgentScope ASK in durable HITL before ending this turn."""
+        """Compatibility delegate to the governed approval coordinator."""
 
-        if self._approval_callback is None:
-            raise AgentApprovalRequiredError(
-                "approval persistence is unavailable; action was not executed"
-            )
-        if self._runtime_principal.user_id is None:
-            raise AgentApprovalRequiredError("approval requires a verified user identity")
-        approval_ids: list[str] = []
-        for tool_call in tool_calls:
-            capability = capabilities.get(tool_call.name)
-            input_model = input_models.get(tool_call.name)
-            if capability is None or input_model is None or not capability.approval_roles:
-                raise AgentApprovalRequiredError(
-                    "requested tool has no approved human-review capability"
-                )
-            try:
-                raw_arguments = json.loads(tool_call.input)
-            except json.JSONDecodeError as error:
-                raise AgentApprovalRequiredError(
-                    "requested tool arguments are not valid JSON"
-                ) from error
-            if not isinstance(raw_arguments, dict):
-                raise AgentApprovalRequiredError("requested tool arguments must be an object")
-            try:
-                validated_arguments = input_model.model_validate(raw_arguments).model_dump(
-                    mode="json"
-                )
-            except ValidationError as error:
-                raise AgentApprovalRequiredError(
-                    "requested tool arguments failed the registered schema"
-                ) from error
-            digest = hashlib.sha256(
-                f"{self._execution.trace_id}:{tool_call.id}:{tool_call.input}".encode()
-            ).hexdigest()
-            command = ApprovalCreate(
-                user_id=self._runtime_principal.user_id,
-                patient_id=self._runtime_principal.patient_id,
-                session_id=self._execution.session_id,
-                trace_id=self._execution.trace_id,
-                invocation=ToolInvocationRequest(
-                    invocation_id=f"invoke_{digest[:32]}",
-                    tool_name=capability.name,
-                    tool_version=capability.version,
-                    arguments=cast(dict[str, JsonValue], validated_arguments),
-                    idempotency_key=f"idem_{digest}",
-                    outbound_data_redacted=False,
-                ),
-                required_roles=tuple(
-                    sorted(capability.approval_roles, key=lambda role: role.value)
-                ),
-                policy_version=POLICY_VERSION,
-                expires_at=datetime.now(UTC)
-                + timedelta(seconds=self._config.approval_ttl_seconds),
-            )
-            approval = await self._approval_callback(command)
-            approval_id = str(approval.id)
-            approval_ids.append(approval_id)
-            await self._emit(
-                stream_callback,
-                "approval_required",
-                {
-                    "approval_id": approval_id,
-                    "tool_name": approval.tool_name,
-                    "status": approval.status.value,
-                    "expires_at": approval.expires_at.isoformat(),
-                    "policy_version": approval.policy_version,
-                    "tool_version": approval.tool_version,
-                },
-            )
-        return tuple(approval_ids)
+        async def emit(event_type: str, data: dict[str, JsonValue]) -> None:
+            await self._emit(stream_callback, event_type, data)
+
+        coordinator = ApprovalCoordinator(
+            callback=self._approval_callback,
+            principal=self._runtime_principal,
+            execution=self._execution,
+            ttl_seconds=self._config.approval_ttl_seconds,
+        )
+        return await coordinator.persist(
+            tool_calls,
+            capabilities=capabilities,
+            input_models=input_models,
+            emit=emit,
+        )
 
     def _build_agent(
         self,
