@@ -103,5 +103,8 @@ class ClinicalStateReducer(Protocol):
         self,
         current: ClinicalState,
         observations: tuple[ClinicalFact, ...],
+        *,
+        unknowns: tuple[BoundedClinicalText, ...] = (),
+        resolved_unknowns: tuple[BoundedClinicalText, ...] = (),
     ) -> ClinicalState:
         """Reduce trusted observations without confirming model hypotheses."""

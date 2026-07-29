@@ -10,6 +10,7 @@ from gerclaw_api.modules.agent_harness import HarnessComponents, ResolvedHarness
 from gerclaw_api.modules.agent_harness.clinical_state import (
     ClinicalFact,
     ClinicalState,
+    DeterministicClinicalStateReducer,
     FactProvenance,
 )
 from gerclaw_api.modules.agent_harness.evidence import EvidenceRecord
@@ -261,6 +262,113 @@ def test_clinical_state_requires_trusted_provenance() -> None:
         )
     with pytest.raises(ValidationError):
         ClinicalState(unknowns=("a" * 5_001,))
+
+
+def test_clinical_state_reducer_merges_equal_observations_with_provenance() -> None:
+    observed_at = datetime.now(UTC)
+    user_provenance = FactProvenance(
+        source_type="user",
+        source_id="message-1",
+        observed_at=observed_at,
+    )
+    tool_provenance = FactProvenance(
+        source_type="trusted_tool",
+        source_id="observation-1",
+        observed_at=observed_at,
+    )
+    reducer = DeterministicClinicalStateReducer()
+    current = ClinicalState(
+        facts=(
+            ClinicalFact(
+                fact_id="blood-pressure",
+                category="observation",
+                value={"systolic": 150, "diastolic": 90, "unit": "mmHg"},
+                status="reported",
+                provenance=(user_provenance,),
+            ),
+        ),
+        unknowns=("blood-pressure", "持续时间"),
+    )
+
+    reduced = reducer.reduce(
+        current,
+        (
+            ClinicalFact(
+                fact_id="blood-pressure",
+                category="observation",
+                value={"systolic": 150, "diastolic": 90, "unit": "mmHg"},
+                status="confirmed",
+                provenance=(tool_provenance,),
+            ),
+        ),
+    )
+
+    assert len(reduced.facts) == 1
+    assert reduced.facts[0].status == "confirmed"
+    assert reduced.facts[0].provenance == (user_provenance, tool_provenance)
+    assert reduced.unknowns == ("持续时间",)
+    assert reduced.conflicts == ()
+
+
+def test_clinical_state_reducer_preserves_conflicting_candidates_and_unknowns() -> None:
+    observed_at = datetime.now(UTC)
+    user_provenance = FactProvenance(
+        source_type="user",
+        source_id="message-1",
+        observed_at=observed_at,
+    )
+    tool_provenance = FactProvenance(
+        source_type="trusted_tool",
+        source_id="medication-list-1",
+        observed_at=observed_at,
+    )
+    reducer = DeterministicClinicalStateReducer()
+    current = ClinicalState(
+        facts=(
+            ClinicalFact(
+                fact_id="current-aspirin-dose",
+                category="medication",
+                value="每日 100 mg",
+                status="reported",
+                provenance=(user_provenance,),
+            ),
+        ),
+        unknowns=("过敏史",),
+    )
+
+    reduced = reducer.reduce(
+        current,
+        (
+            ClinicalFact(
+                fact_id="current-aspirin-dose",
+                category="medication",
+                value="每日 50 mg",
+                status="confirmed",
+                provenance=(tool_provenance,),
+            ),
+        ),
+        unknowns=("近期出血", "过敏史"),
+    )
+    repeated = reducer.reduce(reduced, reduced.facts)
+
+    assert [fact.value for fact in reduced.facts] == ["每日 100 mg", "每日 50 mg"]
+    assert {fact.status for fact in reduced.facts} == {"conflicted"}
+    assert reduced.conflicts == ("current-aspirin-dose",)
+    assert reduced.unknowns == ("过敏史", "近期出血")
+    assert repeated == reduced
+    assert all(fact.category != "negative_evidence" for fact in reduced.facts)
+
+
+def test_clinical_state_reducer_resolves_only_explicit_unknown_labels() -> None:
+    reducer = DeterministicClinicalStateReducer()
+    reduced = reducer.reduce(
+        ClinicalState(unknowns=("持续时间", "是否跌倒")),
+        (),
+        resolved_unknowns=("持续时间",),
+    )
+
+    assert reduced.unknowns == ("是否跌倒",)
+    assert reduced.facts == ()
 
 
 def test_evidence_and_plugin_contracts_keep_capability_owners_external() -> None:
