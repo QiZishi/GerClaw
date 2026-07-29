@@ -15,6 +15,14 @@ from gerclaw_api.modules.agent_harness.run_lifecycle.protocols import (
     ProductionRunLifecycle,
     RunLifecycle,
 )
+from gerclaw_api.modules.agent_harness.run_lifecycle.state_machine import (
+    AgentRunStateMachine,
+    RunFenceConflictError,
+    RunLifecycleState,
+    RunRevisionConflictError,
+    RunTerminalConflictError,
+    RunTransitionError,
+)
 from gerclaw_api.modules.agent_harness.run_lifecycle.streaming import (
     CanonicalTextStream,
     SafeSentenceBuffer,
@@ -25,11 +33,17 @@ __all__ = [
     "AgentApprovalRequiredError",
     "AgentHarnessError",
     "AgentIterationLimitError",
+    "AgentRunStateMachine",
     "AgentStreamResult",
     "CanonicalTextStream",
     "EmptyAgentResponseError",
     "ProductionRunLifecycle",
+    "RunFenceConflictError",
     "RunLifecycle",
+    "RunLifecycleState",
+    "RunRevisionConflictError",
+    "RunTerminalConflictError",
+    "RunTransitionError",
     "SafeSentenceBuffer",
     "UnsupportedAgentContextError",
     "bounded_events",
