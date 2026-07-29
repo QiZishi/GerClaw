@@ -26,6 +26,7 @@ import { ChatInput, type ChatDocumentAttachment } from "@/components/chat/ChatIn
 import { MessageList } from "@/components/chat/MessageList";
 import { ExportDialog } from "@/components/chat/ExportDialog";
 import { WelcomePage } from "@/components/chat/WelcomePage";
+import { useSessionSkillSelection } from "@/components/chat/useSessionSkillSelection";
 import { SkillManager } from "@/components/skills/SkillManager";
 import { CgaAssessment } from "@/components/cga/CgaAssessment";
 import { ClinicalIntakeForm } from "@/components/prescription/ClinicalIntakeForm";
@@ -46,7 +47,6 @@ import {
   replayAgentRunEvents,
 } from "@/services/gerclaw/runs";
 import { planConversationRecovery } from "@/services/gerclaw/conversation-recovery";
-import { readSessionSkills, replaceSessionSkills } from "@/services/gerclaw/skills";
 import {
   readConversationMessages,
   toFrontendCitation,
@@ -83,7 +83,6 @@ export function ChatArea() {
   const sidebarCollapsed = useAppStore((s) => s.sidebarCollapsed);
   const seniorMode = useAppStore((s) => s.seniorMode);
   const loadedSkillIds = useAppStore((s) => s.loadedSkillIds);
-  const setLoadedSkills = useAppStore((s) => s.setLoadedSkills);
   const isGenerating = useChatStore((s) => s.isGenerating);
   const setGenerating = useChatStore((s) => s.setGenerating);
   const setMessages = useChatStore((s) => s.setMessages);
@@ -105,12 +104,13 @@ export function ChatArea() {
 
   const abortControllerRef = useRef<AbortController | null>(null);
   const currentThinkingBlockIdRef = useRef<string | null>(null);
-  const skillSelectionLoadRef = useRef(0);
-  const pendingSkillSelectionRef = useRef(new Map<string, string[]>());
   const loadedHistorySessionIdsRef = useRef(new Set<string>());
   const checkedRecoverySessionIdsRef = useRef(new Set<string>());
-  const [skillSelectionReadySessionId, setSkillSelectionReadySessionId] = useState<string | null>(null);
-  const skillSelectionReadySessionIdRef = useRef<string | null>(null);
+  const {
+    readySessionId: skillSelectionReadySessionId,
+    stageSelection: stageSkillSelection,
+    isReady: isSkillSelectionReady,
+  } = useSessionSkillSelection({ currentSessionId, isGuest });
 
   const [mounted, setMounted] = useState(false);
   useEffect(() => {
@@ -146,56 +146,6 @@ export function ChatArea() {
       .map((b) => b.content)
       .join("\n");
   };
-
-  useEffect(() => {
-    if (isGuest) {
-      skillSelectionLoadRef.current += 1;
-      setLoadedSkills([]);
-      skillSelectionReadySessionIdRef.current = currentSessionId;
-      return;
-    }
-    if (!currentSessionId) {
-      skillSelectionLoadRef.current += 1;
-      setLoadedSkills([]);
-      // eslint-disable-next-line react-hooks/set-state-in-effect
-      setSkillSelectionReadySessionId(null);
-      skillSelectionReadySessionIdRef.current = null;
-      return;
-    }
-    const loadId = ++skillSelectionLoadRef.current;
-    // Never expose the previous conversation's Skills while the new
-    // conversation selection is being restored from the backend.
-    setLoadedSkills([]);
-    setSkillSelectionReadySessionId(null);
-    skillSelectionReadySessionIdRef.current = null;
-    const pendingSelection = pendingSkillSelectionRef.current.get(currentSessionId);
-    pendingSkillSelectionRef.current.delete(currentSessionId);
-    const loadSelection = pendingSelection
-      ? replaceSessionSkills(currentSessionId, pendingSelection)
-      : readSessionSkills(currentSessionId);
-    void loadSelection
-      .then((skillIds) => {
-        if (
-          loadId === skillSelectionLoadRef.current &&
-          useAppStore.getState().currentSessionId === currentSessionId
-        ) {
-          setLoadedSkills(skillIds);
-          skillSelectionReadySessionIdRef.current = currentSessionId;
-          setSkillSelectionReadySessionId(currentSessionId);
-        }
-      })
-      .catch((error) => {
-        if (
-          loadId === skillSelectionLoadRef.current &&
-          useAppStore.getState().currentSessionId === currentSessionId
-        ) {
-          setLoadedSkills([]);
-          skillSelectionReadySessionIdRef.current = currentSessionId;
-          setSkillSelectionReadySessionId(currentSessionId);
-          toast.show(error instanceof Error ? error.message : "会话技能未能恢复");
-        }
-      });
-  }, [currentSessionId, isGuest, setLoadedSkills]);
 
   // 仅健康画像由右侧面板承载；其余入口均由各自的真实后端流程承载。
   useEffect(() => {
@@ -355,7 +305,7 @@ export function ChatArea() {
     if (!currentSessionId) {
       const sid = createSession(role);
       if (workflow === "standard" && loadedSkillIds.length > 0) {
-        pendingSkillSelectionRef.current.set(sid, [...loadedSkillIds]);
+        stageSkillSelection(sid, loadedSkillIds);
       }
       setCurrentSession(sid);
       try {
@@ -378,7 +328,7 @@ export function ChatArea() {
     const liveSessionId = useAppStore.getState().currentSessionId;
     if (
       liveSessionId !== currentSessionId ||
-      (workflow === "standard" && !isGuest && skillSelectionReadySessionIdRef.current !== liveSessionId)
+      (workflow === "standard" && !isSkillSelectionReady(liveSessionId))
     ) {
       toast.show("正在恢复当前会话的技能，请稍候再发送");
       return false;
