@@ -8,7 +8,11 @@ reduces them, and persists the resulting state on the new Run. The deterministic
 also recognizes only explicit user statements for age, allergy/explicit allergy denial,
 current medication, symptom, history, and timeline; it stores the source message rather than
 inferring a clinical conclusion. Regeneration recognizes the same input-message fact IDs and
-does not duplicate them.
+does not duplicate them. Singleton claims that must not silently diverge use stable semantic
+IDs (`demographic:age_years`, `allergy:drug_status`, and
+`medication:current_list`), so a later different value enters the reducer's explicit conflict
+path instead of appearing as an unrelated normal fact. Repeatable symptoms, history entries,
+and timelines retain message-scoped IDs.
 
 Validation rejects untrusted provenance types and unbounded collections. The reducer accepts
 only already-validated user or trusted-tool observations. Equal observations merge provenance;

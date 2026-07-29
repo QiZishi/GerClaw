@@ -67,24 +67,35 @@ class UserMessageClinicalProjector:
             )
         semantic_facts: list[tuple[str, str, object]] = []
         if age := _AGE.search(message):
-            semantic_facts.append(("demographic", "age", {"age_years": int(age.group(1))}))
+            semantic_facts.append(
+                ("demographic", "demographic:age_years", {"age_years": int(age.group(1))})
+            )
         if _NEGATIVE_ALLERGY.search(message):
             semantic_facts.append(
-                ("negative_evidence", "allergy_negative", "用户明确否认药物过敏")
+                (
+                    "negative_evidence",
+                    "allergy:drug_status",
+                    "用户明确否认药物过敏",
+                )
             )
         elif _POSITIVE_ALLERGY.search(message):
-            semantic_facts.append(("allergy", "allergy", message))
+            semantic_facts.append(("allergy", "allergy:drug_status", message))
         if _MEDICATION_REPORT.search(message):
-            semantic_facts.append(("medication", "medication", message))
+            semantic_facts.append(("medication", "medication:current_list", message))
         if _SYMPTOM.search(message):
-            semantic_facts.append(("symptom", "symptom", message))
+            semantic_facts.append(
+                ("symptom", f"{message_fact_id}:symptom", message)
+            )
         if _HISTORY.search(message):
-            semantic_facts.append(("history", "history", message))
+            semantic_facts.append(("history", f"{message_fact_id}:history", message))
         if _TIMELINE.search(message):
-            semantic_facts.append(("timeline", "timeline", message))
-        for category, suffix, value in semantic_facts:
-            fact_id = f"{message_fact_id}:{suffix}"
-            if any(fact.fact_id == fact_id for fact in current.facts):
+            semantic_facts.append(("timeline", f"{message_fact_id}:timeline", message))
+        for category, fact_id, value in semantic_facts:
+            if any(
+                fact.fact_id == fact_id
+                and any(item.source_id == source_id for item in fact.provenance)
+                for fact in current.facts
+            ):
                 continue
             observations.append(
                 ClinicalFact.model_validate(

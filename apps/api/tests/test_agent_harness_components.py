@@ -478,6 +478,56 @@ def test_user_message_projector_extracts_only_explicit_structured_facts() -> Non
     )
 
 
+@pytest.mark.parametrize(
+    ("first_message", "second_message", "fact_id"),
+    [
+        ("老人70岁。", "老人实际71岁。", "demographic:age_years"),
+        ("没有药物过敏。", "对青霉素过敏。", "allergy:drug_status"),
+        (
+            "正在服用阿司匹林100mg每日一次。",
+            "目前服用阿司匹林50mg每日一次。",
+            "medication:current_list",
+        ),
+    ],
+)
+def test_user_message_projector_marks_singleton_fact_changes_as_conflicts(
+    first_message: str,
+    second_message: str,
+    fact_id: str,
+) -> None:
+    projector = UserMessageClinicalProjector(DeterministicClinicalStateReducer())
+    first_message_id = uuid.uuid4()
+    second_message_id = uuid.uuid4()
+
+    first = projector.project(
+        ClinicalState(),
+        message_id=first_message_id,
+        message=first_message,
+        observed_at=datetime.now(UTC),
+        red_flag_codes=(),
+    )
+    conflicted = projector.project(
+        first,
+        message_id=second_message_id,
+        message=second_message,
+        observed_at=datetime.now(UTC),
+        red_flag_codes=(),
+    )
+    replayed = projector.project(
+        conflicted,
+        message_id=second_message_id,
+        message=second_message,
+        observed_at=datetime.now(UTC),
+        red_flag_codes=(),
+    )
+
+    singleton_facts = [fact for fact in conflicted.facts if fact.fact_id == fact_id]
+    assert len(singleton_facts) == 2
+    assert all(fact.status == "conflicted" for fact in singleton_facts)
+    assert conflicted.conflicts == (fact_id,)
+    assert replayed == conflicted
+
+
 def test_evidence_and_plugin_contracts_keep_capability_owners_external() -> None:
     evidence = EvidenceRecord(
         evidence_id="E1",
