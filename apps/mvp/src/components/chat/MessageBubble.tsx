@@ -27,14 +27,6 @@ import {
   DropdownMenuTrigger,
   DropdownMenuSeparator,
 } from "@/components/ui/dropdown-menu";
-import {
-  Dialog,
-  DialogContent,
-  DialogHeader,
-  DialogTitle,
-  DialogFooter,
-  DialogClose,
-} from "@/components/ui/dialog";
 import { useAppStore } from "@/stores/appStore";
 import { useChatStore } from "@/stores/chatStore";
 import { cn } from "@/lib/utils";
@@ -43,13 +35,14 @@ import { SourceReferences } from "@/components/search/SourceReferences";
 import { MEDICAL_DISCLAIMER } from "@/lib/constants";
 import type { Message, MessageBlock, RightPanelType } from "@/types";
 import { toast } from "@/components/ui/toast";
-import { createFeedbackIdempotencyKey, submitFeedback } from "@/services/gerclaw/feedback";
 import { MessageBody } from "@/components/chat/message/MessageBody";
+import { MessageFeedbackDialog } from "@/components/chat/message/MessageFeedbackDialog";
 import {
   AssistantRunStatus,
   IncompleteAnswerWarning,
 } from "@/components/chat/message/MessageStatusNotices";
 import { MessageVoiceReadButton } from "@/components/chat/message/MessageVoiceReadButton";
+import { useMessageFeedback } from "@/components/chat/message/useMessageFeedback";
 
 interface MessageBubbleProps {
   message: Message;
@@ -83,18 +76,25 @@ export function MessageBubble({
   const isUser = message.role === "user";
   const [copied, setCopied] = useState(false);
   const [appeared, setAppeared] = useState(false);
-  const [showFeedbackDialog, setShowFeedbackDialog] = useState(false);
-  const [feedbackType, setFeedbackType] = useState<"up" | "down" | null>(null);
-  const [feedbackText, setFeedbackText] = useState("");
-  const [feedbackSubmitting, setFeedbackSubmitting] = useState(false);
   const seniorMode = useAppStore((s) => s.seniorMode);
   const role = useAppStore((s) => s.role);
   const autoTtsPlayback = useAppStore((s) => s.autoTtsPlayback);
   const ttsAvailable = useAppStore((s) => s.ttsAvailable);
   const setRightPanel = useAppStore((s) => s.setRightPanel);
   const setPanelContent = useAppStore((s) => s.setPanelContent);
-  const setMessageFeedback = useChatStore((s) => s.setMessageFeedback);
   const updateMessage = useChatStore((s) => s.updateMessage);
+  const {
+    feedback,
+    feedbackSubmitting,
+    feedbackType,
+    feedbackText,
+    showFeedbackDialog,
+    setFeedbackText,
+    setShowFeedbackDialog,
+    handleFeedbackClick,
+    dismissFeedbackDialog,
+    submitLegacyFeedback,
+  } = useMessageFeedback(message);
 
   const autoPlayEligible = Boolean(
     message.autoTtsPending &&
@@ -114,8 +114,6 @@ export function MessageBubble({
       markAutoPlaybackConsumed();
     }
   }, [autoPlayEligible, markAutoPlaybackConsumed, message.autoTtsPending]);
-
-  const feedback = message.feedback ?? null;
 
   useEffect(() => {
     const timer = setTimeout(() => setAppeared(true), 10);
@@ -140,42 +138,6 @@ export function MessageBubble({
       toast.show("已复制");
     });
     onCopy?.(message.id);
-  };
-
-  const handleFeedbackClick = (type: "up" | "down") => {
-    if (!message.traceId || feedback || feedbackSubmitting) return;
-    setFeedbackType(type);
-    setFeedbackText("");
-    setShowFeedbackDialog(true);
-  };
-
-  const dismissFeedbackDialog = () => {
-    setShowFeedbackDialog(false);
-    setFeedbackText("");
-    setFeedbackType(null);
-  };
-
-  const submitMessageFeedback = async () => {
-    if (!feedbackType || !message.traceId || feedbackSubmitting) return;
-    const idempotencyKey = message.feedbackIdempotencyKey ?? createFeedbackIdempotencyKey();
-    const comment = feedbackText.trim();
-    updateMessage(message.id, { feedbackIdempotencyKey: idempotencyKey });
-    setFeedbackSubmitting(true);
-    try {
-      await submitFeedback({
-        traceId: message.traceId,
-        idempotencyKey,
-        rating: feedbackType === "up" ? "positive" : "negative",
-        ...(comment ? { comment } : {}),
-      });
-      setMessageFeedback(message.id, feedbackType, comment || undefined);
-      toast.show("反馈已提交，感谢您的帮助");
-      dismissFeedbackDialog();
-    } catch {
-      toast.show("反馈暂未提交，请检查网络后重试");
-    } finally {
-      setFeedbackSubmitting(false);
-    }
   };
 
   const handleEditInDoc = () => {
@@ -314,7 +276,9 @@ export function MessageBubble({
                   : "opacity-0 group-hover:opacity-100 focus-within:opacity-100"
               )}
             >
-              {!isUser && message.status === "done" && message.traceId ? (
+              {!isUser &&
+              message.status === "done" &&
+              (message.executionRunId || message.traceId) ? (
                 <>
                   <Tooltip>
                     <TooltipTrigger
@@ -324,8 +288,12 @@ export function MessageBubble({
                           size={btnSize}
                           className={cn(seniorActionClass, feedback === 'up' && "text-primary bg-primary/10")}
                           onClick={() => handleFeedbackClick('up')}
-                          disabled={Boolean(feedback) || feedbackSubmitting}
-                          aria-label={feedback === "up" ? "已提交有帮助反馈" : "有帮助"}
+                          disabled={feedbackSubmitting || (!message.executionRunId && Boolean(feedback))}
+                          aria-label={
+                            feedback === "up"
+                              ? message.executionRunId ? "撤销有帮助反馈" : "已提交有帮助反馈"
+                              : "有帮助"
+                          }
                         />
                       }
                     >
@@ -343,8 +311,12 @@ export function MessageBubble({
                           size={btnSize}
                           className={cn(seniorActionClass, feedback === 'down' && "text-primary bg-primary/10")}
                           onClick={() => handleFeedbackClick('down')}
-                          disabled={Boolean(feedback) || feedbackSubmitting}
-                          aria-label={feedback === "down" ? "已提交没帮助反馈" : "没帮助"}
+                          disabled={feedbackSubmitting || (!message.executionRunId && Boolean(feedback))}
+                          aria-label={
+                            feedback === "down"
+                              ? message.executionRunId ? "撤销没帮助反馈" : "已提交没帮助反馈"
+                              : "没帮助"
+                          }
                         />
                       }
                     >
@@ -482,41 +454,19 @@ export function MessageBubble({
         )}
       </div>
 
-      <Dialog
+      <MessageFeedbackDialog
         open={showFeedbackDialog}
+        type={feedbackType}
+        text={feedbackText}
+        submitting={feedbackSubmitting}
+        seniorMode={seniorMode}
         onOpenChange={(open) => {
           if (!open && !feedbackSubmitting) dismissFeedbackDialog();
+          else setShowFeedbackDialog(open);
         }}
-      >
-        <DialogContent className="sm:max-w-[425px]">
-          <DialogHeader>
-            <DialogTitle>
-              {feedbackType === "up" ? "点赞反馈" : "点踩反馈"}
-            </DialogTitle>
-          </DialogHeader>
-          <textarea
-            value={feedbackText}
-            onChange={(e) => setFeedbackText(e.target.value)}
-            placeholder="请输入您的评价（可选）"
-            disabled={feedbackSubmitting}
-            className={cn(
-              "w-full rounded-md border border-border bg-background px-3 py-2 text-sm ring-offset-background placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 resize-none",
-              seniorMode && "min-h-32 text-lg"
-            )}
-            rows={4}
-          />
-          <DialogFooter className="gap-2">
-            <DialogClose render={<Button variant="outline" disabled={feedbackSubmitting} className={cn(seniorMode && "min-h-12 px-4 text-base")}>取消</Button>} />
-            <Button
-              className={cn(seniorMode && "min-h-12 px-4 text-base")}
-              onClick={() => void submitMessageFeedback()}
-              disabled={feedbackSubmitting}
-            >
-              {feedbackSubmitting ? "正在提交" : "提交反馈"}
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
+        onTextChange={setFeedbackText}
+        onSubmit={() => void submitLegacyFeedback()}
+      />
     </div>
   );
 }
