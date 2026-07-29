@@ -8,7 +8,6 @@ import logging
 import time
 import uuid
 from collections.abc import Awaitable, Callable
-from contextlib import suppress
 from datetime import UTC, datetime
 from typing import Any, Protocol, cast
 
@@ -723,6 +722,14 @@ class ChatService:
             # the final fence before an assistant response becomes replayable.
             if cancellation_requested is not None and await cancellation_requested():
                 raise asyncio.CancelledError("explicit chat cancellation requested")
+            rendered = await self._input_output.render(response, "web")
+            done = ChatDoneData(
+                full_text=cast(str, rendered["text"]),
+                references=cast(Any, rendered["citations"]),
+                safety=cast(Any, rendered["safety"]),
+                trace_id=trace_id,
+                session_id=payload.session_id,
+            )
             # Conversation and Trace repositories share this request's
             # AsyncSession. Stage the assistant plus success events, then let the
             # terminal Trace transition commit the whole success unit atomically.
@@ -758,6 +765,31 @@ class ChatService:
                 memory_update=None if companion else memory.last_update,
                 commit=False,
             )
+            if self._run_journal is not None and self._active_run_id is not None:
+                answer_version, _completed_run = await self._run_journal.complete_answer(
+                    self._active_run_id,
+                    assistant_message.id,
+                    done.model_dump(mode="json"),
+                    tenant_id=identity.tenant_id,
+                    actor_id=identity.actor_id,
+                    fencing_token=lease_guard.fencing_token,
+                    answer_group_run_id=self._answer_group_run_id,
+                    expected_current_version_id=(
+                        regeneration.current_answer_version_id
+                        if regeneration is not None
+                        else None
+                    ),
+                )
+                done = done.model_copy(
+                    update={
+                        "run_id": self._active_run_id,
+                        "answer_group_run_id": (
+                            self._answer_group_run_id or self._active_run_id
+                        ),
+                        "answer_version_id": answer_version.id,
+                        "answer_version": answer_version.version,
+                    }
+                )
             await self._traces.finish_trace(
                 identity.tenant_id,
                 trace_id,
@@ -782,67 +814,6 @@ class ChatService:
             raise
         if not companion:
             memory.mark_vectors_committed()
-        rendered = await self._input_output.render(response, "web")
-        done = ChatDoneData(
-            full_text=cast(str, rendered["text"]),
-            references=cast(Any, rendered["citations"]),
-            safety=cast(Any, rendered["safety"]),
-            trace_id=trace_id,
-            session_id=payload.session_id,
-        )
-        if self._run_journal is not None and self._active_run_id is not None:
-            try:
-                answer_version = await self._run_journal.register_answer(
-                    self._active_run_id,
-                    assistant_message.id,
-                    tenant_id=identity.tenant_id,
-                    actor_id=identity.actor_id,
-                    answer_group_run_id=self._answer_group_run_id,
-                )
-                done = done.model_copy(
-                    update={
-                        "run_id": self._active_run_id,
-                        "answer_group_run_id": (
-                            self._answer_group_run_id or self._active_run_id
-                        ),
-                        "answer_version_id": answer_version.id,
-                        "answer_version": answer_version.version,
-                    }
-                )
-                await self._run_journal.append(
-                    self._active_run_id,
-                    RunEventWrite(
-                        event_type="done",
-                        status="completed",
-                        payload=done.model_dump(mode="json"),
-                    ),
-                    tenant_id=identity.tenant_id,
-                    actor_id=identity.actor_id,
-                    fencing_token=lease_guard.fencing_token,
-                )
-                await self._run_journal.transition(
-                    self._active_run_id,
-                    AgentRunStatus.COMPLETED,
-                    tenant_id=identity.tenant_id,
-                    actor_id=identity.actor_id,
-                    fencing_token=lease_guard.fencing_token,
-                    public_summary="回答已完成",
-                )
-            except Exception:
-                logger.exception(
-                    "agent run success projection failed",
-                    extra={"run_id": str(self._active_run_id), "trace_id": trace_id},
-                )
-                with suppress(Exception):
-                    await self._run_journal.transition(
-                        self._active_run_id,
-                        AgentRunStatus.COMPLETED_WITH_WARNINGS,
-                        tenant_id=identity.tenant_id,
-                        actor_id=identity.actor_id,
-                        fencing_token=lease_guard.fencing_token,
-                        warnings=("run_postprocessing_failed",),
-                        public_summary="回答已完成, 部分产物保存失败",
-                    )
         await callback(
             StreamEvent(
                 event_type="done",
@@ -1241,6 +1212,7 @@ class ChatService:
             "ConversationNotFoundError": "CHAT_SESSION_NOT_FOUND",
             "RunRegenerationNotFoundError": "CHAT_REGENERATION_NOT_FOUND",
             "RunRegenerationConflictError": "CHAT_REGENERATION_CONFLICT",
+            "AnswerVersionConflictError": "CHAT_REGENERATION_CONFLICT",
             "EvidenceUnavailableError": "CHAT_EVIDENCE_UNAVAILABLE",
             "RAGUnavailableError": "CHAT_EVIDENCE_UNAVAILABLE",
             "ModelChainExhaustedError": "CHAT_MODEL_UNAVAILABLE",

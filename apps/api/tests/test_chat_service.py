@@ -38,9 +38,11 @@ from gerclaw_api.domain.trace_schemas import (
     TraceFinishRequest,
     TraceStartRequest,
 )
+from gerclaw_api.modules.agent_harness.run_lifecycle import RunFenceConflictError
 from gerclaw_api.modules.memory.models import MemoryUpdateResult
 from gerclaw_api.modules.memory.protocols import MemoryMessage, UserProfile
 from gerclaw_api.modules.runtime.models import ActorRole
+from gerclaw_api.security import JsonValue
 from gerclaw_api.services.chat_service import (
     ChatCancellationFinalizationError,
     ChatService,
@@ -346,6 +348,7 @@ class _RunJournal:
         self.answer_message_ids: list[uuid.UUID] = []
         self.transitions: list[AgentRunStatus] = []
         self.regeneration: RunRegenerationContext | None = None
+        self.completion_error: Exception | None = None
 
     async def resolve_regeneration(
         self,
@@ -405,27 +408,75 @@ class _RunJournal:
             created_at=datetime.now(UTC),
         )
 
-    async def register_answer(
+    async def complete_answer(
         self,
         run_id: uuid.UUID,
         assistant_message_id: uuid.UUID,
+        done_payload: dict[str, JsonValue],
         *,
         tenant_id: str,
         actor_id: str,
+        fencing_token: int,
         answer_group_run_id: uuid.UUID | None = None,
-    ) -> AnswerVersionRead:
-        del tenant_id, actor_id, answer_group_run_id
+        expected_current_version_id: uuid.UUID | None = None,
+    ) -> tuple[AnswerVersionRead, AgentRunRead]:
+        del tenant_id, actor_id, expected_current_version_id
         assert run_id == self.run_id
+        assert fencing_token == 17
+        if self.completion_error is not None:
+            raise self.completion_error
         self.answer_message_ids.append(assistant_message_id)
-        return AnswerVersionRead(
+        answer = AnswerVersionRead(
             id=uuid.uuid4(),
-            run_id=run_id,
+            run_id=answer_group_run_id or run_id,
             producer_run_id=run_id,
             answer_group_id=uuid.uuid4(),
             assistant_message_id=assistant_message_id,
             version=1,
             is_current=True,
             created_at=datetime.now(UTC),
+        )
+        self.events.append(
+            RunEventWrite(
+                event_type="done",
+                status="completed",
+                payload=cast(dict[str, Any], done_payload),
+            )
+        )
+        self.transitions.append(AgentRunStatus.COMPLETED)
+        return (
+            answer,
+            self._run(
+                self.start_requests[0],
+                AgentRunStatus.COMPLETED,
+                revision=len(self.transitions) + 1,
+            ),
+        )
+
+    async def complete_with_warnings(
+        self,
+        run_id: uuid.UUID,
+        done_payload: dict[str, object],
+        *,
+        tenant_id: str,
+        actor_id: str,
+        fencing_token: int,
+        warnings: tuple[str, ...],
+    ) -> AgentRunRead:
+        del tenant_id, actor_id, fencing_token, warnings
+        assert run_id == self.run_id
+        self.events.append(
+            RunEventWrite(
+                event_type="done",
+                status="completed_with_warnings",
+                payload=cast(dict[str, Any], done_payload),
+            )
+        )
+        self.transitions.append(AgentRunStatus.COMPLETED_WITH_WARNINGS)
+        return self._run(
+            self.start_requests[0],
+            AgentRunStatus.COMPLETED_WITH_WARNINGS,
+            revision=len(self.transitions) + 1,
         )
 
     async def transition(
@@ -669,6 +720,46 @@ async def test_owned_turn_streams_only_after_durable_success(unit_settings: Sett
     replay_done = cast(Any, replay_events[-1])
     assert replay_done.event_type == "done"
     assert replay_done.data["replayed"] is True
+
+
+@pytest.mark.asyncio
+async def test_completion_fence_failure_never_publishes_done(unit_settings: Settings) -> None:
+    session_id = uuid.uuid4()
+    traces = _TraceFacade(created=True, session_id=session_id)
+    conversation = _ConversationFacade(session_id)
+    run_journal = _RunJournal()
+    run_journal.completion_error = RunFenceConflictError("stale worker")
+    service = ChatService(
+        settings=unit_settings,
+        conversation=cast(Any, conversation),
+        traces=cast(Any, traces),
+        lease=cast(Any, _OwnedLease()),
+        model=cast(Any, _TextModel()),
+        rag_module=cast(Any, _NoopRAG()),
+        memory_factory=_memory_factory(),
+        run_journal=run_journal,
+    )
+    events: list[object] = []
+
+    async def callback(event: object) -> None:
+        events.append(event)
+
+    with pytest.raises(RunFenceConflictError, match="stale worker"):
+        await service.process(
+            ChatRequest(session_id=session_id, message="您好!"),
+            identity=AuthContext(
+                actor_id="usr_patient_unit0001",
+                tenant_id="tenant_public0001",
+                scopes=frozenset({"chat:write"}),
+            ),
+            request_id="request_chat_completion_fence_0001",
+            trace_id="trace_chat_completion_fence_0001",
+            callback=cast(Any, callback),
+        )
+
+    assert all(cast(Any, event).event_type != "done" for event in events)
+    assert run_journal.answer_message_ids == []
+    assert run_journal.transitions == [AgentRunStatus.FAILED]
 
 
 @pytest.mark.asyncio

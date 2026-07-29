@@ -39,6 +39,7 @@ class AnswerVersionService:
         *,
         tenant_id: str,
         actor_id: str,
+        commit: bool = True,
     ) -> AnswerVersionRead:
         run = await self._locked_run(run_id, tenant_id=tenant_id, actor_id=actor_id)
         message = await self._repository.get_assistant_message(
@@ -71,6 +72,15 @@ class AnswerVersionService:
         if not self._current_pointer_is_consistent(run, current):
             await self._repository.rollback()
             raise AnswerVersionDataError("run current answer pointer is inconsistent")
+        if (
+            request.expected_current_version_id is not None
+            and (
+                current is None
+                or current.id != request.expected_current_version_id
+            )
+        ):
+            await self._repository.rollback()
+            raise AnswerVersionConflictError("current answer version changed")
         if current is None:
             answer_group_id = uuid.uuid4()
             version_number = 1
@@ -98,7 +108,10 @@ class AnswerVersionService:
             # Insert the referenced version before moving the run's FK pointer.
             await self._repository.flush()
             run.current_answer_version_id = version.id
-            await self._repository.commit()
+            if commit:
+                await self._repository.commit()
+            else:
+                await self._repository.flush()
         except BaseException:
             await self._repository.rollback()
             raise

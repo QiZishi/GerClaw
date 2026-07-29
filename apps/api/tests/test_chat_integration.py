@@ -21,14 +21,17 @@ from gerclaw_api.database.models import (
     RunEvent,
 )
 from gerclaw_api.domain.enums import TraceStatus
+from gerclaw_api.domain.run_schemas import AgentRunStatus
 from gerclaw_api.domain.trace_schemas import TraceFinishRequest
 from gerclaw_api.modules.agent_harness import StreamEvent
+from gerclaw_api.modules.agent_harness.run_lifecycle import RunFenceConflictError
 from gerclaw_api.modules.contracts import AgentResponse, Citation, SafetyDecision
 from gerclaw_api.repositories.conversation import (
     ConversationConflictError,
     SqlAlchemyConversationRepository,
 )
 from gerclaw_api.services import chat_service as chat_service_module
+from gerclaw_api.services.agent_run_service import AgentRunService
 from gerclaw_api.services.conversation_service import (
     ConversationNotFoundError,
     ConversationService,
@@ -104,6 +107,19 @@ class _BlockingSkillHarness:
                 )
             )
             raise
+
+
+class _GateFirstHarness(_SafeHarness):
+    entered = asyncio.Event()
+    release = asyncio.Event()
+    calls = 0
+
+    async def process_message(self, *_args: object, **_kwargs: object) -> AgentResponse:
+        type(self).calls += 1
+        if type(self).calls == 1:
+            type(self).entered.set()
+            await type(self).release.wait()
+        return _safe_response()
 
 
 def _safe_response() -> AgentResponse:
@@ -482,6 +498,21 @@ async def test_chat_missing_evidence_persists_safe_clarification_without_bad_cas
         range(1, len(run_events) + 1)
     )
     assert run_events[-1].status == "completed"
+    terminal_events = [
+        event
+        for event in run_events
+        if event.status
+        in {
+            "completed",
+            "completed_with_warnings",
+            "failed",
+            "cancelled",
+            "interrupted",
+        }
+    ]
+    assert [(event.event_type, event.status) for event in terminal_events] == [
+        ("done", "completed")
+    ]
 
 
 @pytest.mark.integration
@@ -544,6 +575,85 @@ async def test_terminal_trace_failure_atomically_rolls_back_assistant(
     assert assistant_count == 0
     assert bad_case_count == 1
     assert trace.json()["status"] == TraceStatus.FAILED.value
+
+
+@pytest.mark.integration
+@pytest.mark.asyncio
+async def test_run_completion_failure_rolls_back_answer_and_never_emits_done(
+    integration_client: tuple[AsyncClient, object],
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    client, app = integration_client
+    session_id = uuid.uuid4()
+    trace_id = "trace_run_completion_atomic_0001"
+    assert (
+        await client.post("/api/v1/sessions", json={"session_id": str(session_id)})
+    ).status_code == 201
+    monkeypatch.setattr(chat_service_module, "ProductionAgentHarness", _SafeHarness)
+    original_transition = AgentRunService.transition
+
+    async def fail_completed_run(
+        service: AgentRunService,
+        run_id: uuid.UUID,
+        target: AgentRunStatus,
+        **kwargs: Any,
+    ) -> Any:
+        if target is AgentRunStatus.COMPLETED:
+            raise RunFenceConflictError("injected stale completion fence")
+        return await original_transition(service, run_id, target, **kwargs)
+
+    monkeypatch.setattr(AgentRunService, "transition", fail_completed_run)
+    response = await client.post(
+        "/api/v1/chat",
+        headers={"X-Trace-ID": trace_id},
+        json={
+            "session_id": str(session_id),
+            "message": "您好!",
+            "channel": "web",
+        },
+    )
+
+    assert response.status_code == 200
+    assert "event: error" in response.text
+    assert "event: done" not in response.text
+    async with app.state.database.session() as session:
+        run = await session.scalar(select(AgentRun).where(AgentRun.trace_id == trace_id))
+        assert run is not None
+        assistant_count = await session.scalar(
+            select(func.count())
+            .select_from(Message)
+            .where(Message.trace_id == trace_id, Message.role == "assistant")
+        )
+        answer_count = await session.scalar(
+            select(func.count())
+            .select_from(AnswerVersion)
+            .where(AnswerVersion.producer_run_id == run.id)
+        )
+        terminal_events = list(
+            (
+                await session.scalars(
+                    select(RunEvent).where(
+                        RunEvent.run_id == run.id,
+                        RunEvent.status.in_(
+                            [
+                                "completed",
+                                "completed_with_warnings",
+                                "failed",
+                                "cancelled",
+                                "interrupted",
+                            ]
+                        ),
+                    )
+                )
+            ).all()
+        )
+
+    assert assistant_count == 0
+    assert answer_count == 0
+    assert run.status == "failed"
+    assert [(event.event_type, event.status) for event in terminal_events] == [
+        ("run.status", "failed")
+    ]
 
 
 @pytest.mark.integration
@@ -852,6 +962,110 @@ async def test_regeneration_replaces_current_version_without_duplicate_user_mess
     )
     assert "CHAT_REGENERATION_CONFLICT" in stale.text
     assert "event: done" not in stale.text
+
+
+@pytest.mark.integration
+@pytest.mark.asyncio
+async def test_slow_regeneration_cannot_replace_a_newer_current_version(
+    integration_client: tuple[AsyncClient, object],
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    client, app = integration_client
+    session_id = uuid.uuid4()
+    message = "请给我一般健康建议"
+    assert (
+        await client.post("/api/v1/sessions", json={"session_id": str(session_id)})
+    ).status_code == 201
+    monkeypatch.setattr(chat_service_module, "ProductionAgentHarness", _SafeHarness)
+    source = await client.post(
+        "/api/v1/chat",
+        headers={"X-Trace-ID": "trace_regeneration_race_source_0001"},
+        json={"session_id": str(session_id), "message": message, "channel": "web"},
+    )
+    assert "event: done" in source.text
+    async with app.state.database.session() as session:
+        source_run = await session.scalar(
+            select(AgentRun).where(
+                AgentRun.trace_id == "trace_regeneration_race_source_0001"
+            )
+        )
+        assert source_run is not None
+        assert source_run.current_answer_version_id is not None
+        source_run_id = source_run.id
+        first_version_id = source_run.current_answer_version_id
+
+    second = await client.post(
+        "/api/v1/chat",
+        headers={"X-Trace-ID": "trace_regeneration_race_second_0001"},
+        json={
+            "session_id": str(session_id),
+            "message": message,
+            "channel": "web",
+            "regenerate_from_run_id": str(source_run_id),
+            "expected_current_answer_version_id": str(first_version_id),
+        },
+    )
+    assert "event: done" in second.text
+    version_response = await client.get(f"/api/v1/runs/{source_run_id}/answer-versions")
+    versions_before_race = version_response.json()["versions"]
+    second_version_id = versions_before_race[1]["id"]
+    selected_first = await client.put(
+        f"/api/v1/runs/{source_run_id}/answer-versions/{first_version_id}/current",
+        json={"expected_current_version_id": second_version_id},
+    )
+    assert selected_first.status_code == 200, selected_first.text
+
+    _GateFirstHarness.entered = asyncio.Event()
+    _GateFirstHarness.release = asyncio.Event()
+    _GateFirstHarness.calls = 0
+    monkeypatch.setattr(chat_service_module, "ProductionAgentHarness", _GateFirstHarness)
+    stale_task = asyncio.create_task(
+        client.post(
+            "/api/v1/chat",
+            headers={"X-Trace-ID": "trace_regeneration_race_stale_0001"},
+            json={
+                "session_id": str(session_id),
+                "message": message,
+                "channel": "web",
+                "regenerate_from_run_id": str(source_run_id),
+                "expected_current_answer_version_id": str(first_version_id),
+            },
+            timeout=15,
+        )
+    )
+    await asyncio.wait_for(_GateFirstHarness.entered.wait(), timeout=3)
+    selected_second = await client.put(
+        f"/api/v1/runs/{source_run_id}/answer-versions/{second_version_id}/current",
+        json={"expected_current_version_id": str(first_version_id)},
+    )
+    assert selected_second.status_code == 200, selected_second.text
+    _GateFirstHarness.release.set()
+    stale = await asyncio.wait_for(stale_task, timeout=10)
+
+    assert "event: error" in stale.text
+    assert "CHAT_REGENERATION_CONFLICT" in stale.text
+    assert "event: done" not in stale.text
+    async with app.state.database.session() as session:
+        versions = list(
+            (
+                await session.scalars(
+                    select(AnswerVersion)
+                    .where(AnswerVersion.run_id == source_run_id)
+                    .order_by(AnswerVersion.version)
+                )
+            ).all()
+        )
+        refreshed_source = await session.get(AgentRun, source_run_id)
+        stale_run = await session.scalar(
+            select(AgentRun).where(
+                AgentRun.trace_id == "trace_regeneration_race_stale_0001"
+            )
+        )
+
+    assert len(versions) == 2
+    assert refreshed_source is not None
+    assert refreshed_source.current_answer_version_id == versions[1].id
+    assert stale_run is not None and stale_run.status == "failed"
 
 
 @pytest.mark.integration

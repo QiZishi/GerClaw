@@ -5,6 +5,8 @@ from __future__ import annotations
 import uuid
 from typing import Protocol
 
+from sqlalchemy.ext.asyncio import AsyncSession
+
 from gerclaw_api.database.session import Database
 from gerclaw_api.domain.chat_schemas import ChatRequest
 from gerclaw_api.domain.run_schemas import (
@@ -23,6 +25,7 @@ from gerclaw_api.repositories.answer_version import SqlAlchemyAnswerVersionRepos
 from gerclaw_api.repositories.run_regeneration import (
     SqlAlchemyRunRegenerationRepository,
 )
+from gerclaw_api.security import JsonValue
 from gerclaw_api.services.agent_run_service import AgentRunService
 from gerclaw_api.services.answer_version_service import AnswerVersionService
 from gerclaw_api.services.run_regeneration_service import RunRegenerationService
@@ -69,16 +72,19 @@ class ChatRunJournal(Protocol):
     ) -> RunEventRead:
         """Persist one fenced public SSE event immediately."""
 
-    async def register_answer(
+    async def complete_answer(
         self,
         run_id: uuid.UUID,
         assistant_message_id: uuid.UUID,
+        done_payload: dict[str, JsonValue],
         *,
         tenant_id: str,
         actor_id: str,
+        fencing_token: int,
         answer_group_run_id: uuid.UUID | None = None,
-    ) -> AnswerVersionRead:
-        """Register the committed assistant message as a new answer version."""
+        expected_current_version_id: uuid.UUID | None = None,
+    ) -> tuple[AnswerVersionRead, AgentRunRead]:
+        """Atomically register the answer and publish the single completed terminal event."""
 
     async def transition(
         self,
@@ -97,8 +103,14 @@ class ChatRunJournal(Protocol):
 class DatabaseChatRunJournal:
     """Open a short PostgreSQL transaction for each replayable Run fact."""
 
-    def __init__(self, database: Database) -> None:
+    def __init__(
+        self,
+        database: Database,
+        *,
+        completion_session: AsyncSession | None = None,
+    ) -> None:
         self._database = database
+        self._completion_session = completion_session
 
     async def resolve_regeneration(
         self,
@@ -183,27 +195,97 @@ class DatabaseChatRunJournal:
                 fencing_token=fencing_token,
             )
 
-    async def register_answer(
+    async def complete_answer(
         self,
         run_id: uuid.UUID,
         assistant_message_id: uuid.UUID,
+        done_payload: dict[str, JsonValue],
         *,
         tenant_id: str,
         actor_id: str,
+        fencing_token: int,
         answer_group_run_id: uuid.UUID | None = None,
-    ) -> AnswerVersionRead:
-        async with self._database.session() as session:
-            return await AnswerVersionService(
-                SqlAlchemyAnswerVersionRepository(session)
-            ).register(
-                answer_group_run_id or run_id,
-                AnswerVersionRegister(
-                    assistant_message_id=assistant_message_id,
-                    producer_run_id=run_id,
-                ),
+        expected_current_version_id: uuid.UUID | None = None,
+    ) -> tuple[AnswerVersionRead, AgentRunRead]:
+        if self._completion_session is not None:
+            return await self._complete_answer_in_session(
+                self._completion_session,
+                run_id,
+                assistant_message_id,
+                done_payload,
                 tenant_id=tenant_id,
                 actor_id=actor_id,
+                fencing_token=fencing_token,
+                answer_group_run_id=answer_group_run_id,
+                expected_current_version_id=expected_current_version_id,
+                commit=False,
             )
+        async with self._database.session() as session:
+            return await self._complete_answer_in_session(
+                session,
+                run_id,
+                assistant_message_id,
+                done_payload,
+                tenant_id=tenant_id,
+                actor_id=actor_id,
+                fencing_token=fencing_token,
+                answer_group_run_id=answer_group_run_id,
+                expected_current_version_id=expected_current_version_id,
+                commit=True,
+            )
+
+    @staticmethod
+    async def _complete_answer_in_session(
+        session: AsyncSession,
+        run_id: uuid.UUID,
+        assistant_message_id: uuid.UUID,
+        done_payload: dict[str, JsonValue],
+        *,
+        tenant_id: str,
+        actor_id: str,
+        fencing_token: int,
+        answer_group_run_id: uuid.UUID | None,
+        expected_current_version_id: uuid.UUID | None,
+        commit: bool,
+    ) -> tuple[AnswerVersionRead, AgentRunRead]:
+        answer = await AnswerVersionService(
+            SqlAlchemyAnswerVersionRepository(session)
+        ).register(
+            answer_group_run_id or run_id,
+            AnswerVersionRegister(
+                assistant_message_id=assistant_message_id,
+                producer_run_id=run_id,
+                expected_current_version_id=expected_current_version_id,
+            ),
+            tenant_id=tenant_id,
+            actor_id=actor_id,
+            commit=False,
+        )
+        completed_payload = {
+            **done_payload,
+            "run_id": str(run_id),
+            "answer_group_run_id": str(answer_group_run_id or run_id),
+            "answer_version_id": str(answer.id),
+            "answer_version": answer.version,
+        }
+        run = await AgentRunService(
+            SqlAlchemyAgentRunRepository(session)
+        ).transition(
+            run_id,
+            AgentRunStatus.COMPLETED,
+            tenant_id=tenant_id,
+            actor_id=actor_id,
+            expected_revision=None,
+            fencing_token=fencing_token,
+            terminal_event=RunEventWrite(
+                event_type="done",
+                status=AgentRunStatus.COMPLETED.value,
+                public_summary="回答已完成",
+                payload=completed_payload,
+            ),
+            commit=commit,
+        )
+        return answer, run
 
     async def transition(
         self,

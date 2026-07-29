@@ -269,6 +269,33 @@ async def test_transition_commits_status_and_event_atomically_with_fence_checks(
 
 
 @pytest.mark.asyncio
+async def test_completed_transition_can_use_one_canonical_terminal_event() -> None:
+    repository = _Repository()
+    service = AgentRunService(repository)
+    created = await service.create_run(_request(), tenant_id=TENANT, actor_id=ACTOR)
+
+    completed = await service.transition(
+        created.id,
+        AgentRunStatus.COMPLETED,
+        tenant_id=TENANT,
+        actor_id=ACTOR,
+        expected_revision=1,
+        fencing_token=7,
+        terminal_event=RunEventWrite(
+            event_type="done",
+            status="completed",
+            public_summary="回答已完成",
+            payload={"answer_version": 1},
+        ),
+    )
+
+    assert completed.status is AgentRunStatus.COMPLETED
+    assert [(event.event_type, event.status) for event in repository.events] == [
+        ("done", "completed")
+    ]
+
+
+@pytest.mark.asyncio
 async def test_stale_worker_cannot_write_terminal_and_cancel_replay_is_idempotent() -> None:
     repository = _Repository()
     service = AgentRunService(repository)

@@ -374,7 +374,10 @@ async def chat(
                     risk_alert_service=RiskAlertService(
                         SqlAlchemyRiskAlertRepository(database_session)
                     ),
-                    run_journal=DatabaseChatRunJournal(database),
+                    run_journal=DatabaseChatRunJournal(
+                        database,
+                        completion_session=database_session,
+                    ),
                 )
                 with bind_model_prompt_egress_audit(
                     SqlAlchemyModelPromptEgressAudit(

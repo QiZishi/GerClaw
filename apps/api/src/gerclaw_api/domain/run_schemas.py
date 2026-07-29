@@ -144,6 +144,7 @@ class AnswerVersionRegister(BaseModel):
 
     assistant_message_id: uuid.UUID
     producer_run_id: uuid.UUID | None = None
+    expected_current_version_id: uuid.UUID | None = None
 
 
 class AnswerVersionSelect(BaseModel):

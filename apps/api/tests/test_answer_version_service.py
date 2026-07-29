@@ -280,6 +280,34 @@ async def test_registration_is_idempotent_without_reselecting_old_version() -> N
 
 
 @pytest.mark.asyncio
+async def test_registration_rechecks_expected_current_version_under_run_lock() -> None:
+    repository, messages = _fixtures()
+    service = AnswerVersionService(repository)
+    first = await service.register(
+        repository.run.id,
+        AnswerVersionRegister(assistant_message_id=messages[0].id),
+        tenant_id=TENANT,
+        actor_id=ACTOR,
+    )
+
+    with pytest.raises(AnswerVersionConflictError, match="current answer version changed"):
+        await service.register(
+            repository.run.id,
+            AnswerVersionRegister(
+                assistant_message_id=messages[1].id,
+                producer_run_id=repository.producer_for(messages[1]).id,
+                expected_current_version_id=uuid.uuid4(),
+            ),
+            tenant_id=TENANT,
+            actor_id=ACTOR,
+        )
+
+    assert len(repository.versions) == 1
+    assert repository.versions[0].is_current is True
+    assert repository.run.current_answer_version_id == first.id
+
+
+@pytest.mark.asyncio
 async def test_select_uses_optimistic_current_pointer_and_keeps_all_versions() -> None:
     repository, messages = _fixtures()
     service = AnswerVersionService(repository)

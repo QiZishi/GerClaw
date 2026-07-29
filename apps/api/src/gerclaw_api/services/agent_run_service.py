@@ -255,11 +255,13 @@ class AgentRunService:
         *,
         tenant_id: str,
         actor_id: str,
-        expected_revision: int,
+        expected_revision: int | None,
         fencing_token: int,
         warnings: tuple[str, ...] = (),
         public_summary: str | None = None,
         occurred_at: datetime | None = None,
+        terminal_event: RunEventWrite | None = None,
+        commit: bool = True,
     ) -> AgentRunRead:
         run = await self._locked_run(run_id, tenant_id=tenant_id, actor_id=actor_id)
         current = self._lifecycle_state(run)
@@ -267,7 +269,9 @@ class AgentRunService:
             updated = self._state_machine.transition(
                 current,
                 target,
-                expected_revision=expected_revision,
+                expected_revision=(
+                    current.revision if expected_revision is None else expected_revision
+                ),
                 fencing_token=fencing_token,
                 warnings=warnings,
                 occurred_at=occurred_at,
@@ -280,14 +284,15 @@ class AgentRunService:
             run.revision = updated.revision
             run.warnings = list(updated.warnings)
             run.completed_at = updated.completed_at
-            event_request = RunEventWrite(
+            event_request = terminal_event or RunEventWrite(
                 event_type="run.status",
                 status=updated.status.value,
                 public_summary=public_summary,
             )
             await self._stage_event(run, event_request, occurred_at=occurred_at)
             await self._repository.flush()
-            await self._repository.commit()
+            if commit:
+                await self._repository.commit()
         except BaseException:
             await self._repository.rollback()
             raise
