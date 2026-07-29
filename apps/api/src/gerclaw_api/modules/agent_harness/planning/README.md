@@ -6,8 +6,8 @@ from the resolved Harness config into an isolated AgentScope `Agent`; the public
 injects it through the `AgentFactory` Protocol. The existing bounded ReAct loop remains
 active; no parallel planner has been activated.
 
-Failure to validate prevents execution. Stage 3 will inject a planner and add cycle checks,
-budget preflight, fallback execution, and checkpoint persistence. Measure success with plan
+Failure to validate prevents execution. Stage 3 will inject a planner and add budget
+preflight, fallback execution, and checkpoint persistence. Measure success with plan
 shape tests, capability-only dependencies, bounded node counts, and no extra work on Quick
 routes.
 
