@@ -165,7 +165,10 @@ React Component
 
 ### 6.4 并发与一致性
 
-会话 turn 使用 Redis owner lease 与 PostgreSQL fencing token。assistant 消息、审计事件和 Trace 终态在同一事务提交；已完成请求可以按 trace replay，避免重复模型调用和重复写入。
+会话 turn 使用 Redis owner lease 与 PostgreSQL fencing token。assistant 消息、AnswerVersion、回答组 current
+指针、AgentRun/RunEvent、审计事件和 Trace 终态在同一事务提交；已完成请求可以按 trace replay，避免重复模型调用
+和重复写入。启动恢复器通过与 worker lease 互斥的 Redis guard 标记无主 Run 为 `interrupted`；账户前端先按
+`after_sequence` 重放公开事件，再显式恢复同一 Run/Trace。PostgreSQL 始终是事实源，Redis 只承担有 TTL 的租约和互斥。
 
 ## 7. Agent-Legible Invariants
 
@@ -177,10 +180,11 @@ React Component
 6. PostgreSQL 是事实源；Redis 和 Qdrant 的数据必须能通过稳定 ID 回到事实记录。
 7. AgentState 只属于当前 turn；长期状态通过会话、Memory 和版本化临床产物恢复。
 8. SSE 的 `done` 只能在消息与终态提交成功后发出；失败、取消和超时必须形成明确终态。
-9. 模型 fallback 接收同一任务上下文、证据和输出 schema；产生可见输出后不得切换到另一模型拼接回答。
-10. 五大处方、Skill、Memory 和工具参数必须通过版本化结构合同；未知版本或未知字段不能静默兼容。
-11. Trace 不保存 Chain-of-Thought、凭据或无必要的 Provider 原始响应；图片 base64 进入专用加密字段而不是普通日志。
-12. 患者上传文档和图片不能写入公共医学知识库。
+9. 同一 Run 只能提交一个终态事件；恢复和 regeneration 必须复用原身份并重新校验 fencing/current version，旧 worker 不能写入终态。
+10. 模型 fallback 接收同一任务上下文、证据和输出 schema；产生可见输出后不得切换到另一模型拼接回答。
+11. 五大处方、Skill、Memory 和工具参数必须通过版本化结构合同；未知版本或未知字段不能静默兼容。
+12. Trace 不保存 Chain-of-Thought、凭据或无必要的 Provider 原始响应；图片 base64 进入专用加密字段而不是普通日志。
+13. 患者上传文档和图片不能写入公共医学知识库。
 
 ## 8. 部署架构
 

@@ -18,7 +18,7 @@ GerClaw 保持老年医学定位。眼科病灶定位不在本计划范围。在
 |---|---|---|
 | 0 | 冻结基线与真实运行审计 | 已完成：HTTP/API/测试、Playwright GUI、清理及独立审阅通过 |
 | 1 | Harness 模块化与稳定合同 | 已完成：两轮审阅问题修复，最终独立审阅 ACCEPT |
-| 2 | Run 事实源、状态机和恢复 | 未开始 |
+| 2 | Run 事实源、状态机和恢复 | 实现与真实 GUI 已完成，等待独立复审 |
 | 3 | ClinicalState、动态规划与医疗门禁 | 未开始 |
 | 4 | 证据、Memory 与受治理能力组合 | 未开始 |
 | 5 | 对话工作台 UI 与交互重构 | 未开始 |
@@ -328,6 +328,64 @@ ClinicalState 限界、Context typed error 和 Planning 文档 P2 已在 ACCEPT 
 ### 阶段 2
 
 建立 `AgentRun`、`RunEvent`、`AnswerVersion`、`Artifact`、`FeedbackState` 事实源和唯一终态状态机；支持 sequence replay、断线、取消、恢复、服务端版本化重生成和反馈 reconciliation。
+
+#### 阶段 2 实施记录（2026-07-29）
+
+- PostgreSQL 成为 Conversation、Message、AgentRun、RunEvent、AnswerVersion、Artifact 和 FeedbackState
+  的事实源；新增迁移、owner-scoped repository/service、Pydantic 响应合同和 BFF Zod 校验。
+- Run 状态机覆盖
+  `running/waiting_for_user/completed/completed_with_warnings/failed/cancelled/interrupted`。RunEvent
+  使用单调 sequence 和幂等 event ID；取消、反馈 reconciliation、Artifact CRUD/导出和回答版本切换均校验
+  tenant/actor 所有权。
+- 成功终态在同一 request-scoped 数据库事务中提交 assistant Message、AnswerVersion、回答组 current 指针、
+  AgentRun completed、唯一 `done/completed` RunEvent 和 Trace success。最终写入再次校验 regeneration 的
+  expected current version；fencing 或版本校验失败会整体 rollback，旧 worker 不能留下孤立回答或覆盖新版本。
+- Redis worker lease 与启动恢复 guard 使用同一 Lua 互斥协议。恢复器只有取得 guard 后才能把无主
+  `running/waiting_for_user` Run 标记为 `interrupted`；worker 在 guard 存在时不能取得 lease，消除了先
+  `EXISTS` 后写数据库的 TOCTOU。guard TTL 由
+  `GERCLAW_AGENT_RUN_RECOVERY_GUARD_TTL_SECONDS` 配置，Redis 异常 fail closed。
+- 新增 `GET /api/v1/conversations/{conversation_id}/recoverable-run`、
+  `GET /api/v1/runs/{run_id}/events?after_sequence=N` 和
+  `POST /api/v1/runs/{run_id}/resume`。恢复服务只接受当前主体的 `interrupted` Run，且要求无已提交回答、
+  Trace 仍为 running，并从加密持久化输入精确重建文本、Skill、文档、图片和 regeneration 身份；材料损坏时
+  fail closed，不猜测或静默丢弃。
+- 登录账户刷新会话历史后，前端查询 recoverable Run，先按 `after_sequence` 重放公开事件，再显式恢复同一
+  Run/Trace。新聊天和恢复共用有界 Zod SSE parser；停止仍走原显式取消协议。访客历史按既有产品边界不跨页面恢复。
+- 浏览器 transport 断开仍取消当前 producer，避免无人消费；进程崩溃或启动恢复产生的 `interrupted` Run
+  才进入显式恢复路径。恢复只重建原请求并依靠 AnswerVersion/fencing 防止陈旧写入，不把断流片段当成已完成回答。
+
+针对性验证：
+
+```text
+成功终态/版本/fencing：38 unit passed；14 real chat integration passed
+恢复 lease/guard：7 unit passed；3 real recovery integration passed
+显式恢复：36 unit passed；3 real recovery integration passed
+应用与配置：47 passed
+前端 BFF/Run/聊天历史：21 + 2 + 4 passed
+Ruff：All checks passed
+Mypy：Success: no issues found in 244 source files
+ESLint：0 warnings
+Next production build：passed
+```
+
+真实 Playwright CLI 使用本地真实 PostgreSQL、Redis、API 和 Next.js，以测试患者账户和一个有效
+`interrupted` Run 审计刷新恢复：
+
+- 网络顺序为 history 200 → recoverable-run 200 → `events?after_sequence=0` 200 → resume 200；
+- 页面显示“正在恢复上次中断的回答”，最终仅有一条用户消息和一条 assistant 回答；
+- “我现在胸痛并且呼吸困难”在模型前走急症短路，正文明确“立即拨打 120 或尽快前往急诊”并包含统一免责声明；
+- API 回读确认 2 条消息、AnswerVersion 1、完成后 recoverable Run 为 null；
+- 桌面与 390×844 移动端均无横向溢出，console 0 error / 0 warning，后端无 ERROR、Traceback 或 5xx；
+- 证据：
+  `output/playwright/stage2-resume/recovered-emergency.png`、
+  `output/playwright/stage2-resume/recovered-emergency-mobile.png`、
+  `output/playwright/stage2-resume/requests.txt`、
+  `output/playwright/stage2-resume/console.txt`、
+  `output/playwright/stage2-resume/app.log` 和
+  `.playwright-cli/traces/trace-1785342025605.trace`。
+
+审计后已删除测试会话并停用精确测试账户，浏览器已关闭。移动端 sticky Composer 对较长急症卡的既有遮挡问题仍登记在
+阶段 5；本阶段未用恢复功能扩大 UI 重构范围。
 
 ### 阶段 3
 
