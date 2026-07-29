@@ -164,6 +164,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
                 database,
                 redis_client,
                 batch_size=resolved.agent_run_recovery_batch_size,
+                guard_ttl_seconds=resolved.agent_run_recovery_guard_ttl_seconds,
             ).reconcile()
             yield
         finally:

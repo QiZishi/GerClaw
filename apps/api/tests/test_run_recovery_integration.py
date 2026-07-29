@@ -2,7 +2,9 @@
 
 from __future__ import annotations
 
+import asyncio
 import uuid
+from contextlib import suppress
 
 import pytest
 from httpx import AsyncClient
@@ -24,7 +26,7 @@ from gerclaw_api.services.agent_run_service import AgentRunService
 from gerclaw_api.services.chat_service import _fingerprint
 from gerclaw_api.services.conversation_service import ConversationService
 from gerclaw_api.services.run_recovery_service import StaleAgentRunReconciler
-from gerclaw_api.services.session_lease import SessionLease
+from gerclaw_api.services.session_lease import SessionBusyError, SessionLease
 from gerclaw_api.services.trace_service import TraceService
 
 TENANT = "tenant_public0001"
@@ -124,6 +126,7 @@ async def test_recovery_interrupts_only_runs_without_cross_replica_lease(
             app.state.database,
             app.state.redis,
             batch_size=1,
+            guard_ttl_seconds=30,
         ).reconcile()
     finally:
         await app.state.redis.delete(active_lease_key)
@@ -143,6 +146,93 @@ async def test_recovery_interrupts_only_runs_without_cross_replica_lease(
     assert orphan.completed_at is not None
     assert active is not None and active.status == "running"
     assert [event.status for event in orphan_events] == ["interrupted"]
+
+
+@pytest.mark.integration
+@pytest.mark.asyncio
+async def test_recovery_guard_closes_lease_check_to_interrupt_window(
+    integration_client: tuple[AsyncClient, object],
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    client, app = integration_client
+    session_id = uuid.uuid4()
+    assert (
+        await client.post("/api/v1/sessions", json={"session_id": str(session_id)})
+    ).status_code == 201
+    async with app.state.database.session() as session:
+        conversation_service = ConversationService(
+            SqlAlchemyConversationRepository(session)
+        )
+        conversation = await conversation_service.require_session(
+            session_id,
+            tenant_id=TENANT,
+            actor_id=ACTOR,
+        )
+        message = await conversation_service.store_user_message(
+            tenant_id=TENANT,
+            conversation=conversation,
+            session_id=session_id,
+            trace_id="trace_recovery_guard_0001",
+            text="恢复互斥测试",
+            channel="web",
+        )
+        run = await AgentRunService(
+            SqlAlchemyAgentRunRepository(session)
+        ).create_run(
+            AgentRunCreate(
+                conversation_id=session_id,
+                input_message_id=message.id,
+                trace_id="trace_recovery_guard_0001",
+                route=RouteKind.STANDARD,
+                fencing_token=301,
+            ),
+            tenant_id=TENANT,
+            actor_id=ACTOR,
+        )
+
+    entered_interrupt = asyncio.Event()
+    release_interrupt = asyncio.Event()
+    original_interrupt = AgentRunService.interrupt_owned
+
+    async def delayed_interrupt(
+        service: AgentRunService,
+        run_id: uuid.UUID,
+        **kwargs: object,
+    ) -> object:
+        entered_interrupt.set()
+        await release_interrupt.wait()
+        return await original_interrupt(service, run_id, **kwargs)
+
+    monkeypatch.setattr(AgentRunService, "interrupt_owned", delayed_interrupt)
+    reconcile_task = asyncio.create_task(
+        StaleAgentRunReconciler(
+            app.state.database,
+            app.state.redis,
+            batch_size=10,
+            guard_ttl_seconds=30,
+        ).reconcile()
+    )
+    await asyncio.wait_for(entered_interrupt.wait(), timeout=3)
+    lease = SessionLease(app.state.redis, ttl_seconds=60)
+    with pytest.raises(SessionBusyError):
+        async with lease.acquire(
+            tenant_id=TENANT,
+            session_id=session_id,
+            fencing_token=302,
+        ):
+            pytest.fail("new worker cannot enter the recovery transition window")
+    release_interrupt.set()
+    try:
+        assert await asyncio.wait_for(reconcile_task, timeout=3) == 1
+    finally:
+        if not reconcile_task.done():
+            reconcile_task.cancel()
+            with suppress(asyncio.CancelledError):
+                await reconcile_task
+
+    async with app.state.database.session() as session:
+        recovered = await session.get(AgentRun, run.id)
+    assert recovered is not None and recovered.status == "interrupted"
 
 
 @pytest.mark.integration

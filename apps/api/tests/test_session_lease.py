@@ -20,22 +20,27 @@ from gerclaw_api.services.session_lease import (
 class _Redis:
     def __init__(self) -> None:
         self.values: dict[str, str] = {}
-        self.fail_set = False
         self.fail_eval = False
         self.renew_results: list[int] = []
 
-    async def set(self, key: str, value: str, *, nx: bool = False, ex: int | None = None) -> bool:
-        del ex
-        if self.fail_set:
-            raise RedisError("unavailable")
-        if nx and key in self.values:
-            return False
-        self.values[key] = value
-        return True
-
-    async def eval(self, script: str, _keys: int, key: str, token: str, *_args: str) -> int:
+    async def eval(self, script: str, key_count: int, *args: str) -> int:
         if self.fail_eval:
             raise RedisError("unavailable")
+        keys = args[:key_count]
+        values = args[key_count:]
+        if "'NX', 'EX'" in script:
+            first_key, second_key = keys
+            owner_value = values[0]
+            if "exists', KEYS[2]" in script:
+                target_key, exclusion_key = first_key, second_key
+            else:
+                exclusion_key, target_key = first_key, second_key
+            if exclusion_key in self.values or target_key in self.values:
+                return 0
+            self.values[target_key] = owner_value
+            return 1
+        key = keys[0]
+        token = values[0]
         if "pexpire" in script:
             if self.renew_results:
                 return self.renew_results.pop(0)
@@ -74,13 +79,49 @@ async def test_lease_acquires_rejects_competitor_and_releases_owner() -> None:
 @pytest.mark.asyncio
 async def test_lease_fails_closed_when_redis_cannot_coordinate() -> None:
     redis = _Redis()
-    redis.fail_set = True
+    redis.fail_eval = True
     lease = SessionLease(cast(Any, redis), ttl_seconds=60)
     with pytest.raises(SessionLeaseUnavailableError):
         async with lease.acquire(
             tenant_id="tenant_public0001", session_id=uuid.uuid4(), fencing_token=1
         ):
             pytest.fail("unavailable Redis must not permit execution")
+
+
+@pytest.mark.asyncio
+async def test_recovery_guard_and_worker_lease_exclude_each_other() -> None:
+    redis = _Redis()
+    lease = SessionLease(cast(Any, redis), ttl_seconds=60)
+    session_id = uuid.uuid4()
+    recovery_key = SessionLease.recovery_key_for(
+        tenant_id="tenant_public0001",
+        session_id=session_id,
+    )
+
+    async with lease.recover_orphan(
+        tenant_id="tenant_public0001",
+        session_id=session_id,
+    ) as owns_recovery:
+        assert owns_recovery
+        assert recovery_key in redis.values
+        with pytest.raises(SessionBusyError):
+            async with lease.acquire(
+                tenant_id="tenant_public0001",
+                session_id=session_id,
+                fencing_token=2,
+            ):
+                pytest.fail("worker must not enter during orphan reconciliation")
+    assert recovery_key not in redis.values
+
+    async with lease.acquire(
+        tenant_id="tenant_public0001",
+        session_id=session_id,
+        fencing_token=3,
+    ), lease.recover_orphan(
+        tenant_id="tenant_public0001",
+        session_id=session_id,
+    ) as owns_recovery:
+        assert not owns_recovery
 
 
 @pytest.mark.asyncio

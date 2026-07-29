@@ -19,6 +19,24 @@ if redis.call('get', KEYS[1]) == ARGV[1] then
 end
 return 0
 """
+_ACQUIRE_SCRIPT = """
+if redis.call('exists', KEYS[2]) == 1 then
+  return 0
+end
+if redis.call('set', KEYS[1], ARGV[1], 'NX', 'EX', ARGV[2]) then
+  return 1
+end
+return 0
+"""
+_RECOVERY_ACQUIRE_SCRIPT = """
+if redis.call('exists', KEYS[1]) == 1 then
+  return 0
+end
+if redis.call('set', KEYS[2], ARGV[1], 'NX', 'EX', ARGV[2]) then
+  return 1
+end
+return 0
+"""
 _RELEASE_SCRIPT = """
 if redis.call('get', KEYS[1]) == ARGV[1] then
   return redis.call('del', KEYS[1])
@@ -80,9 +98,15 @@ class SessionLease:
 
     @staticmethod
     def key_for(*, tenant_id: str, session_id: uuid.UUID) -> str:
-        """Return the sole shared key format used by workers and recovery."""
+        """Return the worker lease key shared by execution and recovery."""
 
         return f"gerclaw:chat:lease:{tenant_id}:{session_id}"
+
+    @staticmethod
+    def recovery_key_for(*, tenant_id: str, session_id: uuid.UUID) -> str:
+        """Return the mutex that closes the lease-check/recovery transition window."""
+
+        return f"gerclaw:chat:recovery:{tenant_id}:{session_id}"
 
     @asynccontextmanager
     async def acquire(
@@ -95,14 +119,28 @@ class SessionLease:
         if fencing_token <= 0:
             raise ValueError("fencing_token must be positive")
         key = self.key_for(tenant_id=tenant_id, session_id=session_id)
+        recovery_key = self.recovery_key_for(
+            tenant_id=tenant_id,
+            session_id=session_id,
+        )
         owner_value = f"{fencing_token}:{secrets.token_urlsafe(32)}"
         try:
-            acquired = await self._redis.set(key, owner_value, nx=True, ex=self._ttl_seconds)
+            acquired = await cast(
+                Awaitable[Any],
+                self._redis.eval(
+                    _ACQUIRE_SCRIPT,
+                    2,
+                    key,
+                    recovery_key,
+                    owner_value,
+                    str(self._ttl_seconds),
+                ),
+            )
         except RedisError as error:
             raise SessionLeaseUnavailableError(
                 "conversation serialization service is unavailable"
             ) from error
-        if not acquired:
+        if int(acquired) != 1:
             raise SessionBusyError("another turn is already running for this session")
 
         owner_task = asyncio.current_task()
@@ -130,6 +168,54 @@ class SessionLease:
                 await asyncio.shield(release)
                 # The finite TTL is the final cleanup guarantee; never delete without
                 # comparing the owner token because a successor may already hold it.
+
+    @asynccontextmanager
+    async def recover_orphan(
+        self,
+        *,
+        tenant_id: str,
+        session_id: uuid.UUID,
+    ) -> AsyncIterator[bool]:
+        """Exclude new workers while an absent lease is reconciled in PostgreSQL."""
+
+        lease_key = self.key_for(tenant_id=tenant_id, session_id=session_id)
+        recovery_key = self.recovery_key_for(
+            tenant_id=tenant_id,
+            session_id=session_id,
+        )
+        owner_value = secrets.token_urlsafe(32)
+        try:
+            acquired = await cast(
+                Awaitable[Any],
+                self._redis.eval(
+                    _RECOVERY_ACQUIRE_SCRIPT,
+                    2,
+                    lease_key,
+                    recovery_key,
+                    owner_value,
+                    str(self._ttl_seconds),
+                ),
+            )
+        except RedisError as error:
+            raise SessionLeaseUnavailableError(
+                "conversation serialization service is unavailable"
+            ) from error
+        owns_recovery = int(acquired) == 1
+        try:
+            yield owns_recovery
+        finally:
+            if owns_recovery:
+                with suppress(RedisError):
+                    release = cast(
+                        Awaitable[Any],
+                        self._redis.eval(
+                            _RELEASE_SCRIPT,
+                            1,
+                            recovery_key,
+                            owner_value,
+                        ),
+                    )
+                    await asyncio.shield(release)
 
     async def _renew(
         self,
