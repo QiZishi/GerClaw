@@ -84,6 +84,16 @@ server discards that projection and returns an explicit evidence-bound,
 review-only baseline instead of returning a late 503. Negative safety wording
 such as “涉及停用或减量时，请结合相应证据和完整病史复核” remains visible and is not
 misclassified as a proposal.
+
+Generation also receives a private, source-aware STEP `TreatmentContext`. The
+current intake does not yet structurally confirm age, allergy status and important
+comorbidities, so an affirmative medication start/stop/replacement/dose-change
+candidate is rejected even when it cites evidence; the response degrades to the
+existing clinician-review baseline. User-reported medication names/doses remain
+recordable, and deterministic medication rules still run when a current list is
+available. The private TreatmentContext is never returned by the API or written to
+PHI-free Trace payloads.
+
 Both roles receive the complete cited candidate; the report ends with one unified
 risk notice. The model cannot create, override or explain deterministic rule findings.
 

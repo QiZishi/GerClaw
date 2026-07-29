@@ -6,6 +6,7 @@ from __future__ import annotations
 import hashlib
 import json
 import re
+from datetime import UTC, datetime
 from typing import Any, Protocol
 
 from agentscope.message import Base64Source, DataBlock, Msg, SystemMsg, TextBlock, UserMsg
@@ -13,6 +14,14 @@ from agentscope.model import StructuredResponse
 from json_repair import repair_json
 from pydantic import BaseModel, ValidationError
 
+from gerclaw_api.modules.agent_harness.clinical_state import (
+    ClinicalFact,
+    ClinicalState,
+    FactProvenance,
+    STEPTreatmentGate,
+    TreatmentContext,
+    TreatmentIntent,
+)
 from gerclaw_api.modules.agent_harness.safety import (
     EvidenceUnavailableError,
     citations_from_results,
@@ -63,8 +72,9 @@ _SYSTEM_PROMPT = "\n".join(
         "2. 每个章节和每条建议只能引用给定 evidence_id，不能编造来源、药物事实、",
         "检验结果或患者信息。",
         "3. 药物章节可以提出开始、停止、替换或调整剂量的候选方案，但每一项必须放在",
-        "recommendations 中并引用给定 evidence_id；无对应证据时不要输出该候选。系统会在",
-        "报告末尾统一提示风险。不得编造、覆盖或解释确定性规则命中。",
+        "recommendations 中并引用给定 evidence_id，且 TreatmentContext 中年龄、过敏、",
+        "当前用药、重要基础病、监测和随访前提均已确认；任一项未知或冲突时不要输出调药候选。",
+        "系统会在报告末尾统一提示风险。不得编造、覆盖或解释确定性规则命中。",
         "4. 心理章节不作精神科确定性诊断；如涉及药物建议，同样必须给出对应 evidence_id。",
         "5. 康复处方必须独立完成：rehabilitation_type 写明康复方向；functional_assessment",
         "基于证据总结 ADL、步态、平衡、肌力、心肺耐力或认知等已知功能状态，并明确缺失的",
@@ -131,7 +141,8 @@ class EvidenceBoundPrescriptionGenerator:
         self._online_search_module = online_search_module
 
     async def generate(self, prepared: PreparedPrescriptionInput) -> FivePrescriptionDraft:
-        user_material = self._render_user_material(prepared)
+        treatment_context = self._treatment_context(prepared)
+        user_material = self._render_user_material(prepared, treatment_context)
         if detect_high_risk(user_material):
             raise PrescriptionRedFlagError("prescription generation blocked by emergency risk")
 
@@ -199,7 +210,11 @@ class EvidenceBoundPrescriptionGenerator:
                 evidence_sources=evidence_sources,
                 medication_review=medication_review,
             )
-            self._reject_unsupported_medication_directives(draft)
+            gate = STEPTreatmentGate().evaluate(treatment_context)
+            self._reject_unsupported_medication_directives(
+                draft,
+                actionable_medication_allowed=gate.actionable_treatment_allowed,
+            )
             return draft
         except (ValidationError, UnattributableMedicationDirectiveError):
             # A provider can satisfy the model-owned schema while still cite an
@@ -454,11 +469,15 @@ class EvidenceBoundPrescriptionGenerator:
         )[:2_000]
 
     @staticmethod
-    def _render_user_material(prepared: PreparedPrescriptionInput) -> str:
+    def _render_user_material(
+        prepared: PreparedPrescriptionInput,
+        treatment_context: TreatmentContext,
+    ) -> str:
         return json.dumps(
             {
                 "answers": prepared.answers,
                 "uploaded_document_count": len(prepared.uploaded_documents),
+                "treatment_context": treatment_context.model_dump(mode="json"),
             },
             ensure_ascii=False,
             separators=(",", ":"),
@@ -567,13 +586,17 @@ class EvidenceBoundPrescriptionGenerator:
             return ()
 
     @staticmethod
-    def _reject_unsupported_medication_directives(draft: FivePrescriptionDraft) -> None:
+    def _reject_unsupported_medication_directives(
+        draft: FivePrescriptionDraft,
+        *,
+        actionable_medication_allowed: bool,
+    ) -> None:
         """Require evidence-bound recommendation slots for medication changes.
 
-        Every recommendation carries at least one validated ``evidence_id``;
-        free-form recorded-medication, monitoring and precaution fields do not.
-        A start/stop/replace/dose-change candidate in one of those free-form
-        fields therefore has no attributable evidence and must fail closed.
+        Every recommendation carries a validated ``evidence_id``, but an
+        actionable medication candidate also requires the code-owned STEP
+        prerequisites. Free-form recorded-medication, monitoring and precaution
+        fields have neither guarantee and must fail closed.
         """
 
         directive_terms = ("开始", "停用", "加用", "减量", "增量", "替换", "调剂量", "调整剂量")
@@ -583,7 +606,13 @@ class EvidenceBoundPrescriptionGenerator:
             *draft.medication.monitoring_requirements,
             *draft.medication.precautions,
         )
-        for field in uncited_fields:
+        fields = list(uncited_fields)
+        if not actionable_medication_allowed:
+            fields.extend(
+                recommendation.content
+                for recommendation in draft.medication.recommendations
+            )
+        for field in fields:
             for clause in re.split(r"[。；;\n]", field):
                 for term in directive_terms:
                     for match in re.finditer(re.escape(term), clause):
@@ -598,5 +627,70 @@ class EvidenceBoundPrescriptionGenerator:
                         if "涉及" in prefix and "时" in suffix:
                             continue
                         raise UnattributableMedicationDirectiveError(
-                            "medication change candidate has no attributable evidence"
+                            "medication change candidate lacks evidence or STEP prerequisites"
                         )
+
+    @staticmethod
+    def _treatment_context(prepared: PreparedPrescriptionInput) -> TreatmentContext:
+        observed_at = datetime.now(UTC)
+
+        def provenance(field_id: str) -> tuple[FactProvenance, ...]:
+            return (
+                FactProvenance(
+                    source_type="user",
+                    source_id=f"prescription-intake:{prepared.intake_id}:{field_id}",
+                    observed_at=observed_at,
+                ),
+            )
+
+        facts = [
+            ClinicalFact(
+                fact_id="prescription_health_goal",
+                category="chief_complaint",
+                value=prepared.answers["health_goal"],
+                status="reported",
+                provenance=provenance("health_goal"),
+            ),
+            ClinicalFact(
+                fact_id="prescription_current_concerns",
+                category="symptom",
+                value=prepared.answers["current_concerns"],
+                status="reported",
+                provenance=provenance("current_concerns"),
+            ),
+        ]
+        medication_fact_ids: tuple[str, ...] = ()
+        medications = prepared.answers.get("current_medications", "").strip()
+        if medications:
+            facts.append(
+                ClinicalFact(
+                    fact_id="prescription_current_medications",
+                    category="medication",
+                    value=medications,
+                    status="reported",
+                    provenance=provenance("current_medications"),
+                )
+            )
+            medication_fact_ids = ("prescription_current_medications",)
+        uncertainties = (
+            "年龄尚未结构化确认",
+            "药物过敏史尚未结构化确认",
+            "重要基础病及肝肾功能尚未结构化确认",
+            *(() if medications else ("完整当前用药清单尚未确认",)),
+        )
+        return TreatmentContext(
+            intent=TreatmentIntent.FIVE_PRESCRIPTION,
+            clinical_direction_ids=("five_prescription_review",),
+            clinical_state=ClinicalState(
+                facts=tuple(facts),
+                unknowns=uncertainties,
+            ),
+            medication_fact_ids=medication_fact_ids,
+            uncertainties=uncertainties,
+            monitoring_conditions=(
+                "按章节记录症状、功能、用药反应和相关检查变化",
+            ),
+            follow_up_conditions=(
+                "由医生结合完整病史和检查复核；出现红旗症状立即就医",
+            ),
+        )

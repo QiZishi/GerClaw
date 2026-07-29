@@ -432,8 +432,9 @@ Qdrant 容器；未删除 volume。3000、8000、5432、6379、6333 均无监听
 - `3c4b762` 实现来源约束的 `ClinicalState` reducer；同值合并 provenance，冲突候选不覆盖，unknown 不转成阴性证据。
 - `bf8718c` 接入确定性四级路由并把决策写入 `AgentRun.route`；Emergency 在模型前短路。
 - `3dc484a` 根据真实测试日志关闭 Quick 的 Memory/RAG middleware、检索工具和 Memory 更新。
-- 当前变更集实现 route/附件/能力/报告意图驱动的动态 DAG、离散 SAVI 动作选择和模型调用前预算/上下文预检；完整 DAG 保留在恢复兼容的 `AgentRun.plan.dynamic_plan`。
-- 已通过阶段 3 当前相关后端用例 77/77、Run 恢复/重生成契约 29/29、Ruff、Mypy；C3、STEP、阶段 GUI 和独立审阅尚未执行，不得判定本阶段完成。
+- `18c4880` 实现 route/附件/能力/报告意图驱动的动态 DAG、离散 SAVI 动作选择和模型调用前预算/上下文预检；完整 DAG 保留在恢复兼容的 `AgentRun.plan.dynamic_plan`。
+- 当前变更集实现 GerClaw 范围内的 C3 鉴别方向结构和 STEP `TreatmentContext`/前提门禁；不移植其他项目的封闭疾病 catalog。五大处方的私有模型输入使用 STEP 上下文，年龄、过敏、完整用药、重要基础病等未结构化确认时，调药候选降级为循证审核基线。
+- 已通过阶段 3 当前规划相关后端用例 157/157、C3/STEP/处方相关用例 64/64、Run 恢复/重生成契约 29/29、Ruff、Mypy；阶段 GUI 和独立审阅尚未执行，不得判定本阶段完成。
 
 ### 阶段 4
 

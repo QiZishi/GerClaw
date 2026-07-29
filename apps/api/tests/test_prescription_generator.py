@@ -297,7 +297,7 @@ async def test_generator_blocks_red_flag_input_before_retrieval() -> None:
 
 
 @pytest.mark.asyncio
-async def test_generator_allows_evidence_bound_clinician_medication_candidate() -> None:
+async def test_generator_blocks_medication_candidate_when_step_prerequisites_are_missing() -> None:
     proposal = _content().model_copy(
         update={
             "medication": _content().medication.model_copy(
@@ -315,7 +315,8 @@ async def test_generator_allows_evidence_bound_clinician_medication_candidate() 
         model=_Model(proposal), rag_module=_RAG([_result()])
     ).generate(_prepared())  # type: ignore[arg-type]
     assert draft.status == "needs_clinician_review"
-    assert draft.medication.recommendations[0].content == "待临床复核：开始服用某药。"
+    assert "基础待审核草案" in draft.health_assessment.summary
+    assert "开始服用某药" not in draft.model_dump_json()
 
 
 @pytest.mark.asyncio
