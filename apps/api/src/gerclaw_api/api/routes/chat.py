@@ -64,6 +64,7 @@ from gerclaw_api.services.chat_cancellation import (
     ChatCancellationRegistry,
     ChatCancellationUnavailable,
 )
+from gerclaw_api.services.chat_run_journal import DatabaseChatRunJournal
 from gerclaw_api.services.chat_service import ChatService
 from gerclaw_api.services.conversation_service import (
     ConversationNotFoundError,
@@ -373,6 +374,7 @@ async def chat(
                     risk_alert_service=RiskAlertService(
                         SqlAlchemyRiskAlertRepository(database_session)
                     ),
+                    run_journal=DatabaseChatRunJournal(database),
                 )
                 with bind_model_prompt_egress_audit(
                     SqlAlchemyModelPromptEgressAudit(

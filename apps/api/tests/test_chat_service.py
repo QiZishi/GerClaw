@@ -19,9 +19,18 @@ from agentscope.tool import ToolChoice
 from gerclaw_api.api.routes.chat import _encode_sse, _public_error
 from gerclaw_api.auth import AuthContext
 from gerclaw_api.config import Settings
-from gerclaw_api.database.models import ConversationSession, ExecutionTrace
+from gerclaw_api.database.models import ConversationSession, ExecutionTrace, Message
 from gerclaw_api.domain.chat_schemas import ChatRequest
 from gerclaw_api.domain.enums import TraceStatus
+from gerclaw_api.domain.run_schemas import (
+    TERMINAL_RUN_STATUSES,
+    AgentRunCreate,
+    AgentRunRead,
+    AgentRunStatus,
+    AnswerVersionRead,
+    RunEventRead,
+    RunEventWrite,
+)
 from gerclaw_api.domain.trace_schemas import (
     TraceEventCreate,
     TraceFinishRequest,
@@ -174,12 +183,32 @@ class _ConversationFacade:
         self.history_exclude_trace_id = cast(str | None, kwargs.get("exclude_trace_id"))
         return []
 
-    async def store_user_message(self, **kwargs: object) -> None:
+    async def store_user_message(self, **kwargs: object) -> Message:
         self.user_text = cast(str, kwargs["text"])
+        return Message(
+            id=uuid.uuid4(),
+            tenant_id=self.session.tenant_id,
+            session_id=self.session.id,
+            trace_id=cast(str, kwargs["trace_id"]),
+            role="user",
+            content=[{"type": "text", "text": self.user_text}],
+            message_metadata={},
+            created_at=datetime.now(UTC),
+        )
 
-    async def store_assistant_message(self, **kwargs: object) -> None:
+    async def store_assistant_message(self, **kwargs: object) -> Message:
         self.response = kwargs["response"]
         self.assistant_commit = cast(bool, kwargs["commit"])
+        return Message(
+            id=uuid.uuid4(),
+            tenant_id=self.session.tenant_id,
+            session_id=self.session.id,
+            trace_id=cast(str, kwargs["trace_id"]),
+            role="assistant",
+            content=[{"type": "text", "text": cast(Any, self.response).text}],
+            message_metadata={},
+            created_at=datetime.now(UTC),
+        )
 
     async def rollback(self) -> None:
         self.response = None
@@ -307,6 +336,109 @@ class _RiskAlertRecorder:
         self.calls.append(kwargs)
 
 
+class _RunJournal:
+    def __init__(self) -> None:
+        self.run_id = uuid.uuid4()
+        self.start_requests: list[AgentRunCreate] = []
+        self.events: list[RunEventWrite] = []
+        self.answer_message_ids: list[uuid.UUID] = []
+        self.transitions: list[AgentRunStatus] = []
+
+    async def start(
+        self,
+        request: AgentRunCreate,
+        *,
+        tenant_id: str,
+        actor_id: str,
+    ) -> AgentRunRead:
+        del tenant_id, actor_id
+        self.start_requests.append(request)
+        return self._run(request, AgentRunStatus.RUNNING, revision=1)
+
+    async def append(
+        self,
+        run_id: uuid.UUID,
+        event: RunEventWrite,
+        *,
+        tenant_id: str,
+        actor_id: str,
+        fencing_token: int,
+    ) -> RunEventRead:
+        del tenant_id, actor_id
+        assert run_id == self.run_id
+        assert fencing_token == 17
+        self.events.append(event)
+        return RunEventRead(
+            run_id=run_id,
+            sequence=len(self.events),
+            **event.model_dump(),
+            created_at=datetime.now(UTC),
+        )
+
+    async def register_answer(
+        self,
+        run_id: uuid.UUID,
+        assistant_message_id: uuid.UUID,
+        *,
+        tenant_id: str,
+        actor_id: str,
+    ) -> AnswerVersionRead:
+        del tenant_id, actor_id
+        assert run_id == self.run_id
+        self.answer_message_ids.append(assistant_message_id)
+        return AnswerVersionRead(
+            id=uuid.uuid4(),
+            run_id=run_id,
+            answer_group_id=uuid.uuid4(),
+            assistant_message_id=assistant_message_id,
+            version=1,
+            is_current=True,
+            created_at=datetime.now(UTC),
+        )
+
+    async def transition(
+        self,
+        run_id: uuid.UUID,
+        target: AgentRunStatus,
+        *,
+        tenant_id: str,
+        actor_id: str,
+        fencing_token: int,
+        warnings: tuple[str, ...] = (),
+        public_summary: str | None = None,
+    ) -> AgentRunRead:
+        del tenant_id, actor_id, fencing_token, warnings, public_summary
+        assert run_id == self.run_id
+        self.transitions.append(target)
+        return self._run(
+            self.start_requests[0],
+            target,
+            revision=len(self.transitions) + 1,
+        )
+
+    def _run(
+        self,
+        request: AgentRunCreate,
+        status: AgentRunStatus,
+        *,
+        revision: int,
+    ) -> AgentRunRead:
+        return AgentRunRead(
+            id=self.run_id,
+            conversation_id=request.conversation_id,
+            input_message_id=request.input_message_id,
+            trace_id=request.trace_id,
+            route=request.route,
+            status=status,
+            last_sequence=len(self.events),
+            revision=revision,
+            started_at=datetime.now(UTC),
+            completed_at=(
+                datetime.now(UTC) if status in TERMINAL_RUN_STATUSES else None
+            ),
+        )
+
+
 @pytest.mark.parametrize(
     ("role", "expected_role", "has_patient_proof"),
     [
@@ -422,6 +554,7 @@ async def test_owned_turn_streams_only_after_durable_success(unit_settings: Sett
     traces = _TraceFacade(created=True, session_id=session_id)
     conversation = _ConversationFacade(session_id)
     memory = _MemoryFacade()
+    run_journal = _RunJournal()
     service = ChatService(
         settings=unit_settings,
         conversation=cast(Any, conversation),
@@ -430,6 +563,7 @@ async def test_owned_turn_streams_only_after_durable_success(unit_settings: Sett
         model=cast(Any, _TextModel()),
         rag_module=cast(Any, _NoopRAG()),
         memory_factory=_memory_factory(memory),
+        run_journal=run_journal,
     )
     events: list[object] = []
 
@@ -476,6 +610,11 @@ async def test_owned_turn_streams_only_after_durable_success(unit_settings: Sett
         "agent.finish",
     ]
     assert traces.finishes[-1].status is TraceStatus.COMPLETED
+    assert len(run_journal.start_requests) == 1
+    assert run_journal.start_requests[0].fencing_token == 17
+    assert run_journal.answer_message_ids
+    assert run_journal.events[-1].event_type == "done"
+    assert run_journal.transitions == [AgentRunStatus.COMPLETED]
 
     replay_events: list[object] = []
 
@@ -508,6 +647,7 @@ async def test_companion_turn_keeps_long_term_memory_and_memory_trace_disabled(
     traces = _TraceFacade(created=True, session_id=session_id)
     conversation = _ConversationFacade(session_id)
     memory = _MemoryFacade()
+    run_journal = _RunJournal()
     service = ChatService(
         settings=unit_settings,
         conversation=cast(Any, conversation),
@@ -516,6 +656,7 @@ async def test_companion_turn_keeps_long_term_memory_and_memory_trace_disabled(
         model=cast(Any, _TextModel()),
         rag_module=cast(Any, _NoopRAG()),
         memory_factory=_memory_factory(memory),
+        run_journal=run_journal,
     )
 
     async def callback(_event: object) -> None:
@@ -554,6 +695,7 @@ async def test_durable_cancel_intent_fences_success_when_runtime_swallows_task_c
     traces = _TraceFacade(created=True, session_id=session_id)
     conversation = _ConversationFacade(session_id)
     memory = _MemoryFacade()
+    run_journal = _RunJournal()
     service = ChatService(
         settings=unit_settings,
         conversation=cast(Any, conversation),
@@ -562,6 +704,7 @@ async def test_durable_cancel_intent_fences_success_when_runtime_swallows_task_c
         model=cast(Any, _TextModel()),
         rag_module=cast(Any, _NoopRAG()),
         memory_factory=_memory_factory(memory),
+        run_journal=run_journal,
     )
     events: list[object] = []
 
@@ -592,6 +735,8 @@ async def test_durable_cancel_intent_fences_success_when_runtime_swallows_task_c
     assert traces.trace.status == TraceStatus.CANCELLED.value
     assert traces.finishes[-1].status is TraceStatus.CANCELLED
     assert all(cast(Any, event).event_type != "done" for event in events)
+    assert run_journal.answer_message_ids == []
+    assert run_journal.transitions == [AgentRunStatus.CANCELLED]
 
 
 @pytest.mark.asyncio

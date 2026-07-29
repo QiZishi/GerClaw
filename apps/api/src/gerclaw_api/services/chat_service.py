@@ -4,9 +4,11 @@ from __future__ import annotations
 
 import asyncio
 import json
+import logging
 import time
 import uuid
 from collections.abc import Awaitable, Callable
+from contextlib import suppress
 from datetime import UTC, datetime
 from typing import Any, Protocol, cast
 
@@ -14,6 +16,11 @@ from gerclaw_api.auth import AuthContext
 from gerclaw_api.config import Settings
 from gerclaw_api.domain.chat_schemas import ChatDoneData, ChatRequest
 from gerclaw_api.domain.enums import TraceEventStatus, TraceEventType, TraceStatus
+from gerclaw_api.domain.run_schemas import (
+    AgentRunCreate,
+    AgentRunStatus,
+    RunEventWrite,
+)
 from gerclaw_api.domain.trace_schemas import (
     TraceEventCreate,
     TraceFinishRequest,
@@ -26,6 +33,8 @@ from gerclaw_api.modules.agent_harness import (
     StreamEvent,
     UnsupportedAgentContextError,
 )
+from gerclaw_api.modules.agent_harness.routing import RouteKind
+from gerclaw_api.modules.agent_harness.safety import detect_high_risk
 from gerclaw_api.modules.companion.policy import is_companion_workflow
 from gerclaw_api.modules.contracts import AgentRequest, AgentResponse, ExecutionContext
 from gerclaw_api.modules.document import DocumentService
@@ -47,9 +56,11 @@ from gerclaw_api.modules.runtime.models import (
 )
 from gerclaw_api.modules.search.protocols import SearchModule
 from gerclaw_api.modules.skill.skill_module import ProductionSkillModule
+from gerclaw_api.modules.validation import validate_public_chat_stream_event
 from gerclaw_api.modules.workflows import get_default_workflow_registry
 from gerclaw_api.repositories.approval import SqlAlchemyApprovalRepository
 from gerclaw_api.security import JsonValue, audit_hmac_digest
+from gerclaw_api.services.chat_run_journal import ChatRunJournal
 from gerclaw_api.services.conversation_service import ConversationService
 from gerclaw_api.services.model_router import FailoverChatModel
 from gerclaw_api.services.session_lease import SessionLease, SessionLeaseGuard
@@ -58,6 +69,7 @@ from gerclaw_api.services.trace_service import TraceService
 StreamCallback = Callable[[StreamEvent], Awaitable[None]]
 CancellationProbe = Callable[[], Awaitable[bool]]
 ActiveSkillCall = tuple[float, str, str | None]
+logger = logging.getLogger(__name__)
 
 __all__ = [
     "ChatCancellationFinalizationError",
@@ -141,6 +153,7 @@ class ChatService:
         approval_repository: SqlAlchemyApprovalRepository | None = None,
         document_service: DocumentService | None = None,
         risk_alert_service: RiskAlertService | None = None,
+        run_journal: ChatRunJournal | None = None,
         input_output: ProductionInputOutputModule | None = None,
     ) -> None:
         self._settings = settings
@@ -155,6 +168,8 @@ class ChatService:
         self._approval_repository = approval_repository
         self._document_service = document_service
         self._risk_alert_service = risk_alert_service
+        self._run_journal = run_journal
+        self._active_run_id: uuid.UUID | None = None
         self._input_output = input_output or ProductionInputOutputModule()
 
     async def process(
@@ -365,7 +380,10 @@ class ChatService:
                 ),
             )
             history = [
-                ConversationHistoryMessage(role=message.role, text=message.text())
+                ConversationHistoryMessage(
+                    role=cast(Any, message.role),
+                    text=message.text(),
+                )
                 for message in compressed
                 if message.role in {"user", "assistant"} and message.text()
             ]
@@ -375,7 +393,7 @@ class ChatService:
                 if message.role == "system" and message.text()
             )
             profile_context, profile_version, memory_refs = await memory.core_profile_context()
-        await self._conversation.store_user_message(
+        user_message = await self._conversation.store_user_message(
             tenant_id=identity.tenant_id,
             conversation=conversation,
             session_id=payload.session_id,
@@ -383,6 +401,35 @@ class ChatService:
             text=payload.message,
             channel=payload.channel,
         )
+        if self._run_journal is not None:
+            route = (
+                RouteKind.EMERGENCY
+                if detect_high_risk(payload.message)
+                else RouteKind.STANDARD
+            )
+            run = await self._run_journal.start(
+                AgentRunCreate(
+                    conversation_id=payload.session_id,
+                    input_message_id=user_message.id,
+                    trace_id=trace_id,
+                    route=route,
+                    context_snapshot={
+                        "history_message_count": len(history),
+                        "memory_reference_count": len(memory_refs),
+                        "profile_version": profile_version,
+                    },
+                    plan={
+                        "loaded_skill_count": len(payload.loaded_skills),
+                        "uploaded_document_count": len(payload.uploaded_files),
+                        "uploaded_image_count": len(payload.images),
+                        "workflow": workflow.workflow_id.value,
+                    },
+                    fencing_token=lease_guard.fencing_token,
+                ),
+                tenant_id=identity.tenant_id,
+                actor_id=identity.actor_id,
+            )
+            self._active_run_id = run.id
         if payload.uploaded_files and self._document_service is None:
             raise UnsupportedAgentContextError("uploaded document storage is unavailable")
         uploaded_documents = (
@@ -423,7 +470,7 @@ class ChatService:
             settings=self._settings,
             model=self._model,
             rag_module=self._rag_module,
-            memory_module=memory,
+            memory_module=cast(Any, memory),
             execution=execution,
             history=history,
             profile_context=profile_context,
@@ -597,7 +644,16 @@ class ChatService:
                         duration_ms=duration_ms,
                         commit=False,
                     )
-            await callback(event)
+            validated_event = validate_public_chat_stream_event(event)
+            if self._run_journal is not None and self._active_run_id is not None:
+                await self._run_journal.append(
+                    self._active_run_id,
+                    self._run_event(validated_event),
+                    tenant_id=identity.tenant_id,
+                    actor_id=identity.actor_id,
+                    fencing_token=lease_guard.fencing_token,
+                )
+            await callback(validated_event)
 
         try:
             response = await harness.process_message(
@@ -633,7 +689,7 @@ class ChatService:
                 fencing_token=lease_guard.fencing_token,
                 trace_id=trace_id,
             )
-            await self._conversation.store_assistant_message(
+            assistant_message = await self._conversation.store_assistant_message(
                 tenant_id=identity.tenant_id,
                 session=conversation,
                 trace_id=trace_id,
@@ -673,12 +729,54 @@ class ChatService:
             memory.mark_vectors_committed()
         rendered = await self._input_output.render(response, "web")
         done = ChatDoneData(
-            full_text=rendered["text"],
-            references=rendered["citations"],
-            safety=rendered["safety"],
+            full_text=cast(str, rendered["text"]),
+            references=cast(Any, rendered["citations"]),
+            safety=cast(Any, rendered["safety"]),
             trace_id=trace_id,
             session_id=payload.session_id,
         )
+        if self._run_journal is not None and self._active_run_id is not None:
+            try:
+                await self._run_journal.register_answer(
+                    self._active_run_id,
+                    assistant_message.id,
+                    tenant_id=identity.tenant_id,
+                    actor_id=identity.actor_id,
+                )
+                await self._run_journal.append(
+                    self._active_run_id,
+                    RunEventWrite(
+                        event_type="done",
+                        status="completed",
+                        payload=done.model_dump(mode="json"),
+                    ),
+                    tenant_id=identity.tenant_id,
+                    actor_id=identity.actor_id,
+                    fencing_token=lease_guard.fencing_token,
+                )
+                await self._run_journal.transition(
+                    self._active_run_id,
+                    AgentRunStatus.COMPLETED,
+                    tenant_id=identity.tenant_id,
+                    actor_id=identity.actor_id,
+                    fencing_token=lease_guard.fencing_token,
+                    public_summary="回答已完成",
+                )
+            except Exception:
+                logger.exception(
+                    "agent run success projection failed",
+                    extra={"run_id": str(self._active_run_id), "trace_id": trace_id},
+                )
+                with suppress(Exception):
+                    await self._run_journal.transition(
+                        self._active_run_id,
+                        AgentRunStatus.COMPLETED_WITH_WARNINGS,
+                        tenant_id=identity.tenant_id,
+                        actor_id=identity.actor_id,
+                        fencing_token=lease_guard.fencing_token,
+                        warnings=("run_postprocessing_failed",),
+                        public_summary="回答已完成, 部分产物保存失败",
+                    )
         await callback(
             StreamEvent(
                 event_type="done",
@@ -958,12 +1056,52 @@ class ChatService:
                     },
                 ),
             )
+            if (
+                self._run_journal is not None
+                and self._active_run_id is not None
+                and fencing_token is not None
+            ):
+                await self._run_journal.transition(
+                    self._active_run_id,
+                    (
+                        AgentRunStatus.CANCELLED
+                        if status is TraceStatus.CANCELLED
+                        else AgentRunStatus.FAILED
+                    ),
+                    tenant_id=identity.tenant_id,
+                    actor_id=identity.actor_id,
+                    fencing_token=fencing_token,
+                    public_summary=(
+                        "已停止生成"
+                        if status is TraceStatus.CANCELLED
+                        else "本次执行未完成"
+                    ),
+                )
             return True
         except Exception:
             await self._conversation.rollback()
             # Callers must never publish a terminal cancellation unless this
             # transaction actually committed the corresponding Trace state.
             return False
+
+    @staticmethod
+    def _run_event(event: StreamEvent) -> RunEventWrite:
+        raw_status = event.data.get("status")
+        status = raw_status if isinstance(raw_status, str) else "running"
+        raw_summary = event.data.get("content")
+        summary = (
+            raw_summary[:5_000]
+            if event.event_type == "reasoning_summary"
+            and isinstance(raw_summary, str)
+            and raw_summary.strip()
+            else None
+        )
+        return RunEventWrite(
+            event_type=event.event_type,
+            status=status,
+            public_summary=summary,
+            payload=event.data,
+        )
 
     async def _emit_replay(
         self,
@@ -990,9 +1128,9 @@ class ChatService:
             )
         rendered = await self._input_output.render(response, "web")
         done = ChatDoneData(
-            full_text=rendered["text"],
-            references=rendered["citations"],
-            safety=rendered["safety"],
+            full_text=cast(str, rendered["text"]),
+            references=cast(Any, rendered["citations"]),
+            safety=cast(Any, rendered["safety"]),
             trace_id=trace_id,
             session_id=session_id,
             replayed=True,

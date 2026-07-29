@@ -13,7 +13,13 @@ from httpx import AsyncClient
 from sqlalchemy import func, select, text
 
 from gerclaw_api.auth import create_access_token
-from gerclaw_api.database.models import BadCase, Message
+from gerclaw_api.database.models import (
+    AgentRun,
+    AnswerVersion,
+    BadCase,
+    Message,
+    RunEvent,
+)
 from gerclaw_api.domain.enums import TraceStatus
 from gerclaw_api.domain.trace_schemas import TraceFinishRequest
 from gerclaw_api.modules.agent_harness import StreamEvent
@@ -449,8 +455,33 @@ async def test_chat_missing_evidence_persists_safe_clarification_without_bad_cas
         bad_case_count = await session.scalar(
             select(func.count()).select_from(BadCase).where(BadCase.trace_id == trace_id)
         )
+        run = await session.scalar(select(AgentRun).where(AgentRun.trace_id == trace_id))
+        assert run is not None
+        answer_versions = list(
+            (
+                await session.scalars(
+                    select(AnswerVersion).where(AnswerVersion.run_id == run.id)
+                )
+            ).all()
+        )
+        run_events = list(
+            (
+                await session.scalars(
+                    select(RunEvent)
+                    .where(RunEvent.run_id == run.id)
+                    .order_by(RunEvent.sequence)
+                )
+            ).all()
+        )
     assert assistant_count == 1
     assert bad_case_count == 0
+    assert run.status == "completed"
+    assert run.current_answer_version_id == answer_versions[0].id
+    assert answer_versions[0].is_current is True
+    assert [event.sequence for event in run_events] == list(
+        range(1, len(run_events) + 1)
+    )
+    assert run_events[-1].status == "completed"
 
 
 @pytest.mark.integration
@@ -523,7 +554,7 @@ async def test_explicit_cancel_keeps_sse_open_until_tool_and_trace_are_terminal(
 ) -> None:
     """The cancel control request must acknowledge only after durable cleanup is visible."""
 
-    client, _app = integration_client
+    client, app = integration_client
     session_id = uuid.uuid4()
     trace_id = "trace_chat_cancel_route_0001"
     assert (
@@ -569,3 +600,19 @@ async def test_explicit_cancel_keeps_sse_open_until_tool_and_trace_are_terminal(
     assert skill_event["status"] == "cancelled"
     assert skill_event["payload"]["skill"] == "risk-assessment"
     assert skill_event["payload"]["outcome"] == "cancelled"
+    async with app.state.database.session() as session:
+        run = await session.scalar(select(AgentRun).where(AgentRun.trace_id == trace_id))
+        assert run is not None
+        terminal_events = list(
+            (
+                await session.scalars(
+                    select(RunEvent).where(
+                        RunEvent.run_id == run.id,
+                        RunEvent.event_type == "run.status",
+                    )
+                )
+            ).all()
+        )
+    assert run.status == "cancelled"
+    assert run.completed_at is not None
+    assert [event.status for event in terminal_events] == ["cancelled"]
