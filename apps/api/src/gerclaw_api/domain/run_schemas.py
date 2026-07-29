@@ -61,6 +61,14 @@ class RunEventRead(BaseModel):
     created_at: datetime
 
 
+class RunEventPage(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    run_id: uuid.UUID
+    events: tuple[RunEventRead, ...] = Field(default=(), max_length=500)
+    next_after_sequence: int = Field(ge=0)
+
+
 class RunEventWrite(BaseModel):
     """Validated public event input before it crosses the persistence boundary."""
 
@@ -144,6 +152,13 @@ class AnswerVersionSelect(BaseModel):
     expected_current_version_id: uuid.UUID
 
 
+class AnswerVersionListRead(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    run_id: uuid.UUID
+    versions: tuple[AnswerVersionRead, ...] = Field(default=(), max_length=100)
+
+
 class ArtifactKind(StrEnum):
     MARKDOWN = "markdown"
     REPORT = "report"
@@ -174,6 +189,20 @@ class ArtifactRead(BaseModel):
     saved: bool
     created_at: datetime
     updated_at: datetime
+
+
+class ArtifactListRead(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    conversation_id: uuid.UUID
+    artifacts: tuple[ArtifactRead, ...] = Field(default=(), max_length=100)
+
+
+class ArtifactDeleted(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    artifact_id: uuid.UUID
+    deleted: Literal[True] = True
 
 
 class FeedbackReconcileRequest(BaseModel):

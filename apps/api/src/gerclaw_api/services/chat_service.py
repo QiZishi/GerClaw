@@ -34,6 +34,7 @@ from gerclaw_api.modules.agent_harness import (
     UnsupportedAgentContextError,
 )
 from gerclaw_api.modules.agent_harness.routing import RouteKind
+from gerclaw_api.modules.agent_harness.run_lifecycle import RunTerminalConflictError
 from gerclaw_api.modules.agent_harness.safety import detect_high_risk
 from gerclaw_api.modules.companion.policy import is_companion_workflow
 from gerclaw_api.modules.contracts import AgentRequest, AgentResponse, ExecutionContext
@@ -646,13 +647,21 @@ class ChatService:
                     )
             validated_event = validate_public_chat_stream_event(event)
             if self._run_journal is not None and self._active_run_id is not None:
-                await self._run_journal.append(
-                    self._active_run_id,
-                    self._run_event(validated_event),
-                    tenant_id=identity.tenant_id,
-                    actor_id=identity.actor_id,
-                    fencing_token=lease_guard.fencing_token,
-                )
+                try:
+                    await self._run_journal.append(
+                        self._active_run_id,
+                        self._run_event(validated_event),
+                        tenant_id=identity.tenant_id,
+                        actor_id=identity.actor_id,
+                        fencing_token=lease_guard.fencing_token,
+                    )
+                except RunTerminalConflictError:
+                    cancellation_is_durable = (
+                        cancellation_requested is not None
+                        and await cancellation_requested()
+                    )
+                    if not cancellation_is_durable:
+                        raise
             await callback(validated_event)
 
         try:

@@ -23,6 +23,7 @@ from gerclaw_api.api.routes.health import router as health_router
 from gerclaw_api.api.routes.memory import router as memory_router
 from gerclaw_api.api.routes.rag import router as rag_router
 from gerclaw_api.api.routes.risk_alerts import router as risk_alerts_router
+from gerclaw_api.api.routes.runs import router as runs_router
 from gerclaw_api.api.routes.search import router as search_router
 from gerclaw_api.api.routes.skills import router as skills_router
 from gerclaw_api.api.routes.traces import router as traces_router
@@ -36,6 +37,7 @@ from gerclaw_api.middleware import (
     RequestContextMiddleware,
     SecurityHeadersMiddleware,
 )
+from gerclaw_api.modules.agent_harness.run_lifecycle import RunTransitionError
 from gerclaw_api.modules.memory.runtime import create_memory_store
 from gerclaw_api.modules.rag import (
     RAGUnavailableError,
@@ -67,10 +69,27 @@ from gerclaw_api.repositories.skill import (
     SkillRepositoryConflictError,
     SkillSessionNotFoundError,
 )
+from gerclaw_api.services.agent_run_service import (
+    AgentRunConflictError,
+    AgentRunNotFoundError,
+)
+from gerclaw_api.services.answer_version_service import (
+    AnswerVersionConflictError,
+    AnswerVersionDataError,
+    AnswerVersionNotFoundError,
+)
 from gerclaw_api.services.chat_cancellation import ChatCancellationRegistry
 from gerclaw_api.services.health_service import DependencyHealthService
 from gerclaw_api.services.model_router import FailoverChatModel
 from gerclaw_api.services.rate_limit import RateLimiter, RateLimitExceeded, RateLimitUnavailable
+from gerclaw_api.services.run_artifact_service import (
+    RunArtifactConflictError,
+    RunArtifactNotFoundError,
+)
+from gerclaw_api.services.run_feedback_service import (
+    RunFeedbackConflictError,
+    RunFeedbackNotFoundError,
+)
 from gerclaw_api.services.trace_service import (
     TraceConflictError,
     TraceNotFoundError,
@@ -177,6 +196,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     app.include_router(traces_router, prefix=resolved.api_prefix)
     app.include_router(rag_router, prefix=resolved.api_prefix)
     app.include_router(risk_alerts_router, prefix=resolved.api_prefix)
+    app.include_router(runs_router, prefix=resolved.api_prefix)
     app.include_router(search_router, prefix=resolved.api_prefix)
     app.include_router(chat_router, prefix=resolved.api_prefix)
     app.include_router(chronic_care_router, prefix=resolved.api_prefix)
@@ -193,6 +213,41 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         return JSONResponse(
             {"error": {"code": "TRACE_NOT_FOUND", "message": f"trace {error} not found"}},
             status_code=404,
+        )
+
+    @app.exception_handler(AgentRunNotFoundError)
+    @app.exception_handler(AnswerVersionNotFoundError)
+    @app.exception_handler(RunArtifactNotFoundError)
+    @app.exception_handler(RunFeedbackNotFoundError)
+    async def run_resource_not_found(_request: Request, _error: Exception) -> JSONResponse:
+        return JSONResponse(
+            {"error": {"code": "RUN_RESOURCE_NOT_FOUND", "message": "resource not found"}},
+            status_code=404,
+        )
+
+    @app.exception_handler(AgentRunConflictError)
+    @app.exception_handler(AnswerVersionConflictError)
+    @app.exception_handler(RunArtifactConflictError)
+    @app.exception_handler(RunFeedbackConflictError)
+    @app.exception_handler(RunTransitionError)
+    async def run_resource_conflict(_request: Request, error: Exception) -> JSONResponse:
+        return JSONResponse(
+            {"error": {"code": "RUN_RESOURCE_CONFLICT", "message": str(error)}},
+            status_code=409,
+        )
+
+    @app.exception_handler(AnswerVersionDataError)
+    async def answer_version_data_error(
+        _request: Request, _error: AnswerVersionDataError
+    ) -> JSONResponse:
+        return JSONResponse(
+            {
+                "error": {
+                    "code": "RUN_STORAGE_INVALID",
+                    "message": "stored answer version state is invalid",
+                }
+            },
+            status_code=500,
         )
 
     @app.exception_handler(ApprovalNotFoundError)

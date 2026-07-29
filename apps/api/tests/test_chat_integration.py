@@ -616,3 +616,172 @@ async def test_explicit_cancel_keeps_sse_open_until_tool_and_trace_are_terminal(
     assert run.status == "cancelled"
     assert run.completed_at is not None
     assert [event.status for event in terminal_events] == ["cancelled"]
+
+
+@pytest.mark.integration
+@pytest.mark.asyncio
+async def test_run_api_replays_and_reconciles_owned_resources(
+    integration_client: tuple[AsyncClient, object],
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    client, app = integration_client
+    session_id = uuid.uuid4()
+    trace_id = "trace_run_api_resources_0001"
+    assert (
+        await client.post("/api/v1/sessions", json={"session_id": str(session_id)})
+    ).status_code == 201
+    monkeypatch.setattr(chat_service_module, "ProductionAgentHarness", _SafeHarness)
+    chat = await client.post(
+        "/api/v1/chat",
+        headers={"X-Trace-ID": trace_id},
+        json={
+            "session_id": str(session_id),
+            "message": "请给我一般健康建议",
+            "channel": "web",
+        },
+    )
+    assert chat.status_code == 200
+    assert "event: done" in chat.text
+    async with app.state.database.session() as session:
+        run = await session.scalar(select(AgentRun).where(AgentRun.trace_id == trace_id))
+        assert run is not None
+        run_id = run.id
+
+    run_response = await client.get(f"/api/v1/runs/{run_id}")
+    assert run_response.status_code == 200, run_response.text
+    assert run_response.json()["status"] == "completed"
+    page = await client.get(f"/api/v1/runs/{run_id}/events?after_sequence=0&limit=100")
+    assert page.status_code == 200, page.text
+    page_payload = page.json()
+    sequences = [event["sequence"] for event in page_payload["events"]]
+    assert sequences == list(range(1, len(sequences) + 1))
+    replay = await client.get(
+        f"/api/v1/runs/{run_id}/events?after_sequence={sequences[0]}&limit=100"
+    )
+    assert all(
+        event["sequence"] > sequences[0] for event in replay.json()["events"]
+    )
+
+    versions = await client.get(f"/api/v1/runs/{run_id}/answer-versions")
+    assert versions.status_code == 200, versions.text
+    version = versions.json()["versions"][0]
+    selected = await client.put(
+        f"/api/v1/runs/{run_id}/answer-versions/{version['id']}/current",
+        json={"expected_current_version_id": version["id"]},
+    )
+    assert selected.status_code == 200, selected.text
+    assert selected.json()["is_current"] is True
+
+    assert (await client.get(f"/api/v1/runs/{run_id}/feedback")).json() is None
+    liked = await client.put(
+        f"/api/v1/runs/{run_id}/feedback",
+        json={"value": 1, "expected_revision": 0},
+    )
+    assert liked.status_code == 200, liked.text
+    duplicate = await client.put(
+        f"/api/v1/runs/{run_id}/feedback",
+        json={"value": 1, "expected_revision": 1},
+    )
+    assert duplicate.json()["revision"] == 1
+    stale_feedback = await client.put(
+        f"/api/v1/runs/{run_id}/feedback",
+        json={"value": -1, "expected_revision": 0},
+    )
+    assert stale_feedback.status_code == 409
+
+    created = await client.post(
+        f"/api/v1/runs/{run_id}/artifacts",
+        json={"title": "随访文档", "markdown": "版本 1", "kind": "markdown"},
+    )
+    assert created.status_code == 201, created.text
+    artifact = created.json()
+    updated = await client.put(
+        f"/api/v1/artifacts/{artifact['id']}",
+        json={
+            "title": "随访文档",
+            "markdown": "版本 2",
+            "kind": "markdown",
+            "expected_revision": 1,
+        },
+    )
+    assert updated.status_code == 200, updated.text
+    assert updated.json()["revision"] == 2
+    stale_artifact = await client.put(
+        f"/api/v1/artifacts/{artifact['id']}",
+        json={
+            "title": "随访文档",
+            "markdown": "过期版本",
+            "kind": "markdown",
+            "expected_revision": 1,
+        },
+    )
+    assert stale_artifact.status_code == 409
+    listed = await client.get(f"/api/v1/conversations/{session_id}/artifacts")
+    assert [item["id"] for item in listed.json()["artifacts"]] == [artifact["id"]]
+
+    other_token = create_access_token(
+        app.state.settings,
+        actor_id="usr_patient_integration0002",
+        tenant_id=TENANT,
+        scopes={"chat:read", "chat:write", "feedback:write"},
+        role="patient",
+        account_role="patient",
+    )
+    hidden = await client.get(
+        f"/api/v1/runs/{run_id}",
+        headers={"Authorization": f"Bearer {other_token}"},
+    )
+    assert hidden.status_code == 404
+    deleted = await client.delete(
+        f"/api/v1/artifacts/{artifact['id']}?expected_revision=2"
+    )
+    assert deleted.status_code == 200, deleted.text
+    assert (await client.get(f"/api/v1/artifacts/{artifact['id']}")).status_code == 404
+
+
+@pytest.mark.integration
+@pytest.mark.asyncio
+async def test_run_cancel_endpoint_fences_and_notifies_active_worker(
+    integration_client: tuple[AsyncClient, object],
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    client, app = integration_client
+    session_id = uuid.uuid4()
+    trace_id = "trace_run_cancel_route_0001"
+    assert (
+        await client.post("/api/v1/sessions", json={"session_id": str(session_id)})
+    ).status_code == 201
+    monkeypatch.setattr(chat_service_module, "ProductionAgentHarness", _BlockingSkillHarness)
+    chat_task = asyncio.create_task(
+        client.post(
+            "/api/v1/chat",
+            headers={"X-Trace-ID": trace_id},
+            json={
+                "session_id": str(session_id),
+                "message": "请按已加载技能准备随访",
+                "loaded_skills": ["risk-assessment"],
+                "channel": "web",
+            },
+            timeout=15,
+        )
+    )
+    await asyncio.wait_for(_BlockingSkillHarness.entered.wait(), timeout=3)
+    async with app.state.database.session() as session:
+        run = await session.scalar(select(AgentRun).where(AgentRun.trace_id == trace_id))
+        assert run is not None
+        run_id = run.id
+
+    cancelled = await client.post(f"/api/v1/runs/{run_id}/cancel")
+    chat = await asyncio.wait_for(chat_task, timeout=10)
+
+    assert cancelled.status_code == 200, cancelled.text
+    assert cancelled.json()["status"] == "cancelled"
+    assert "event: cancelled" in chat.text
+    assert "event: done" not in chat.text
+    replay = await client.get(f"/api/v1/runs/{run_id}/events?limit=100")
+    terminal_events = [
+        event
+        for event in replay.json()["events"]
+        if event["event_type"] == "run.status"
+    ]
+    assert [event["status"] for event in terminal_events] == ["cancelled"]
