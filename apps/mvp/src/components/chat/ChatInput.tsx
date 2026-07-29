@@ -10,9 +10,6 @@ import { toast } from "@/components/ui/toast";
 import { cn } from "@/lib/utils";
 import { useAudioRecorder } from "@/hooks/useAudioRecorder";
 import { recognizeAudio } from "@/services/voice/asr";
-import { parseFile } from "@/services/document/mineru";
-import { registerParsedDocument, revokeParsedDocument } from "@/services/gerclaw/documents";
-import { generateId } from "@/lib/format";
 import {
   Dialog,
   DialogContent,
@@ -21,33 +18,25 @@ import {
   DialogFooter,
   DialogClose,
 } from "@/components/ui/dialog";
-import type { FileTag as UploadFileTag, ImageAttachment } from "@/types";
-import {
-  ComposerAttachmentTray,
-  type PendingComposerImage as PendingImage,
-} from "@/components/chat/composer/ComposerAttachmentTray";
+import type { ImageAttachment } from "@/types";
+import { ComposerAttachmentTray } from "@/components/chat/composer/ComposerAttachmentTray";
 import {
   ComposerToolbar,
   type ComposerAction,
 } from "@/components/chat/composer/ComposerToolbar";
 import { ComposerRecordingPanel } from "@/components/chat/composer/ComposerRecordingPanel";
 import { ComposerSubmitControl } from "@/components/chat/composer/ComposerSubmitControl";
+import {
+  COMPOSER_FILE_ACCEPT,
+  useComposerAttachments,
+} from "@/components/chat/composer/useComposerAttachments";
+import { shouldSubmitComposerKey } from "@/components/chat/composer/composer-contract";
+import type {
+  ChatDocumentAttachment,
+  ChatSendAccepted,
+} from "@/components/chat/composer/types";
 
-export interface ChatDocumentAttachment {
-  localId: string;
-  fileName: string;
-  mediaType: string;
-  source: "mineru" | "local-text";
-  markdown: string;
-  serverDocumentId?: string;
-  documentSessionId?: string;
-}
-
-interface ChatSendAccepted {
-  accepted: true;
-  documentBindings?: Record<string, string>;
-  documentSessionId?: string;
-}
+export type { ChatDocumentAttachment } from "@/components/chat/composer/types";
 
 interface ChatInputProps {
   onSend?: (
@@ -66,30 +55,6 @@ interface ChatInputProps {
   /** Five-prescription collection keeps the familiar chat composer focused on voice, text and files. */
   prescriptionConversation?: boolean;
   placeholderOverride?: string;
-}
-
-const ALLOWED_FILE_EXT = [".pdf", ".docx", ".md", ".txt", ".png", ".jpg", ".jpeg", ".gif", ".webp"];
-const ALLOWED_FILE_MIME = [
-  "application/pdf",
-  "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
-  "text/markdown",
-  "text/plain",
-  "image/png",
-  "image/jpeg",
-  "image/gif",
-  "image/webp",
-];
-
-function documentMediaType(file: File): string | null {
-  if (ALLOWED_FILE_MIME.includes(file.type)) return file.type;
-  const extension = file.name.split(".").pop()?.toLowerCase();
-  if (extension === "pdf") return "application/pdf";
-  if (extension === "docx") {
-    return "application/vnd.openxmlformats-officedocument.wordprocessingml.document";
-  }
-  if (extension === "md") return "text/markdown";
-  if (extension === "txt") return "text/plain";
-  return null;
 }
 
 export function ChatInput({
@@ -126,19 +91,32 @@ export function ChatInput({
 
   const [text, setText] = useState("");
   const [isTranscribing, setIsTranscribing] = useState(false);
-  const [pendingImages, setPendingImages] = useState<PendingImage[]>([]);
-  const [pendingDocuments, setPendingDocuments] = useState<UploadFileTag[]>([]);
-  const [uploadedDocCount, setUploadedDocCount] = useState(0);
-  const rawDocumentsRef = useRef<Map<string, File>>(new Map());
-  const documentScopeRef = useRef<string | undefined>(currentSessionId);
   const previousSessionIdRef = useRef<string | undefined>(currentSessionId);
-  const [showLimitDialog, setShowLimitDialog] = useState(false);
-  const [limitDialogMessage, setLimitDialogMessage] = useState("");
   const textareaRef = useRef<HTMLTextAreaElement>(null);
-  const imageInputRef = useRef<HTMLInputElement>(null);
-  const fileInputRef = useRef<HTMLInputElement>(null);
   const transcriptionAbortRef = useRef<AbortController | null>(null);
-  const documentParseAbortRef = useRef<Map<string, AbortController>>(new Map());
+  const {
+    pendingImages,
+    pendingDocuments,
+    hasAttachments,
+    hasUnboundParsedDocuments,
+    limitDialogMessage,
+    dragActive,
+    imageInputRef,
+    fileInputRef,
+    setLimitDialogMessage,
+    setDragActive,
+    addFiles,
+    addImages,
+    resetAttachments,
+    clearSentImages,
+    cancelDocument,
+    retryDocument,
+    removeDocument,
+    removeImage,
+    buildImages,
+    buildDocuments,
+    applyDocumentBindings,
+  } = useComposerAttachments(currentSessionId);
 
   const handleRemoveLoadedSkill = async (id: string) => {
     const next = loadedSkillIds.filter((skillId) => skillId !== id);
@@ -173,47 +151,36 @@ export function ChatInput({
 
   useLayoutEffect(() => {
     const previousSessionId = previousSessionIdRef.current;
-    documentScopeRef.current = currentSessionId;
     previousSessionIdRef.current = currentSessionId;
     if (!previousSessionId || previousSessionId === currentSessionId) return;
 
-    const hadDraft = Boolean(text.trim()) || pendingImages.length > 0 || pendingDocuments.length > 0 || isTranscribing || isRecording;
-    rawDocumentsRef.current.clear();
-    documentParseAbortRef.current.forEach((controller) => controller.abort());
-    documentParseAbortRef.current.clear();
-    setPendingDocuments([]);
-    setUploadedDocCount(0);
-    setPendingImages((previous) => {
-      previous.forEach((image) => URL.revokeObjectURL(image.previewUrl));
-      return [];
-    });
+    const hadDraft = Boolean(text.trim()) || hasAttachments || isTranscribing || isRecording;
+    resetAttachments();
     setText("");
     transcriptionAbortRef.current?.abort();
     transcriptionAbortRef.current = null;
     setIsTranscribing(false);
     cancelRecording();
-    if (imageInputRef.current) {
-      imageInputRef.current.value = "";
-    }
-    if (fileInputRef.current) {
-      fileInputRef.current.value = "";
-    }
     if (textareaRef.current) {
       textareaRef.current.style.height = "52px";
     }
     if (hadDraft) {
       toast.show("已切换会话，未发送的文字、图片和文档已清空；原会话资料不会自动带入新对话");
     }
-  }, [cancelRecording, currentSessionId, isRecording, isTranscribing, pendingDocuments.length, pendingImages.length, text]);
+  }, [
+    cancelRecording,
+    currentSessionId,
+    hasAttachments,
+    isRecording,
+    isTranscribing,
+    resetAttachments,
+    text,
+  ]);
 
   useEffect(() => {
-    const pendingParses = documentParseAbortRef.current;
     return () => {
-      pendingImages.forEach((img) => URL.revokeObjectURL(img.previewUrl));
       transcriptionAbortRef.current?.abort();
-      pendingParses.forEach((controller) => controller.abort());
     };
-  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   useEffect(() => {
@@ -221,19 +188,6 @@ export function ChatInput({
       textareaRef.current.style.height = "52px";
     }
   }, []);
-
-  const readFileAsBase64 = (file: File): Promise<string> => {
-    return new Promise((resolve, reject) => {
-      const reader = new FileReader();
-      reader.onload = () => {
-        const result = reader.result as string;
-        const base64 = result.split(",")[1] ?? "";
-        resolve(base64);
-      };
-      reader.onerror = () => reject(reader.error);
-      reader.readAsDataURL(file);
-    });
-  };
 
   const handleImageSelect = () => {
     imageInputRef.current?.click();
@@ -241,279 +195,6 @@ export function ChatInput({
 
   const handleFileSelect = () => {
     fileInputRef.current?.click();
-  };
-
-  const parsePendingDocument = async (fileData: UploadFileTag, file: File) => {
-    documentParseAbortRef.current.get(fileData.id)?.abort();
-    const controller = new AbortController();
-    documentParseAbortRef.current.set(fileData.id, controller);
-    const scopeAtStart = documentScopeRef.current;
-    setPendingDocuments((previous) =>
-      previous.map((item) =>
-        item.id === fileData.id ? { ...item, status: "parsing" } : item
-      )
-    );
-    try {
-      const result = await parseFile(file, controller.signal);
-      if (controller.signal.aborted || documentParseAbortRef.current.get(fileData.id) !== controller) {
-        return;
-      }
-      const mediaType = documentMediaType(file);
-      if (!mediaType) throw new Error("文件类型无法安全识别");
-      let serverDocumentId: string | undefined;
-      if (currentSessionId) {
-        const registered = await registerParsedDocument({
-          localSessionId: currentSessionId,
-          filename: file.name,
-          mediaType,
-          source: result.source,
-          markdown: result.markdown,
-        });
-        serverDocumentId = registered.document_id;
-      }
-      if (controller.signal.aborted || documentParseAbortRef.current.get(fileData.id) !== controller) {
-        if (serverDocumentId && scopeAtStart) {
-          await revokeParsedDocument(scopeAtStart, serverDocumentId);
-        }
-        return;
-      }
-      if (documentScopeRef.current !== scopeAtStart) {
-        if (serverDocumentId && scopeAtStart) {
-          await revokeParsedDocument(scopeAtStart, serverDocumentId);
-        }
-        setPendingDocuments((previous) =>
-          previous.map((item) =>
-            item.id === fileData.id
-              ? {
-                  ...item,
-                  status: "failed",
-                  progress: 0,
-                  errorMessage: "会话已切换，请重新上传或点击重试后再使用此文档",
-                }
-              : item
-          )
-        );
-        return;
-      }
-      const completed: UploadFileTag = {
-        ...fileData,
-        status: "done",
-        progress: 100,
-        parsedMarkdown: result.markdown,
-        parsedAt: Date.now(),
-        serverDocumentId,
-        documentSessionId: serverDocumentId ? currentSessionId ?? undefined : undefined,
-      };
-      setPendingDocuments((previous) =>
-        previous.map((item) => (item.id === fileData.id ? completed : item))
-      );
-      setUploadedDocCount((count) => count + 1);
-      // 卡片状态与输入框上方的固定说明已经完整说明下一步；不再用长 toast
-      // 遮挡移动端内容或重复打断用户。
-    } catch (error) {
-      if (controller.signal.aborted || documentParseAbortRef.current.get(fileData.id) !== controller) {
-        return;
-      }
-      const errorMessage = error instanceof Error ? error.message : "文档解析失败，请稍后重试";
-      setPendingDocuments((previous) =>
-        previous.map((item) =>
-          item.id === fileData.id
-            ? { ...item, status: "failed", progress: 0, errorMessage }
-            : item
-        )
-      );
-      toast.show(`解析 ${file.name} 失败：${errorMessage}`);
-    } finally {
-      if (documentParseAbortRef.current.get(fileData.id) === controller) {
-        documentParseAbortRef.current.delete(fileData.id);
-      }
-    }
-  };
-
-  const cancelPendingDocument = (id: string) => {
-    const controller = documentParseAbortRef.current.get(id);
-    if (!controller) return;
-    controller.abort();
-    documentParseAbortRef.current.delete(id);
-    setPendingDocuments((previous) =>
-      previous.map((item) =>
-        item.id === id
-          ? {
-              ...item,
-              status: "failed",
-              progress: 0,
-              errorMessage: "已取消解析；如仍需要该文档，请点击重试",
-            }
-          : item
-      )
-    );
-    toast.show("已取消文档解析，原文件仍保留，可随时重试。");
-  };
-
-  const retryPendingDocument = (id: string) => {
-    const fileData = pendingDocuments.find((item) => item.id === id);
-    const rawFile = rawDocumentsRef.current.get(id);
-    if (!fileData || !rawFile) {
-      toast.show("原文件已不可用，请重新选择文件");
-      return;
-    }
-    setPendingDocuments((previous) =>
-      previous.map((item) =>
-        item.id === id
-          ? { ...item, status: "parsing", errorMessage: undefined }
-          : item
-      )
-    );
-    void parsePendingDocument(fileData, rawFile);
-  };
-
-  const removePendingDocument = async (id: string) => {
-    documentParseAbortRef.current.get(id)?.abort();
-    documentParseAbortRef.current.delete(id);
-    const existing = pendingDocuments.find((item) => item.id === id);
-    if (existing?.serverDocumentId && existing.documentSessionId) {
-      try {
-        await revokeParsedDocument(existing.documentSessionId, existing.serverDocumentId);
-      } catch (error) {
-        toast.show(error instanceof Error ? error.message : "文档撤销失败，请重试");
-        return;
-      }
-    }
-    setPendingDocuments((previous) => previous.filter((item) => item.id !== id));
-    rawDocumentsRef.current.delete(id);
-  };
-
-  const handleFileChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
-    const files = e.target.files;
-    if (!files || files.length === 0) return;
-
-    const isImage = (file: File) => ALLOWED_IMAGE_MIME_TYPES.includes(file.type as (typeof ALLOWED_IMAGE_MIME_TYPES)[number]);
-    const documentFiles: File[] = [];
-    const imageFiles: File[] = [];
-
-    for (let i = 0; i < files.length; i++) {
-      const file = files[i];
-      if (isImage(file)) {
-        imageFiles.push(file);
-      } else {
-        documentFiles.push(file);
-      }
-    }
-
-    if (uploadedDocCount + pendingDocuments.length + documentFiles.length > INPUT_LIMITS.maxFileCount) {
-      setLimitDialogMessage(`已达到最大文件上传数量（${INPUT_LIMITS.maxFileCount}个），请先删除部分文件后再上传。`);
-      setShowLimitDialog(true);
-      e.target.value = "";
-      return;
-    }
-
-    if (imageFiles.length > 0) {
-      const remaining = INPUT_LIMITS.maxImageCount - pendingImages.length;
-      const toProcess = imageFiles.slice(0, remaining);
-      const newImages: PendingImage[] = [];
-      for (const file of toProcess) {
-        if (file.size > INPUT_LIMITS.maxImageSize) {
-          toast.show(`图片 ${file.name} 超过 5MB 限制`);
-          continue;
-        }
-        try {
-          const base64 = await readFileAsBase64(file);
-          const previewUrl = URL.createObjectURL(file);
-          newImages.push({
-            id: generateId("img"),
-            mimeType: file.type,
-            base64,
-            previewUrl,
-            alt: file.name,
-          });
-        } catch {
-          toast.show(`读取图片 ${file.name} 失败`);
-        }
-      }
-      if (newImages.length > 0) {
-        setPendingImages((prev) => [...prev, ...newImages]);
-      }
-    }
-
-    if (documentFiles.length > 0) {
-      for (const file of documentFiles) {
-        const ext = `.${file.name.split(".").pop()?.toLowerCase()}`;
-        const typeOk = ALLOWED_FILE_MIME.includes(file.type) || ALLOWED_FILE_EXT.includes(ext);
-        if (!typeOk) {
-          toast.show(`不支持的文件类型：${file.name}，请上传 PDF/DOCX/MD/图片`);
-          continue;
-        }
-        if (file.size > INPUT_LIMITS.maxFileSize) {
-          toast.show(`文件 ${file.name} 超过 10MB 限制`);
-          continue;
-        }
-        const id = generateId("file");
-        const fileData: UploadFileTag = {
-          id,
-          fileName: file.name,
-          fileType: ext.slice(1),
-          fileSize: file.size,
-          status: "parsing",
-        };
-        rawDocumentsRef.current.set(id, file);
-        setPendingDocuments((previous) => [...previous, fileData]);
-        void parsePendingDocument(fileData, file);
-      }
-    }
-
-    e.target.value = "";
-  };
-
-  const handleImageChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
-    const files = e.target.files;
-    if (!files || files.length === 0) return;
-
-    const remaining = INPUT_LIMITS.maxImageCount - pendingImages.length;
-    if (remaining <= 0) {
-      setLimitDialogMessage(`已达到最大图片上传数量（${INPUT_LIMITS.maxImageCount}张），请先删除部分图片后再上传。`);
-      setShowLimitDialog(true);
-      e.target.value = "";
-      return;
-    }
-
-    const newImages: PendingImage[] = [];
-    for (let i = 0; i < Math.min(files.length, remaining); i++) {
-      const file = files[i];
-      if (!ALLOWED_IMAGE_MIME_TYPES.includes(file.type as (typeof ALLOWED_IMAGE_MIME_TYPES)[number])) {
-        toast.show(`不支持的图片格式：${file.type}，请上传 JPG/PNG/WebP/GIF`);
-        continue;
-      }
-      if (file.size > INPUT_LIMITS.maxImageSize) {
-        toast.show(`图片 ${file.name} 超过 5MB 限制`);
-        continue;
-      }
-      try {
-        const base64 = await readFileAsBase64(file);
-        const previewUrl = URL.createObjectURL(file);
-        newImages.push({
-          id: generateId("img"),
-          mimeType: file.type,
-          base64,
-          previewUrl,
-          alt: file.name,
-        });
-      } catch {
-        toast.show(`读取图片 ${file.name} 失败`);
-      }
-    }
-
-    if (newImages.length > 0) {
-      setPendingImages((prev) => [...prev, ...newImages]);
-    }
-    e.target.value = "";
-  };
-
-  const removePendingImage = (id: string) => {
-    setPendingImages((prev) => {
-      const img = prev.find((p) => p.id === id);
-      if (img) URL.revokeObjectURL(img.previewUrl);
-      return prev.filter((p) => p.id !== id);
-    });
   };
 
   const placeholder = placeholderOverride ?? (!mounted
@@ -529,13 +210,6 @@ export function ChatInput({
       : seniorMode
         ? "请描述您想咨询的健康问题…"
         : "描述您的健康问题…");
-  const hasUnboundParsedDocuments = pendingDocuments.some(
-    (document) =>
-      document.status === "done" &&
-      Boolean(document.parsedMarkdown) &&
-      !document.serverDocumentId,
-  );
-
   const handleSend = async () => {
     const trimmed = text.trim();
     if (companionMode && (pendingImages.length > 0 || pendingDocuments.length > 0)) {
@@ -550,40 +224,13 @@ export function ChatInput({
       contextLoading ||
       !isOnline
     ) return;
-    const images: ImageAttachment[] | undefined = pendingImages.length > 0
-      ? pendingImages.map((p) => ({ mimeType: p.mimeType, base64: p.base64, alt: p.alt }))
-      : undefined;
-    const documents: ChatDocumentAttachment[] = pendingDocuments
-      .filter((item) => item.status === "done" && item.parsedMarkdown)
-      .map((item) => {
-        const rawFile = rawDocumentsRef.current.get(item.id);
-        return {
-          localId: item.id,
-          fileName: item.fileName,
-          mediaType: rawFile ? documentMediaType(rawFile) ?? "" : "",
-          source: item.fileType === "md" || item.fileType === "txt" ? "local-text" : "mineru",
-          markdown: item.parsedMarkdown ?? "",
-          serverDocumentId: item.serverDocumentId,
-          documentSessionId: item.documentSessionId,
-        };
-      });
+    const images = buildImages();
+    const documents = buildDocuments();
     const result = await onSend?.(trimmed, images, documents);
     if (result === false || !result) return;
-    if (typeof result === "object" && result.documentBindings && result.documentSessionId) {
-      setPendingDocuments((previous) =>
-        previous.map((item) => {
-          const serverDocumentId = result.documentBindings?.[item.id];
-          return serverDocumentId
-            ? { ...item, serverDocumentId, documentSessionId: result.documentSessionId }
-            : item;
-        })
-      );
-    }
+    if (typeof result === "object") applyDocumentBindings(result);
     setText("");
-    setPendingImages((prev) => {
-      prev.forEach((img) => URL.revokeObjectURL(img.previewUrl));
-      return [];
-    });
+    clearSentImages();
     if (textareaRef.current) {
       textareaRef.current.style.height = "auto";
       textareaRef.current.style.height = "52px";
@@ -591,7 +238,14 @@ export function ChatInput({
   };
 
   const handleKeyDown = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
-    if (e.key === "Enter" && !e.shiftKey && !isRecording && !isTranscribing) {
+    if (shouldSubmitComposerKey({
+      key: e.key,
+      shiftKey: e.shiftKey,
+      isComposing: e.nativeEvent.isComposing,
+      keyCode: e.keyCode,
+      isRecording,
+      isTranscribing,
+    })) {
       e.preventDefault();
       void handleSend();
     }
@@ -686,7 +340,40 @@ export function ChatInput({
   }
 
   return (
-    <div className="border-t border-border bg-background px-4 py-3">
+    <div
+      className={cn(
+        "relative border-t border-border bg-background px-4 py-3",
+        dragActive && !companionMode && "bg-primary/5",
+      )}
+      onDragEnter={(event) => {
+        if (companionMode || !event.dataTransfer.types.includes("Files")) return;
+        event.preventDefault();
+        setDragActive(true);
+      }}
+      onDragOver={(event) => {
+        if (companionMode || !event.dataTransfer.types.includes("Files")) return;
+        event.preventDefault();
+        event.dataTransfer.dropEffect = "copy";
+      }}
+      onDragLeave={(event) => {
+        if (event.currentTarget.contains(event.relatedTarget as Node | null)) return;
+        setDragActive(false);
+      }}
+      onDrop={(event) => {
+        if (companionMode) return;
+        event.preventDefault();
+        setDragActive(false);
+        void addFiles(Array.from(event.dataTransfer.files));
+      }}
+    >
+      {dragActive && !companionMode && (
+        <div
+          className="pointer-events-none absolute inset-2 z-20 grid place-items-center rounded-xl border-2 border-dashed border-primary bg-background/95 text-base font-medium text-primary"
+          role="status"
+        >
+          松开即可添加到本次对话
+        </div>
+      )}
       <div className="max-w-3xl mx-auto">
         {!companionMode && (
           <ComposerAttachmentTray
@@ -695,10 +382,10 @@ export function ChatInput({
             loadedSkillIds={loadedSkillIds}
             availableSkills={availableSkills}
             seniorMode={seniorMode}
-            onCancelDocument={cancelPendingDocument}
-            onRetryDocument={retryPendingDocument}
-            onRemoveDocument={(id) => void removePendingDocument(id)}
-            onRemoveImage={removePendingImage}
+            onCancelDocument={cancelDocument}
+            onRetryDocument={retryDocument}
+            onRemoveDocument={(id) => void removeDocument(id)}
+            onRemoveImage={removeImage}
             onRemoveSkill={(id) => void handleRemoveLoadedSkill(id)}
           />
         )}
@@ -716,15 +403,21 @@ export function ChatInput({
               accept={ALLOWED_IMAGE_MIME_TYPES.join(",")}
               multiple
               className="hidden"
-              onChange={handleImageChange}
+              onChange={(event) => {
+                void addImages(Array.from(event.currentTarget.files ?? []));
+                event.currentTarget.value = "";
+              }}
             />
             <input
               ref={fileInputRef}
               type="file"
-              accept={ALLOWED_FILE_EXT.join(",")}
+              accept={COMPOSER_FILE_ACCEPT}
               multiple
               className="hidden"
-              onChange={handleFileChange}
+              onChange={(event) => {
+                void addFiles(Array.from(event.currentTarget.files ?? []));
+                event.currentTarget.value = "";
+              }}
             />
           </>
         )}
@@ -735,7 +428,14 @@ export function ChatInput({
             value={text}
             onChange={handleInput}
             onKeyDown={handleKeyDown}
-          placeholder={isTranscribing ? (seniorMode ? "正在识别语音…" : "识别中…") : hasUnboundParsedDocuments ? (seniorMode ? "请说出您想了解的问题…" : "请输入您想了解的问题…") : placeholder}
+            onPaste={(event) => {
+              if (companionMode) return;
+              const files = Array.from(event.clipboardData.files);
+              if (files.length === 0) return;
+              event.preventDefault();
+              void addFiles(files);
+            }}
+            placeholder={isTranscribing ? (seniorMode ? "正在识别语音…" : "识别中…") : hasUnboundParsedDocuments ? (seniorMode ? "请说出您想了解的问题…" : "请输入您想了解的问题…") : placeholder}
             rows={1}
             disabled={isTranscribing || contextLoading || isSending}
             className={cn(
@@ -801,13 +501,18 @@ export function ChatInput({
         </div>
       </div>
 
-      <Dialog open={showLimitDialog} onOpenChange={setShowLimitDialog}>
+      <Dialog
+        open={limitDialogMessage !== null}
+        onOpenChange={(open) => {
+          if (!open) setLimitDialogMessage(null);
+        }}
+      >
         <DialogContent className="sm:max-w-[425px]">
           <DialogHeader>
             <DialogTitle>提示</DialogTitle>
           </DialogHeader>
           <p className="text-sm text-muted-foreground">
-            {limitDialogMessage}
+            {limitDialogMessage ?? ""}
           </p>
           <DialogFooter>
             <DialogClose render={<Button variant="outline">我知道了</Button>} />
