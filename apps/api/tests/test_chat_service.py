@@ -28,8 +28,10 @@ from gerclaw_api.domain.run_schemas import (
     AgentRunRead,
     AgentRunStatus,
     AnswerVersionRead,
+    RunAnswerContext,
     RunEventRead,
     RunEventWrite,
+    RunRegenerationContext,
 )
 from gerclaw_api.domain.trace_schemas import (
     TraceEventCreate,
@@ -343,6 +345,34 @@ class _RunJournal:
         self.events: list[RunEventWrite] = []
         self.answer_message_ids: list[uuid.UUID] = []
         self.transitions: list[AgentRunStatus] = []
+        self.regeneration: RunRegenerationContext | None = None
+
+    async def resolve_regeneration(
+        self,
+        request: ChatRequest,
+        *,
+        tenant_id: str,
+        actor_id: str,
+    ) -> RunRegenerationContext | None:
+        del request, tenant_id, actor_id
+        return self.regeneration
+
+    async def read_answer_context(
+        self,
+        trace_id: str,
+        *,
+        tenant_id: str,
+        actor_id: str,
+    ) -> RunAnswerContext | None:
+        del trace_id, tenant_id, actor_id
+        if not self.answer_message_ids:
+            return None
+        return RunAnswerContext(
+            run_id=self.run_id,
+            answer_group_run_id=self.run_id,
+            answer_version_id=uuid.uuid4(),
+            answer_version=1,
+        )
 
     async def start(
         self,

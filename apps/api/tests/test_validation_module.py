@@ -94,11 +94,11 @@ def test_public_boundary_rejects_harness_only_done_and_unknown_event_fields() ->
         timestamp=datetime.now(UTC),
     )
 
-    with pytest.raises(StreamContractValidationError, match="invalid public-chat-sse-v1 done"):
+    with pytest.raises(StreamContractValidationError, match="invalid public-chat-sse-v2 done"):
         validate_public_chat_stream_event(harness_done)
     with pytest.raises(
         StreamContractValidationError,
-        match="invalid public-chat-sse-v1 text_delta",
+        match="invalid public-chat-sse-v2 text_delta",
     ):
         validate_harness_stream_event(malformed_delta)
 

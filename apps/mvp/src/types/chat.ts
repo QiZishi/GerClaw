@@ -243,6 +243,13 @@ export interface Message {
   autoTtsPending?: boolean;
   /** 服务端完成本次聊天执行后返回的 Trace ID；只允许用于同主体反馈。 */
   traceId?: string;
+  /** 生成本可见版本的执行 Run。 */
+  executionRunId?: string;
+  /** 版本组所属 Run；重新生成必须由服务端核对。 */
+  answerGroupRunId?: string;
+  /** 当前服务端回答版本及其乐观并发标识。 */
+  answerVersionId?: string;
+  answerVersion?: number;
   /** 用户反馈 */
   feedback?: "up" | "down" | null;
   /** 反馈文字 */

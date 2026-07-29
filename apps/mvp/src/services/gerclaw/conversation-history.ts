@@ -63,6 +63,9 @@ export function toFrontendMessages(response: BackendSessionMessages): Message[] 
       createdAt: Date.parse(item.created_at),
       hasDisclaimer: item.role === "assistant",
       traceId: item.trace_id ?? undefined,
+      answerGroupRunId: item.answer_group_run_id ?? undefined,
+      answerVersionId: item.answer_version_id ?? undefined,
+      answerVersion: item.answer_version ?? undefined,
       workflow: "standard",
     };
   });

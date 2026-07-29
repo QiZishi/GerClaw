@@ -49,6 +49,12 @@ class AnswerVersionRepository(Protocol):
     ) -> AnswerVersion | None:
         """Return an idempotently registered message version."""
 
+    async def get_by_producer_run(
+        self,
+        producer_run_id: uuid.UUID,
+    ) -> AnswerVersion | None:
+        """Return the one answer version produced by an execution Run."""
+
     async def get_version(
         self,
         run_id: uuid.UUID,
@@ -139,6 +145,15 @@ class SqlAlchemyAnswerVersionRepository:
         statement = select(AnswerVersion).where(
             AnswerVersion.run_id == run_id,
             AnswerVersion.assistant_message_id == assistant_message_id,
+        )
+        return cast(AnswerVersion | None, await self._session.scalar(statement))
+
+    async def get_by_producer_run(
+        self,
+        producer_run_id: uuid.UUID,
+    ) -> AnswerVersion | None:
+        statement = select(AnswerVersion).where(
+            AnswerVersion.producer_run_id == producer_run_id
         )
         return cast(AnswerVersion | None, await self._session.scalar(statement))
 

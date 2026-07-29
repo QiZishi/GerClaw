@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import uuid
+from collections.abc import Mapping
 from datetime import UTC, datetime
 
 from gerclaw_api.database.models import AgentRun, RunEvent
@@ -438,10 +439,25 @@ class AgentRunService:
             or run.input_message_id != request.input_message_id
             or run.route != request.route.value
             or (compare_context and run.context_snapshot != request.context_snapshot)
-            or run.plan != request.plan
+            or AgentRunService._normalized_plan(run.plan)
+            != AgentRunService._normalized_plan(request.plan)
             or (compare_fence and run.fencing_token != request.fencing_token)
         ):
             raise AgentRunConflictError("run trace conflicts with stored identity")
+
+    @staticmethod
+    def _normalized_plan(plan: Mapping[str, object]) -> dict[str, object]:
+        """Treat pre-ID zero-count plans as equivalent to explicit empty lists."""
+
+        normalized = dict(plan)
+        for count_key, ids_key in (
+            ("loaded_skill_count", "loaded_skill_ids"),
+            ("uploaded_document_count", "uploaded_document_ids"),
+            ("uploaded_image_count", "uploaded_image_fingerprints"),
+        ):
+            if normalized.get(count_key) == 0 and ids_key not in normalized:
+                normalized[ids_key] = []
+        return normalized
 
     @staticmethod
     def to_public_run(run: AgentRun) -> AgentRunRead:

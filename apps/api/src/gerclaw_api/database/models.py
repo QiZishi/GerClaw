@@ -379,6 +379,11 @@ class AnswerVersion(Base):
             unique=True,
             postgresql_where=text("is_current"),
         ),
+        Index(
+            "uq_answer_versions_producer_run",
+            "producer_run_id",
+            unique=True,
+        ),
     )
 
     id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)

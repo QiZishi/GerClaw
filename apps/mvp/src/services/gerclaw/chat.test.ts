@@ -9,6 +9,10 @@ test("completion event accepts server-owned SSE observability metadata", () => {
     references: [],
     trace_id: "trace_12345678",
     session_id: "6cf3c10d-1d9e-4cfb-8d42-1e32fdb92911",
+    run_id: null,
+    answer_group_run_id: null,
+    answer_version_id: null,
+    answer_version: null,
     safety: {
       reviewed: true,
       disclaimer_applied: true,
@@ -29,6 +33,10 @@ test("completion event rejects undeclared transport fields", () => {
     references: [],
     trace_id: "trace_12345678",
     session_id: "6cf3c10d-1d9e-4cfb-8d42-1e32fdb92911",
+    run_id: null,
+    answer_group_run_id: null,
+    answer_version_id: null,
+    answer_version: null,
     safety: {
       reviewed: true,
       disclaimer_applied: true,

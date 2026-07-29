@@ -32,8 +32,24 @@ export const chatDoneEventSchema = z
     references: z.array(referenceSchema),
     trace_id: z.string(),
     session_id: z.string().uuid(),
+    run_id: z.string().uuid().nullable(),
+    answer_group_run_id: z.string().uuid().nullable(),
+    answer_version_id: z.string().uuid().nullable(),
+    answer_version: z.number().int().positive().nullable(),
     safety: safetySchema,
     replayed: z.boolean(),
     timestamp: z.number().finite().nonnegative(),
   })
-  .strict();
+  .strict()
+  .refine(
+    (value) => {
+      const metadata = [
+        value.run_id,
+        value.answer_group_run_id,
+        value.answer_version_id,
+        value.answer_version,
+      ];
+      return metadata.every((item) => item === null) || metadata.every((item) => item !== null);
+    },
+    "answer version metadata must be complete"
+  );

@@ -161,6 +161,28 @@ class AnswerVersionListRead(BaseModel):
     versions: tuple[AnswerVersionRead, ...] = Field(default=(), max_length=100)
 
 
+class RunRegenerationContext(BaseModel):
+    """Server-validated immutable source for a replacement generation."""
+
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    source_run_id: uuid.UUID
+    source_trace_id: BoundedIdentifier
+    input_message_id: uuid.UUID
+    current_answer_version_id: uuid.UUID
+
+
+class RunAnswerContext(BaseModel):
+    """Current answer metadata returned for initial completion or Trace replay."""
+
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    run_id: uuid.UUID
+    answer_group_run_id: uuid.UUID
+    answer_version_id: uuid.UUID
+    answer_version: int = Field(ge=1)
+
+
 class ArtifactKind(StrEnum):
     MARKDOWN = "markdown"
     REPORT = "report"

@@ -3,11 +3,11 @@
 from __future__ import annotations
 
 import uuid
-from typing import Literal
+from typing import Literal, cast
 
 from pydantic import BaseModel, ConfigDict, Field, TypeAdapter, ValidationError
 
-from gerclaw_api.database.models import ConversationSession, Message
+from gerclaw_api.database.models import AnswerVersion, ConversationSession, Message
 from gerclaw_api.domain.chat_schemas import ChatMessageRead
 from gerclaw_api.modules.agent_harness.protocols import ConversationHistoryMessage
 from gerclaw_api.modules.contracts import AgentResponse, Citation, SafetyDecision
@@ -102,7 +102,10 @@ class ConversationService:
             session_id, tenant_id=tenant_id, limit=limit
         )
         return [
-            ConversationHistoryMessage(role=message.role, text=self._message_text(message))
+            ConversationHistoryMessage(
+                role=cast(Literal["user", "assistant"], message.role),
+                text=self._message_text(message),
+            )
             for message in messages
             if message.role in {"user", "assistant"} and message.trace_id != exclude_trace_id
         ]
@@ -181,7 +184,20 @@ class ConversationService:
         messages = await self._repository.list_messages(
             session_id, tenant_id=tenant_id, limit=limit
         )
-        return [self.to_public_message(message) for message in messages]
+        result: list[ChatMessageRead] = []
+        for message in messages:
+            version = (
+                await self._repository.get_answer_version_by_message(
+                    message.id,
+                    tenant_id=tenant_id,
+                )
+                if message.role == "assistant"
+                else None
+            )
+            if version is not None and not version.is_current:
+                continue
+            result.append(self.to_public_message(message, answer_version=version))
+        return result
 
     async def get_replayed_assistant(
         self, *, tenant_id: str, trace_id: str, session_id: uuid.UUID
@@ -270,7 +286,12 @@ class ConversationService:
 
         await self._repository.rollback()
 
-    def to_public_message(self, message: Message) -> ChatMessageRead:
+    def to_public_message(
+        self,
+        message: Message,
+        *,
+        answer_version: AnswerVersion | None = None,
+    ) -> ChatMessageRead:
         citations_value = message.message_metadata.get("citations", [])
         try:
             citations = _CITATIONS.validate_python(citations_value)
@@ -279,9 +300,18 @@ class ConversationService:
         return ChatMessageRead(
             id=message.id,
             trace_id=message.trace_id,
-            role=message.role,
+            role=cast(Literal["user", "assistant"], message.role),
             text=self._message_text(message),
             citations=citations[:50],
+            answer_group_run_id=(
+                answer_version.run_id if answer_version is not None else None
+            ),
+            answer_version_id=(
+                answer_version.id if answer_version is not None else None
+            ),
+            answer_version=(
+                answer_version.version if answer_version is not None else None
+            ),
             created_at=message.created_at,
         )
 

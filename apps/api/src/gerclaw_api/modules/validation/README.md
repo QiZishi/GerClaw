@@ -3,9 +3,10 @@
 `validation` centralizes versioned contracts at cross-module boundaries. Its
 production consumers are:
 
-- `public-chat-sse-v1`: Harness events are validated before callback delivery,
-  and public events are validated again immediately before entering the FastAPI
-  SSE queue.
+- `public-chat-sse-v2`: Harness events are validated before callback delivery;
+  terminal `done` may additionally carry one complete Run/AnswerVersion tuple
+  for server-side replacement generation, and public events are validated again
+  immediately before entering the FastAPI SSE queue.
 - `local-rag-evidence-v1`: `HybridRAGModule` validates every returned local
   chunk's provenance; the AgentScope adapter, public citation projection and
   RAG eval runner reuse that exact schema. Malformed metadata is excluded and

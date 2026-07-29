@@ -161,6 +161,15 @@ class _ConversationRepository:
             None,
         )
 
+    async def get_answer_version_by_message(
+        self,
+        message_id: uuid.UUID,
+        *,
+        tenant_id: str,
+    ) -> None:
+        del message_id, tenant_id
+        return None
+
     async def add_message(self, message: Message) -> None:
         message.created_at = datetime.now(UTC)
         self.messages.append(message)

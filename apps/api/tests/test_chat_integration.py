@@ -742,6 +742,119 @@ async def test_run_api_replays_and_reconciles_owned_resources(
 
 @pytest.mark.integration
 @pytest.mark.asyncio
+async def test_regeneration_replaces_current_version_without_duplicate_user_message(
+    integration_client: tuple[AsyncClient, object],
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    client, app = integration_client
+    session_id = uuid.uuid4()
+    source_trace_id = "trace_regeneration_source_0001"
+    replacement_trace_id = "trace_regeneration_replace_0001"
+    message = "请给我一般健康建议"
+    assert (
+        await client.post("/api/v1/sessions", json={"session_id": str(session_id)})
+    ).status_code == 201
+    monkeypatch.setattr(chat_service_module, "ProductionAgentHarness", _SafeHarness)
+    first = await client.post(
+        "/api/v1/chat",
+        headers={"X-Trace-ID": source_trace_id},
+        json={"session_id": str(session_id), "message": message, "channel": "web"},
+    )
+    assert first.status_code == 200 and "event: done" in first.text
+    async with app.state.database.session() as session:
+        source_run = await session.scalar(
+            select(AgentRun).where(AgentRun.trace_id == source_trace_id)
+        )
+        assert source_run is not None and source_run.current_answer_version_id is not None
+        source_run_id = source_run.id
+        first_version_id = source_run.current_answer_version_id
+
+    replacement = await client.post(
+        "/api/v1/chat",
+        headers={"X-Trace-ID": replacement_trace_id},
+        json={
+            "session_id": str(session_id),
+            "message": message,
+            "channel": "web",
+            "regenerate_from_run_id": str(source_run_id),
+            "expected_current_answer_version_id": str(first_version_id),
+        },
+    )
+
+    assert replacement.status_code == 200, replacement.text
+    assert "event: done" in replacement.text
+    assert f'"answer_group_run_id":"{source_run_id}"' in replacement.text
+    async with app.state.database.session() as session:
+        replacement_run = await session.scalar(
+            select(AgentRun).where(AgentRun.trace_id == replacement_trace_id)
+        )
+        assert replacement_run is not None
+        versions = list(
+            (
+                await session.scalars(
+                    select(AnswerVersion)
+                    .where(AnswerVersion.run_id == source_run_id)
+                    .order_by(AnswerVersion.version)
+                )
+            ).all()
+        )
+        user_messages = await session.scalar(
+            select(func.count())
+            .select_from(Message)
+            .where(
+                Message.session_id == session_id,
+                Message.role == "user",
+            )
+        )
+        refreshed_source = await session.get(AgentRun, source_run_id)
+    assert len(versions) == 2
+    assert [version.is_current for version in versions] == [False, True]
+    assert versions[1].producer_run_id == replacement_run.id
+    assert refreshed_source is not None
+    assert refreshed_source.current_answer_version_id == versions[1].id
+    assert user_messages == 1
+    history = await client.get(f"/api/v1/sessions/{session_id}/messages")
+    assert history.status_code == 200, history.text
+    assistant_history = [
+        item for item in history.json()["messages"] if item["role"] == "assistant"
+    ]
+    assert len(assistant_history) == 1
+    assert assistant_history[0]["answer_group_run_id"] == str(source_run_id)
+    assert assistant_history[0]["answer_version_id"] == str(versions[1].id)
+    assert assistant_history[0]["answer_version"] == 2
+
+    replay = await client.post(
+        "/api/v1/chat",
+        headers={"X-Trace-ID": replacement_trace_id},
+        json={
+            "session_id": str(session_id),
+            "message": message,
+            "channel": "web",
+            "regenerate_from_run_id": str(source_run_id),
+            "expected_current_answer_version_id": str(first_version_id),
+        },
+    )
+    assert '"replayed":true' in replay.text
+    assert f'"answer_group_run_id":"{source_run_id}"' in replay.text
+    assert f'"answer_version_id":"{versions[1].id}"' in replay.text
+
+    stale = await client.post(
+        "/api/v1/chat",
+        headers={"X-Trace-ID": "trace_regeneration_stale_0001"},
+        json={
+            "session_id": str(session_id),
+            "message": message,
+            "channel": "web",
+            "regenerate_from_run_id": str(source_run_id),
+            "expected_current_answer_version_id": str(first_version_id),
+        },
+    )
+    assert "CHAT_REGENERATION_CONFLICT" in stale.text
+    assert "event: done" not in stale.text
+
+
+@pytest.mark.integration
+@pytest.mark.asyncio
 async def test_run_cancel_endpoint_fences_and_notifies_active_worker(
     integration_client: tuple[AsyncClient, object],
     monkeypatch: pytest.MonkeyPatch,

@@ -408,3 +408,38 @@ async def test_adoption_rejects_stale_fence_and_nonrecoverable_terminal() -> Non
             tenant_id=TENANT,
             actor_id=ACTOR,
         )
+
+
+@pytest.mark.asyncio
+async def test_adoption_accepts_legacy_zero_count_plan_without_empty_id_lists() -> None:
+    repository = _Repository()
+    service = AgentRunService(repository)
+    legacy = _request().model_copy(
+        update={
+            "plan": {
+                "loaded_skill_count": 0,
+                "uploaded_document_count": 0,
+                "uploaded_image_count": 0,
+            }
+        }
+    )
+    created = await service.create_run(legacy, tenant_id=TENANT, actor_id=ACTOR)
+    await service.interrupt_owned(created.id, tenant_id=TENANT, actor_id=ACTOR)
+
+    resumed = await service.adopt_for_worker(
+        legacy.model_copy(
+            update={
+                "fencing_token": legacy.fencing_token + 1,
+                "plan": {
+                    **legacy.plan,
+                    "loaded_skill_ids": [],
+                    "uploaded_document_ids": [],
+                    "uploaded_image_fingerprints": [],
+                },
+            }
+        ),
+        tenant_id=TENANT,
+        actor_id=ACTOR,
+    )
+
+    assert resumed.status is AgentRunStatus.RUNNING

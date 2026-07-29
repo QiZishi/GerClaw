@@ -64,6 +64,7 @@ from gerclaw_api.security import JsonValue, audit_hmac_digest
 from gerclaw_api.services.chat_run_journal import ChatRunJournal
 from gerclaw_api.services.conversation_service import ConversationService
 from gerclaw_api.services.model_router import FailoverChatModel
+from gerclaw_api.services.run_regeneration_service import image_fingerprint
 from gerclaw_api.services.session_lease import SessionLease, SessionLeaseGuard
 from gerclaw_api.services.trace_service import TraceService
 
@@ -171,6 +172,7 @@ class ChatService:
         self._risk_alert_service = risk_alert_service
         self._run_journal = run_journal
         self._active_run_id: uuid.UUID | None = None
+        self._answer_group_run_id: uuid.UUID | None = None
         self._input_output = input_output or ProductionInputOutputModule()
 
     async def process(
@@ -220,6 +222,8 @@ class ChatService:
                 response,
                 trace_id=trace_id,
                 session_id=payload.session_id,
+                tenant_id=identity.tenant_id,
+                actor_id=identity.actor_id,
                 callback=callback,
             )
 
@@ -320,6 +324,18 @@ class ChatService:
             fencing_token=lease_guard.fencing_token,
             trace_id=trace_id,
         )
+        regeneration = (
+            await self._run_journal.resolve_regeneration(
+                payload,
+                tenant_id=identity.tenant_id,
+                actor_id=identity.actor_id,
+            )
+            if self._run_journal is not None
+            else None
+        )
+        self._answer_group_run_id = (
+            regeneration.source_run_id if regeneration is not None else None
+        )
         if conversation.user_id is None:
             raise RuntimeError("conversation has no active user principal")
         if payload.loaded_skills and self._skill_module is None:
@@ -363,44 +379,66 @@ class ChatService:
                 tenant_id=identity.tenant_id,
                 actor_id=identity.actor_id,
                 limit=self._settings.agent_history_messages,
+                exclude_trace_id=(
+                    regeneration.source_trace_id if regeneration is not None else None
+                ),
             )
             session_summary = ""
             profile_context = ""
             profile_version = 0
             memory_refs: list[str] = []
         else:
-            short_term = await memory.get_short_term(
-                str(payload.session_id),
-                max_turns=max(1, self._settings.agent_history_messages // 2),
-            )
-            compressed = await memory.compress_context(
-                short_term,
-                max_tokens=max(
-                    1,
-                    int(self._model.context_size * self._settings.memory_context_budget_ratio),
-                ),
-            )
-            history = [
-                ConversationHistoryMessage(
-                    role=cast(Any, message.role),
-                    text=message.text(),
+            if regeneration is not None:
+                history = await self._conversation.load_history(
+                    payload.session_id,
+                    tenant_id=identity.tenant_id,
+                    actor_id=identity.actor_id,
+                    limit=self._settings.agent_history_messages,
+                    exclude_trace_id=regeneration.source_trace_id,
                 )
-                for message in compressed
-                if message.role in {"user", "assistant"} and message.text()
-            ]
-            session_summary = "\n\n".join(
-                message.text()
-                for message in compressed
-                if message.role == "system" and message.text()
-            )
+                session_summary = ""
+            else:
+                short_term = await memory.get_short_term(
+                    str(payload.session_id),
+                    max_turns=max(1, self._settings.agent_history_messages // 2),
+                )
+                compressed = await memory.compress_context(
+                    short_term,
+                    max_tokens=max(
+                        1,
+                        int(
+                            self._model.context_size
+                            * self._settings.memory_context_budget_ratio
+                        ),
+                    ),
+                )
+                history = [
+                    ConversationHistoryMessage(
+                        role=cast(Any, message.role),
+                        text=message.text(),
+                    )
+                    for message in compressed
+                    if message.role in {"user", "assistant"} and message.text()
+                ]
+                session_summary = "\n\n".join(
+                    message.text()
+                    for message in compressed
+                    if message.role == "system" and message.text()
+                )
             profile_context, profile_version, memory_refs = await memory.core_profile_context()
-        user_message = await self._conversation.store_user_message(
-            tenant_id=identity.tenant_id,
-            conversation=conversation,
-            session_id=payload.session_id,
-            trace_id=trace_id,
-            text=payload.message,
-            channel=payload.channel,
+        user_message_id = (
+            regeneration.input_message_id
+            if regeneration is not None
+            else (
+                await self._conversation.store_user_message(
+                    tenant_id=identity.tenant_id,
+                    conversation=conversation,
+                    session_id=payload.session_id,
+                    trace_id=trace_id,
+                    text=payload.message,
+                    channel=payload.channel,
+                )
+            ).id
         )
         if self._run_journal is not None:
             route = (
@@ -411,7 +449,7 @@ class ChatService:
             run = await self._run_journal.start(
                 AgentRunCreate(
                     conversation_id=payload.session_id,
-                    input_message_id=user_message.id,
+                    input_message_id=user_message_id,
                     trace_id=trace_id,
                     route=route,
                     context_snapshot={
@@ -421,8 +459,16 @@ class ChatService:
                     },
                     plan={
                         "loaded_skill_count": len(payload.loaded_skills),
+                        "loaded_skill_ids": [str(item) for item in payload.loaded_skills],
                         "uploaded_document_count": len(payload.uploaded_files),
+                        "uploaded_document_ids": [
+                            str(item) for item in payload.uploaded_files
+                        ],
                         "uploaded_image_count": len(payload.images),
+                        "uploaded_image_fingerprints": [
+                            image_fingerprint(image.media_type, image.base64)
+                            for image in payload.images
+                        ],
                         "workflow": workflow.workflow_id.value,
                     },
                     fencing_token=lease_guard.fencing_token,
@@ -746,11 +792,22 @@ class ChatService:
         )
         if self._run_journal is not None and self._active_run_id is not None:
             try:
-                await self._run_journal.register_answer(
+                answer_version = await self._run_journal.register_answer(
                     self._active_run_id,
                     assistant_message.id,
                     tenant_id=identity.tenant_id,
                     actor_id=identity.actor_id,
+                    answer_group_run_id=self._answer_group_run_id,
+                )
+                done = done.model_copy(
+                    update={
+                        "run_id": self._active_run_id,
+                        "answer_group_run_id": (
+                            self._answer_group_run_id or self._active_run_id
+                        ),
+                        "answer_version_id": answer_version.id,
+                        "answer_version": answer_version.version,
+                    }
                 )
                 await self._run_journal.append(
                     self._active_run_id,
@@ -1118,6 +1175,8 @@ class ChatService:
         *,
         trace_id: str,
         session_id: uuid.UUID,
+        tenant_id: str,
+        actor_id: str,
         callback: StreamCallback,
     ) -> None:
         await callback(
@@ -1136,12 +1195,29 @@ class ChatService:
                 )
             )
         rendered = await self._input_output.render(response, "web")
+        answer = (
+            await self._run_journal.read_answer_context(
+                trace_id,
+                tenant_id=tenant_id,
+                actor_id=actor_id,
+            )
+            if self._run_journal is not None
+            else None
+        )
         done = ChatDoneData(
             full_text=cast(str, rendered["text"]),
             references=cast(Any, rendered["citations"]),
             safety=cast(Any, rendered["safety"]),
             trace_id=trace_id,
             session_id=session_id,
+            run_id=answer.run_id if answer is not None else None,
+            answer_group_run_id=(
+                answer.answer_group_run_id if answer is not None else None
+            ),
+            answer_version_id=(
+                answer.answer_version_id if answer is not None else None
+            ),
+            answer_version=answer.answer_version if answer is not None else None,
             replayed=True,
         )
         await callback(
@@ -1163,6 +1239,8 @@ class ChatService:
             "SessionLeaseLostError": "CHAT_COORDINATION_UNAVAILABLE",
             "ConversationConflictError": "CHAT_CONFLICT",
             "ConversationNotFoundError": "CHAT_SESSION_NOT_FOUND",
+            "RunRegenerationNotFoundError": "CHAT_REGENERATION_NOT_FOUND",
+            "RunRegenerationConflictError": "CHAT_REGENERATION_CONFLICT",
             "EvidenceUnavailableError": "CHAT_EVIDENCE_UNAVAILABLE",
             "RAGUnavailableError": "CHAT_EVIDENCE_UNAVAILABLE",
             "ModelChainExhaustedError": "CHAT_MODEL_UNAVAILABLE",

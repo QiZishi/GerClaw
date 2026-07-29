@@ -507,6 +507,11 @@ def _public_error(code: str) -> tuple[str, bool]:
         "CHAT_COORDINATION_UNAVAILABLE": ("会话协调服务暂时不可用，请稍后重试。", True),
         "CHAT_SESSION_NOT_FOUND": ("会话不存在或无权访问。", False),
         "CHAT_CONFLICT": ("本次请求与已保存的会话数据冲突。", False),
+        "CHAT_REGENERATION_NOT_FOUND": ("原回答不存在或无权重新生成。", False),
+        "CHAT_REGENERATION_CONFLICT": (
+            "原回答或上下文已变化，请刷新对话后再重新生成。",
+            False,
+        ),
         "CHAT_EVIDENCE_UNAVAILABLE": (
             "未检索到足够的本地医学依据，本次不生成医学建议，请稍后重试或咨询医生。",
             True,

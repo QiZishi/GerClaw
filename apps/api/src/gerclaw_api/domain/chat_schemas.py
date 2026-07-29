@@ -33,6 +33,8 @@ class ChatRequest(BaseModel):
     images: list[ImageInput] = Field(default_factory=list, max_length=10)
     channel: Literal["web"] = "web"
     workflow: WorkflowId = WorkflowId.STANDARD
+    regenerate_from_run_id: uuid.UUID | None = None
+    expected_current_answer_version_id: uuid.UUID | None = None
 
     @field_validator("message")
     @classmethod
@@ -55,6 +57,13 @@ class ChatRequest(BaseModel):
             )
         except WorkflowContextError as error:
             raise ValueError(str(error)) from error
+        if (self.regenerate_from_run_id is None) != (
+            self.expected_current_answer_version_id is None
+        ):
+            raise ValueError(
+                "regenerate_from_run_id and expected_current_answer_version_id "
+                "must be provided together"
+            )
         return self
 
 
@@ -109,6 +118,9 @@ class ChatMessageRead(BaseModel):
     role: Literal["user", "assistant"]
     text: str = Field(min_length=1, max_length=50_000)
     citations: list[Citation] = Field(default_factory=list, max_length=50)
+    answer_group_run_id: uuid.UUID | None = None
+    answer_version_id: uuid.UUID | None = None
+    answer_version: int | None = Field(default=None, ge=1)
     created_at: datetime
 
 

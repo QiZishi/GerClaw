@@ -21,7 +21,7 @@ if TYPE_CHECKING:
     from gerclaw_api.modules.agent_harness.protocols import StreamEvent
 
 STRICT = ConfigDict(extra="forbid")
-PUBLIC_CHAT_SSE_SCHEMA_VERSION = "public-chat-sse-v1"
+PUBLIC_CHAT_SSE_SCHEMA_VERSION = "public-chat-sse-v2"
 LOCAL_RAG_EVIDENCE_SCHEMA_VERSION = "local-rag-evidence-v1"
 
 
@@ -142,7 +142,25 @@ class PublicChatDoneData(_DoneData):
 
     trace_id: str = Field(pattern=r"^trace_[A-Za-z0-9][A-Za-z0-9_.:-]{7,57}$")
     session_id: uuid.UUID
+    run_id: uuid.UUID | None = None
+    answer_group_run_id: uuid.UUID | None = None
+    answer_version_id: uuid.UUID | None = None
+    answer_version: int | None = Field(default=None, ge=1)
     replayed: bool = False
+
+    @model_validator(mode="after")
+    def validate_answer_version_metadata(self) -> PublicChatDoneData:
+        values = (
+            self.run_id,
+            self.answer_group_run_id,
+            self.answer_version_id,
+            self.answer_version,
+        )
+        if any(value is not None for value in values) and any(
+            value is None for value in values
+        ):
+            raise ValueError("answer version metadata must be complete")
+        return self
 
 
 _HARNESS_DATA_MODELS: Mapping[str, type[BaseModel]] = {

@@ -90,6 +90,9 @@ export const sessionMessagesSchema = z
           role: z.enum(["user", "assistant"]),
           text: z.string().min(1).max(50_000),
           citations: z.array(storedCitationSchema).max(50),
+          answer_group_run_id: z.string().uuid().nullable(),
+          answer_version_id: z.string().uuid().nullable(),
+          answer_version: z.number().int().positive().nullable(),
           created_at: z.string(),
         })
         .strict()

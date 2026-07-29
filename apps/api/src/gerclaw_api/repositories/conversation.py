@@ -10,7 +10,14 @@ from sqlalchemy import select, text
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from gerclaw_api.database.models import ConversationSession, ExecutionTrace, Message, User
+from gerclaw_api.database.models import (
+    AgentRun,
+    AnswerVersion,
+    ConversationSession,
+    ExecutionTrace,
+    Message,
+    User,
+)
 
 
 class ConversationConflictError(RuntimeError):
@@ -83,6 +90,14 @@ class ConversationRepository(Protocol):
         self, *, tenant_id: str, trace_id: str, role: str
     ) -> Message | None:
         """Return an idempotently stored turn message."""
+
+    async def get_answer_version_by_message(
+        self,
+        message_id: uuid.UUID,
+        *,
+        tenant_id: str,
+    ) -> AnswerVersion | None:
+        """Return immutable answer metadata for one owner-visible message."""
 
     async def add_message(self, message: Message) -> None:
         """Stage and flush one message."""
@@ -281,6 +296,22 @@ class SqlAlchemyConversationRepository:
             Message.role == role,
         )
         return cast(Message | None, await self._session.scalar(statement))
+
+    async def get_answer_version_by_message(
+        self,
+        message_id: uuid.UUID,
+        *,
+        tenant_id: str,
+    ) -> AnswerVersion | None:
+        statement = (
+            select(AnswerVersion)
+            .join(AgentRun, AgentRun.id == AnswerVersion.run_id)
+            .where(
+                AnswerVersion.assistant_message_id == message_id,
+                AgentRun.tenant_id == tenant_id,
+            )
+        )
+        return cast(AnswerVersion | None, await self._session.scalar(statement))
 
     async def add_message(self, message: Message) -> None:
         try:

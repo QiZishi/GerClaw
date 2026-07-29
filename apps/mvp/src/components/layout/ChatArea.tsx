@@ -76,7 +76,6 @@ export function ChatArea() {
   const initMessageToolCall = useChatStore((s) => s.initMessageToolCall);
   const completeMessageToolCall = useChatStore((s) => s.completeMessageToolCall);
   const failMessageToolCall = useChatStore((s) => s.failMessageToolCall);
-  const removeMessage = useChatStore((s) => s.removeMessage);
   const deleteMessage = useChatStore((s) => s.deleteMessage);
   const updateSession = useChatStore((s) => s.updateSession);
   const createSession = useChatStore((s) => s.createSession);
@@ -238,14 +237,16 @@ export function ChatArea() {
     if (userMsgIndex < 0) return;
     
     const userMsg = messages[userMsgIndex];
+    const currentAnswer = messages[aiMsgIndex];
+    if (!currentAnswer.answerGroupRunId || !currentAnswer.answerVersionId) {
+      toast.show("请刷新对话以恢复服务端回答版本后再重新生成");
+      return;
+    }
     const assistantWorkflow = messages[aiMsgIndex]?.workflow ?? "standard";
     const userText = getTextFromMessage(userMsg);
     const userImages: ImageAttachment[] = userMsg.blocks
       .filter((b): b is Extract<MessageBlock, { kind: "image" }> => b.kind === "image")
       .map((b) => b.data);
-    
-    const messagesToRemove = messages.slice(userMsgIndex + 1, aiMsgIndex + 1);
-    messagesToRemove.forEach((m) => removeMessage(m.id));
     
     doSend(
       currentSessionId,
@@ -253,7 +254,13 @@ export function ChatArea() {
       true,
       userImages.length > 0 ? userImages : undefined,
       userMsg.uploadedFiles ?? [],
-      assistantWorkflow
+      assistantWorkflow,
+      {
+        sourceRunId: currentAnswer.answerGroupRunId,
+        expectedCurrentAnswerVersionId: currentAnswer.answerVersionId,
+      },
+      messageId,
+      currentAnswer
     );
   };
 
@@ -361,7 +368,13 @@ export function ChatArea() {
     isRegenerate = false,
     images?: ImageAttachment[],
     uploadedDocumentIds: string[] = [],
-    workflow: "standard" | "companion" = "standard"
+    workflow: "standard" | "companion" = "standard",
+    regeneration?: {
+      sourceRunId: string;
+      expectedCurrentAnswerVersionId: string;
+    },
+    replaceMessageId?: string,
+    replacementSnapshot?: Message
   ) => {
     const userBlocks: MessageBlock[] = [];
     if (images && images.length > 0) {
@@ -391,7 +404,7 @@ export function ChatArea() {
     }
     setGenerating(true);
 
-    const assistantMsgId = generateId("msg");
+    const assistantMsgId = replaceMessageId ?? generateId("msg");
     const assistantBlockId = generateId("block");
     const initialThinkingBlockId = generateId("block");
     currentThinkingBlockIdRef.current = initialThinkingBlockId;
@@ -413,7 +426,11 @@ export function ChatArea() {
       hasDisclaimer: false,
       workflow,
     };
-    addMessage(assistantMsg);
+    if (replaceMessageId) {
+      updateMessage(replaceMessageId, assistantMsg);
+    } else {
+      addMessage(assistantMsg);
+    }
     initMessageThinking(assistantMsgId, initialThinkingBlockId);
 
     const toolCallBlockMap = new Map<string, string>();
@@ -429,6 +446,7 @@ export function ChatArea() {
         uploadedDocumentIds: workflow === "companion" ? [] : uploadedDocumentIds,
         images: workflow === "companion" ? [] : images,
         workflow,
+        regeneration,
       },
       abortControllerRef.current.signal,
       {
@@ -527,7 +545,7 @@ export function ChatArea() {
             hasDisclaimer: true,
           });
         },
-        onDone: (fullText, citations, traceId) => {
+        onDone: (fullText, citations, traceId, answer) => {
           abortControllerRef.current = null;
           const currentId = currentThinkingBlockIdRef.current;
           if (currentId && !thinkingFinished) finalizeMessageThinking(assistantMsgId, currentId);
@@ -545,6 +563,10 @@ export function ChatArea() {
             citations: emergencyShortCircuit || citations.length === 0 ? undefined : citations,
             hasDisclaimer: true,
             traceId,
+            executionRunId: answer?.runId,
+            answerGroupRunId: answer?.answerGroupRunId,
+            answerVersionId: answer?.answerVersionId,
+            answerVersion: answer?.answerVersion,
             // 只给本次刚结束的正常回复一次自动朗读机会；历史消息没有该信号。
             autoTtsPending: !emergencyShortCircuit && (() => {
               const appState = useAppStore.getState();
@@ -559,6 +581,13 @@ export function ChatArea() {
         },
         onCancelled: (_traceId, cancellationMessage) => {
           abortControllerRef.current = null;
+          if (replacementSnapshot) {
+            updateMessage(assistantMsgId, replacementSnapshot);
+            setGenerating(false);
+            useAppStore.getState().setStreamingInterrupted(false);
+            toast.show("已停止重新生成，保留原回答");
+            return;
+          }
           if (emergencyShortCircuit) {
             updateMessage(assistantMsgId, {
               status: "done",
@@ -621,6 +650,13 @@ export function ChatArea() {
         },
         onError: (error) => {
           abortControllerRef.current = null;
+          if (replacementSnapshot) {
+            updateMessage(assistantMsgId, replacementSnapshot);
+            setGenerating(false);
+            useAppStore.getState().setStreamingInterrupted(false);
+            toast.show(error.message);
+            return;
+          }
           if (emergencyShortCircuit) {
             updateMessage(assistantMsgId, {
               status: "done",

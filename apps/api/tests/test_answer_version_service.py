@@ -103,6 +103,19 @@ class _Repository:
             None,
         )
 
+    async def get_by_producer_run(
+        self,
+        producer_run_id: uuid.UUID,
+    ) -> AnswerVersion | None:
+        return next(
+            (
+                version
+                for version in self.versions
+                if version.producer_run_id == producer_run_id
+            ),
+            None,
+        )
+
     async def get_version(
         self,
         run_id: uuid.UUID,

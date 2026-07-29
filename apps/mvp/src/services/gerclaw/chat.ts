@@ -98,7 +98,17 @@ export interface AgentChatCallbacks {
     toolVersion: string;
   }) => void;
   onSafetyNotice?: (notice: { codes: string[]; content: string }) => void;
-  onDone?: (fullText: string, citations: Citation[], traceId: string) => void;
+  onDone?: (
+    fullText: string,
+    citations: Citation[],
+    traceId: string,
+    answer: {
+      runId: string;
+      answerGroupRunId: string;
+      answerVersionId: string;
+      answerVersion: number;
+    } | null
+  ) => void;
   onCancelled?: (traceId: string, message: string) => void;
   onError?: (error: GerclawApiError) => void;
 }
@@ -155,6 +165,10 @@ export async function streamAgentChat(
     images?: ImageAttachment[];
     /** Companion has an isolated, no-tool backend policy. */
     workflow?: "standard" | "companion";
+    regeneration?: {
+      sourceRunId: string;
+      expectedCurrentAnswerVersionId: string;
+    };
   },
   signal: AbortSignal,
   callbacks: AgentChatCallbacks
@@ -206,6 +220,9 @@ export async function streamAgentChat(
         })),
         channel: "web",
         workflow: input.workflow ?? "standard",
+        regenerate_from_run_id: input.regeneration?.sourceRunId,
+        expected_current_answer_version_id:
+          input.regeneration?.expectedCurrentAnswerVersionId,
       }),
       credentials: "same-origin",
       cache: "no-store",
@@ -268,7 +285,15 @@ export async function streamAgentChat(
         callbacks.onDone?.(
           doneEvent.full_text,
           doneEvent.references.map(toCitation),
-          doneEvent.trace_id
+          doneEvent.trace_id,
+          doneEvent.run_id === null
+            ? null
+            : {
+                runId: doneEvent.run_id,
+                answerGroupRunId: doneEvent.answer_group_run_id!,
+                answerVersionId: doneEvent.answer_version_id!,
+                answerVersion: doneEvent.answer_version!,
+              }
         );
       } else if (parsed.event === "cancelled") {
         const cancelled = cancelledSchema.parse(parsed.data);
