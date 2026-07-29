@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useState } from "react";
 import {
   ArrowLeftRight,
   Copy,
@@ -10,10 +10,7 @@ import {
   LogOut,
   Menu,
   Moon,
-  Pencil,
-  Pin,
   Plus,
-  Search,
   Settings,
   ShieldCheck,
   Stethoscope,
@@ -26,7 +23,6 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { ScrollArea } from "@/components/ui/scroll-area";
 import { Separator } from "@/components/ui/separator";
 import { Switch } from "@/components/ui/switch";
 import {
@@ -55,7 +51,7 @@ import { useAppStore } from "@/stores/appStore";
 import { useChatStore } from "@/stores/chatStore";
 import { useTheme } from "@/context/ThemeProvider";
 import { cn } from "@/lib/utils";
-import { formatRelativeTime, groupByTime, type SessionGroup } from "@/lib/format";
+import { SidebarSessionHistory } from "@/components/layout/sidebar/SidebarSessionHistory";
 import type { Session } from "@/types";
 import { toast } from "@/components/ui/toast";
 import { AccountDialog } from "@/components/account/AccountDialog";
@@ -116,7 +112,6 @@ export function Sidebar({ onNavigate }: SidebarProps) {
   const togglePinSession = useChatStore((s) => s.togglePinSession);
   const clearAllData = useChatStore((s) => s.clearAllData);
 
-  const [searchQuery, setSearchQuery] = useState("");
   const [patientHistoryOpen, setPatientHistoryOpen] = useState(false);
   const [renameTarget, setRenameTarget] = useState<Session | null>(null);
   const [renameTitle, setRenameTitle] = useState("");
@@ -192,33 +187,6 @@ export function Sidebar({ onNavigate }: SidebarProps) {
   }
 
   const effectiveSessions = sessions;
-
-  // 过滤+分组
-  const groupedSessions = useMemo(() => {
-    const filtered = effectiveSessions.filter((s) =>
-      searchQuery.trim()
-        ? s.title.toLowerCase().includes(searchQuery.toLowerCase())
-        : true
-    );
-    const groups: Record<SessionGroup, Session[]> = {
-      今天: [],
-      昨天: [],
-      最近7天: [],
-      更早: [],
-    };
-    for (const s of filtered) {
-      const g = groupByTime(s.updatedAt);
-      groups[g].push(s);
-    }
-    // 置顶单独排序
-    for (const k of Object.keys(groups) as SessionGroup[]) {
-      groups[k].sort((a, b) => {
-        if (!!a.pinned !== !!b.pinned) return a.pinned ? -1 : 1;
-        return b.updatedAt - a.updatedAt;
-      });
-    }
-    return groups;
-  }, [effectiveSessions, searchQuery]);
 
   const handleNewSession = () => {
     const id = createSession(role);
@@ -468,58 +436,19 @@ export function Sidebar({ onNavigate }: SidebarProps) {
         </Button>
       </div>}
 
-      {/* History stays available without occupying the patient's primary action area. */}
-      {(!isPatient || patientHistoryOpen) && <div className="px-3 pb-2">
-        <div className="relative">
-          <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 size-3.5 text-muted-foreground pointer-events-none" />
-          <Input
-            placeholder={isDoctor ? "搜索病例会话" : "搜索对话记录"}
-            value={searchQuery}
-            onChange={(e) => setSearchQuery(e.target.value)}
-            className={cn("pl-8 h-8", seniorMode && "h-12 pl-10 text-lg")}
-          />
-        </div>
-      </div>}
-
-      {(!isPatient || patientHistoryOpen) && <ScrollArea className="flex-1 min-h-0">
-        <div className="px-2 py-1">
-          {!mounted ? (
-            <div className={cn("px-2 py-4 text-center text-sm text-muted-foreground", seniorMode && "text-lg")}>
-              加载中...
-            </div>
-          ) : effectiveSessions.length === 0 ? (
-            <div className="px-3 py-7 text-center">
-              <p className={cn("text-sm font-medium", seniorMode && "text-lg")}>{isDoctor ? "还没有病例会话" : "还没有对话记录"}</p>
-            </div>
-          ) : (
-            (Object.keys(groupedSessions) as SessionGroup[]).map((group) => {
-              const list = groupedSessions[group];
-              if (list.length === 0) return null;
-              return (
-                <div key={group} className="mb-2">
-                  <div className={cn("px-2 py-1 text-xs font-medium text-muted-foreground", seniorMode && "text-base")}>
-                    {group}
-                  </div>
-                  {list.map((s) => (
-                    <SessionItem
-                      key={s.id}
-                      session={s}
-                      active={currentSessionId === s.id}
-                      onSelect={() => handleSelectSession(s.id)}
-                      onRename={() => openRename(s)}
-                      onDelete={() => setDeleteTarget(s)}
-                      onTogglePin={() => togglePinSession(s.id)}
-                      seniorMode={seniorMode}
-                    />
-                  ))}
-                </div>
-              );
-            })
-          )}
-        </div>
-      </ScrollArea>}
-      {isPatient && !patientHistoryOpen && <div className="flex-1" />}
-
+      <SidebarSessionHistory
+        sessions={effectiveSessions}
+        currentSessionId={currentSessionId}
+        mounted={mounted}
+        seniorMode={seniorMode}
+        isDoctor={isDoctor}
+        isPatient={isPatient}
+        patientHistoryOpen={patientHistoryOpen}
+        onSelect={handleSelectSession}
+        onRename={openRename}
+        onDelete={setDeleteTarget}
+        onTogglePin={togglePinSession}
+      />
       <Separator className="bg-sidebar-border" />
 
       {/* ===== 底部：用户菜单（最下方；设置/主题/角色/老年模式均收纳进下拉菜单）===== */}
@@ -883,105 +812,5 @@ export function Sidebar({ onNavigate }: SidebarProps) {
         onSelectPatient={openAuthorizedPatientWorkspace}
       />}
     </aside>
-  );
-}
-
-/** 单个会话项 */
-function SessionItem({
-  session,
-  active,
-  onSelect,
-  onRename,
-  onDelete,
-  onTogglePin,
-  seniorMode,
-}: {
-  session: Session;
-  active: boolean;
-  onSelect: () => void;
-  onRename: () => void;
-  onDelete: () => void;
-  onTogglePin: () => void;
-  seniorMode: boolean;
-}) {
-  return (
-    <div
-      data-session-item
-      className={cn(
-        "group relative flex items-center gap-2 rounded-xl px-2 py-2.5 mx-0.5 transition-colors duration-150 ease-out",
-        seniorMode && "flex-col items-stretch px-3 py-3",
-        active
-          ? "bg-sidebar-accent text-sidebar-accent-foreground"
-          : "hover:bg-sidebar-accent/70"
-      )}
-    >
-      {/* 选中态左侧指示条 */}
-      <div
-        className={cn(
-          "absolute left-0 top-1/2 -translate-y-1/2 w-1 h-5 rounded-full bg-primary transition-opacity duration-[var(--motion-popover)] ease-[var(--motion-ease-out)]",
-          active ? "opacity-100" : "opacity-0"
-        )}
-      />
-      <button type="button" className={cn("flex-1 min-w-0 ml-1 text-left", seniorMode && "min-h-12")} onClick={onSelect}>
-        <div className="flex items-center gap-1">
-          {session.pinned && <Pin className="size-3 text-primary shrink-0" />}
-          <div className={cn("text-sm font-medium truncate", seniorMode && "text-lg")}>{session.title}</div>
-        </div>
-        <div className={cn("text-xs text-muted-foreground truncate mt-0.5", seniorMode && "text-base")}>
-          {session.lastMessagePreview ?? formatRelativeTime(session.updatedAt)}
-        </div>
-      </button>
-      {/* 操作按钮 */}
-      <div className={cn(
-        "flex items-center gap-0.5 opacity-0 group-hover:opacity-100 focus-within:opacity-100 transition-opacity duration-150 ease-out",
-        seniorMode && "grid w-full grid-cols-3 gap-1.5 opacity-100"
-      )}>
-        <button
-          type="button"
-          className={cn(
-            "p-1.5 rounded-lg hover:bg-background text-muted-foreground hover:text-foreground transition-colors",
-            seniorMode && "inline-flex min-h-12 min-w-0 flex-col justify-center gap-0.5 px-1 text-lg leading-tight whitespace-normal"
-          )}
-          onClick={(e) => {
-            e.stopPropagation();
-            onRename();
-          }}
-          aria-label="重命名"
-        >
-          <Pencil className="size-3.5" />
-          {seniorMode && <span>重命名</span>}
-        </button>
-        <button
-          type="button"
-          className={cn(
-            "p-1.5 rounded-lg hover:bg-background text-muted-foreground hover:text-foreground transition-colors",
-            seniorMode && "inline-flex min-h-12 min-w-0 flex-col justify-center gap-0.5 px-1 text-lg leading-tight whitespace-normal"
-          )}
-          onClick={(e) => {
-            e.stopPropagation();
-            onTogglePin();
-          }}
-          aria-label={session.pinned ? "取消置顶" : "置顶"}
-        >
-          <Pin className="size-3.5" />
-          {seniorMode && <span>{session.pinned ? "取消置顶" : "置顶"}</span>}
-        </button>
-        <button
-          type="button"
-          className={cn(
-            "p-1.5 rounded-lg hover:bg-background text-muted-foreground hover:text-destructive transition-colors",
-            seniorMode && "inline-flex min-h-12 min-w-0 flex-col justify-center gap-0.5 px-1 text-lg leading-tight whitespace-normal"
-          )}
-          onClick={(e) => {
-            e.stopPropagation();
-            onDelete();
-          }}
-          aria-label="删除"
-        >
-          <Trash2 className="size-3.5" />
-          {seniorMode && <span>删除</span>}
-        </button>
-      </div>
-    </div>
   );
 }
