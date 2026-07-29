@@ -53,6 +53,7 @@ from gerclaw_api.repositories.document import SqlAlchemyDocumentRepository
 from gerclaw_api.repositories.memory import SqlAlchemyMemoryRepository
 from gerclaw_api.repositories.prescription_draft import SqlAlchemyPrescriptionDraftRepository
 from gerclaw_api.repositories.risk_alert import SqlAlchemyRiskAlertRepository
+from gerclaw_api.repositories.run_resume import SqlAlchemyRunResumeRepository
 from gerclaw_api.repositories.skill import SqlAlchemySkillRepository
 from gerclaw_api.repositories.trace import SqlAlchemyTraceRepository
 from gerclaw_api.services.account_model_configuration import (
@@ -73,6 +74,7 @@ from gerclaw_api.services.conversation_service import (
 from gerclaw_api.services.model_egress_audit import SqlAlchemyModelPromptEgressAudit
 from gerclaw_api.services.model_router import FailoverChatModel, bind_model_prompt_egress_audit
 from gerclaw_api.services.rate_limit import RateLimiter
+from gerclaw_api.services.run_resume_service import RunResumeService
 from gerclaw_api.services.session_lease import SessionLease
 from gerclaw_api.services.trace_service import TraceService
 
@@ -278,6 +280,53 @@ async def chat(
     await _enforce_rate_limit(request, identity)
     trace_id = str(request.state.trace_id)
     request_id = str(request.state.request_id)
+    return await _stream_chat(
+        payload,
+        request=request,
+        identity=identity,
+        trace_id=trace_id,
+        request_id=request_id,
+    )
+
+
+@router.post("/runs/{run_id}/resume")
+async def resume_run(
+    run_id: uuid.UUID,
+    request: Request,
+    session: SessionDependency,
+    identity: ChatWriteIdentity,
+) -> StreamingResponse:
+    """Reconstruct and stream the exact persisted input of one interrupted Run."""
+
+    command = await RunResumeService(
+        SqlAlchemyRunResumeRepository(session)
+    ).prepare(
+        run_id,
+        tenant_id=identity.tenant_id,
+        actor_id=identity.actor_id,
+    )
+    if command.request.loaded_skills:
+        authorize_scope(identity, "skill:execute")
+    await _enforce_rate_limit(request, identity)
+    return await _stream_chat(
+        command.request,
+        request=request,
+        identity=identity,
+        trace_id=command.trace_id,
+        request_id=str(request.state.request_id),
+    )
+
+
+async def _stream_chat(
+    payload: ChatRequest,
+    *,
+    request: Request,
+    identity: AuthContext,
+    trace_id: str,
+    request_id: str,
+) -> StreamingResponse:
+    """Run the shared SSE transport for a new or explicitly resumed turn."""
+
     set_active_trace(request.scope, trace_id)
     queue: asyncio.Queue[QueueItem] = asyncio.Queue(maxsize=128)
     registry: ChatCancellationRegistry = request.app.state.chat_cancellations

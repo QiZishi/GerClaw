@@ -26,12 +26,14 @@ from gerclaw_api.domain.run_schemas import (
     ArtifactWrite,
     FeedbackReconcileRequest,
     FeedbackStateRead,
+    RecoverableRunRead,
     RunEventPage,
 )
 from gerclaw_api.repositories.agent_run import SqlAlchemyAgentRunRepository
 from gerclaw_api.repositories.answer_version import SqlAlchemyAnswerVersionRepository
 from gerclaw_api.repositories.run_artifact import SqlAlchemyRunArtifactRepository
 from gerclaw_api.repositories.run_feedback import SqlAlchemyRunFeedbackRepository
+from gerclaw_api.repositories.run_resume import SqlAlchemyRunResumeRepository
 from gerclaw_api.services.agent_run_service import AgentRunService
 from gerclaw_api.services.answer_version_service import AnswerVersionService
 from gerclaw_api.services.chat_cancellation import (
@@ -41,6 +43,7 @@ from gerclaw_api.services.chat_cancellation import (
 from gerclaw_api.services.rate_limit import RateLimiter
 from gerclaw_api.services.run_artifact_service import RunArtifactService
 from gerclaw_api.services.run_feedback_service import RunFeedbackService
+from gerclaw_api.services.run_resume_service import RunResumeService
 
 router = APIRouter(tags=["agent-runs"])
 SessionDependency = Annotated[AsyncSession, Depends(get_database_session)]
@@ -70,6 +73,10 @@ def _feedback_service(session: AsyncSession) -> RunFeedbackService:
     return RunFeedbackService(SqlAlchemyRunFeedbackRepository(session))
 
 
+def _resume_service(session: AsyncSession) -> RunResumeService:
+    return RunResumeService(SqlAlchemyRunResumeRepository(session))
+
+
 @router.get("/runs/{run_id}", response_model=AgentRunRead)
 async def get_run(
     run_id: uuid.UUID,
@@ -85,6 +92,27 @@ async def get_run(
         tenant_id=identity.tenant_id,
         actor_id=identity.actor_id,
     )
+
+
+@router.get(
+    "/conversations/{conversation_id}/recoverable-run",
+    response_model=RecoverableRunRead,
+)
+async def get_recoverable_run(
+    conversation_id: uuid.UUID,
+    request: Request,
+    session: SessionDependency,
+    identity: ReadIdentity,
+) -> RecoverableRunRead:
+    """Return the newest interrupted Run that this conversation may explicitly resume."""
+
+    await _enforce_rate_limit(request, identity)
+    run = await _resume_service(session).latest_interrupted(
+        conversation_id,
+        tenant_id=identity.tenant_id,
+        actor_id=identity.actor_id,
+    )
+    return RecoverableRunRead(conversation_id=conversation_id, run=run)
 
 
 @router.get("/runs/{run_id}/events", response_model=RunEventPage)

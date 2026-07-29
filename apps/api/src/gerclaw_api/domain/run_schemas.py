@@ -122,6 +122,13 @@ class AgentRunRead(BaseModel):
         return self
 
 
+class RecoverableRunRead(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    conversation_id: uuid.UUID
+    run: AgentRunRead | None = None
+
+
 class AnswerVersionRead(BaseModel):
     model_config = ConfigDict(extra="forbid", frozen=True)
 

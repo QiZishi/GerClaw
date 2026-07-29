@@ -469,6 +469,18 @@ class ChatService:
                             for image in payload.images
                         ],
                         "workflow": workflow.workflow_id.value,
+                        **(
+                            {
+                                "regenerate_from_run_id": str(
+                                    regeneration.source_run_id
+                                ),
+                                "expected_current_answer_version_id": str(
+                                    regeneration.current_answer_version_id
+                                ),
+                            }
+                            if regeneration is not None
+                            else {}
+                        ),
                     },
                     fencing_token=lease_guard.fencing_token,
                 ),

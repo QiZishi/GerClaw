@@ -91,6 +91,11 @@ from gerclaw_api.services.run_feedback_service import (
     RunFeedbackNotFoundError,
 )
 from gerclaw_api.services.run_recovery_service import StaleAgentRunReconciler
+from gerclaw_api.services.run_resume_service import (
+    RunResumeConflictError,
+    RunResumeDataError,
+    RunResumeNotFoundError,
+)
 from gerclaw_api.services.trace_service import (
     TraceConflictError,
     TraceNotFoundError,
@@ -224,6 +229,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
 
     @app.exception_handler(AgentRunNotFoundError)
     @app.exception_handler(AnswerVersionNotFoundError)
+    @app.exception_handler(RunResumeNotFoundError)
     @app.exception_handler(RunArtifactNotFoundError)
     @app.exception_handler(RunFeedbackNotFoundError)
     async def run_resource_not_found(_request: Request, _error: Exception) -> JSONResponse:
@@ -234,6 +240,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
 
     @app.exception_handler(AgentRunConflictError)
     @app.exception_handler(AnswerVersionConflictError)
+    @app.exception_handler(RunResumeConflictError)
     @app.exception_handler(RunArtifactConflictError)
     @app.exception_handler(RunFeedbackConflictError)
     @app.exception_handler(RunTransitionError)
@@ -252,6 +259,20 @@ def create_app(settings: Settings | None = None) -> FastAPI:
                 "error": {
                     "code": "RUN_STORAGE_INVALID",
                     "message": "stored answer version state is invalid",
+                }
+            },
+            status_code=500,
+        )
+
+    @app.exception_handler(RunResumeDataError)
+    async def run_resume_data_error(
+        _request: Request, _error: RunResumeDataError
+    ) -> JSONResponse:
+        return JSONResponse(
+            {
+                "error": {
+                    "code": "RUN_STORAGE_INVALID",
+                    "message": "stored Run resume state is invalid",
                 }
             },
             status_code=500,

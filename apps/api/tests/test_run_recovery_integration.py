@@ -237,7 +237,7 @@ async def test_recovery_guard_closes_lease_check_to_interrupt_window(
 
 @pytest.mark.integration
 @pytest.mark.asyncio
-async def test_same_trace_retry_adopts_interrupted_run_and_completes_it(
+async def test_explicit_resume_adopts_interrupted_run_and_completes_it(
     integration_client: tuple[AsyncClient, object],
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -319,14 +319,16 @@ async def test_same_trace_retry_adopts_interrupted_run_and_completes_it(
         run_id = run.id
 
     monkeypatch.setattr(chat_service_module, "ProductionAgentHarness", _ResumeHarness)
-    response = await client.post(
-        "/api/v1/chat",
-        headers={"X-Trace-ID": trace_id},
-        json=payload.model_dump(mode="json"),
+    recoverable = await client.get(
+        f"/api/v1/conversations/{session_id}/recoverable-run"
     )
+    assert recoverable.status_code == 200, recoverable.text
+    assert recoverable.json()["run"]["id"] == str(run_id)
+    response = await client.post(f"/api/v1/runs/{run_id}/resume")
 
     assert response.status_code == 200, response.text
     assert "event: done" in response.text
+    assert response.headers["x-trace-id"] == trace_id
     async with app.state.database.session() as session:
         resumed = await session.get(AgentRun, run_id)
         events = list(
@@ -342,3 +344,10 @@ async def test_same_trace_retry_adopts_interrupted_run_and_completes_it(
     assert resumed.current_answer_version_id is not None
     assert "run.resumed" in [event.event_type for event in events]
     assert [event.sequence for event in events] == list(range(1, len(events) + 1))
+    no_longer_recoverable = await client.get(
+        f"/api/v1/conversations/{session_id}/recoverable-run"
+    )
+    assert no_longer_recoverable.json()["run"] is None
+    replayed_resume = await client.post(f"/api/v1/runs/{run_id}/resume")
+    assert replayed_resume.status_code == 409
+    assert replayed_resume.json()["error"]["code"] == "RUN_RESOURCE_CONFLICT"
