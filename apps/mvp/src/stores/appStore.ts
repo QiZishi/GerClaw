@@ -8,6 +8,7 @@ import { persist } from "zustand/middleware";
 import type { ChatActionType, Citation, FileTag, RightPanelType, Role, Theme } from "@/types";
 import { LAYOUT } from "@/lib/constants";
 import { STORAGE_KEYS } from "@/lib/storage";
+import { clampSidebarWidth } from "@/lib/workbench-layout";
 
 interface AppState {
   // === 主题 ===
@@ -31,7 +32,9 @@ interface AppState {
 
   // === 侧边栏折叠 ===
   sidebarCollapsed: boolean;
+  sidebarWidth: number;
   setSidebarCollapsed: (collapsed: boolean) => void;
+  setSidebarWidth: (width: number) => void;
   toggleSidebar: () => void;
   /** 移动端侧边栏抽屉 */
   mobileSidebarOpen: boolean;
@@ -136,7 +139,9 @@ export const useAppStore = create<AppState>()(
 
       // === 侧边栏 ===
       sidebarCollapsed: false,
+      sidebarWidth: LAYOUT.sidebar.default,
       setSidebarCollapsed: (sidebarCollapsed) => set({ sidebarCollapsed }),
+      setSidebarWidth: (width) => set({ sidebarWidth: clampSidebarWidth(width) }),
       toggleSidebar: () =>
         set({ sidebarCollapsed: !get().sidebarCollapsed }),
       mobileSidebarOpen: false,
@@ -254,6 +259,7 @@ export const useAppStore = create<AppState>()(
         seniorMode: state.seniorMode,
         autoTtsPlayback: state.autoTtsPlayback,
         sidebarCollapsed: state.sidebarCollapsed,
+        sidebarWidth: state.sidebarWidth,
         rightPanelWidth: state.rightPanelWidth,
       }),
     }

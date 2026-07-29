@@ -54,7 +54,6 @@ import {
 import { useAppStore } from "@/stores/appStore";
 import { useChatStore } from "@/stores/chatStore";
 import { useTheme } from "@/context/ThemeProvider";
-import { LAYOUT } from "@/lib/constants";
 import { cn } from "@/lib/utils";
 import { formatRelativeTime, groupByTime, type SessionGroup } from "@/lib/format";
 import type { Session } from "@/types";
@@ -412,7 +411,7 @@ export function Sidebar({ onNavigate }: SidebarProps) {
   return (
     <aside
       className="flex h-full flex-col bg-sidebar text-sidebar-foreground border-r border-sidebar-border"
-      style={{ width: onNavigate ? "100%" : LAYOUT.sidebar.expanded }}
+      style={{ width: "100%" }}
     >
       {/* ===== 顶部：标识区 + 折叠按钮 ===== */}
       <div className={cn("flex items-center gap-2 px-3 h-14 shrink-0", seniorMode && "h-16")}>

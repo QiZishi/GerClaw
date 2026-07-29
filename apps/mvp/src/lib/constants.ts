@@ -6,13 +6,15 @@
 /** §3.1 三栏布局尺寸 */
 export const LAYOUT = {
   sidebar: {
-    expanded: 272, // 260-280px 区间中值
-    collapsed: 64, // 60-70px 区间中值
+    default: 272,
+    min: 220,
+    max: 420,
+    collapsed: 56,
   },
   rightPanel: {
-    default: 480,
-    min: 200,
-    max: 2000,
+    default: 420,
+    min: 320,
+    max: 500,
   },
 } as const;
 

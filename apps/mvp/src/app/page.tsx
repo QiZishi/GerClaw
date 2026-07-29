@@ -1,21 +1,16 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { Menu, PanelLeftClose, Plus } from "lucide-react";
+import { Menu } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Sheet, SheetContent, SheetTrigger } from "@/components/ui/sheet";
-import {
-  Tooltip,
-  TooltipContent,
-  TooltipTrigger,
-} from "@/components/ui/tooltip";
 import { Sidebar } from "@/components/layout/Sidebar";
+import { WorkbenchSidebarFrame } from "@/components/layout/WorkbenchSidebarFrame";
 import { ChatArea } from "@/components/layout/ChatArea";
 import { DoctorHome } from "@/components/layout/DoctorHome";
 import { RightPanel } from "@/components/layout/RightPanel";
 import { useAppStore } from "@/stores/appStore";
 import { useChatStore } from "@/stores/chatStore";
-import { cn } from "@/lib/utils";
 import { AdminDashboard } from "@/components/account/AdminDashboard";
 import { getAccountIdentity, type AccountIdentity } from "@/services/account";
 import { LoginPage } from "@/components/account/LoginPage";
@@ -32,13 +27,10 @@ import { listConversationHistory, toFrontendSessions } from "@/services/gerclaw/
 export default function Home() {
   const role = useAppStore((s) => s.role);
   const seniorMode = useAppStore((s) => s.seniorMode);
-  const sidebarCollapsed = useAppStore((s) => s.sidebarCollapsed);
-  const toggleSidebar = useAppStore((s) => s.toggleSidebar);
   const mobileSidebarOpen = useAppStore((s) => s.mobileSidebarOpen);
   const setMobileSidebarOpen = useAppStore((s) => s.setMobileSidebarOpen);
   const setRole = useAppStore((s) => s.setRole);
   const setGuestMode = useAppStore((s) => s.setGuestMode);
-  const createSession = useChatStore((s) => s.createSession);
   const setCurrentSession = useAppStore((s) => s.setCurrentSession);
   const isSeniorPatient = role === "patient" && seniorMode;
   const [identity, setIdentity] = useState<AccountIdentity | null | undefined>(undefined);
@@ -98,11 +90,6 @@ export default function Home() {
   if (identity === undefined) return <div className="grid min-h-screen place-items-center text-muted-foreground" role="status">正在准备登录…</div>;
   if (!identity && !guestEntry) return <LoginPage onAuthenticated={(account) => { useChatStore.getState().clearAllData(); setGuestMode(false); setIdentity(account); }} onGuest={() => { useChatStore.getState().clearAllData(); setGuestMode(true); setRole("patient"); setGuestEntry(true); }} />;
 
-  const handleQuickNew = () => {
-    const id = createSession(role);
-    setCurrentSession(id);
-  };
-
   // An administrator's account authority is retained by the server while they
   // enter a patient or doctor workspace.  The query controls presentation only;
   // all management BFF calls still require the server-signed account_role.
@@ -112,58 +99,8 @@ export default function Home() {
 
   return (
     <div className="flex h-screen w-full overflow-hidden bg-background relative">
-      {/* 宽桌面侧边栏（窄桌面与平板改用抽屉，优先保留聊天区宽度）*/}
-      {!sidebarCollapsed && (
-        <div className="hidden xl:flex h-full">
-          <Sidebar />
-        </div>
-      )}
-
-      {/* 折叠时浮动顶栏：展开按钮 + 新建对话按钮（左上角并排）*/}
-      {sidebarCollapsed && (
-        <div className="hidden xl:flex absolute top-2 left-2 z-30 items-center gap-1">
-          <Tooltip>
-            <TooltipTrigger
-              render={
-                <Button
-                  variant="ghost"
-                  size={isSeniorPatient ? "default" : "icon"}
-                  className={cn(
-                    "btn-icon",
-                    isSeniorPatient && "min-h-12 gap-2 px-3 text-base"
-                  )}
-                  onClick={toggleSidebar}
-                  aria-label="展开侧边栏"
-                />
-              }
-            >
-              <PanelLeftClose className="size-4" />
-              {isSeniorPatient && <span>展开</span>}
-            </TooltipTrigger>
-            <TooltipContent side="bottom">展开侧边栏</TooltipContent>
-          </Tooltip>
-          <Tooltip>
-            <TooltipTrigger
-              render={
-                <Button
-                  variant="ghost"
-                  size={isSeniorPatient ? "default" : "icon"}
-                  className={cn(
-                    "btn-icon text-foreground hover:text-foreground",
-                    isSeniorPatient && "min-h-12 gap-2 px-3 text-base"
-                  )}
-                  onClick={handleQuickNew}
-                  aria-label="新建对话"
-                />
-              }
-            >
-              <Plus className="size-4" />
-              {isSeniorPatient && <span>新建</span>}
-            </TooltipTrigger>
-            <TooltipContent side="bottom">新建对话</TooltipContent>
-          </Tooltip>
-        </div>
-      )}
+      {/* 宽桌面会话栏；折叠、调宽和持久化由同一布局组件负责。 */}
+      <WorkbenchSidebarFrame />
 
       {/* 窄屏侧边栏（Sheet 抽屉）*/}
       <div className="xl:hidden">
