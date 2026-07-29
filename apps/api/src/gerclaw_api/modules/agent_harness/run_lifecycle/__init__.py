@@ -11,6 +11,7 @@ from gerclaw_api.modules.agent_harness.run_lifecycle.protocols import RunLifecyc
 from gerclaw_api.modules.agent_harness.run_lifecycle.streaming import (
     CanonicalTextStream,
     SafeSentenceBuffer,
+    bounded_events,
 )
 
 __all__ = [
@@ -22,4 +23,5 @@ __all__ = [
     "RunLifecycle",
     "SafeSentenceBuffer",
     "UnsupportedAgentContextError",
+    "bounded_events",
 ]

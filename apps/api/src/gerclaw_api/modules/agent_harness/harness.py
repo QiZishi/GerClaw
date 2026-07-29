@@ -65,6 +65,7 @@ from gerclaw_api.modules.agent_harness.run_lifecycle import (
     EmptyAgentResponseError,
     SafeSentenceBuffer,
     UnsupportedAgentContextError,
+    bounded_events,
 )
 from gerclaw_api.modules.agent_harness.safety import (
     HIGH_RISK_NOTICE,
@@ -89,7 +90,7 @@ from gerclaw_api.modules.rag import (
     capture_agentic_rag_results,
 )
 from gerclaw_api.modules.rag.protocols import RAGModule
-from gerclaw_api.modules.runtime.budget import RuntimeBudgetExceededError, RuntimeBudgetTracker
+from gerclaw_api.modules.runtime.budget import RuntimeBudgetTracker
 from gerclaw_api.modules.runtime.models import (
     ActorRole,
     DataClass,
@@ -933,14 +934,13 @@ class ProductionAgentHarness:
         self,
         events: AsyncIterator[Any],
     ) -> AsyncIterator[Any]:
-        """Cancel a stalled model/tool stream at the Runtime wall-clock boundary."""
+        """Compatibility delegate to the run-lifecycle timeout guard."""
 
-        try:
-            async with asyncio.timeout(self._execution_budget.wall_clock_seconds):
-                async for event in events:
-                    yield event
-        except TimeoutError as error:
-            raise RuntimeBudgetExceededError("RUNTIME_WALL_CLOCK_EXCEEDED") from error
+        async for event in bounded_events(
+            events,
+            wall_clock_seconds=self._execution_budget.wall_clock_seconds,
+        ):
+            yield event
 
     async def _persist_approval_requests(
         self,
