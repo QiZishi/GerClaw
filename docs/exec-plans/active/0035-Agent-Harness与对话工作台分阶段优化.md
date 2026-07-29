@@ -19,7 +19,7 @@ GerClaw 保持老年医学定位。眼科病灶定位不在本计划范围。在
 | 0 | 冻结基线与真实运行审计 | 已完成：HTTP/API/测试、Playwright GUI、清理及独立审阅通过 |
 | 1 | Harness 模块化与稳定合同 | 已完成：两轮审阅问题修复，最终独立审阅 ACCEPT |
 | 2 | Run 事实源、状态机和恢复 | 已完成：两轮 P1 修复、真实 GUI 对抗审计、最终独立复审 ACCEPT |
-| 3 | ClinicalState、动态规划与医疗门禁 | 进行中：ClinicalState、确定性路由、动态 DAG/SAVI/预算预检已实现 |
+| 3 | ClinicalState、动态规划与医疗门禁 | 进行中：实现、定向回归和真实 Playwright GUI 已完成，等待独立审阅 |
 | 4 | 证据、Memory 与受治理能力组合 | 未开始 |
 | 5 | 对话工作台 UI 与交互重构 | 未开始 |
 | 6 | 受控离线自进化 | 未开始 |
@@ -433,8 +433,32 @@ Qdrant 容器；未删除 volume。3000、8000、5432、6379、6333 均无监听
 - `bf8718c` 接入确定性四级路由并把决策写入 `AgentRun.route`；Emergency 在模型前短路。
 - `3dc484a` 根据真实测试日志关闭 Quick 的 Memory/RAG middleware、检索工具和 Memory 更新。
 - `18c4880` 实现 route/附件/能力/报告意图驱动的动态 DAG、离散 SAVI 动作选择和模型调用前预算/上下文预检；完整 DAG 保留在恢复兼容的 `AgentRun.plan.dynamic_plan`。
-- 当前变更集实现 GerClaw 范围内的 C3 鉴别方向结构和 STEP `TreatmentContext`/前提门禁；不移植其他项目的封闭疾病 catalog。五大处方的私有模型输入使用 STEP 上下文，年龄、过敏、完整用药、重要基础病等未结构化确认时，调药候选降级为循证审核基线。
-- 已通过阶段 3 当前规划相关后端用例 157/157、C3/STEP/处方相关用例 64/64、Run 恢复/重生成契约 29/29、Ruff、Mypy；阶段 GUI 和独立审阅尚未执行，不得判定本阶段完成。
+- `9626e0d` 实现 GerClaw 范围内的 C3 鉴别方向结构和 STEP `TreatmentContext`/前提门禁；不移植其他项目的封闭疾病 catalog。五大处方的私有模型输入使用 STEP 上下文，年龄、过敏、完整用药、重要基础病等未结构化确认时，调药候选降级为循证审核基线。
+- 开发中分别通过规划相关用例 157/157、C3/STEP/处方相关用例 107/107、Run 恢复/重生成契约 29/29。阶段收尾重新组合执行 10 个受影响测试文件，结果为 128/128；Ruff 全部通过，Mypy 对 18 个受影响源文件检查通过。完整输出保存在 gitignored 的 `output/playwright/stage3-routing/pytest-stage3.txt`、`ruff-stage3.txt` 和 `mypy-stage3.txt`。
+
+真实 Playwright CLI 审计使用本地真实 PostgreSQL、Redis、Qdrant、FastAPI、Next.js 与当前 Provider，没有设置任何
+network route/mock。因为根 `.env` 的 `GERCLAW_API_URL=http://api:8000` 面向 Compose 网络，宿主机启动 Next.js 时
+显式覆写为 `http://127.0.0.1:8000`；未修改配置文件。首次未覆写启动真实得到 BFF 会话 503，界面正确降级为
+“本次回复未完成”，该失败也保留在证据中，没有冒充通过。
+
+审计结论：
+
+- Quick 输入“您好！”真实创建 `route=quick`、`status=completed` 的 Run，事件仅含 `agent_start`、
+  `reasoning_summary`、`text_delta` 和唯一 `done`，没有 `tool_call`/`tool_result`；实际耗时约 7.23 秒。
+- Emergency 输入“我现在胸痛、呼吸困难，感觉快要晕倒了”在约 99 ms 内创建
+  `route=emergency`、`status=completed` 的 Run，事件为 `agent_start → safety_notice → text_delta → done`。
+  页面以紧急警告明确要求立即拨打 120 或前往急诊并携带用药清单，不等待模型或检索。
+- 普通防跌倒问题创建 `route=standard`，报告请求创建 `route=deep`；两者均实际执行本地医学检索，证明路由和
+  动态能力分支已生效。
+- Standard/Deep 同时暴露阶段 4 的真实 P1 缺口：当前 RAG 零命中时 Provider 仍生成不可核验的医学引用或经验性
+  表述。现有最终安全校验把两次 Run 均标为 `failed`，页面明确显示“未经最终安全校验、请勿据此调整治疗或用药”，
+  没有把不可信内容发布为成功答案；阶段 4 必须实现零命中真实降级、来源排序和引用闭环。
+- 全程浏览器 console 为 0 error / 0 warning（仅 React dev/HMR log）。390×844 下
+  `documentScrollWidth = bodyScrollWidth = innerWidth = 390`，移动抽屉与文字标签可用，无页面级横向溢出。
+
+GUI 证据位于 gitignored 的 `output/playwright/stage3-routing/`：桌面和移动截图、YAML snapshot、network request、
+解密后的 owner-scoped Run/Event API 结果、数据库 route/终态证据、前后端日志及
+`.playwright-cli/traces/trace-1785348465377.trace`。浏览器已关闭。阶段 3 尚待独立审阅，因此此处不提前判定完成。
 
 ### 阶段 4
 
