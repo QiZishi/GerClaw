@@ -5,8 +5,7 @@ from __future__ import annotations
 import logging
 from typing import Any
 
-from gerclaw_api.modules.memory.memory_module import ProductionMemoryModule
-from gerclaw_api.modules.memory.protocols import MemoryMessage
+from gerclaw_api.modules.memory.protocols import MemoryMessage, MemoryModule
 
 _LOGGER = logging.getLogger("gerclaw.memory.adapter")
 
@@ -36,7 +35,7 @@ class GerClawMem0Client:
 
     def __init__(
         self,
-        module: ProductionMemoryModule,
+        module: MemoryModule,
         *,
         actor_id: str,
         source_user_message: str,

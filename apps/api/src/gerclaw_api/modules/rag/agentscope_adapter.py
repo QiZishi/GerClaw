@@ -12,8 +12,7 @@ from agentscope.message import DataBlock, TextBlock
 from agentscope.middleware import RAGMiddleware
 from agentscope.rag import Chunk, KnowledgeBase, VectorSearchResult
 
-from gerclaw_api.modules.rag.module import HybridRAGModule
-from gerclaw_api.modules.rag.protocols import RetrievalResult
+from gerclaw_api.modules.rag.protocols import RAGModule, RetrievalResult
 from gerclaw_api.modules.validation import validate_local_rag_evidence_provenance
 
 _AGENTIC_CAPTURE: ContextVar[list[RetrievalResult] | None] = ContextVar(
@@ -42,7 +41,7 @@ class HybridKnowledgeBaseAdapter:
         "慢病、CGA或处方问题时, 应优先检索此知识库并引用来源。"
     )
 
-    def __init__(self, module: HybridRAGModule) -> None:
+    def __init__(self, module: RAGModule) -> None:
         self._module = module
 
     async def search(
@@ -103,7 +102,7 @@ class HybridKnowledgeBaseAdapter:
 
 
 def build_agentic_rag_middleware(
-    module: HybridRAGModule,
+    module: RAGModule,
     *,
     top_k: int = 5,
     score_threshold: float | None = None,

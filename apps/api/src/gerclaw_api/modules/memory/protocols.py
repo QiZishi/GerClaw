@@ -27,6 +27,14 @@ MemoryType = Literal["stable", "evolving", "event"]
 MemoryStatus = Literal["confirmed", "pending", "inactive"]
 
 
+class MemoryUpdateView(Protocol):
+    """Content-free update result required by the AgentScope adapter."""
+
+    @property
+    def changed_fact_ids(self) -> list[uuid.UUID]:
+        """Return identifiers only."""
+
+
 class MemoryMessage(BaseModel):
     """One bounded message at the Memory Protocol boundary."""
 
@@ -82,6 +90,8 @@ class UserProfile(BaseModel):
 
 class MemoryModule(Protocol):
     """Memory contract matching all methods required by design §4.8."""
+
+    last_update: MemoryUpdateView
 
     async def get_short_term(self, session_id: str, max_turns: int = 20) -> list[MemoryMessage]:
         """Load ordered short-term conversation memory."""
