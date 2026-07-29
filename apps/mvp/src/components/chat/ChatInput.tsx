@@ -1,33 +1,16 @@
 "use client";
 
 import { useState, useRef, useEffect, useLayoutEffect } from "react";
-import { Button } from "@/components/ui/button";
 import { useAppStore } from "@/stores/appStore";
 import { useSkillStore } from "@/stores/skillStore";
 import { replaceSessionSkills } from "@/services/gerclaw/skills";
-import { INPUT_LIMITS, MEDICAL_DISCLAIMER, ALLOWED_IMAGE_MIME_TYPES } from "@/lib/constants";
+import { INPUT_LIMITS } from "@/lib/constants";
 import { toast } from "@/components/ui/toast";
-import { cn } from "@/lib/utils";
-import {
-  Dialog,
-  DialogContent,
-  DialogHeader,
-  DialogTitle,
-  DialogFooter,
-  DialogClose,
-} from "@/components/ui/dialog";
 import type { ImageAttachment } from "@/types";
-import { ComposerAttachmentTray } from "@/components/chat/composer/ComposerAttachmentTray";
-import {
-  ComposerToolbar,
-  type ComposerAction,
-} from "@/components/chat/composer/ComposerToolbar";
+import type { ComposerAction } from "@/components/chat/composer/ComposerToolbar";
+import { ComposerInputPanel } from "@/components/chat/composer/ComposerInputPanel";
 import { ComposerRecordingPanel } from "@/components/chat/composer/ComposerRecordingPanel";
-import { ComposerSubmitControl } from "@/components/chat/composer/ComposerSubmitControl";
-import {
-  COMPOSER_FILE_ACCEPT,
-  useComposerAttachments,
-} from "@/components/chat/composer/useComposerAttachments";
+import { useComposerAttachments } from "@/components/chat/composer/useComposerAttachments";
 import { shouldSubmitComposerKey } from "@/components/chat/composer/composer-contract";
 import {
   formatRecordingDuration,
@@ -191,14 +174,6 @@ export function ChatInput({
     }
   }, []);
 
-  const handleImageSelect = () => {
-    imageInputRef.current?.click();
-  };
-
-  const handleFileSelect = () => {
-    fileInputRef.current?.click();
-  };
-
   const placeholder = placeholderOverride ?? (!mounted
     ? "描述您的健康问题…"
     : contextLoading
@@ -274,187 +249,59 @@ export function ChatInput({
   }
 
   return (
-    <div
-      className={cn(
-        "relative border-t border-border bg-background px-4 py-3",
-        dragActive && !companionMode && "bg-primary/5",
-      )}
-      onDragEnter={(event) => {
-        if (companionMode || !event.dataTransfer.types.includes("Files")) return;
-        event.preventDefault();
-        setDragActive(true);
+    <ComposerInputPanel
+      text={text}
+      placeholder={placeholder}
+      role={role}
+      seniorMode={seniorMode}
+      mounted={mounted}
+      isGuest={isGuest}
+      isOnline={isOnline}
+      asrAvailable={asrAvailable}
+      isGenerating={Boolean(isGenerating)}
+      isSending={isSending}
+      isTranscribing={isTranscribing}
+      contextLoading={contextLoading}
+      companionMode={companionMode}
+      prescriptionConversation={prescriptionConversation}
+      micDisabled={micDisabled}
+      dragActive={dragActive}
+      hasUnboundParsedDocuments={hasUnboundParsedDocuments}
+      pendingImages={pendingImages}
+      pendingDocuments={pendingDocuments}
+      loadedSkillIds={loadedSkillIds}
+      availableSkills={availableSkills}
+      selectedCapabilityIds={selectedCapabilityIds}
+      limitDialogMessage={limitDialogMessage}
+      bindTextarea={(element) => {
+        textareaRef.current = element;
       }}
-      onDragOver={(event) => {
-        if (companionMode || !event.dataTransfer.types.includes("Files")) return;
-        event.preventDefault();
-        event.dataTransfer.dropEffect = "copy";
+      bindImageInput={(element) => {
+        imageInputRef.current = element;
       }}
-      onDragLeave={(event) => {
-        if (event.currentTarget.contains(event.relatedTarget as Node | null)) return;
-        setDragActive(false);
+      bindFileInput={(element) => {
+        fileInputRef.current = element;
       }}
-      onDrop={(event) => {
-        if (companionMode) return;
-        event.preventDefault();
-        setDragActive(false);
-        void addFiles(Array.from(event.dataTransfer.files));
-      }}
-    >
-      {dragActive && !companionMode && (
-        <div
-          className="pointer-events-none absolute inset-2 z-20 grid place-items-center rounded-xl border-2 border-dashed border-primary bg-background/95 text-base font-medium text-primary"
-          role="status"
-        >
-          松开即可添加到本次对话
-        </div>
-      )}
-      <div className="max-w-3xl mx-auto">
-        {!companionMode && (
-          <ComposerAttachmentTray
-            documents={pendingDocuments}
-            images={pendingImages}
-            loadedSkillIds={loadedSkillIds}
-            availableSkills={availableSkills}
-            seniorMode={seniorMode}
-            onCancelDocument={cancelDocument}
-            onRetryDocument={retryDocument}
-            onRemoveDocument={(id) => void removeDocument(id)}
-            onRemoveImage={removeImage}
-            onRemoveSkill={(id) => void handleRemoveLoadedSkill(id)}
-          />
-        )}
-        {!companionMode && hasUnboundParsedDocuments && (
-          <p className={cn("mb-2 rounded-lg border border-primary/20 bg-primary/5 px-3 py-2 text-muted-foreground", seniorMode ? "text-lg leading-8" : "text-sm")} role="status">
-            资料已解析，发送即可。
-          </p>
-        )}
-
-        {!companionMode && (
-          <>
-            <input
-              ref={imageInputRef}
-              type="file"
-              accept={ALLOWED_IMAGE_MIME_TYPES.join(",")}
-              multiple
-              className="hidden"
-              onChange={(event) => {
-                void addImages(Array.from(event.currentTarget.files ?? []));
-                event.currentTarget.value = "";
-              }}
-            />
-            <input
-              ref={fileInputRef}
-              type="file"
-              accept={COMPOSER_FILE_ACCEPT}
-              multiple
-              className="hidden"
-              onChange={(event) => {
-                void addFiles(Array.from(event.currentTarget.files ?? []));
-                event.currentTarget.value = "";
-              }}
-            />
-          </>
-        )}
-
-        <div className="rounded-xl border border-border bg-muted/50 transition-[border-color,box-shadow,background-color] duration-[var(--motion-popover)] ease-[var(--motion-ease-out)] focus-within:border-primary/50 focus-within:ring-2 focus-within:ring-ring/40">
-          <textarea
-            ref={textareaRef}
-            value={text}
-            onChange={handleInput}
-            onKeyDown={handleKeyDown}
-            onPaste={(event) => {
-              if (companionMode) return;
-              const files = Array.from(event.clipboardData.files);
-              if (files.length === 0) return;
-              event.preventDefault();
-              void addFiles(files);
-            }}
-            placeholder={isTranscribing ? (seniorMode ? "正在识别语音…" : "识别中…") : hasUnboundParsedDocuments ? (seniorMode ? "请说出您想了解的问题…" : "请输入您想了解的问题…") : placeholder}
-            rows={1}
-            disabled={isTranscribing || contextLoading || isSending}
-            className={cn(
-              "w-full resize-none bg-transparent border-0 outline-none px-4 py-3 text-base leading-relaxed placeholder:text-muted-foreground max-h-[200px] overflow-y-auto disabled:opacity-60 transition-colors",
-              seniorMode && "text-lg"
-            )}
-            style={{ minHeight: "52px" }}
-          />
-
-          <div className="flex items-end justify-between gap-2 px-2 py-1.5 border-t border-border/60">
-            {companionMode ? (
-              <p className={cn("px-2 text-muted-foreground", seniorMode ? "text-base" : "text-xs")}>
-                仅使用当前对话，不读取健康档案、资料或技能
-              </p>
-            ) : (
-              <ComposerToolbar
-                disabled={isTranscribing || contextLoading || isSending}
-                role={role}
-                mounted={mounted}
-                seniorMode={seniorMode}
-                onAction={handleStartAction}
-                onPickImage={handleImageSelect}
-                onPickFile={handleFileSelect}
-                prescriptionConversation={prescriptionConversation}
-                isGuest={isGuest}
-                selectedCapabilityIds={selectedCapabilityIds}
-                onCapabilityChange={setSelectedCapabilityIds}
-              />
-            )}
-
-            <div className="flex items-center gap-1">
-              <ComposerSubmitControl
-                isGenerating={Boolean(isGenerating)}
-                isTranscribing={isTranscribing}
-                isSending={isSending}
-                canSend={Boolean(text.trim()) || (pendingImages.length > 0 && !hasUnboundParsedDocuments)}
-                isOnline={isOnline}
-                asrAvailable={asrAvailable}
-                micDisabled={micDisabled}
-                seniorMode={seniorMode}
-                onSend={() => void handleSend()}
-                onStop={onStop}
-                onMicStart={() => void startVoice()}
-                onCancelTranscription={cancelTranscription}
-              />
-            </div>
-          </div>
-        </div>
-
-        <div className={cn(
-          "mt-1.5 text-muted-foreground",
-          seniorMode ? "text-lg" : "text-[11px]"
-        )}>
-          {contextLoading && (
-            <span
-              role="status"
-              className={cn("mb-1 block text-primary", seniorMode && "text-lg")}
-            >
-              正在恢复当前会话的技能，恢复完成后即可发送。
-            </span>
-          )}
-          {companionMode
-            ? "此模式提供情感支持，不替代医疗咨询、心理治疗或紧急援助。"
-            : MEDICAL_DISCLAIMER}
-        </div>
-      </div>
-
-      <Dialog
-        open={limitDialogMessage !== null}
-        onOpenChange={(open) => {
-          if (!open) setLimitDialogMessage(null);
-        }}
-      >
-        <DialogContent className="sm:max-w-[425px]">
-          <DialogHeader>
-            <DialogTitle>提示</DialogTitle>
-          </DialogHeader>
-          <p className="text-sm text-muted-foreground">
-            {limitDialogMessage ?? ""}
-          </p>
-          <DialogFooter>
-            <DialogClose render={<Button variant="outline">我知道了</Button>} />
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
-    </div>
+      onPickImage={() => imageInputRef.current?.click()}
+      onPickFile={() => fileInputRef.current?.click()}
+      onInput={handleInput}
+      onKeyDown={handleKeyDown}
+      onPasteFiles={(files) => void addFiles(files)}
+      onAddImages={(files) => void addImages(files)}
+      onAddFiles={(files) => void addFiles(files)}
+      onDragActiveChange={setDragActive}
+      onCancelDocument={cancelDocument}
+      onRetryDocument={retryDocument}
+      onRemoveDocument={(id) => void removeDocument(id)}
+      onRemoveImage={removeImage}
+      onRemoveSkill={(id) => void handleRemoveLoadedSkill(id)}
+      onCapabilityChange={setSelectedCapabilityIds}
+      onAction={handleStartAction}
+      onSend={() => void handleSend()}
+      onStop={onStop}
+      onMicStart={() => void startVoice()}
+      onCancelTranscription={cancelTranscription}
+      onLimitDialogChange={setLimitDialogMessage}
+    />
   );
 }
