@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import re
 
-from pydantic import BaseModel, ConfigDict
+from pydantic import BaseModel, ConfigDict, Field
 
 from gerclaw_api.modules.agent_harness.clinical_state import (
     C3DifferentialValidator,
@@ -33,6 +33,7 @@ class TurnClinicalDecision(BaseModel):
 
     action_selection: ActionSelection
     differential_assessment: DifferentialAssessment = DifferentialAssessment()
+    clarification_questions: tuple[str, ...] = Field(default=(), max_length=20)
 
 
 class ClinicalDecisionCoordinator:
@@ -51,6 +52,11 @@ class ClinicalDecisionCoordinator:
     ) -> TurnClinicalDecision:
         diagnostic_intent = _DIAGNOSTIC_INTENT.search(message) is not None
         treatment_intent = _TREATMENT_INTENT.search(message) is not None
+        clarification_questions = self._clarification_questions(
+            state,
+            diagnostic_intent=diagnostic_intent,
+            treatment_intent=treatment_intent,
+        )
         candidates: list[ActionCandidate] = [
             ActionCandidate(
                 action_id="answer_current_question",
@@ -61,7 +67,7 @@ class ClinicalDecisionCoordinator:
                 token_cost=1,
             )
         ]
-        if state.unknowns and (diagnostic_intent or treatment_intent):
+        if clarification_questions:
             candidates.append(
                 ActionCandidate(
                     action_id="ask_clinical_unknowns",
@@ -90,17 +96,75 @@ class ClinicalDecisionCoordinator:
             )
         selection = self._selector.select(tuple(candidates))
         assessment = (
-            self._prepare_differential(state)
+            self._prepare_differential(state, clarification_questions)
             if diagnostic_intent
             else DifferentialAssessment()
         )
         return TurnClinicalDecision(
             action_selection=selection,
             differential_assessment=self._c3.validate(state, assessment),
+            clarification_questions=clarification_questions,
         )
 
     @staticmethod
-    def _prepare_differential(state: ClinicalState) -> DifferentialAssessment:
+    def _clarification_questions(
+        state: ClinicalState,
+        *,
+        diagnostic_intent: bool,
+        treatment_intent: bool,
+    ) -> tuple[str, ...]:
+        if not diagnostic_intent and not treatment_intent:
+            return ()
+        usable = tuple(fact for fact in state.facts if fact.status != "conflicted")
+
+        def has_category(*categories: str) -> bool:
+            return any(fact.category in categories for fact in usable)
+
+        questions = list(state.unknowns)
+        if treatment_intent:
+            prerequisites = (
+                ("年龄", has_category("demographic"), ("年龄",)),
+                (
+                    "药物过敏史(包括明确无药物过敏)",
+                    has_category("allergy")
+                    or any(
+                        fact.category == "negative_evidence"
+                        and "过敏" in str(fact.value)
+                        for fact in usable
+                    ),
+                    ("过敏",),
+                ),
+                (
+                    "完整当前用药名称、剂量和频次",
+                    has_category("medication"),
+                    ("用药", "药物", "剂量"),
+                ),
+                (
+                    "重要基础病以及近期肝肾功能情况",
+                    has_category("history", "test"),
+                    ("基础病", "肝肾", "合并症"),
+                ),
+            )
+            for question, satisfied, markers in prerequisites:
+                if satisfied:
+                    questions = [
+                        item
+                        for item in questions
+                        if not any(marker in item for marker in markers)
+                    ]
+                elif question not in questions:
+                    questions.append(question)
+        elif diagnostic_intent:
+            if not has_category("timeline"):
+                questions.append("症状开始时间、持续时间和变化过程")
+            questions.append("伴随症状、诱发或缓解因素")
+        return tuple(dict.fromkeys(questions))[:20]
+
+    @staticmethod
+    def _prepare_differential(
+        state: ClinicalState,
+        clarification_questions: tuple[str, ...],
+    ) -> DifferentialAssessment:
         supporting = next(
             (
                 fact
@@ -120,8 +184,8 @@ class ClinicalDecisionCoordinator:
                     priority=DifferentialPriority.CONSIDER,
                     supporting_fact_ids=(supporting.fact_id,),
                     missing_information=(
-                        state.unknowns
-                        if state.unknowns
+                        clarification_questions
+                        if clarification_questions
                         else ("症状时间线、伴随表现和影响因素",)
                     ),
                 ),

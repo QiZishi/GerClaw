@@ -97,7 +97,7 @@ def test_dynamic_plan_changes_with_route_attachments_and_capabilities() -> None:
 
 def test_treatment_unknown_forces_ask_and_builds_clarification_only_plan() -> None:
     decision = ClinicalDecisionCoordinator(minimum_score=1).prepare(
-        state=_reported_state(unknowns=("当前用药与剂量", "药物过敏史")),
+        state=_reported_state(),
         message="这些药需要怎么调整剂量?",
         has_attachments=False,
     )
@@ -105,6 +105,12 @@ def test_treatment_unknown_forces_ask_and_builds_clarification_only_plan() -> No
     assert decision.action_selection.selected is not None
     assert decision.action_selection.selected.candidate.kind is ActionKind.ASK
     assert decision.action_selection.reason_code == "mandatory_prerequisite"
+    assert decision.clarification_questions == (
+        "年龄",
+        "药物过敏史(包括明确无药物过敏)",
+        "完整当前用药名称、剂量和频次",
+        "重要基础病以及近期肝肾功能情况",
+    )
 
     plan = _planner().build(
         PlanRequest(

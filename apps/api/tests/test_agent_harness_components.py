@@ -434,11 +434,47 @@ def test_user_message_projector_is_idempotent_and_records_red_flags() -> None:
 
     assert replayed == state
     assert state.unknowns == ("当前用药",)
-    assert [fact.category for fact in state.facts] == ["chief_complaint", "red_flag"]
+    assert [fact.category for fact in state.facts] == [
+        "chief_complaint",
+        "symptom",
+        "red_flag",
+    ]
     assert all(fact.status == "reported" for fact in state.facts)
     assert all(
         fact.provenance[0].source_id == f"message:{message_id}"
         for fact in state.facts
+    )
+
+
+def test_user_message_projector_extracts_only_explicit_structured_facts() -> None:
+    projector = UserMessageClinicalProjector(DeterministicClinicalStateReducer())
+
+    state = projector.project(
+        ClinicalState(),
+        message_id=uuid.uuid4(),
+        message=(
+            "老人78岁, 有高血压病史, 正在服用氨氯地平5mg每日一次, "
+            "没有药物过敏, 最近头晕持续3天。"
+        ),
+        observed_at=datetime.now(UTC),
+        red_flag_codes=(),
+    )
+
+    categories = {fact.category for fact in state.facts}
+    assert {
+        "chief_complaint",
+        "demographic",
+        "negative_evidence",
+        "medication",
+        "symptom",
+        "history",
+        "timeline",
+    } <= categories
+    assert all(fact.status == "reported" for fact in state.facts)
+    assert all(
+        provenance.source_type == "user"
+        for fact in state.facts
+        for provenance in fact.provenance
     )
 
 

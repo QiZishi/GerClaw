@@ -4,8 +4,11 @@ This package defines versioned `ClinicalState`, `ClinicalFact`, provenance contr
 the independently constructible `DeterministicClinicalStateReducer`. Production Chat restores
 the latest actor-owned state from the encrypted `AgentRun.context_snapshot`, projects the
 persisted current user message and code-owned red-flag matches as `reported` observations,
-reduces them, and persists the resulting state on the new Run. Regeneration recognizes the
-same input-message fact ID and does not duplicate it.
+reduces them, and persists the resulting state on the new Run. The deterministic projector
+also recognizes only explicit user statements for age, allergy/explicit allergy denial,
+current medication, symptom, history, and timeline; it stores the source message rather than
+inferring a clinical conclusion. Regeneration recognizes the same input-message fact IDs and
+does not duplicate them.
 
 Validation rejects untrusted provenance types and unbounded collections. The reducer accepts
 only already-validated user or trusted-tool observations. Equal observations merge provenance;
@@ -18,13 +21,14 @@ private model context; its serialized size is included in model preflight. Model
 never fed back into this reducer. Trusted tool-result projection is the remaining producer
 extension point and must use the same reducer boundary.
 
-Consumers: production Chat/Harness, planner, and treatment gate. Configuration: collection bounds are
-owned by the Pydantic contract; the reducer reads no environment or provider configuration.
-Failure semantics: Pydantic rejects malformed or corrupt persisted facts at the trust boundary and reducer-wide
-collection/provenance overflow raises a stable `ClinicalStateError`. Known limit: free text is
-not parsed into facts here; a caller must construct facts only from explicit user input or a
-validated tool result. Acceptance: provenance-complete fixtures, preserved conflicts, explicit
-unknowns, and zero model-derived confirmed facts.
+Consumers: production Chat/Harness, planner, and treatment gate. Configuration: collection
+bounds are owned by the Pydantic contract; the reducer reads no environment or provider
+configuration. Failure semantics: Pydantic rejects malformed or corrupt persisted facts at the
+trust boundary and reducer-wide collection/provenance overflow raises a stable
+`ClinicalStateError`. Known limit: this bounded projector does not perform general clinical
+entity extraction; unmatched text remains a source-linked chief complaint, and trusted
+tool-result projection remains a future producer. Acceptance: provenance-complete fixtures,
+preserved conflicts, explicit unknowns, and zero model-derived confirmed facts.
 
 `DifferentialAssessment` is the GerClaw adaptation of C3: it does not import a disease catalog
 from another product and does not force a candidate count. Each non-diagnostic direction keeps

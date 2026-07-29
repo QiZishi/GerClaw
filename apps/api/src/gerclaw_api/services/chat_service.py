@@ -532,6 +532,12 @@ class ChatService:
             message=payload.message,
             has_attachments=bool(payload.images or payload.uploaded_files),
         )
+        if clinical_decision.clarification_questions:
+            clinical_state = self._clinical_state_reducer.reduce(
+                clinical_state,
+                (),
+                unknowns=clinical_decision.clarification_questions,
+            )
         selected_action = (
             clinical_decision.action_selection.selected.candidate.kind.value
             if clinical_decision.action_selection.selected is not None

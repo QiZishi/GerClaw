@@ -19,7 +19,11 @@ fake probability is produced. Equal-value ASK is preferred over EXAM. The model 
 checks remaining model/tool/token budgets and the provider context window before construction.
 The selected action changes the production plan: mandatory missing treatment information
 produces a deterministic `clinical.ask` node and returns before retrieval or model execution.
-Uploaded material can select EXAM, while ANSWER enters the evidence and composition path.
+The coordinator derives missing age, allergy status, complete medication list, and
+comorbidity/organ-function questions from the actual source-linked state, so this path is
+reachable on a new conversation rather than requiring pre-seeded unknowns. Questions are
+persisted back into the Run ClinicalState. Uploaded material can select EXAM, while ANSWER
+enters the evidence and composition path.
 
 `DynamicPlanExecutor` is the run-time checkpoint authority. A node cannot start until every
 declared dependency completed; required nodes must complete before the unique terminal result;

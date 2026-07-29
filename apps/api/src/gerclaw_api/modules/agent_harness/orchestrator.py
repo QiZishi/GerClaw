@@ -328,7 +328,6 @@ class ProductionAgentHarness:
         governance = TurnExecutionGovernance(
             plan=dynamic_plan,
             decision=clinical_decision,
-            clinical_state=context.clinical_state,
         )
         # A pure request to summarize/read an attachment should not fabricate
         # unrelated medical context.  Once the user asks for a medical

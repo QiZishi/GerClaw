@@ -1106,9 +1106,6 @@ async def test_treatment_unknown_returns_persisted_ask_without_model_or_rag(
 
     session_id = uuid.uuid4()
     run_journal = _RunJournal()
-    run_journal.clinical_state = ClinicalState(
-        unknowns=("当前全部用药与剂量", "药物过敏史"),
-    )
     service = ChatService(
         settings=unit_settings,
         conversation=cast(Any, _ConversationFacade(session_id)),
@@ -1140,9 +1137,14 @@ async def test_treatment_unknown_returns_persisted_ask_without_model_or_rag(
     action = cast(dict[str, Any], response.structured["action_selection"])
     assert cast(dict[str, Any], action["selected"])["candidate"]["kind"] == "ask"
     assert response.structured["model_invoked"] is False
-    assert "当前全部用药与剂量" in response.text
+    assert "完整当前用药名称、剂量和频次" in response.text
     execution = cast(dict[str, Any], response.structured["plan_execution"])
     assert execution["statuses"] == {"clarify_unknowns": "completed"}
+    persisted = ClinicalState.model_validate(
+        run_journal.start_requests[0].context_snapshot["clinical_state"]
+    )
+    assert "年龄" in persisted.unknowns
+    assert "完整当前用药名称、剂量和频次" in persisted.unknowns
 
 
 @pytest.mark.asyncio

@@ -7,7 +7,6 @@ from enum import StrEnum
 
 from pydantic import BaseModel, ConfigDict
 
-from gerclaw_api.modules.agent_harness.clinical_state import ClinicalState
 from gerclaw_api.modules.agent_harness.planning.clinical_decision import (
     TurnClinicalDecision,
 )
@@ -99,11 +98,9 @@ class TurnExecutionGovernance:
         *,
         plan: DynamicPlan,
         decision: TurnClinicalDecision,
-        clinical_state: ClinicalState,
     ) -> None:
         self._plan = plan
         self._decision = decision
-        self._clinical_state = clinical_state
         self._executor = DynamicPlanExecutor(plan)
 
     @property
@@ -145,7 +142,7 @@ class TurnExecutionGovernance:
         )
 
     def clarification_text(self) -> str:
-        unknowns = self._clinical_state.unknowns[:5]
+        unknowns = self._decision.clarification_questions[:5]
         if not unknowns:
             raise PlanningError("SAVI_ASK_WITHOUT_UNKNOWNS")
         questions = "\n".join(f"- {item}" for item in unknowns)
