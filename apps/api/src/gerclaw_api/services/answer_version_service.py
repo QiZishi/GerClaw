@@ -1,0 +1,188 @@
+"""Versioned answer registration and current-version selection."""
+
+from __future__ import annotations
+
+import uuid
+from datetime import UTC, datetime
+
+from gerclaw_api.database.models import AgentRun, AnswerVersion
+from gerclaw_api.domain.run_schemas import (
+    AnswerVersionRead,
+    AnswerVersionRegister,
+    AnswerVersionSelect,
+)
+from gerclaw_api.repositories.answer_version import AnswerVersionRepository
+
+
+class AnswerVersionNotFoundError(LookupError):
+    """Raised without revealing whether another principal owns a run or message."""
+
+
+class AnswerVersionConflictError(RuntimeError):
+    """Raised when current-version state changed since the caller read it."""
+
+
+class AnswerVersionDataError(RuntimeError):
+    """Raised when stored current pointers violate the version invariant."""
+
+
+class AnswerVersionService:
+    """Keep answer history immutable and change only the explicit current pointer."""
+
+    def __init__(self, repository: AnswerVersionRepository) -> None:
+        self._repository = repository
+
+    async def register(
+        self,
+        run_id: uuid.UUID,
+        request: AnswerVersionRegister,
+        *,
+        tenant_id: str,
+        actor_id: str,
+    ) -> AnswerVersionRead:
+        run = await self._locked_run(run_id, tenant_id=tenant_id, actor_id=actor_id)
+        message = await self._repository.get_assistant_message(
+            request.assistant_message_id,
+            tenant_id=tenant_id,
+            conversation_id=run.conversation_id,
+        )
+        if message is None:
+            await self._repository.rollback()
+            raise AnswerVersionNotFoundError(str(request.assistant_message_id))
+        existing = await self._repository.get_by_message(
+            run.id, request.assistant_message_id
+        )
+        if existing is not None:
+            result = self.to_public(existing)
+            await self._repository.rollback()
+            return result
+
+        current = await self._repository.get_current(run.id)
+        if not self._current_pointer_is_consistent(run, current):
+            await self._repository.rollback()
+            raise AnswerVersionDataError("run current answer pointer is inconsistent")
+        if current is None:
+            answer_group_id = uuid.uuid4()
+            version_number = 1
+            supersedes_id = None
+        else:
+            answer_group_id = current.answer_group_id
+            version_number = current.version + 1
+            supersedes_id = current.id
+            current.is_current = False
+            await self._repository.flush()
+
+        version = AnswerVersion(
+            id=uuid.uuid4(),
+            run_id=run.id,
+            answer_group_id=answer_group_id,
+            assistant_message_id=message.id,
+            version=version_number,
+            is_current=True,
+            supersedes_id=supersedes_id,
+            created_at=datetime.now(UTC),
+        )
+        try:
+            await self._repository.add_version(version)
+            # Insert the referenced version before moving the run's FK pointer.
+            await self._repository.flush()
+            run.current_answer_version_id = version.id
+            await self._repository.commit()
+        except BaseException:
+            await self._repository.rollback()
+            raise
+        return self.to_public(version)
+
+    async def list_versions(
+        self,
+        run_id: uuid.UUID,
+        *,
+        tenant_id: str,
+        actor_id: str,
+        limit: int = 50,
+    ) -> list[AnswerVersionRead]:
+        if not 1 <= limit <= 100:
+            raise ValueError("limit must be between 1 and 100")
+        run = await self._locked_run(run_id, tenant_id=tenant_id, actor_id=actor_id)
+        versions = await self._repository.list_versions(run.id, limit=limit)
+        result = [self.to_public(version) for version in versions]
+        await self._repository.rollback()
+        return result
+
+    async def select(
+        self,
+        run_id: uuid.UUID,
+        version_id: uuid.UUID,
+        request: AnswerVersionSelect,
+        *,
+        tenant_id: str,
+        actor_id: str,
+    ) -> AnswerVersionRead:
+        run = await self._locked_run(run_id, tenant_id=tenant_id, actor_id=actor_id)
+        current = await self._repository.get_current(run.id)
+        if not self._current_pointer_is_consistent(run, current):
+            await self._repository.rollback()
+            raise AnswerVersionDataError("run current answer pointer is inconsistent")
+        if current is None:
+            await self._repository.rollback()
+            raise AnswerVersionNotFoundError(str(version_id))
+        if current.id != request.expected_current_version_id:
+            await self._repository.rollback()
+            raise AnswerVersionConflictError("current answer version changed")
+        target = await self._repository.get_version(run.id, version_id)
+        if target is None:
+            await self._repository.rollback()
+            raise AnswerVersionNotFoundError(str(version_id))
+        if target.id == current.id:
+            result = self.to_public(target)
+            await self._repository.rollback()
+            return result
+
+        try:
+            current.is_current = False
+            await self._repository.flush()
+            target.is_current = True
+            await self._repository.flush()
+            run.current_answer_version_id = target.id
+            await self._repository.commit()
+        except BaseException:
+            await self._repository.rollback()
+            raise
+        return self.to_public(target)
+
+    async def _locked_run(
+        self,
+        run_id: uuid.UUID,
+        *,
+        tenant_id: str,
+        actor_id: str,
+    ) -> AgentRun:
+        run = await self._repository.get_owned_run_for_update(
+            run_id,
+            tenant_id=tenant_id,
+            actor_id=actor_id,
+        )
+        if run is None:
+            raise AnswerVersionNotFoundError(str(run_id))
+        return run
+
+    @staticmethod
+    def _current_pointer_is_consistent(
+        run: AgentRun,
+        current: AnswerVersion | None,
+    ) -> bool:
+        current_id = current.id if current is not None else None
+        return run.current_answer_version_id == current_id
+
+    @staticmethod
+    def to_public(version: AnswerVersion) -> AnswerVersionRead:
+        return AnswerVersionRead(
+            id=version.id,
+            run_id=version.run_id,
+            answer_group_id=version.answer_group_id,
+            assistant_message_id=version.assistant_message_id,
+            version=version.version,
+            is_current=version.is_current,
+            supersedes_id=version.supersedes_id,
+            created_at=version.created_at,
+        )

@@ -124,6 +124,22 @@ class AnswerVersionRead(BaseModel):
     created_at: datetime
 
 
+class AnswerVersionRegister(BaseModel):
+    """Register an already persisted assistant message as a new answer version."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    assistant_message_id: uuid.UUID
+
+
+class AnswerVersionSelect(BaseModel):
+    """Optimistically select a prior version without deleting later versions."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    expected_current_version_id: uuid.UUID
+
+
 class ArtifactKind(StrEnum):
     MARKDOWN = "markdown"
     REPORT = "report"
