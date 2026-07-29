@@ -1,24 +1,17 @@
 "use client";
 
-import { useCallback, useEffect, useRef, useState } from "react";
-import Image from "next/image";
+import { useCallback, useEffect, useState } from "react";
 import {
-  AlertTriangle,
   Check,
   Copy,
-  ExternalLink,
   FileEdit,
   MoreHorizontal,
-  Pause,
-  Play,
   RefreshCw,
   Share2,
-  Square,
   Stethoscope,
   ThumbsDown,
   ThumbsUp,
   Trash2,
-  Volume2,
 } from "lucide-react";
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
 import { Button } from "@/components/ui/button";
@@ -45,87 +38,18 @@ import {
 import { useAppStore } from "@/stores/appStore";
 import { useChatStore } from "@/stores/chatStore";
 import { cn } from "@/lib/utils";
-import { MarkdownRenderer } from "./MarkdownRenderer";
-import { StreamingText } from "./blocks/StreamingText";
-import { ThinkingBlock } from "./blocks/ThinkingBlock";
-import { ToolCallBlock } from "./blocks/ToolCallBlock";
 import { SimpleStepIndicator } from "./blocks/SimpleStepIndicator";
-import { SubAgentTree } from "./blocks/SubAgentTree";
-import { DecisionTimeline } from "./blocks/DecisionTimeline";
-import { SearchResultCard } from "@/components/search/SearchResultCard";
 import { SourceReferences } from "@/components/search/SourceReferences";
-import { FileTag } from "@/components/document/FileTag";
-import { DocumentToolCard } from "@/components/document/DocumentToolCard";
 import { MEDICAL_DISCLAIMER } from "@/lib/constants";
 import type { Message, MessageBlock, RightPanelType } from "@/types";
 import { toast } from "@/components/ui/toast";
-import { useAudioPlayer } from "@/hooks/useAudioPlayer";
-import { InfoCollectionCard, StageIndicator } from "./InfoCollectionCard";
-import { RuntimeApprovalCard } from "./blocks/RuntimeApprovalCard";
 import { createFeedbackIdempotencyKey, submitFeedback } from "@/services/gerclaw/feedback";
-
-function EmergencyWarningCard({
-  message,
-  seniorMode,
-}: {
-  message: string;
-  seniorMode: boolean;
-}) {
-  const displayMessage = message.replace(/^\s*⚠️\s*/, "");
-
-  return (
-    <section
-      aria-label="紧急医疗警告"
-      role="alert"
-      className={cn(
-        "rounded-xl border-2 border-red-200 bg-red-700 p-4 text-white shadow-sm",
-        seniorMode && "p-5"
-      )}
-    >
-      <div className={cn("flex items-center gap-2 font-bold", seniorMode ? "text-xl" : "text-lg")}>
-        <AlertTriangle aria-hidden className={seniorMode ? "size-6" : "size-5"} />
-        <span>紧急医疗警告</span>
-      </div>
-      <p className={cn("mt-3 font-medium leading-relaxed", seniorMode ? "text-lg" : "text-base")}>
-        {displayMessage}
-      </p>
-    </section>
-  );
-}
-
-/**
- * A streamed answer can contain useful partial text before the server rejects
- * its final safety check. Put that state at the top of the output, where it
- * cannot be missed after a long response.
- */
-function IncompleteAnswerWarning({
-  seniorMode,
-  companionMode,
-}: {
-  seniorMode: boolean;
-  companionMode: boolean;
-}) {
-  return (
-    <section
-      role="alert"
-      aria-label="回答未完成提醒"
-      className={cn(
-        "w-full rounded-xl border-2 border-amber-400 bg-amber-50 px-4 py-3 text-amber-950 shadow-sm dark:border-amber-500 dark:bg-amber-950/30 dark:text-amber-100",
-        seniorMode && "p-4"
-      )}
-    >
-      <div className={cn("flex items-center gap-2 font-bold", seniorMode ? "text-lg" : "text-base")}>
-        <AlertTriangle aria-hidden className={cn("shrink-0", seniorMode ? "size-6" : "size-5")} />
-        <span>本次回复未完成</span>
-      </div>
-      <p className={cn("mt-2 leading-relaxed", seniorMode ? "text-lg" : "text-sm")}>
-        {companionMode
-          ? "以下内容未经最终安全校验。您可以重新生成，或稍后再试。"
-          : "以下内容未经最终安全校验，请勿据此调整治疗或用药。您可以重新生成，或咨询医生。"}
-      </p>
-    </section>
-  );
-}
+import { MessageBody } from "@/components/chat/message/MessageBody";
+import {
+  AssistantRunStatus,
+  IncompleteAnswerWarning,
+} from "@/components/chat/message/MessageStatusNotices";
+import { MessageVoiceReadButton } from "@/components/chat/message/MessageVoiceReadButton";
 
 interface MessageBubbleProps {
   message: Message;
@@ -135,176 +59,6 @@ interface MessageBubbleProps {
   onDelete?: (id: string) => void;
   onEdit?: (id: string) => void;
   isLastMessage?: boolean;
-}
-
-function VoiceReadButton({
-  text,
-  seniorMode,
-  autoPlay,
-  onAutoPlayConsumed,
-}: {
-  text: string;
-  seniorMode: boolean;
-  autoPlay: boolean;
-  onAutoPlayConsumed: () => void;
-}) {
-  const { isPlaying, isPaused, isLoading, progress, play, pause, resume, stop } = useAudioPlayer();
-  const autoPlaybackClaimedRef = useRef(false);
-  const autoPlaybackTimerRef = useRef<number | null>(null);
-
-  const reportPlaybackError = () => toast.show("语音播放失败，请稍后重试");
-  const start = () => void play(text).catch(reportPlaybackError);
-  const continuePlayback = () => void resume().catch(reportPlaybackError);
-
-  useEffect(() => {
-    if (!autoPlay || autoPlaybackClaimedRef.current || !text) return;
-    // 先消费一次性信号，再延迟播放，避免重新打开历史会话时误触发朗读。
-    autoPlaybackClaimedRef.current = true;
-    onAutoPlayConsumed();
-    autoPlaybackTimerRef.current = window.setTimeout(() => {
-      autoPlaybackTimerRef.current = null;
-      // 自动朗读的失败不打断咨询；用户仍可点击“朗读”重试。
-      void play(text).catch(() => undefined);
-    }, 500);
-    return () => {
-      // 消费信号会导致本 effect 重新执行；此时保留已排定的首播计时器。
-      if (!autoPlaybackClaimedRef.current && autoPlaybackTimerRef.current !== null) {
-        window.clearTimeout(autoPlaybackTimerRef.current);
-        autoPlaybackTimerRef.current = null;
-      }
-    };
-  }, [autoPlay, onAutoPlayConsumed, play, text]);
-
-  useEffect(() => () => {
-    if (autoPlaybackTimerRef.current !== null) {
-      window.clearTimeout(autoPlaybackTimerRef.current);
-      autoPlaybackTimerRef.current = null;
-    }
-  }, []);
-
-  if (isLoading) {
-    return (
-      <Button
-        variant="ghost"
-        size={seniorMode ? "default" : "sm"}
-        className={cn("gap-1.5 text-primary bg-primary/10", seniorMode && "min-h-12 px-3 text-base")}
-        onClick={stop}
-        aria-label="取消语音准备"
-        aria-busy="true"
-      >
-        <Volume2 className={seniorMode ? "size-5" : "size-4"} />
-        <span>正在准备，点击取消</span>
-      </Button>
-    );
-  }
-
-  if (isPlaying || isPaused) {
-    return (
-      <div className="inline-flex items-center gap-1.5" role="group" aria-label="语音播放控制">
-        <div className="inline-flex items-center gap-1">
-          <Button
-            variant="ghost"
-            size={seniorMode ? "default" : "icon-sm"}
-            className={cn("text-primary bg-primary/10", seniorMode && "min-h-12 gap-1.5 px-3 text-base")}
-            onClick={isPlaying ? pause : continuePlayback}
-            aria-label={isPlaying ? "暂停语音" : "继续播放语音"}
-          >
-            {isPlaying ? <Pause className="size-4" /> : <Play className="size-4" />}
-            {seniorMode && <span>{isPlaying ? "暂停" : "继续"}</span>}
-          </Button>
-          <Button
-            variant="ghost"
-            size={seniorMode ? "default" : "icon-sm"}
-            className={cn(seniorMode && "min-h-12 gap-1.5 px-3 text-base")}
-            onClick={stop}
-            aria-label="停止语音"
-          >
-            <Square className="size-4" />
-            {seniorMode && <span>停止</span>}
-          </Button>
-        </div>
-        <div
-          className={cn("h-1.5 w-16 overflow-hidden rounded-full bg-muted", seniorMode && "w-20")}
-          role="progressbar"
-          aria-label="语音播放进度"
-          aria-valuemin={0}
-          aria-valuemax={100}
-          aria-valuenow={Math.round(progress * 100)}
-        >
-          <div
-            className="h-full origin-left rounded-full bg-primary transition-transform duration-150 ease-[var(--motion-ease-out)] motion-reduce:transition-none"
-            style={{ transform: `scaleX(${Math.min(1, Math.max(0, progress))})` }}
-          />
-        </div>
-      </div>
-    );
-  }
-
-  return (
-    <Tooltip>
-      <TooltipTrigger
-        render={
-          <Button
-            variant="ghost"
-            size={seniorMode ? "default" : "icon-sm"}
-            className={cn(seniorMode && "min-h-12 gap-1.5 px-3 text-base")}
-            onClick={start}
-            aria-label="语音朗读"
-          />
-        }
-      >
-        <Volume2 className={seniorMode ? "size-5" : "size-4"} />
-        {seniorMode && <span>朗读</span>}
-      </TooltipTrigger>
-      <TooltipContent>语音朗读</TooltipContent>
-    </Tooltip>
-  );
-}
-
-function formatElapsedTime(elapsedMs: number): string {
-  const elapsedSeconds = Math.max(0, Math.floor(elapsedMs / 1000));
-  const minutes = Math.floor(elapsedSeconds / 60);
-  const seconds = elapsedSeconds % 60;
-  return `${String(minutes).padStart(2, "0")}:${String(seconds).padStart(2, "0")}`;
-}
-
-/**
- * A restrained, Codex-style activity indicator: three gentle dots plus a
- * real elapsed clock. It is displayed once per active response, rather than
- * starting a competing animation inside every nested tool card.
- */
-function AssistantRunStatus({ startedAt, phase, seniorMode }: {
-  startedAt: number;
-  phase: string;
-  seniorMode: boolean;
-}) {
-  const [now, setNow] = useState(() => Date.now());
-
-  useEffect(() => {
-    const timer = window.setInterval(() => setNow(Date.now()), 1000);
-    return () => window.clearInterval(timer);
-  }, []);
-
-  return (
-    <div
-      className={cn(
-        "flex w-full flex-wrap items-center gap-2 rounded-xl border border-primary/20 bg-primary/5 px-3 py-2 text-primary",
-        seniorMode ? "min-h-12 text-base" : "text-sm"
-      )}
-    >
-      <span className="inline-flex items-center gap-2 whitespace-nowrap" role="status">
-        <span className="codex-activity-dots" aria-hidden>
-          <span className="codex-activity-dot" />
-          <span className="codex-activity-dot" />
-          <span className="codex-activity-dot" />
-        </span>
-        <span className="font-medium">{phase}</span>
-      </span>
-      <span className="ml-auto shrink-0 whitespace-nowrap tabular-nums text-muted-foreground" aria-live="off">
-        已执行 {formatElapsedTime(now - startedAt)}
-      </span>
-    </div>
-  );
 }
 
 function extractPlainText(blocks: MessageBlock[]): string {
@@ -522,164 +276,12 @@ export function MessageBubble({
           {!isUser && message.steps && message.steps.length > 0 && (
             <SimpleStepIndicator steps={message.steps} />
           )}
-          <div className="space-y-2">
-            {message.blocks.map((block) => {
-              switch (block.kind) {
-                case "text":
-                  if (block.streaming) {
-                    const textEmpty = !block.content;
-                    const hidePlaceholder = textEmpty && hasActiveThinking;
-                    return (
-                      <StreamingText
-                        key={block.id}
-                        content={block.content}
-                        streaming
-                        citations={message.citations}
-                        showPlaceholder={!hidePlaceholder}
-                      />
-                    );
-                  }
-                  return (
-                    <MarkdownRenderer
-                      key={block.id}
-                      content={block.content}
-                      citations={message.citations}
-                    />
-                  );
-                case "image":
-                  return (
-                    <div key={block.id} className="relative mt-1 size-60 max-w-full first:mt-0">
-                      <Image
-                        src={`data:${block.data.mimeType};base64,${block.data.base64}`}
-                        alt={block.data.alt ?? "用户上传的图片"}
-                        fill
-                        sizes="240px"
-                        unoptimized
-                        className="rounded-lg object-cover cursor-pointer hover:opacity-90 transition-opacity"
-                        onClick={() => window.open(`data:${block.data.mimeType};base64,${block.data.base64}`, "_blank")}
-                      />
-                    </div>
-                  );
-                case "thinking":
-                  return (
-                    <ThinkingBlock key={block.id} data={block.data} />
-                  );
-                case "tool_call":
-                  return (
-                    <ToolCallBlock key={block.id} data={block.data} />
-                  );
-                case "sub_agent":
-                  return <SubAgentTree key={block.id} data={block.data} />;
-                case "decision":
-                  return (
-                    <DecisionTimeline key={block.id} data={block.data} />
-                  );
-                case "search_results":
-                  return (
-                    <div
-                      key={block.id}
-                      className="space-y-2 not-last:mt-2"
-                    >
-                      {block.data.map((item, idx) => (
-                        <SearchResultCard
-                          key={item.id}
-                          item={item}
-                          index={idx + 1}
-                        />
-                      ))}
-                    </div>
-                  );
-                case "file":
-                  return (
-                    <div key={block.id} className="space-y-2">
-                      <FileTag data={block.data} />
-                      <DocumentToolCard data={block.data} />
-                    </div>
-                  );
-                case "info_collection":
-                  return (
-                    <div key={block.id} className="mt-1 first:mt-0 w-full">
-                      <InfoCollectionCard
-                        fields={block.data.fields}
-                        compact={seniorMode}
-                      />
-                    </div>
-                  );
-                case "stage_indicator":
-                  return (
-                    <div key={block.id} className="mt-1 first:mt-0 w-full">
-                      <StageIndicator
-                        title={block.data.title}
-                        description={block.data.description}
-                      />
-                    </div>
-                  );
-                case "runtime_approval":
-                  return <RuntimeApprovalCard key={block.id} data={block.data} />;
-                case "emergency_alert":
-                  return (
-                    <EmergencyWarningCard
-                      key={block.id}
-                      message={block.data.message}
-                      seniorMode={seniorMode}
-                    />
-                  );
-                case "question_card":
-                  if (block.data.submitted) {
-                    return (
-                      <div key={block.id} className="mt-1 first:mt-0 w-full">
-                        <div className="rounded-2xl border border-border/60 bg-gradient-to-br from-blue-50/80 to-indigo-50/50 dark:from-blue-950/20 dark:to-indigo-950/10 p-4 shadow-sm">
-                          <div className="flex items-center gap-2 mb-3">
-                            <span className="text-lg">📋</span>
-                            <span className={cn("font-semibold text-foreground", seniorMode ? "text-lg" : "text-base")}>信息补充</span>
-                            <span className={cn("text-muted-foreground bg-muted/60 px-2 py-0.5 rounded-full", seniorMode ? "text-lg" : "text-xs")}>
-                              第{block.data.round}轮
-                            </span>
-                          </div>
-                          <div className="space-y-2">
-                            {block.data.questions.map((q) => {
-                              const answer = block.data.answers[q.id] || "";
-                              return (
-                                <div key={q.id} className="space-y-0.5">
-                                  <div className={cn("font-medium text-foreground flex items-center gap-2", seniorMode ? "text-lg" : "text-sm")}>
-                                    <Check className="size-4 text-green-500 shrink-0" />
-                                    {q.label}
-                                  </div>
-                                  <p className={cn("text-foreground/80 pl-6", seniorMode ? "text-lg" : "text-xs")}>
-                                    {answer}
-                                  </p>
-                                </div>
-                              );
-                            })}
-                          </div>
-                        </div>
-                      </div>
-                    );
-                  }
-                  return null;
-                case "action":
-                  return (
-                    <div
-                      key={block.id}
-                      className="rounded-lg border border-primary/30 bg-primary/5 p-3 space-y-2"
-                    >
-                      <p className="text-sm leading-relaxed">{block.summary}</p>
-                      <Button
-                        variant="default"
-                        size="sm"
-                        onClick={() => handleViewReport(block.panelType)}
-                        className="gap-1.5"
-                      >
-                        <ExternalLink className="size-3.5" />
-                        {block.buttonLabel}
-                      </Button>
-                    </div>
-                  );
-                default:
-                  return null;
-              }
-            })}
-          </div>
+          <MessageBody
+            message={message}
+            seniorMode={seniorMode}
+            hasActiveThinking={hasActiveThinking}
+            onViewReport={handleViewReport}
+          />
         </div>
 
         {message.hasDisclaimer && !hasInlineDisclaimer && (
@@ -799,7 +401,7 @@ export function MessageBubble({
               )}
 
               {!isUser && message.status === "done" && plainText && (
-                <VoiceReadButton
+                <MessageVoiceReadButton
                   text={plainText}
                   seniorMode={seniorMode}
                   autoPlay={autoPlayEligible}
