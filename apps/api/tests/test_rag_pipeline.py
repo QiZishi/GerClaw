@@ -19,7 +19,7 @@ from gerclaw_api.modules.rag.models import (
 )
 from gerclaw_api.modules.rag.module import HybridRAGModule
 from gerclaw_api.modules.rag.parser import MarkdownMedicalParser, MedicalMarkdownChunker
-from gerclaw_api.modules.rag.providers import RerankScore
+from gerclaw_api.modules.rag.providers import RAGProviderError, RerankScore
 
 
 class DeterministicEmbedding:
@@ -103,6 +103,14 @@ class DeterministicReranker:
             RerankScore(index=index, score=0.2 + index * 0.7) for index in range(len(documents))
         ]
         return sorted(scores, key=lambda item: item.score, reverse=True)[:top_n]
+
+
+class UnavailableReranker:
+    model = "unavailable-reranker"
+
+    async def rerank(self, _query: str, _documents: list[str], *, top_n: int) -> list[RerankScore]:
+        del top_n
+        raise RAGProviderError("rerank unavailable")
 
 
 def _chunker() -> MedicalMarkdownChunker:
@@ -226,6 +234,47 @@ async def test_hybrid_module_reranks_filters_and_reports_status(tmp_path: Path) 
         await module.retrieve("   ")
     with pytest.raises(ValueError, match="top_k"):
         await module.retrieve("有效查询", top_k=21)
+
+
+@pytest.mark.asyncio
+async def test_hybrid_module_falls_back_to_real_hybrid_hits_when_reranker_fails(
+    tmp_path: Path,
+) -> None:
+    source = tmp_path / "指南.md"
+    source.write_text("# 指南\n\n医学内容", encoding="utf-8")
+    parser = MarkdownMedicalParser(tmp_path, max_document_bytes=1_000_000)
+    embedding = DeterministicEmbedding()
+    store = RecordingStore()
+    store.candidates = [
+        _candidate(0, "较高 hybrid 命中"),
+        _candidate(1, "较低 hybrid 命中"),
+    ]
+    indexer = CorpusIndexer(
+        parser=parser,
+        chunker=_chunker(),
+        embedding_model=embedding,  # type: ignore[arg-type]
+        store=store,  # type: ignore[arg-type]
+        index_lock=InProcessRAGIndexLock(),
+    )
+    module = HybridRAGModule(
+        parser=parser,
+        embedding_model=embedding,  # type: ignore[arg-type]
+        reranker=UnavailableReranker(),  # type: ignore[arg-type]
+        store=store,  # type: ignore[arg-type]
+        indexer=indexer,
+        retrieval_candidates=10,
+        rerank_candidates=5,
+        min_rerank_score=0.5,
+    )
+
+    results = await module.retrieve("多重用药风险", top_k=2)
+
+    assert [item.content for item in results] == [
+        "较高 hybrid 命中",
+        "较低 hybrid 命中",
+    ]
+    assert [item.score for item in results] == [0.9, 0.8]
+    assert all(item.metadata["rerank_score"] is None for item in results)
 
 
 @pytest.mark.asyncio

@@ -16,6 +16,8 @@
 2. `MedicalMarkdownChunker` 按标题层级生成有界 chunk，并用相对路径、内容哈希和位置生成确定性 ID。
 3. `SiliconFlowEmbeddingModel` 使用根 `.env` 配置的 `BAAI/bge-m3`；`LexicalEncoder` 产生中英文 sparse vector。
 4. `QdrantHybridStore` 使用 dense+sparse prefetch 和 RRF 融合，然后交给 `BAAI/bge-reranker-v2-m3` 真实重排。
+   若 reranker 在有真实 hybrid 候选后不可用，模块仅按已返回的 RRF 分数有界回退，
+   provenance 中明确保留 `rerank_score=null`；不会调用模型生成替代检索结果。
 5. 部署显式声明 `rag-capabilities-v1`、批量 embedding 和 relevance-score rerank 能力；任一能力不兼容时，Runtime 在创建 HTTP client 前拒绝启动该链路。
 6. `HybridRAGModule` 在结果离开检索边界前用 `local-rag-evidence-v1` 验证文档、章节、chunk、来源类型和分数 provenance；不完整结果不能成为引用。
 7. `HybridKnowledgeBaseAdapter` 将同一条检索链路交给 AgentScope 2.0.4 `RAGMiddleware(mode="agentic")`，对 Agent 暴露 `search_knowledge` 工具，并复用同一 provenance 契约。

@@ -53,6 +53,7 @@ async def build_turn_toolkit(
     rag_middleware = build_agentic_rag_middleware(
         rag_module,
         top_k=config.evidence_top_k,
+        score_threshold=config.evidence_min_score,
     )
     memory_guard = GerClawMem0Client(
         memory_module,

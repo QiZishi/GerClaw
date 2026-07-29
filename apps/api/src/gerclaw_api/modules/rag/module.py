@@ -3,9 +3,11 @@
 from __future__ import annotations
 
 import logging
+import math
 from pathlib import Path
 
 from gerclaw_api.modules.rag.indexer import CorpusIndexer
+from gerclaw_api.modules.rag.models import StoredCandidate
 from gerclaw_api.modules.rag.parser import MarkdownMedicalParser, RAGDocumentError
 from gerclaw_api.modules.rag.protocols import (
     IndexResult,
@@ -90,41 +92,92 @@ class HybridRAGModule:
         candidates = candidates[: self._rerank_candidates]
         if not candidates:
             return []
-        scores = await self._reranker.rerank(
-            normalized,
-            [candidate.chunk.content for candidate in candidates],
-            top_n=min(top_k, len(candidates)),
-        )
+        try:
+            scores = await self._reranker.rerank(
+                normalized,
+                [candidate.chunk.content for candidate in candidates],
+                top_n=min(top_k, len(candidates)),
+            )
+        except RAGProviderError:
+            LOGGER.warning(
+                "rag_reranker_unavailable_using_hybrid_candidates",
+                extra={"candidate_count": len(candidates)},
+            )
+            return self._hybrid_fallback(candidates, top_k=top_k)
         results: list[RetrievalResult] = []
         for score in scores:
             if score.score < self._min_rerank_score:
                 continue
             candidate = candidates[score.index]
-            chunk = candidate.chunk
-            metadata = validate_local_rag_evidence_provenance(
-                {
-                    "document_id": chunk.document_id,
-                    "chunk_id": chunk.chunk_id,
-                    "title": chunk.title,
-                    "chapter": chunk.chapter,
-                    "category": chunk.category,
-                    "source_type": chunk.source_type,
-                    "publish_year": chunk.publish_year,
-                    "chunk_index": chunk.chunk_index,
-                    "total_chunks": chunk.total_chunks,
-                    "hybrid_score": round(candidate.hybrid_score, 8),
-                    "rerank_score": round(score.score, 8),
-                }
-            ).model_dump(mode="json")
             results.append(
-                RetrievalResult(
-                    content=chunk.content,
-                    source=chunk.source,
+                self._retrieval_result(
+                    candidate,
                     score=score.score,
-                    metadata=metadata,
+                    rerank_score=score.score,
                 )
             )
         return results
+
+    def _hybrid_fallback(
+        self,
+        candidates: list[StoredCandidate],
+        *,
+        top_k: int,
+    ) -> list[RetrievalResult]:
+        """Return only the real bounded hybrid hits when reranking is unavailable."""
+
+        valid = [
+            candidate
+            for candidate in candidates
+            if math.isfinite(candidate.hybrid_score)
+            and 0 <= candidate.hybrid_score <= 1
+        ]
+        valid.sort(
+            key=lambda candidate: (
+                -candidate.hybrid_score,
+                candidate.chunk.chunk_id,
+            )
+        )
+        return [
+            self._retrieval_result(
+                candidate,
+                score=candidate.hybrid_score,
+                rerank_score=None,
+            )
+            for candidate in valid[:top_k]
+        ]
+
+    @staticmethod
+    def _retrieval_result(
+        candidate: StoredCandidate,
+        *,
+        score: float,
+        rerank_score: float | None,
+    ) -> RetrievalResult:
+        chunk = candidate.chunk
+        metadata = validate_local_rag_evidence_provenance(
+            {
+                "document_id": chunk.document_id,
+                "chunk_id": chunk.chunk_id,
+                "title": chunk.title,
+                "chapter": chunk.chapter,
+                "category": chunk.category,
+                "source_type": chunk.source_type,
+                "publish_year": chunk.publish_year,
+                "chunk_index": chunk.chunk_index,
+                "total_chunks": chunk.total_chunks,
+                "hybrid_score": round(candidate.hybrid_score, 8),
+                "rerank_score": (
+                    round(rerank_score, 8) if rerank_score is not None else None
+                ),
+            }
+        ).model_dump(mode="json")
+        return RetrievalResult(
+            content=chunk.content,
+            source=chunk.source,
+            score=score,
+            metadata=metadata,
+        )
 
     async def index_document(self, file_path: str, doc_type: str) -> IndexResult:
         """Index one local Markdown path through the same production pipeline."""
