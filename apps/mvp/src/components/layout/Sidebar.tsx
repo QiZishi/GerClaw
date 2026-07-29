@@ -21,18 +21,8 @@ import {
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
-import { Label } from "@/components/ui/label";
 import { Separator } from "@/components/ui/separator";
 import { Switch } from "@/components/ui/switch";
-import {
-  Dialog,
-  DialogContent,
-  DialogDescription,
-  DialogFooter,
-  DialogHeader,
-  DialogTitle,
-} from "@/components/ui/dialog";
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -52,6 +42,7 @@ import { useChatStore } from "@/stores/chatStore";
 import { useTheme } from "@/context/ThemeProvider";
 import { cn } from "@/lib/utils";
 import { SidebarSessionHistory } from "@/components/layout/sidebar/SidebarSessionHistory";
+import { SidebarSessionDialogs } from "@/components/layout/sidebar/SidebarSessionDialogs";
 import type { Session } from "@/types";
 import { toast } from "@/components/ui/toast";
 import { AccountDialog } from "@/components/account/AccountDialog";
@@ -275,12 +266,6 @@ export function Sidebar({ onNavigate }: SidebarProps) {
     } finally {
       setDeletingSession(false);
     }
-  };
-
-  const roleLabel = (value: "visitor" | "patient" | "doctor") => {
-    if (value === "patient") return "患者模式";
-    if (value === "doctor") return "医生模式";
-    return "患者模式";
   };
 
   const handleOpenSettings = () => {
@@ -645,96 +630,22 @@ export function Sidebar({ onNavigate }: SidebarProps) {
         </DropdownMenu>
       </div>
 
-      <Dialog
-        open={renameTarget !== null}
-        onOpenChange={(open) => {
-          if (!open) setRenameTarget(null);
-        }}
-      >
-        <DialogContent showCloseButton={!seniorMode} className={cn("sm:max-w-md", seniorMode && "p-5")}>
-          <form
-            onSubmit={(event) => {
-              event.preventDefault();
-              confirmRename();
-            }}
-          >
-            <DialogHeader>
-              <DialogTitle className={cn(seniorMode && "text-2xl")}>{isDoctor ? "重命名病例会话" : "重命名对话"}</DialogTitle>
-              <DialogDescription className={cn(seniorMode && "text-lg leading-8")}>
-                {isDoctor ? "使用便于识别的名称，方便后续继续病例工作。" : "使用容易识别的名称，方便下次继续咨询。"}
-              </DialogDescription>
-            </DialogHeader>
-            <div className="mt-5">
-              <Label htmlFor="session-title" className={cn(seniorMode && "text-lg")}>{isDoctor ? "病例会话名称" : "对话名称"}</Label>
-              <Input
-                id="session-title"
-                autoFocus
-                value={renameTitle}
-                maxLength={80}
-                onChange={(event) => setRenameTitle(event.target.value)}
-                className={cn("mt-2", seniorMode && "h-12 text-lg")}
-              />
-            </div>
-            <DialogFooter className={cn("mt-5", seniorMode && "flex-row justify-end gap-3 p-5")}>
-              <Button type="button" variant="outline" className={cn(seniorMode && "min-h-12 text-lg")} onClick={() => setRenameTarget(null)}>
-                取消
-              </Button>
-              <Button type="submit" className={cn(seniorMode && "min-h-12 text-lg")} disabled={!renameTitle.trim()}>
-                保存名称
-              </Button>
-            </DialogFooter>
-          </form>
-        </DialogContent>
-      </Dialog>
-
-      <Dialog
-        open={deleteTarget !== null}
-        onOpenChange={(open) => {
-          if (!open) setDeleteTarget(null);
-        }}
-      >
-        <DialogContent showCloseButton={!seniorMode} className={cn("sm:max-w-md", seniorMode && "p-5")}>
-          <DialogHeader>
-            <DialogTitle className={cn("text-destructive", seniorMode && "text-2xl")}>{isDoctor ? "确认删除病例会话" : "确认删除对话"}</DialogTitle>
-            <DialogDescription className={cn(seniorMode && "text-lg leading-8")}>
-              删除“{deleteTarget?.title}”后，其中的所有内容将无法恢复。
-            </DialogDescription>
-          </DialogHeader>
-          <DialogFooter className={cn("mt-5", seniorMode && "flex-row justify-end gap-3 p-5")}>
-            <Button variant="outline" className={cn(seniorMode && "min-h-12 text-lg")} onClick={() => setDeleteTarget(null)} disabled={deletingSession}>
-              取消
-            </Button>
-            <Button variant="destructive" className={cn(seniorMode && "min-h-12 text-lg")} onClick={confirmDelete} disabled={deletingSession}>
-              {deletingSession ? "正在删除…" : "确认删除"}
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
-
-      <Dialog
-        open={pendingRole !== null}
-        onOpenChange={(open) => {
-          if (!open) setPendingRole(null);
-        }}
-      >
-        <DialogContent showCloseButton={!seniorMode} className={cn("sm:max-w-md", seniorMode && "p-5")}>
-          <DialogHeader>
-            <DialogTitle className={cn(seniorMode && "text-2xl")}>切换到{pendingRole ? roleLabel(pendingRole) : ""}</DialogTitle>
-            <DialogDescription className={cn(seniorMode && "text-lg leading-8")}>
-              切换后会显示适合该身份的功能。
-            </DialogDescription>
-          </DialogHeader>
-          <DialogFooter className={cn("mt-5", seniorMode && "flex-row justify-end gap-3 p-5")}>
-            <Button variant="outline" className={cn(seniorMode && "min-h-12 text-lg")} onClick={() => setPendingRole(null)}>
-              取消
-            </Button>
-            <Button className={cn(seniorMode && "min-h-12 text-lg")} onClick={confirmRoleChange}>
-              确认切换
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
-
+      <SidebarSessionDialogs
+        seniorMode={seniorMode}
+        isDoctor={isDoctor}
+        renameTarget={renameTarget}
+        renameTitle={renameTitle}
+        deleteTarget={deleteTarget}
+        deletingSession={deletingSession}
+        pendingRole={pendingRole}
+        onRenameTitleChange={setRenameTitle}
+        onCloseRename={() => setRenameTarget(null)}
+        onConfirmRename={confirmRename}
+        onCloseDelete={() => setDeleteTarget(null)}
+        onConfirmDelete={() => void confirmDelete()}
+        onCloseRoleChange={() => setPendingRole(null)}
+        onConfirmRoleChange={confirmRoleChange}
+      />
       <AccountDialog
         open={accountDialogOpen}
         onOpenChange={setAccountDialogOpen}
