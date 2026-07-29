@@ -3,8 +3,6 @@
 import {
   useCallback,
   useEffect,
-  useEffectEvent,
-  useRef,
   useState,
 } from "react";
 
@@ -27,6 +25,7 @@ import { MessageList } from "@/components/chat/MessageList";
 import { ExportDialog } from "@/components/chat/ExportDialog";
 import { WelcomePage } from "@/components/chat/WelcomePage";
 import { useAgentConversationStream } from "@/components/chat/useAgentConversationStream";
+import { useConversationHistoryRecovery } from "@/components/chat/useConversationHistoryRecovery";
 import { useSessionSkillSelection } from "@/components/chat/useSessionSkillSelection";
 import { SkillManager } from "@/components/skills/SkillManager";
 import { CgaAssessment } from "@/components/cga/CgaAssessment";
@@ -38,17 +37,8 @@ import { useAppStore } from "@/stores/appStore";
 import { useChatStore } from "@/stores/chatStore";
 import { cn } from "@/lib/utils";
 import {
-  readAgentRun,
-  readRecoverableRun,
-  replayAgentRunEvents,
-} from "@/services/gerclaw/runs";
-import { planConversationRecovery } from "@/services/gerclaw/conversation-recovery";
-import {
-  readConversationMessages,
   toFrontendCitation,
-  toFrontendMessages,
 } from "@/services/gerclaw/conversation-history";
-import { canHydrateConversationHistory } from "@/services/gerclaw/conversation-hydration-policy";
 import { registerParsedDocument } from "@/services/gerclaw/documents";
 import { fivePrescriptionDraftToMarkdown } from "@/services/gerclaw/prescription-report";
 import type { FivePrescriptionDraft } from "@/services/gerclaw/schemas";
@@ -79,8 +69,6 @@ export function ChatArea() {
   const seniorMode = useAppStore((s) => s.seniorMode);
   const loadedSkillIds = useAppStore((s) => s.loadedSkillIds);
   const isGenerating = useChatStore((s) => s.isGenerating);
-  const setMessages = useChatStore((s) => s.setMessages);
-
   const messagesBySession = useChatStore((s) => s.messagesBySession);
   const updateMessage = useChatStore((s) => s.updateMessage);
   const deleteMessage = useChatStore((s) => s.deleteMessage);
@@ -88,8 +76,6 @@ export function ChatArea() {
   const createSession = useChatStore((s) => s.createSession);
   const storeSessions = useChatStore((s) => s.sessions);
 
-  const loadedHistorySessionIdsRef = useRef(new Set<string>());
-  const checkedRecoverySessionIdsRef = useRef(new Set<string>());
   const { sendTurn: doSend, stopTurn: handleStop } =
     useAgentConversationStream();
   const {
@@ -97,6 +83,12 @@ export function ChatArea() {
     stageSelection: stageSkillSelection,
     isReady: isSkillSelectionReady,
   } = useSessionSkillSelection({ currentSessionId, isGuest });
+  useConversationHistoryRecovery({
+    currentSessionId,
+    isGuest,
+    contextReadySessionId: skillSelectionReadySessionId,
+    sendTurn: doSend,
+  });
 
   const [mounted, setMounted] = useState(false);
   useEffect(() => {
@@ -322,114 +314,6 @@ export function ChatArea() {
       return false;
     }
   };
-
-  const resumeInterruptedRun = useEffectEvent(async (
-    sessionId: string,
-    restoredMessages: Message[]
-  ) => {
-    if (checkedRecoverySessionIdsRef.current.has(sessionId)) return;
-    checkedRecoverySessionIdsRef.current.add(sessionId);
-    try {
-      const recoverable = await readRecoverableRun(sessionId);
-      const run = recoverable.run;
-      if (!run) return;
-      const replay =
-        run.status === "interrupted"
-          ? await replayAgentRunEvents(run.id, 0, 200)
-          : undefined;
-      const currentRun =
-        run.status === "interrupted" ? await readAgentRun(run.id) : run;
-      if (
-        useAppStore.getState().currentSessionId !== sessionId ||
-        useChatStore.getState().isGenerating
-      ) {
-        return;
-      }
-      const sourceMessage = restoredMessages.find(
-        (message) => message.id === run.input_message_id
-      );
-      if (!sourceMessage || sourceMessage.role !== "user") {
-        toast.show("中断的回答缺少原始提问，未自动恢复");
-        return;
-      }
-      const recovery = planConversationRecovery(currentRun, replay);
-      if (recovery.action === "refresh-history") {
-        const currentMessages = toFrontendMessages(
-          await readConversationMessages(sessionId)
-        );
-        if (
-          useAppStore.getState().currentSessionId === sessionId &&
-          !useChatStore.getState().isGenerating
-        ) {
-          setMessages(sessionId, currentMessages);
-        }
-        return;
-      }
-      toast.show("正在恢复上次中断的回答");
-      doSend(
-        sessionId,
-        getTextFromMessage(sourceMessage),
-        true,
-        undefined,
-        [],
-        sourceMessage.workflow ?? "standard",
-        [],
-        undefined,
-        undefined,
-        undefined,
-        {
-          runId: run.id,
-          publicSummaries: recovery.publicSummaries,
-          mode: recovery.mode,
-          afterSequence: recovery.afterSequence,
-        }
-      );
-    } catch (error) {
-      toast.show(
-        error instanceof Error ? error.message : "中断的回答暂时无法恢复"
-      );
-    }
-  });
-
-  useEffect(() => {
-    if (
-      isGuest ||
-      !currentSessionId ||
-      skillSelectionReadySessionId !== currentSessionId ||
-      loadedHistorySessionIdsRef.current.has(currentSessionId)
-    ) {
-      return;
-    }
-    let live = true;
-    void readConversationMessages(currentSessionId)
-      .then((response) => {
-        if (!live) return;
-        loadedHistorySessionIdsRef.current.add(currentSessionId);
-        const localMessages =
-          useChatStore.getState().getMessages(currentSessionId);
-        if (!canHydrateConversationHistory(localMessages.length)) return;
-        const restoredMessages = toFrontendMessages(response);
-        setMessages(currentSessionId, restoredMessages);
-        void resumeInterruptedRun(currentSessionId, restoredMessages);
-      })
-      .catch(() => {
-        // Keep an empty new session usable; never substitute another session's history.
-        if (!live) return;
-        loadedHistorySessionIdsRef.current.add(currentSessionId);
-        const localMessages =
-          useChatStore.getState().getMessages(currentSessionId);
-        if (!canHydrateConversationHistory(localMessages.length)) return;
-        setMessages(currentSessionId, []);
-      });
-    return () => {
-      live = false;
-    };
-  }, [
-    currentSessionId,
-    isGuest,
-    setMessages,
-    skillSelectionReadySessionId,
-  ]);
 
   const handleExampleClick = (text: string) => {
     handleSend(text);
