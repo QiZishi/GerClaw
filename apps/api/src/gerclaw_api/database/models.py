@@ -273,6 +273,217 @@ class Message(Base):
     )
 
 
+class AgentRun(TimestampMixin, Base):
+    """Durable source of truth for one versioned Agent execution."""
+
+    __tablename__ = "agent_runs"
+    __table_args__ = (
+        CheckConstraint(
+            "status IN "
+            "('running','waiting_for_user','completed','completed_with_warnings',"
+            "'failed','cancelled','interrupted')",
+            name="valid_agent_run_status",
+        ),
+        CheckConstraint("revision > 0", name="positive_agent_run_revision"),
+        CheckConstraint("last_sequence >= 0", name="nonnegative_agent_run_sequence"),
+        CheckConstraint("fencing_token > 0", name="positive_agent_run_fence"),
+        UniqueConstraint("tenant_id", "trace_id", name="uq_agent_runs_tenant_trace"),
+        Index(
+            "ix_agent_runs_owner_conversation_created",
+            "tenant_id",
+            "actor_id",
+            "conversation_id",
+            "created_at",
+        ),
+        Index("ix_agent_runs_status_updated", "status", "updated_at"),
+    )
+
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    tenant_id: Mapped[str] = mapped_column(String(64), nullable=False, index=True)
+    actor_id: Mapped[str] = mapped_column(String(128), nullable=False, index=True)
+    conversation_id: Mapped[uuid.UUID] = mapped_column(
+        ForeignKey("sessions.id", ondelete="CASCADE"), nullable=False
+    )
+    input_message_id: Mapped[uuid.UUID] = mapped_column(
+        ForeignKey("messages.id", ondelete="RESTRICT"), nullable=False
+    )
+    trace_id: Mapped[str] = mapped_column(String(64), nullable=False, index=True)
+    route: Mapped[str] = mapped_column(String(16), nullable=False)
+    status: Mapped[str] = mapped_column(String(32), default="running", nullable=False)
+    context_snapshot: Mapped[dict[str, Any]] = mapped_column(EncryptedJSON(), nullable=False)
+    plan: Mapped[dict[str, Any]] = mapped_column(EncryptedJSON(), nullable=False)
+    warnings: Mapped[list[str]] = mapped_column(EncryptedJSON(), default=list, nullable=False)
+    current_answer_version_id: Mapped[uuid.UUID | None] = mapped_column(
+        ForeignKey(
+            "answer_versions.id",
+            name="fk_agent_runs_current_answer_version",
+            ondelete="SET NULL",
+            use_alter=True,
+        ),
+        nullable=True,
+    )
+    fencing_token: Mapped[int] = mapped_column(BigInteger, nullable=False)
+    last_sequence: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
+    revision: Mapped[int] = mapped_column(Integer, default=1, nullable=False)
+    started_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), nullable=False
+    )
+    completed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+
+
+class RunEvent(Base):
+    """Monotonic, replayable public event for one Agent run."""
+
+    __tablename__ = "run_events"
+    __table_args__ = (
+        UniqueConstraint("run_id", "sequence", name="uq_run_events_run_sequence"),
+        CheckConstraint("sequence > 0", name="positive_run_event_sequence"),
+        CheckConstraint(
+            "duration_ms IS NULL OR duration_ms >= 0",
+            name="nonnegative_run_event_duration",
+        ),
+        Index("ix_run_events_run_created", "run_id", "created_at"),
+    )
+
+    id: Mapped[int] = mapped_column(BigInteger, primary_key=True, autoincrement=True)
+    run_id: Mapped[uuid.UUID] = mapped_column(
+        ForeignKey("agent_runs.id", ondelete="CASCADE"), nullable=False
+    )
+    sequence: Mapped[int] = mapped_column(Integer, nullable=False)
+    event_type: Mapped[str] = mapped_column(String(128), nullable=False)
+    status: Mapped[str] = mapped_column(String(128), nullable=False)
+    public_summary: Mapped[str | None] = mapped_column(EncryptedText(), nullable=True)
+    payload: Mapped[dict[str, Any]] = mapped_column(EncryptedJSON(), default=dict, nullable=False)
+    duration_ms: Mapped[int | None] = mapped_column(BigInteger, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), nullable=False
+    )
+
+
+class AnswerVersion(Base):
+    """One immutable answer revision in a replaceable answer group."""
+
+    __tablename__ = "answer_versions"
+    __table_args__ = (
+        UniqueConstraint(
+            "run_id",
+            "answer_group_id",
+            "version",
+            name="uq_answer_versions_group_version",
+        ),
+        CheckConstraint("version > 0", name="positive_answer_version"),
+        Index(
+            "uq_answer_versions_current_group",
+            "run_id",
+            "answer_group_id",
+            unique=True,
+            postgresql_where=text("is_current"),
+        ),
+    )
+
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    run_id: Mapped[uuid.UUID] = mapped_column(
+        ForeignKey("agent_runs.id", ondelete="CASCADE"), nullable=False, index=True
+    )
+    answer_group_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), nullable=False)
+    assistant_message_id: Mapped[uuid.UUID | None] = mapped_column(
+        ForeignKey("messages.id", ondelete="SET NULL"), nullable=True
+    )
+    version: Mapped[int] = mapped_column(Integer, nullable=False)
+    is_current: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
+    supersedes_id: Mapped[uuid.UUID | None] = mapped_column(
+        ForeignKey("answer_versions.id", ondelete="SET NULL"), nullable=True
+    )
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), nullable=False
+    )
+
+
+class RunArtifact(TimestampMixin, Base):
+    """Owner-scoped editable Markdown artifact produced by one Agent run."""
+
+    __tablename__ = "run_artifacts"
+    __table_args__ = (
+        CheckConstraint(
+            "kind IN ('markdown','report','prescription','cga')",
+            name="valid_run_artifact_kind",
+        ),
+        CheckConstraint("revision > 0", name="positive_run_artifact_revision"),
+        Index(
+            "ix_run_artifacts_owner_conversation_updated",
+            "tenant_id",
+            "actor_id",
+            "conversation_id",
+            "updated_at",
+        ),
+    )
+
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    tenant_id: Mapped[str] = mapped_column(String(64), nullable=False, index=True)
+    actor_id: Mapped[str] = mapped_column(String(128), nullable=False, index=True)
+    run_id: Mapped[uuid.UUID] = mapped_column(
+        ForeignKey("agent_runs.id", ondelete="CASCADE"), nullable=False
+    )
+    conversation_id: Mapped[uuid.UUID] = mapped_column(
+        ForeignKey("sessions.id", ondelete="CASCADE"), nullable=False
+    )
+    title: Mapped[str] = mapped_column(EncryptedText(), nullable=False)
+    markdown: Mapped[str] = mapped_column(EncryptedText(), nullable=False)
+    kind: Mapped[str] = mapped_column(String(32), default="markdown", nullable=False)
+    revision: Mapped[int] = mapped_column(Integer, default=1, nullable=False)
+    saved: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
+
+
+class RunFeedbackState(TimestampMixin, Base):
+    """Current reconciled feedback value for one actor-owned run."""
+
+    __tablename__ = "run_feedback_states"
+    __table_args__ = (
+        UniqueConstraint(
+            "tenant_id",
+            "actor_id",
+            "run_id",
+            name="uq_run_feedback_states_owner_run",
+        ),
+        CheckConstraint("value IN (-1,0,1)", name="valid_run_feedback_value"),
+        CheckConstraint("revision > 0", name="positive_run_feedback_revision"),
+    )
+
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    tenant_id: Mapped[str] = mapped_column(String(64), nullable=False, index=True)
+    actor_id: Mapped[str] = mapped_column(String(128), nullable=False, index=True)
+    run_id: Mapped[uuid.UUID] = mapped_column(
+        ForeignKey("agent_runs.id", ondelete="CASCADE"), nullable=False
+    )
+    value: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
+    revision: Mapped[int] = mapped_column(Integer, default=1, nullable=False)
+
+
+class RunFeedbackRevision(Base):
+    """Append-only audit of each accepted feedback reconciliation."""
+
+    __tablename__ = "run_feedback_revisions"
+    __table_args__ = (
+        UniqueConstraint(
+            "feedback_state_id",
+            "revision",
+            name="uq_run_feedback_revisions_state_revision",
+        ),
+        CheckConstraint("value IN (-1,0,1)", name="valid_run_feedback_revision_value"),
+        CheckConstraint("revision > 0", name="positive_run_feedback_revision_audit"),
+    )
+
+    id: Mapped[int] = mapped_column(BigInteger, primary_key=True, autoincrement=True)
+    feedback_state_id: Mapped[uuid.UUID] = mapped_column(
+        ForeignKey("run_feedback_states.id", ondelete="CASCADE"), nullable=False
+    )
+    value: Mapped[int] = mapped_column(Integer, nullable=False)
+    revision: Mapped[int] = mapped_column(Integer, nullable=False)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), nullable=False
+    )
+
+
 class HealthProfile(TimestampMixin, Base):
     """Versioned patient profile stored in one AES-GCM encrypted column."""
 
