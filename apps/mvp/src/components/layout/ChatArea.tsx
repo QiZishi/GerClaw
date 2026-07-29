@@ -26,6 +26,7 @@ import { ChatInput, type ChatDocumentAttachment } from "@/components/chat/ChatIn
 import { MessageList } from "@/components/chat/MessageList";
 import { ExportDialog } from "@/components/chat/ExportDialog";
 import { WelcomePage } from "@/components/chat/WelcomePage";
+import { useAgentConversationStream } from "@/components/chat/useAgentConversationStream";
 import { useSessionSkillSelection } from "@/components/chat/useSessionSkillSelection";
 import { SkillManager } from "@/components/skills/SkillManager";
 import { CgaAssessment } from "@/components/cga/CgaAssessment";
@@ -36,11 +37,6 @@ import { RiskAlertLedger } from "@/components/risk-alert/RiskAlertLedger";
 import { useAppStore } from "@/stores/appStore";
 import { useChatStore } from "@/stores/chatStore";
 import { cn } from "@/lib/utils";
-import {
-  attachAgentRun,
-  resumeAgentRun,
-  streamAgentChat,
-} from "@/services/gerclaw/chat";
 import {
   readAgentRun,
   readRecoverableRun,
@@ -57,7 +53,6 @@ import { registerParsedDocument } from "@/services/gerclaw/documents";
 import { fivePrescriptionDraftToMarkdown } from "@/services/gerclaw/prescription-report";
 import type { FivePrescriptionDraft } from "@/services/gerclaw/schemas";
 import type { AnswerVersion } from "@/services/gerclaw/run-contract";
-import { generateId } from "@/lib/format";
 import { toast } from "@/components/ui/toast";
 import { stopActiveAudioPlayer } from "@/lib/audioPlaybackCoordinator";
 import type { ChatActionType, ImageAttachment, Message, MessageBlock } from "@/types";
@@ -84,28 +79,19 @@ export function ChatArea() {
   const seniorMode = useAppStore((s) => s.seniorMode);
   const loadedSkillIds = useAppStore((s) => s.loadedSkillIds);
   const isGenerating = useChatStore((s) => s.isGenerating);
-  const setGenerating = useChatStore((s) => s.setGenerating);
   const setMessages = useChatStore((s) => s.setMessages);
 
   const messagesBySession = useChatStore((s) => s.messagesBySession);
-  const addMessage = useChatStore((s) => s.addMessage);
   const updateMessage = useChatStore((s) => s.updateMessage);
-  const appendMessageText = useChatStore((s) => s.appendMessageText);
-  const initMessageThinking = useChatStore((s) => s.initMessageThinking);
-  const appendMessageThinking = useChatStore((s) => s.appendMessageThinking);
-  const finalizeMessageThinking = useChatStore((s) => s.finalizeMessageThinking);
-  const initMessageToolCall = useChatStore((s) => s.initMessageToolCall);
-  const completeMessageToolCall = useChatStore((s) => s.completeMessageToolCall);
-  const failMessageToolCall = useChatStore((s) => s.failMessageToolCall);
   const deleteMessage = useChatStore((s) => s.deleteMessage);
   const updateSession = useChatStore((s) => s.updateSession);
   const createSession = useChatStore((s) => s.createSession);
   const storeSessions = useChatStore((s) => s.sessions);
 
-  const abortControllerRef = useRef<AbortController | null>(null);
-  const currentThinkingBlockIdRef = useRef<string | null>(null);
   const loadedHistorySessionIdsRef = useRef(new Set<string>());
   const checkedRecoverySessionIdsRef = useRef(new Set<string>());
+  const { sendTurn: doSend, stopTurn: handleStop } =
+    useAgentConversationStream();
   const {
     readySessionId: skillSelectionReadySessionId,
     stageSelection: stageSkillSelection,
@@ -152,24 +138,6 @@ export function ChatArea() {
     if (chatAction === "none" || chatAction === "companion" || chatAction === "cga" || chatAction === "prescription" || chatAction === "drug-review" || chatAction === "chronic-care" || chatAction === "risk-alerts") return;
     setChatAction("none");
   }, [chatAction, setChatAction]);
-
-  /** 首次AI回复完成后自动设置会话标题 */
-  const trySetSessionTitle = (sid: string, firstUserText: string) => {
-    // 首次发送会在本次回调创建会话；不能使用发送前 render 捕获的 sessions 快照。
-    const session = useChatStore.getState().sessions.find((s) => s.id === sid);
-    if (session && session.title === "新对话") {
-      const title = firstUserText.slice(0, 20);
-      updateSession(sid, { title });
-    }
-  };
-
-  /** 停止生成 */
-  const handleStop = () => {
-    if (abortControllerRef.current) {
-      abortControllerRef.current.abort();
-      toast.show("正在安全停止，等待服务器确认执行终态");
-    }
-  };
 
   /** 重新生成 */
   const handleRegenerate = (messageId: string) => {
@@ -354,383 +322,6 @@ export function ChatArea() {
       return false;
     }
   };
-
-  const doSend = (
-    sid: string,
-    text: string,
-    isRegenerate = false,
-    images?: ImageAttachment[],
-    uploadedDocumentIds: string[] = [],
-    workflow: "standard" | "companion" = "standard",
-    requestedCapabilities: string[] = [],
-    regeneration?: {
-      sourceRunId: string;
-      expectedCurrentAnswerVersionId: string;
-    },
-    replaceMessageId?: string,
-    replacementSnapshot?: Message,
-    resume?: {
-      runId: string;
-      publicSummaries: string[];
-      mode: "attach" | "resume";
-      afterSequence: number;
-    }
-  ) => {
-    const userBlocks: MessageBlock[] = [];
-    if (images && images.length > 0) {
-      for (const img of images) {
-        userBlocks.push({
-          kind: "image",
-          id: generateId("block"),
-          data: img,
-        });
-      }
-    }
-    if (text) {
-      userBlocks.push({ kind: "text", id: generateId("block"), content: text });
-    }
-    const userMsg: Message = {
-      id: generateId("msg"),
-      sessionId: sid,
-      role: "user",
-      blocks: userBlocks,
-      status: "done",
-      createdAt: Date.now(),
-      uploadedFiles: uploadedDocumentIds.length > 0 ? uploadedDocumentIds : undefined,
-      workflow,
-    };
-    if (!isRegenerate) {
-      addMessage(userMsg);
-    }
-    setGenerating(true);
-
-    const assistantMsgId = replaceMessageId ?? generateId("msg");
-    const assistantBlockId = generateId("block");
-    const initialThinkingBlockId = generateId("block");
-    currentThinkingBlockIdRef.current = initialThinkingBlockId;
-
-    const assistantMsg: Message = {
-      id: assistantMsgId,
-      sessionId: sid,
-      role: "assistant",
-      blocks: [
-        {
-          kind: "text",
-          id: assistantBlockId,
-          content: "",
-          streaming: true,
-        },
-      ],
-      status: "streaming",
-      createdAt: Date.now(),
-      hasDisclaimer: false,
-      workflow,
-    };
-    if (replaceMessageId) {
-      updateMessage(replaceMessageId, assistantMsg);
-    } else {
-      addMessage(assistantMsg);
-    }
-    initMessageThinking(assistantMsgId, initialThinkingBlockId);
-    for (const summary of resume?.publicSummaries ?? []) {
-      appendMessageThinking(
-        assistantMsgId,
-        initialThinkingBlockId,
-        `${summary}\n`
-      );
-    }
-
-    const toolCallBlockMap = new Map<string, string>();
-    let thinkingFinished = false;
-    let emergencyShortCircuit = false;
-    abortControllerRef.current = new AbortController();
-
-    const streamTurn: typeof streamAgentChat = resume
-      ? (_input, signal, callbacks) =>
-          resume.mode === "attach"
-            ? attachAgentRun(
-                resume.runId,
-                resume.afterSequence,
-                signal,
-                callbacks
-              )
-            : resumeAgentRun(resume.runId, signal, callbacks)
-      : streamAgentChat;
-    void streamTurn(
-      {
-        localSessionId: sid,
-        message: text,
-        loadedSkills: workflow === "companion" ? [] : loadedSkillIds,
-        uploadedDocumentIds: workflow === "companion" ? [] : uploadedDocumentIds,
-        images: workflow === "companion" ? [] : images,
-        workflow,
-        requestedCapabilities: workflow === "companion" ? [] : requestedCapabilities,
-        regeneration,
-      },
-      abortControllerRef.current.signal,
-      {
-        onThinking: (content) => {
-          if (emergencyShortCircuit) return;
-          const currentId = currentThinkingBlockIdRef.current;
-          if (currentId && !thinkingFinished) {
-            appendMessageThinking(assistantMsgId, currentId, `${content}\n`);
-          }
-        },
-        onText: (delta) => {
-          if (emergencyShortCircuit) return;
-          const currentId = currentThinkingBlockIdRef.current;
-          if (currentId && !thinkingFinished) {
-            finalizeMessageThinking(assistantMsgId, currentId);
-            thinkingFinished = true;
-          }
-          appendMessageText(assistantMsgId, assistantBlockId, delta);
-        },
-        onToolCall: ({ id, name }) => {
-          if (emergencyShortCircuit) return;
-          const toolBlockId = generateId("block");
-          toolCallBlockMap.set(id, toolBlockId);
-          initMessageToolCall(assistantMsgId, toolBlockId, id, name);
-        },
-        onToolResult: ({ id, status, durationMs, results }) => {
-          if (emergencyShortCircuit) return;
-          const toolBlockId = toolCallBlockMap.get(id);
-          if (!toolBlockId) return;
-          if (status !== "success") {
-            failMessageToolCall(
-              assistantMsgId,
-              toolBlockId,
-              status === "cancelled"
-                ? "用户已停止生成"
-                : `工具执行失败${durationMs === undefined ? "" : `（${durationMs}ms）`}`
-            );
-            return;
-          }
-          completeMessageToolCall(assistantMsgId, toolBlockId, {}, {
-            status,
-            duration_ms: durationMs,
-            results,
-          });
-        },
-        onApprovalRequired: (approval) => {
-          if (emergencyShortCircuit) return;
-          const currentId = currentThinkingBlockIdRef.current;
-          if (currentId && !thinkingFinished) {
-            finalizeMessageThinking(assistantMsgId, currentId);
-            thinkingFinished = true;
-          }
-          const msgNow = useChatStore.getState().messagesBySession[sid]?.find(
-            (message) => message.id === assistantMsgId
-          );
-          if (!msgNow || msgNow.blocks.some((block) => block.kind === "runtime_approval" && block.data.approvalId === approval.id)) return;
-          updateMessage(assistantMsgId, {
-            blocks: [
-              ...msgNow.blocks.map((block) =>
-                block.kind === "text" && block.id === assistantBlockId
-                  ? { ...block, content: "为保护您的权益，该操作已暂停，正在等待人工授权。", streaming: false }
-                  : block
-              ),
-              {
-                kind: "runtime_approval",
-                id: generateId("block"),
-                data: {
-                  approvalId: approval.id,
-                  toolName: approval.toolName,
-                  expiresAt: approval.expiresAt,
-                  policyVersion: approval.policyVersion,
-                  toolVersion: approval.toolVersion,
-                },
-              },
-            ],
-            status: "done",
-            hasDisclaimer: true,
-          });
-        },
-        onSafetyNotice: ({ codes, content }) => {
-          const currentId = currentThinkingBlockIdRef.current;
-          if (currentId && !thinkingFinished) {
-            finalizeMessageThinking(assistantMsgId, currentId);
-            thinkingFinished = true;
-          }
-          emergencyShortCircuit = true;
-          updateMessage(assistantMsgId, {
-            blocks: [
-              {
-                kind: "emergency_alert",
-                id: generateId("block"),
-                data: { codes, message: content },
-              },
-            ],
-            status: "streaming",
-            hasDisclaimer: true,
-          });
-        },
-        onDone: (fullText, citations, traceId, answer) => {
-          abortControllerRef.current = null;
-          const currentId = currentThinkingBlockIdRef.current;
-          if (currentId && !thinkingFinished) finalizeMessageThinking(assistantMsgId, currentId);
-          const msgNow = useChatStore.getState().messagesBySession[sid]?.find((message) => message.id === assistantMsgId);
-          const updatedBlocks = emergencyShortCircuit
-            ? (msgNow?.blocks ?? [])
-            : msgNow?.blocks.map((block) =>
-                block.kind === "text" && block.id === assistantBlockId
-                  ? { ...block, content: fullText, streaming: false }
-                  : block
-              ) ?? [];
-          updateMessage(assistantMsgId, {
-            status: "done",
-            blocks: updatedBlocks,
-            citations: emergencyShortCircuit || citations.length === 0 ? undefined : citations,
-            hasDisclaimer: true,
-            traceId,
-            executionRunId: answer?.runId,
-            answerGroupRunId: answer?.answerGroupRunId,
-            answerVersionId: answer?.answerVersionId,
-            answerVersion: answer?.answerVersion,
-            // 只给本次刚结束的正常回复一次自动朗读机会；历史消息没有该信号。
-            autoTtsPending: !emergencyShortCircuit && (() => {
-              const appState = useAppStore.getState();
-              return appState.role === "patient" && appState.seniorMode && appState.autoTtsPlayback && appState.ttsAvailable;
-            })(),
-          });
-          setGenerating(false);
-          if (!isRegenerate) {
-            const firstUserMsg = (useChatStore.getState().messagesBySession[sid] ?? []).find((message) => message.role === "user");
-            if (firstUserMsg) trySetSessionTitle(sid, getTextFromMessage(firstUserMsg));
-          }
-        },
-        onCancelled: (_traceId, cancellationMessage) => {
-          abortControllerRef.current = null;
-          if (replacementSnapshot) {
-            updateMessage(assistantMsgId, replacementSnapshot);
-            setGenerating(false);
-            useAppStore.getState().setStreamingInterrupted(false);
-            toast.show("已停止重新生成，保留原回答");
-            return;
-          }
-          if (emergencyShortCircuit) {
-            updateMessage(assistantMsgId, {
-              status: "done",
-              citations: undefined,
-              hasDisclaimer: true,
-            });
-            setGenerating(false);
-            useAppStore.getState().setStreamingInterrupted(false);
-            return;
-          }
-          const currentId = currentThinkingBlockIdRef.current;
-          if (currentId && !thinkingFinished) {
-            finalizeMessageThinking(assistantMsgId, currentId);
-            thinkingFinished = true;
-          }
-          const stoppedAt = Date.now();
-          const msgNow = useChatStore.getState().messagesBySession[sid]?.find(
-            (message) => message.id === assistantMsgId
-          );
-          const stoppedNotice = workflow === "companion"
-            ? `⚠️ ${cancellationMessage}以上内容不完整，请重新生成或稍后再试。`
-            : `⚠️ ${cancellationMessage}以上内容不完整且未通过最终校验，请勿据此调整治疗或用药。`;
-          const updatedBlocks = msgNow?.blocks.map((block) => {
-            if (block.kind === "text" && block.id === assistantBlockId) {
-              return {
-                ...block,
-                streaming: false,
-                content: block.content.trim()
-                  ? `${block.content.trim()}\n\n---\n\n${stoppedNotice}`
-                  : stoppedNotice,
-              };
-            }
-            if (block.kind === "thinking" && block.data.status === "thinking") {
-              return {
-                ...block,
-                data: { ...block.data, status: "done" as const, endedAt: stoppedAt },
-              };
-            }
-            if (block.kind === "tool_call" && block.data.status === "running") {
-              return {
-                ...block,
-                data: {
-                  ...block.data,
-                  status: "failed" as const,
-                  errorMessage: "用户已停止生成",
-                  endedAt: stoppedAt,
-                  durationMs: Math.max(0, stoppedAt - block.data.startedAt),
-                },
-              };
-            }
-            return block;
-          }) ?? [];
-          updateMessage(assistantMsgId, {
-            status: "stopped",
-            blocks: updatedBlocks,
-            hasDisclaimer: true,
-          });
-          setGenerating(false);
-          useAppStore.getState().setStreamingInterrupted(false);
-        },
-        onError: (error) => {
-          abortControllerRef.current = null;
-          if (replacementSnapshot) {
-            updateMessage(assistantMsgId, replacementSnapshot);
-            setGenerating(false);
-            useAppStore.getState().setStreamingInterrupted(false);
-            toast.show(error.message);
-            return;
-          }
-          if (emergencyShortCircuit) {
-            updateMessage(assistantMsgId, {
-              status: "done",
-              citations: undefined,
-              hasDisclaimer: true,
-            });
-            setGenerating(false);
-            return;
-          }
-          const currentId = currentThinkingBlockIdRef.current;
-          if (currentId && !thinkingFinished) finalizeMessageThinking(assistantMsgId, currentId);
-          const msgNow = useChatStore.getState().messagesBySession[sid]?.find((message) => message.id === assistantMsgId);
-          const awaitingApproval = error.code === "CHAT_APPROVAL_REQUIRED";
-          const failedAt = Date.now();
-          const updatedBlocks = msgNow?.blocks.map((block) => {
-            if (block.kind === "text" && block.id === assistantBlockId) {
-              const partialContent = block.content.trim();
-              const incompleteNotice = workflow === "companion"
-                ? "⚠️ 本次回复未完成，未通过最终安全校验。请点击“重新生成”重试。"
-                : "⚠️ 本次回答未完成，未通过最终安全校验。请点击“重新生成”重试；请勿据此调整治疗或用药。";
-              return {
-                ...block,
-                content: awaitingApproval
-                  ? block.content || "该操作已安全暂停，等待人工授权。"
-                  : partialContent
-                    ? `${partialContent}\n\n---\n\n${incompleteNotice}`
-                    : `${error.message}\n\n${incompleteNotice}`,
-                streaming: false,
-              };
-            }
-            if (block.kind === "tool_call" && block.data.status === "running") {
-              return {
-                ...block,
-                data: {
-                  ...block.data,
-                  status: "failed" as const,
-                  errorMessage: "响应中断，工具结果未完成",
-                  endedAt: failedAt,
-                  durationMs: Math.max(0, failedAt - block.data.startedAt),
-                },
-              };
-            }
-            return block;
-          }) ?? [];
-          updateMessage(assistantMsgId, {
-            status: awaitingApproval ? "done" : "error",
-            blocks: updatedBlocks,
-            hasDisclaimer: true,
-          });
-          setGenerating(false);
-          useAppStore.getState().setStreamingInterrupted(false);
-        },
-      }
-    );
-};
 
   const resumeInterruptedRun = useEffectEvent(async (
     sessionId: string,
