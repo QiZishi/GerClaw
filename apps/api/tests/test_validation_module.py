@@ -82,6 +82,28 @@ def test_public_terminal_contract_requires_trace_and_session_provenance() -> Non
     assert validated.data["replayed"] is False
 
 
+def test_public_tool_result_omits_absent_optional_fields() -> None:
+    event = StreamEvent(
+        event_type="tool_result",
+        data={
+            "tool_call_id": "call_search_1",
+            "tool_name": "web_search",
+            "status": "success",
+            "duration_ms": 42,
+        },
+        timestamp=datetime.now(UTC),
+    )
+
+    validated = validate_public_chat_stream_event(event)
+
+    assert validated.data == {
+        "tool_call_id": "call_search_1",
+        "tool_name": "web_search",
+        "status": "success",
+        "duration_ms": 42,
+    }
+
+
 def test_public_boundary_rejects_harness_only_done_and_unknown_event_fields() -> None:
     harness_done = StreamEvent(
         event_type="done",

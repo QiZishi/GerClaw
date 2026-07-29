@@ -189,7 +189,9 @@ def _validate(event: StreamEvent, schemas: Mapping[str, type[BaseModel]]) -> Str
         raise StreamContractValidationError(
             f"invalid {PUBLIC_CHAT_SSE_SCHEMA_VERSION} {event.event_type} payload"
         ) from error
-    return event.model_copy(update={"data": validated.model_dump(mode="json")})
+    return event.model_copy(
+        update={"data": validated.model_dump(mode="json", exclude_none=True)}
+    )
 
 
 def validate_harness_stream_event(event: StreamEvent) -> StreamEvent:
