@@ -670,6 +670,10 @@ async def test_owned_turn_streams_only_after_durable_success(unit_settings: Sett
     assert "reasoning_summary" in event_types
     assert "text_delta" in event_types
     assert event_types[-1] == "done"
+    assert [cast(Any, event).sequence for event in events] == list(
+        range(1, len(events) + 1)
+    )
+    assert all(cast(Any, event).run_id == run_journal.run_id for event in events)
     assert conversation.user_text == "您好!"
     assert conversation.response is response
     assert conversation.assistant_commit is False

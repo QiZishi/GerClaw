@@ -31,14 +31,14 @@ class RunResumeRepository(Protocol):
     ) -> RunResumeRecord | None:
         """Return a Run only with its same-owner input and Trace."""
 
-    async def get_latest_interrupted(
+    async def get_latest_recoverable(
         self,
         conversation_id: uuid.UUID,
         *,
         tenant_id: str,
         actor_id: str,
     ) -> AgentRun | None:
-        """Return the newest resumable Run in one owned conversation."""
+        """Return the newest running or resumable Run in one owned conversation."""
 
     async def rollback(self) -> None:
         """End the read transaction without retaining a snapshot."""
@@ -90,7 +90,7 @@ class SqlAlchemyRunResumeRepository:
             trace=trace,
         )
 
-    async def get_latest_interrupted(
+    async def get_latest_recoverable(
         self,
         conversation_id: uuid.UUID,
         *,
@@ -103,7 +103,7 @@ class SqlAlchemyRunResumeRepository:
                 AgentRun.conversation_id == conversation_id,
                 AgentRun.tenant_id == tenant_id,
                 AgentRun.actor_id == actor_id,
-                AgentRun.status == "interrupted",
+                AgentRun.status.in_(("running", "interrupted")),
             )
             .order_by(AgentRun.updated_at.desc(), AgentRun.id.desc())
             .limit(1)

@@ -2,11 +2,12 @@
 
 from __future__ import annotations
 
+import uuid
 from collections.abc import Awaitable, Callable
 from datetime import datetime
 from typing import Literal, Protocol
 
-from pydantic import BaseModel, ConfigDict
+from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 from gerclaw_api.modules.agent_harness.context_snapshot import (
     AgentContext,
@@ -40,6 +41,14 @@ class StreamEvent(BaseModel):
     ]
     data: dict[str, JsonValue]
     timestamp: datetime
+    run_id: uuid.UUID | None = None
+    sequence: int | None = Field(default=None, ge=1)
+
+    @model_validator(mode="after")
+    def validate_durable_cursor(self) -> StreamEvent:
+        if (self.run_id is None) != (self.sequence is None):
+            raise ValueError("run_id and sequence must be provided together")
+        return self
 
 
 class AgentHarness(Protocol):

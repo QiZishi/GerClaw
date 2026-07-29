@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import asyncio
-import json
 import uuid
 from collections.abc import AsyncIterator, Mapping
 from contextlib import suppress
@@ -13,6 +12,7 @@ from fastapi import APIRouter, Depends, HTTPException, Path, Query, Request, sta
 from fastapi.responses import StreamingResponse
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from gerclaw_api.api.sse import encode_sse
 from gerclaw_api.auth import (
     AuthContext,
     authorize_scope,
@@ -330,13 +330,24 @@ async def _stream_chat(
     set_active_trace(request.scope, trace_id)
     queue: asyncio.Queue[QueueItem] = asyncio.Queue(maxsize=128)
     registry: ChatCancellationRegistry = request.app.state.chat_cancellations
+    consumer_detached = asyncio.Event()
 
     async def publish(event: StreamEvent) -> None:
         event = validate_public_chat_stream_event(event)
-        if event.event_type == "tool_result":
-            _force_enqueue(queue, event)
-        else:
-            await queue.put(event)
+        if consumer_detached.is_set():
+            return
+        enqueue = asyncio.create_task(queue.put(event))
+        detached = asyncio.create_task(consumer_detached.wait())
+        done, pending = await asyncio.wait(
+            {enqueue, detached},
+            return_when=asyncio.FIRST_COMPLETED,
+        )
+        for pending_task in pending:
+            pending_task.cancel()
+        if pending:
+            await asyncio.gather(*pending, return_exceptions=True)
+        for completed_task in done:
+            await completed_task
 
     async def run_turn() -> None:
         database: Database = request.app.state.database
@@ -529,12 +540,15 @@ async def _stream_chat(
                 )
                 data = dict(item.data)
                 data["timestamp"] = item.timestamp.timestamp()
-                yield _encode_sse(event_name, data)
+                if item.run_id is not None and item.sequence is not None:
+                    data["run_id"] = str(item.run_id)
+                    data["sequence"] = item.sequence
+                yield _encode_sse(event_name, data, sequence=item.sequence)
         finally:
-            if not task.done():
-                task.cancel()
-            with suppress(asyncio.CancelledError):
-                await task
+            # A transport disconnect is not an explicit user cancellation.
+            # The owner task keeps running and persists RunEvents; the client
+            # can attach to the same Run with ``after_sequence``.
+            consumer_detached.set()
 
     return StreamingResponse(
         event_stream(),
@@ -548,9 +562,13 @@ async def _stream_chat(
     )
 
 
-def _encode_sse(event: str, data: Mapping[str, object]) -> str:
-    payload = json.dumps(data, ensure_ascii=False, allow_nan=False, separators=(",", ":"))
-    return f"event: {event}\ndata: {payload}\n\n"
+def _encode_sse(
+    event: str,
+    data: Mapping[str, object],
+    *,
+    sequence: int | None = None,
+) -> str:
+    return encode_sse(event, data, sequence=sequence)
 
 
 def _public_error(code: str) -> tuple[str, bool]:

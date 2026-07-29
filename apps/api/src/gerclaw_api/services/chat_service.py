@@ -705,12 +705,18 @@ class ChatService:
             validated_event = validate_public_chat_stream_event(event)
             if self._run_journal is not None and self._active_run_id is not None:
                 try:
-                    await self._run_journal.append(
+                    persisted_event = await self._run_journal.append(
                         self._active_run_id,
                         self._run_event(validated_event),
                         tenant_id=identity.tenant_id,
                         actor_id=identity.actor_id,
                         fencing_token=lease_guard.fencing_token,
+                    )
+                    validated_event = validated_event.model_copy(
+                        update={
+                            "run_id": persisted_event.run_id,
+                            "sequence": persisted_event.sequence,
+                        }
                     )
                 except RunTerminalConflictError:
                     cancellation_is_durable = (
@@ -778,7 +784,7 @@ class ChatService:
                 commit=False,
             )
             if self._run_journal is not None and self._active_run_id is not None:
-                answer_version, _completed_run = await self._run_journal.complete_answer(
+                answer_version, completed_run = await self._run_journal.complete_answer(
                     self._active_run_id,
                     assistant_message.id,
                     done.model_dump(mode="json"),
@@ -831,6 +837,18 @@ class ChatService:
                 event_type="done",
                 data=done.model_dump(mode="json"),
                 timestamp=datetime.now(UTC),
+                run_id=(
+                    self._active_run_id
+                    if self._run_journal is not None
+                    and self._active_run_id is not None
+                    else None
+                ),
+                sequence=(
+                    completed_run.last_sequence
+                    if self._run_journal is not None
+                    and self._active_run_id is not None
+                    else None
+                ),
             )
         )
         return response

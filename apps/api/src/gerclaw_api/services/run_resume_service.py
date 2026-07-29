@@ -104,14 +104,14 @@ class RunResumeService:
     def __init__(self, repository: RunResumeRepository) -> None:
         self._repository = repository
 
-    async def latest_interrupted(
+    async def latest_recoverable(
         self,
         conversation_id: uuid.UUID,
         *,
         tenant_id: str,
         actor_id: str,
     ) -> AgentRunRead | None:
-        run = await self._repository.get_latest_interrupted(
+        run = await self._repository.get_latest_recoverable(
             conversation_id,
             tenant_id=tenant_id,
             actor_id=actor_id,

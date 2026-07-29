@@ -35,7 +35,7 @@ class _Repository:
         assert (tenant_id, actor_id) == (TENANT, ACTOR)
         return self.record
 
-    async def get_latest_interrupted(
+    async def get_latest_recoverable(
         self,
         conversation_id: uuid.UUID,
         *,
@@ -186,7 +186,7 @@ async def test_prepare_hides_missing_or_foreign_run() -> None:
 async def test_latest_interrupted_returns_public_run_without_contents() -> None:
     record = _record()
     repository = _Repository(record)
-    latest = await RunResumeService(repository).latest_interrupted(
+    latest = await RunResumeService(repository).latest_recoverable(
         record.run.conversation_id,
         tenant_id=TENANT,
         actor_id=ACTOR,

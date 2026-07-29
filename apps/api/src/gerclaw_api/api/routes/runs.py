@@ -2,12 +2,17 @@
 
 from __future__ import annotations
 
+import asyncio
+import time
 import uuid
+from collections.abc import AsyncIterator
 from typing import Annotated
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request, status
+from fastapi.responses import StreamingResponse
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from gerclaw_api.api.sse import encode_sse
 from gerclaw_api.auth import (
     AuthContext,
     require_chat_read,
@@ -15,7 +20,9 @@ from gerclaw_api.auth import (
     require_feedback_write,
 )
 from gerclaw_api.dependencies import get_database_session
+from gerclaw_api.domain.chat_schemas import ChatCancelledData, ChatErrorData
 from gerclaw_api.domain.run_schemas import (
+    TERMINAL_RUN_STATUSES,
     AgentRunRead,
     AnswerVersionListRead,
     AnswerVersionRead,
@@ -28,6 +35,7 @@ from gerclaw_api.domain.run_schemas import (
     FeedbackStateRead,
     RecoverableRunRead,
     RunEventPage,
+    RunEventRead,
 )
 from gerclaw_api.repositories.agent_run import SqlAlchemyAgentRunRepository
 from gerclaw_api.repositories.answer_version import SqlAlchemyAnswerVersionRepository
@@ -107,7 +115,7 @@ async def get_recoverable_run(
     """Return the newest interrupted Run that this conversation may explicitly resume."""
 
     await _enforce_rate_limit(request, identity)
-    run = await _resume_service(session).latest_interrupted(
+    run = await _resume_service(session).latest_recoverable(
         conversation_id,
         tenant_id=identity.tenant_id,
         actor_id=identity.actor_id,
@@ -139,6 +147,132 @@ async def replay_run_events(
         events=tuple(events),
         next_after_sequence=events[-1].sequence if events else after_sequence,
     )
+
+
+@router.get("/runs/{run_id}/stream")
+async def stream_run_events(
+    run_id: uuid.UUID,
+    request: Request,
+    session: SessionDependency,
+    identity: ReadIdentity,
+    after_sequence: Annotated[int, Query(ge=0)] = 0,
+) -> StreamingResponse:
+    """Replay and follow one owner-scoped Run from the last durable sequence."""
+
+    await _enforce_rate_limit(request, identity)
+    run = await _run_service(session).get_run(
+        run_id,
+        tenant_id=identity.tenant_id,
+        actor_id=identity.actor_id,
+    )
+    await session.rollback()
+    database = request.app.state.database
+    poll_interval = request.app.state.settings.agent_run_stream_poll_interval_seconds
+    heartbeat_interval = request.app.state.settings.agent_run_stream_heartbeat_seconds
+
+    async def event_stream() -> AsyncIterator[str]:
+        cursor = after_sequence
+        last_heartbeat = time.monotonic()
+        while True:
+            async with database.session() as poll_session:
+                service = _run_service(poll_session)
+                current = await service.get_run(
+                    run_id,
+                    tenant_id=identity.tenant_id,
+                    actor_id=identity.actor_id,
+                )
+                events = await service.list_events(
+                    run_id,
+                    tenant_id=identity.tenant_id,
+                    actor_id=identity.actor_id,
+                    after_sequence=cursor,
+                    limit=500,
+                )
+            for event in events:
+                cursor = event.sequence
+                yield _encode_run_event(event, trace_id=current.trace_id)
+                last_heartbeat = time.monotonic()
+            if current.status in TERMINAL_RUN_STATUSES and cursor >= current.last_sequence:
+                return
+            now = time.monotonic()
+            if now - last_heartbeat >= heartbeat_interval:
+                yield ": heartbeat\n\n"
+                last_heartbeat = now
+            await asyncio.sleep(poll_interval)
+
+    return StreamingResponse(
+        event_stream(),
+        media_type="text/event-stream",
+        headers={
+            "Cache-Control": "no-cache, no-transform",
+            "Connection": "keep-alive",
+            "X-Accel-Buffering": "no",
+            "X-Trace-ID": run.trace_id,
+            "X-Run-ID": str(run.id),
+        },
+    )
+
+
+def _encode_run_event(event: RunEventRead, *, trace_id: str) -> str:
+    """Project a validated durable event back to the public chat protocol."""
+
+    timestamp = event.created_at.timestamp()
+    if event.event_type == "run.status":
+        if event.status == "cancelled":
+            cancelled = ChatCancelledData(trace_id=trace_id).model_dump(mode="json")
+            cancelled.update(
+                {
+                    "run_id": str(event.run_id),
+                    "sequence": event.sequence,
+                    "timestamp": timestamp,
+                }
+            )
+            return encode_sse("cancelled", cancelled, sequence=event.sequence)
+        code = (
+            "CHAT_RUN_INTERRUPTED"
+            if event.status == "interrupted"
+            else "CHAT_EXECUTION_FAILED"
+        )
+        message = (
+            "服务执行中断, 可刷新后恢复。"
+            if event.status == "interrupted"
+            else "本次对话执行失败, 请稍后重试。"
+        )
+        failed = ChatErrorData(
+            code=code,
+            message=message,
+            trace_id=trace_id,
+            retriable=True,
+        ).model_dump(mode="json")
+        failed.update(
+            {
+                "run_id": str(event.run_id),
+                "sequence": event.sequence,
+                "timestamp": timestamp,
+            }
+        )
+        return encode_sse("error", failed, sequence=event.sequence)
+
+    payload = dict(event.payload)
+    payload.update(
+        {
+            "run_id": str(event.run_id),
+            "sequence": event.sequence,
+            "timestamp": timestamp,
+        }
+    )
+    event_name = event.event_type
+    if event.event_type in {"reasoning_summary", "run.resumed"}:
+        event_name = "thinking"
+        if event.event_type == "run.resumed":
+            payload = {
+                "content": event.public_summary or "已恢复执行",
+                "status": "running",
+                "run_id": str(event.run_id),
+                "sequence": event.sequence,
+                "timestamp": timestamp,
+            }
+    return encode_sse(event_name, payload, sequence=event.sequence)
 
 
 @router.post("/runs/{run_id}/cancel", response_model=AgentRunRead)

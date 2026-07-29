@@ -137,6 +137,8 @@ class Settings(BaseSettings):
     chat_session_lease_ttl_seconds: int = Field(default=300, ge=60, le=900)
     agent_run_recovery_batch_size: int = Field(default=500, ge=1, le=5_000)
     agent_run_recovery_guard_ttl_seconds: int = Field(default=30, ge=5, le=60)
+    agent_run_stream_poll_interval_seconds: float = Field(default=0.25, ge=0.05, le=2)
+    agent_run_stream_heartbeat_seconds: float = Field(default=10.0, ge=1, le=30)
     memory_collection_name: str = Field(
         default="gerclaw_user_memory_v1",
         min_length=3,

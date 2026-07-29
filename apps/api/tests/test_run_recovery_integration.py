@@ -146,6 +146,12 @@ async def test_recovery_interrupts_only_runs_without_cross_replica_lease(
     assert orphan.completed_at is not None
     assert active is not None and active.status == "running"
     assert [event.status for event in orphan_events] == ["interrupted"]
+    active_recoverable = await client.get(
+        f"/api/v1/conversations/{active_session_id}/recoverable-run"
+    )
+    assert active_recoverable.status_code == 200, active_recoverable.text
+    assert active_recoverable.json()["run"]["id"] == str(active_run_id)
+    assert active_recoverable.json()["run"]["status"] == "running"
 
 
 @pytest.mark.integration
@@ -347,6 +353,15 @@ async def test_explicit_resume_adopts_interrupted_run_and_completes_it(
     assert resumed.current_answer_version_id is not None
     assert "run.resumed" in [event.event_type for event in events]
     assert [event.sequence for event in events] == list(range(1, len(events) + 1))
+    replay_stream = await client.get(
+        f"/api/v1/runs/{run_id}/stream",
+        params={"after_sequence": 0},
+    )
+    assert replay_stream.status_code == 200, replay_stream.text
+    assert "id: 1" in replay_stream.text
+    assert "event: done" in replay_stream.text
+    assert f'"run_id":"{run_id}"' in replay_stream.text
+    assert f'"sequence":{events[-1].sequence}' in replay_stream.text
     no_longer_recoverable = await client.get(
         f"/api/v1/conversations/{session_id}/recoverable-run"
     )
