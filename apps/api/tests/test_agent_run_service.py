@@ -17,6 +17,7 @@ from gerclaw_api.modules.agent_harness.routing import RouteKind
 from gerclaw_api.modules.agent_harness.run_lifecycle import (
     RunFenceConflictError,
     RunRevisionConflictError,
+    RunTerminalConflictError,
 )
 from gerclaw_api.services.agent_run_service import (
     AgentRunConflictError,
@@ -172,6 +173,7 @@ async def test_event_sequence_and_after_sequence_replay_are_monotonic() -> None:
         ),
         tenant_id=TENANT,
         actor_id=ACTOR,
+        fencing_token=7,
     )
     second = await service.append_event(
         created.id,
@@ -182,6 +184,7 @@ async def test_event_sequence_and_after_sequence_replay_are_monotonic() -> None:
         ),
         tenant_id=TENANT,
         actor_id=ACTOR,
+        fencing_token=7,
     )
     replay = await service.list_events(
         created.id,
@@ -193,6 +196,39 @@ async def test_event_sequence_and_after_sequence_replay_are_monotonic() -> None:
     assert (first.sequence, second.sequence) == (1, 2)
     assert [event.sequence for event in replay] == [2]
     assert (await service.get_run(created.id, tenant_id=TENANT, actor_id=ACTOR)).last_sequence == 2
+
+
+@pytest.mark.asyncio
+async def test_event_append_rejects_stale_worker_and_terminal_run() -> None:
+    repository = _Repository()
+    service = AgentRunService(repository)
+    created = await service.create_run(_request(), tenant_id=TENANT, actor_id=ACTOR)
+    event = RunEventWrite(event_type="plan.started", status="running")
+
+    with pytest.raises(RunFenceConflictError):
+        await service.append_event(
+            created.id,
+            event,
+            tenant_id=TENANT,
+            actor_id=ACTOR,
+            fencing_token=6,
+        )
+    completed = await service.transition(
+        created.id,
+        AgentRunStatus.COMPLETED,
+        tenant_id=TENANT,
+        actor_id=ACTOR,
+        expected_revision=1,
+        fencing_token=7,
+    )
+    with pytest.raises(RunTerminalConflictError, match="terminal agent run"):
+        await service.append_event(
+            completed.id,
+            event,
+            tenant_id=TENANT,
+            actor_id=ACTOR,
+            fencing_token=7,
+        )
 
 
 @pytest.mark.asyncio

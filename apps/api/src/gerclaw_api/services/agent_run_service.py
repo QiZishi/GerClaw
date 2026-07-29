@@ -7,6 +7,7 @@ from datetime import UTC, datetime
 
 from gerclaw_api.database.models import AgentRun, RunEvent
 from gerclaw_api.domain.run_schemas import (
+    TERMINAL_RUN_STATUSES,
     AgentRunCreate,
     AgentRunRead,
     AgentRunStatus,
@@ -16,7 +17,9 @@ from gerclaw_api.domain.run_schemas import (
 from gerclaw_api.modules.agent_harness.routing import RouteKind
 from gerclaw_api.modules.agent_harness.run_lifecycle import (
     AgentRunStateMachine,
+    RunFenceConflictError,
     RunLifecycleState,
+    RunTerminalConflictError,
 )
 from gerclaw_api.repositories.agent_run import (
     AgentRunRepository,
@@ -120,8 +123,15 @@ class AgentRunService:
         *,
         tenant_id: str,
         actor_id: str,
+        fencing_token: int,
     ) -> RunEventRead:
         run = await self._locked_run(run_id, tenant_id=tenant_id, actor_id=actor_id)
+        if run.fencing_token != fencing_token:
+            await self._repository.rollback()
+            raise RunFenceConflictError("agent run fencing token is stale")
+        if AgentRunStatus(run.status) in TERMINAL_RUN_STATUSES:
+            await self._repository.rollback()
+            raise RunTerminalConflictError("terminal agent run cannot accept events")
         event = await self._stage_event(run, request)
         try:
             await self._repository.flush()
