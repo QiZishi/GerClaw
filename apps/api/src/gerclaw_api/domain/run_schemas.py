@@ -57,6 +57,33 @@ class RunEventRead(BaseModel):
     created_at: datetime
 
 
+class RunEventWrite(BaseModel):
+    """Validated public event input before it crosses the persistence boundary."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    event_type: BoundedIdentifier
+    status: BoundedIdentifier
+    public_summary: BoundedPublicText | None = None
+    payload: dict[str, JsonValue] = Field(default_factory=dict, max_length=50)
+    duration_ms: int | None = Field(default=None, ge=0)
+
+
+class AgentRunCreate(BaseModel):
+    """Validated immutable identity and initial state for one durable run."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    id: uuid.UUID = Field(default_factory=uuid.uuid4)
+    conversation_id: uuid.UUID
+    input_message_id: uuid.UUID
+    trace_id: BoundedIdentifier
+    route: RouteKind
+    context_snapshot: dict[str, JsonValue] = Field(default_factory=dict, max_length=100)
+    plan: dict[str, JsonValue] = Field(default_factory=dict, max_length=100)
+    fencing_token: int = Field(ge=1)
+
+
 class AgentRunRead(BaseModel):
     model_config = ConfigDict(extra="forbid", frozen=True)
 

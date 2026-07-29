@@ -7,11 +7,13 @@ import pytest
 from pydantic import ValidationError
 
 from gerclaw_api.domain.run_schemas import (
+    AgentRunCreate,
     AgentRunRead,
     AgentRunStatus,
     ArtifactWrite,
     FeedbackReconcileRequest,
     RunEventRead,
+    RunEventWrite,
 )
 from gerclaw_api.modules.agent_harness.routing import RouteKind
 
@@ -55,6 +57,29 @@ def test_run_event_payload_and_public_summary_are_bounded() -> None:
             public_summary="a" * 5_001,
             created_at=datetime.now(UTC),
         )
+    with pytest.raises(ValidationError):
+        RunEventWrite(
+            event_type="text_delta",
+            status="running",
+            payload={f"k{index}": index for index in range(51)},
+        )
+
+
+def test_run_create_rejects_unbounded_snapshot_and_invalid_fence() -> None:
+    values = {
+        "conversation_id": uuid4(),
+        "input_message_id": uuid4(),
+        "trace_id": "trace_abcdefgh",
+        "route": RouteKind.STANDARD,
+        "context_snapshot": {f"k{index}": index for index in range(101)},
+        "fencing_token": 1,
+    }
+    with pytest.raises(ValidationError):
+        AgentRunCreate.model_validate(values)
+    values["context_snapshot"] = {}
+    values["fencing_token"] = 0
+    with pytest.raises(ValidationError):
+        AgentRunCreate.model_validate(values)
     with pytest.raises(ValidationError):
         RunEventRead(
             run_id=uuid4(),
