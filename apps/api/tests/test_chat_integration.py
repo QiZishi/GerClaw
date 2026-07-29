@@ -560,6 +560,7 @@ async def test_explicit_cancel_keeps_sse_open_until_tool_and_trace_are_terminal(
     assert (
         await client.post("/api/v1/sessions", json={"session_id": str(session_id)})
     ).status_code == 201
+    _BlockingSkillHarness.entered = asyncio.Event()
     monkeypatch.setattr(chat_service_module, "ProductionAgentHarness", _BlockingSkillHarness)
 
     chat_task = asyncio.create_task(
@@ -865,6 +866,7 @@ async def test_run_cancel_endpoint_fences_and_notifies_active_worker(
     assert (
         await client.post("/api/v1/sessions", json={"session_id": str(session_id)})
     ).status_code == 201
+    _BlockingSkillHarness.entered = asyncio.Event()
     monkeypatch.setattr(chat_service_module, "ProductionAgentHarness", _BlockingSkillHarness)
     chat_task = asyncio.create_task(
         client.post(
