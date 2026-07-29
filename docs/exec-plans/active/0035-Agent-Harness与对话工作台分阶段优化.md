@@ -483,6 +483,26 @@ GUI 证据位于 gitignored 的 `output/playwright/stage3-routing/`：桌面和�
 急症卡下半部、顶部标题与菜单空间偏紧，继续作为阶段 5 的 UI 重构项，不在本阶段扩大范围。修复集仍待独立复审，
 因此阶段 3 继续保持未完成状态。
 
+第二轮独立复审仍为 REJECT（P0=0、P1=2、P2=1）。已确认上一轮 Emergency、已有 unknown 的 ASK、指定 STEP
+原句、C3 标签和内建 checkpoint 均闭环，但发现真实新会话的 ClinicalState 没有预置 unknown，调药请求仍选择
+ANSWER；并复现“阿司匹林换氯吡格雷”“不要继续服用阿司匹林”“阿司匹林替成氯吡格雷”三种 STEP 绕过。
+修复继续按模块提交：
+
+- `0de7cff` 从实际 source-linked state 推导年龄、过敏状态、完整当前用药和基础病/肝肾功能缺口，使空状态调药
+  请求也执行 mandatory ASK；问题写回 Run ClinicalState。用户消息投影增加有界、确定性的年龄、明确过敏/
+  过敏否认、当前用药、症状、病史和时间线识别，仍只产生 `reported` 用户来源事实。
+- `22931a1` 扩展停换药归一化，阻断裸 `换`、`替成` 和“不要继续服用”，同时通过负向测试保留“不要自行停药”
+  这类安全劝阻。
+
+再次组合执行 9 个相关测试文件，140/140 通过；Ruff 通过；Mypy 对 53 个生产文件检查通过。最终真实
+Playwright CLI 使用全新访客和空会话输入“这些药需要怎么调整剂量?”，SSE 200、约 423 ms，页面直接要求补充
+四类 STEP 信息且没有证据检索阶段；持久化 Run 为 `standard/completed`，事件仅
+`agent_start → text_delta → done`，Trace 没有 `model.call` 或 `tool.call`。截图、API 日志和最终 Trace 位于
+`output/playwright/stage3-rereview/mandatory-ask-desktop.png`、`api-final.log` 和
+`.playwright-cli/traces/trace-1785351953743.trace`。选中 Skill 的 AgentScope 调用尚未进入 checkpoint、当前
+optional node 如实为 `skipped`，保留为阶段 4 能力组合 P2，不宣称完整能力 DAG 已闭环。阶段 3 等待第三轮独立
+复审。
+
 ### 阶段 4
 
 完成 Evidence/Citation 真实闭环、Memory proposed/confirmed/conflict 治理和受治理 GerClaw 能力清单；附件、解析、检索和临床观察跨节点复用。
