@@ -18,7 +18,7 @@ GerClaw 保持老年医学定位。眼科病灶定位不在本计划范围。在
 |---|---|---|
 | 0 | 冻结基线与真实运行审计 | 已完成：HTTP/API/测试、Playwright GUI、清理及独立审阅通过 |
 | 1 | Harness 模块化与稳定合同 | 已完成：两轮审阅问题修复，最终独立审阅 ACCEPT |
-| 2 | Run 事实源、状态机和恢复 | 实现与真实 GUI 已完成，等待独立复审 |
+| 2 | Run 事实源、状态机和恢复 | 已完成：两轮 P1 修复、真实 GUI 对抗审计、最终独立复审 ACCEPT |
 | 3 | ClinicalState、动态规划与医疗门禁 | 未开始 |
 | 4 | 证据、Memory 与受治理能力组合 | 未开始 |
 | 5 | 对话工作台 UI 与交互重构 | 未开始 |
@@ -413,8 +413,15 @@ Next production build：passed
   `output/playwright/stage2-terminal-race/app.log` 和
   `.playwright-cli/traces/trace-1785345955687.trace`。
 
-审计后已删除测试会话并停用精确测试账户，浏览器已关闭。移动端 sticky Composer 对较长急症卡的既有遮挡问题仍登记在
-阶段 5；本阶段未用恢复功能扩大 UI 重构范围。
+最终独立复审重新执行后端目标单测 62/62、真实 PostgreSQL+Redis 集成 18/18、前端目标测试 30/30、
+Ruff、ESLint 和 Next production build，确认 P0/P1 均为 0，结论 ACCEPT。复审所留“终态 history 回读可能覆盖
+极窄窗口内新生成”的 P2 已由 `22d001f` 在写 store 前复验 `isGenerating`，再次通过 10 个 chat tests、ESLint
+和 production build。
+
+审计后已精确删除两个测试会话（均返回 200），通过真实账户停用对话框停用
+`gerclaw_reconnect_20260730`（204），关闭 Playwright 浏览器和 API/Next 进程，并停止 PostgreSQL、Redis、
+Qdrant 容器；未删除 volume。3000、8000、5432、6379、6333 均无监听。移动端 sticky Composer 对较长急症卡的
+既有遮挡问题仍登记在阶段 5；本阶段未用恢复功能扩大 UI 重构范围。
 
 ### 阶段 3
 
