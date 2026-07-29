@@ -17,6 +17,7 @@ import { cn } from "@/lib/utils";
 import { useAppStore } from "@/stores/appStore";
 import { useChatStore } from "@/stores/chatStore";
 import type { Message, RightPanelType } from "@/types";
+import type { AnswerVersion } from "@/services/gerclaw/run-contract";
 
 interface MessageBubbleProps {
   message: Message;
@@ -25,6 +26,11 @@ interface MessageBubbleProps {
   onShare?: (id: string) => void;
   onDelete?: (id: string) => void;
   onEdit?: (id: string) => void;
+  onAnswerVersionSelected?: (
+    sessionId: string,
+    messageId: string,
+    version: AnswerVersion,
+  ) => Promise<void>;
   isLastMessage?: boolean;
 }
 
@@ -35,6 +41,7 @@ export function MessageBubble({
   onShare,
   onDelete,
   onEdit,
+  onAnswerVersionSelected,
   isLastMessage,
 }: MessageBubbleProps) {
   const [appeared, setAppeared] = useState(false);
@@ -139,6 +146,7 @@ export function MessageBubble({
             onShare={onShare}
             onDelete={onDelete}
             onEdit={onEdit}
+            onAnswerVersionSelected={onAnswerVersionSelected}
           />
         </div>
       </div>

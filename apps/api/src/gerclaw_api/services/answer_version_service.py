@@ -5,13 +5,18 @@ from __future__ import annotations
 import uuid
 from datetime import UTC, datetime
 
-from gerclaw_api.database.models import AgentRun, AnswerVersion
+from gerclaw_api.database.models import AgentRun, AnswerVersion, Message
 from gerclaw_api.domain.run_schemas import (
     AnswerVersionRead,
     AnswerVersionRegister,
     AnswerVersionSelect,
 )
 from gerclaw_api.repositories.answer_version import AnswerVersionRepository
+from gerclaw_api.services.message_content import (
+    StoredMessageContentError,
+    read_message_citations,
+    read_message_text,
+)
 
 
 class AnswerVersionNotFoundError(LookupError):
@@ -50,6 +55,7 @@ class AnswerVersionService:
         if message is None:
             await self._repository.rollback()
             raise AnswerVersionNotFoundError(str(request.assistant_message_id))
+        await self._validate_message_projection(message)
         producer_run_id = request.producer_run_id or run.id
         producer_run = await self._repository.get_owned_producer_run(
             producer_run_id,
@@ -64,7 +70,7 @@ class AnswerVersionService:
             run.id, request.assistant_message_id
         )
         if existing is not None:
-            result = self.to_public(existing)
+            result = self.to_public(existing, message)
             await self._repository.rollback()
             return result
 
@@ -115,7 +121,7 @@ class AnswerVersionService:
         except BaseException:
             await self._repository.rollback()
             raise
-        return self.to_public(version)
+        return self.to_public(version, message)
 
     async def list_versions(
         self,
@@ -129,9 +135,18 @@ class AnswerVersionService:
             raise ValueError("limit must be between 1 and 100")
         run = await self._locked_run(run_id, tenant_id=tenant_id, actor_id=actor_id)
         versions = await self._repository.list_versions(run.id, limit=limit)
-        result = [self.to_public(version) for version in versions]
-        await self._repository.rollback()
-        return result
+        try:
+            result: list[AnswerVersionRead] = []
+            for version in versions:
+                message = await self._message_for_version(
+                    version,
+                    run=run,
+                    tenant_id=tenant_id,
+                )
+                result.append(self.to_public(version, message))
+            return result
+        finally:
+            await self._repository.rollback()
 
     async def select(
         self,
@@ -157,8 +172,17 @@ class AnswerVersionService:
         if target is None:
             await self._repository.rollback()
             raise AnswerVersionNotFoundError(str(version_id))
+        message = await self._message_for_version(
+            target,
+            run=run,
+            tenant_id=tenant_id,
+        )
+        if message is None:
+            await self._repository.rollback()
+            raise AnswerVersionNotFoundError(str(version_id))
+        await self._validate_message_projection(message)
         if target.id == current.id:
-            result = self.to_public(target)
+            result = self.to_public(target, message)
             await self._repository.rollback()
             return result
 
@@ -172,7 +196,30 @@ class AnswerVersionService:
         except BaseException:
             await self._repository.rollback()
             raise
-        return self.to_public(target)
+        return self.to_public(target, message)
+
+    async def _message_for_version(
+        self,
+        version: AnswerVersion,
+        *,
+        run: AgentRun,
+        tenant_id: str,
+    ) -> Message | None:
+        if version.assistant_message_id is None:
+            return None
+        return await self._repository.get_assistant_message(
+            version.assistant_message_id,
+            tenant_id=tenant_id,
+            conversation_id=run.conversation_id,
+        )
+
+    async def _validate_message_projection(self, message: Message) -> None:
+        try:
+            read_message_text(message)
+            read_message_citations(message)
+        except StoredMessageContentError as error:
+            await self._repository.rollback()
+            raise AnswerVersionDataError(str(error)) from error
 
     async def _locked_run(
         self,
@@ -199,15 +246,25 @@ class AnswerVersionService:
         return run.current_answer_version_id == current_id
 
     @staticmethod
-    def to_public(version: AnswerVersion) -> AnswerVersionRead:
-        return AnswerVersionRead(
-            id=version.id,
-            run_id=version.run_id,
-            producer_run_id=version.producer_run_id,
-            answer_group_id=version.answer_group_id,
-            assistant_message_id=version.assistant_message_id,
-            version=version.version,
-            is_current=version.is_current,
-            supersedes_id=version.supersedes_id,
-            created_at=version.created_at,
-        )
+    def to_public(
+        version: AnswerVersion,
+        message: Message | None = None,
+    ) -> AnswerVersionRead:
+        try:
+            answer_markdown = read_message_text(message) if message is not None else None
+            citations = read_message_citations(message) if message is not None else ()
+            return AnswerVersionRead(
+                id=version.id,
+                run_id=version.run_id,
+                producer_run_id=version.producer_run_id,
+                answer_group_id=version.answer_group_id,
+                assistant_message_id=version.assistant_message_id,
+                version=version.version,
+                is_current=version.is_current,
+                supersedes_id=version.supersedes_id,
+                answer_markdown=answer_markdown,
+                citations=citations,
+                created_at=version.created_at,
+            )
+        except StoredMessageContentError as error:
+            raise AnswerVersionDataError(str(error)) from error

@@ -14,6 +14,7 @@ import {
 } from "lucide-react";
 
 import { MessageFeedbackDialog } from "@/components/chat/message/MessageFeedbackDialog";
+import { AnswerVersionSwitcher } from "@/components/chat/message/AnswerVersionSwitcher";
 import { MessageVoiceReadButton } from "@/components/chat/message/MessageVoiceReadButton";
 import { useMessageActions } from "@/components/chat/message/useMessageActions";
 import { Button } from "@/components/ui/button";
@@ -27,6 +28,7 @@ import {
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { cn } from "@/lib/utils";
 import type { Message } from "@/types";
+import type { AnswerVersion } from "@/services/gerclaw/run-contract";
 
 interface MessageActionsProps {
   message: Message;
@@ -36,6 +38,11 @@ interface MessageActionsProps {
   onShare?: (id: string) => void;
   onDelete?: (id: string) => void;
   onEdit?: (id: string) => void;
+  onAnswerVersionSelected?: (
+    sessionId: string,
+    messageId: string,
+    version: AnswerVersion,
+  ) => Promise<void>;
 }
 
 export function MessageActions(props: MessageActionsProps) {
@@ -50,6 +57,7 @@ export function MessageActions(props: MessageActionsProps) {
   const supportsRunFeedback = Boolean(message.executionRunId);
   const canFeedback = !isUser && message.status === "done" && (supportsRunFeedback || message.traceId);
   const feedback = actions.feedback;
+  const onAnswerVersionSelected = props.onAnswerVersionSelected;
 
   return (
     <>
@@ -102,6 +110,24 @@ export function MessageActions(props: MessageActionsProps) {
             seniorMode={actions.seniorMode}
             onClick={() => props.onRegenerate?.(message.id)}
             icon={<RefreshCw className="size-4" />}
+          />
+        )}
+        {!isUser && message.status === "done" && (
+          <AnswerVersionSwitcher
+            runId={message.answerGroupRunId}
+            currentVersionId={message.answerVersionId}
+            currentVersion={message.answerVersion}
+            seniorMode={actions.seniorMode}
+            onSelected={
+              onAnswerVersionSelected
+                ? (version) =>
+                    onAnswerVersionSelected(
+                      message.sessionId,
+                      message.id,
+                      version,
+                    )
+                : undefined
+            }
           />
         )}
         {!isUser && message.status === "done" && actions.plainText && (

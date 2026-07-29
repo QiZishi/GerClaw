@@ -5,15 +5,20 @@ from __future__ import annotations
 import uuid
 from typing import Literal, cast
 
-from pydantic import BaseModel, ConfigDict, Field, TypeAdapter, ValidationError
+from pydantic import TypeAdapter, ValidationError
 
 from gerclaw_api.database.models import AnswerVersion, ConversationSession, Message
 from gerclaw_api.domain.chat_schemas import ChatMessageRead
 from gerclaw_api.modules.agent_harness.protocols import ConversationHistoryMessage
-from gerclaw_api.modules.contracts import AgentResponse, Citation, SafetyDecision
+from gerclaw_api.modules.contracts import AgentResponse, SafetyDecision
 from gerclaw_api.repositories.conversation import (
     ConversationConflictError,
     ConversationRepository,
+)
+from gerclaw_api.services.message_content import (
+    StoredMessageContentError,
+    read_message_citations,
+    read_message_text,
 )
 
 
@@ -25,14 +30,6 @@ class ConversationDataError(RuntimeError):
     """Raised when encrypted persisted content fails its schema boundary."""
 
 
-class _StoredTextBlock(BaseModel):
-    model_config = ConfigDict(extra="forbid")
-
-    type: Literal["text"] = "text"
-    text: str = Field(min_length=1, max_length=50_000)
-
-
-_CITATIONS = TypeAdapter(list[Citation])
 _SAFETY = TypeAdapter(SafetyDecision)
 
 
@@ -292,17 +289,16 @@ class ConversationService:
         *,
         answer_version: AnswerVersion | None = None,
     ) -> ChatMessageRead:
-        citations_value = message.message_metadata.get("citations", [])
         try:
-            citations = _CITATIONS.validate_python(citations_value)
-        except ValidationError as error:
-            raise ConversationDataError("stored message citations are invalid") from error
+            citations = read_message_citations(message)
+        except StoredMessageContentError as error:
+            raise ConversationDataError(str(error)) from error
         return ChatMessageRead(
             id=message.id,
             trace_id=message.trace_id,
             role=cast(Literal["user", "assistant"], message.role),
             text=self._message_text(message),
-            citations=citations[:50],
+            citations=citations,
             answer_group_run_id=(
                 answer_version.run_id if answer_version is not None else None
             ),
@@ -344,10 +340,6 @@ class ConversationService:
     @staticmethod
     def _message_text(message: Message) -> str:
         try:
-            blocks = [_StoredTextBlock.model_validate(item) for item in message.content]
-        except (ValidationError, TypeError) as error:
-            raise ConversationDataError("stored message content is invalid") from error
-        text = "\n".join(block.text for block in blocks).strip()
-        if not text:
-            raise ConversationDataError("stored message text is empty")
-        return text
+            return read_message_text(message)
+        except StoredMessageContentError as error:
+            raise ConversationDataError(str(error)) from error

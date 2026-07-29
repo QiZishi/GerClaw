@@ -29,7 +29,7 @@ export function toFrontendSessions(items: BackendSession[], role: Session["role"
   return items.map((item) => toFrontendSession(item, role));
 }
 
-function toCitation(
+export function toFrontendCitation(
   source: BackendSessionMessages["messages"][number]["citations"][number],
   index: number
 ): Citation {
@@ -52,7 +52,7 @@ function toCitation(
 /** Convert the validated owner-visible API projection into presentation blocks. */
 export function toFrontendMessages(response: BackendSessionMessages): Message[] {
   return response.messages.map((item) => {
-    const citations = item.citations.map(toCitation);
+    const citations = item.citations.map(toFrontendCitation);
     return {
       id: item.id,
       sessionId: response.session_id,

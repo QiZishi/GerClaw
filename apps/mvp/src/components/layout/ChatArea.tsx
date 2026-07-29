@@ -47,11 +47,16 @@ import {
 } from "@/services/gerclaw/runs";
 import { planConversationRecovery } from "@/services/gerclaw/conversation-recovery";
 import { readSessionSkills, replaceSessionSkills } from "@/services/gerclaw/skills";
-import { readConversationMessages, toFrontendMessages } from "@/services/gerclaw/conversation-history";
+import {
+  readConversationMessages,
+  toFrontendCitation,
+  toFrontendMessages,
+} from "@/services/gerclaw/conversation-history";
 import { canHydrateConversationHistory } from "@/services/gerclaw/conversation-hydration-policy";
 import { registerParsedDocument } from "@/services/gerclaw/documents";
 import { fivePrescriptionDraftToMarkdown } from "@/services/gerclaw/prescription-report";
 import type { FivePrescriptionDraft } from "@/services/gerclaw/schemas";
+import type { AnswerVersion } from "@/services/gerclaw/run-contract";
 import { generateId } from "@/lib/format";
 import { toast } from "@/components/ui/toast";
 import { stopActiveAudioPlayer } from "@/lib/audioPlaybackCoordinator";
@@ -275,6 +280,33 @@ export function ChatArea() {
   /** 取消删除 */
   const handleDeleteCancel = () => {
     setDeleteMessageId(null);
+  };
+
+  const handleAnswerVersionSelected = async (
+    sessionId: string,
+    messageId: string,
+    version: AnswerVersion,
+  ) => {
+    if (!version.answer_markdown) {
+      throw new Error("该回答版本正文已不可用");
+    }
+    const target = useChatStore.getState().getMessages(sessionId)
+      .find((message) => message.id === messageId);
+    if (!target) return;
+    updateMessage(messageId, {
+      blocks: [{
+        kind: "text",
+        id: `block_${messageId}_${version.id}`,
+        content: version.answer_markdown,
+      }],
+      citations: version.citations.map(toFrontendCitation),
+      answerGroupRunId: version.run_id,
+      answerVersionId: version.id,
+      answerVersion: version.version,
+      executionRunId: version.producer_run_id,
+      feedback: null,
+      feedbackText: undefined,
+    });
   };
 
   const prepareDocuments = useCallback(
@@ -1104,7 +1136,15 @@ export function ChatArea() {
               </div>
             </section>
           )}
-          {messages.length > 0 && <MessageList messages={messages} onRegenerate={handleRegenerate} onShare={(messageId) => setExportMessageId(messageId)} onDelete={handleDeleteRequest} />}
+          {messages.length > 0 && (
+            <MessageList
+              messages={messages}
+              onRegenerate={handleRegenerate}
+              onShare={(messageId) => setExportMessageId(messageId)}
+              onDelete={handleDeleteRequest}
+              onAnswerVersionSelected={handleAnswerVersionSelected}
+            />
+          )}
         </div>
       )}
 

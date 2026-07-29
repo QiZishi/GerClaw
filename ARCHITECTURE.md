@@ -169,6 +169,8 @@ React Component
 指针、AgentRun/RunEvent、审计事件和 Trace 终态在同一事务提交；已完成请求可以按 trace replay，避免重复模型调用
 和重复写入。启动恢复器通过与 worker lease 互斥的 Redis guard 标记无主 Run 为 `interrupted`；账户前端先按
 `after_sequence` 重放公开事件，再显式恢复同一 Run/Trace。PostgreSQL 始终是事实源，Redis 只承担有 TTL 的租约和互斥。
+回答版本列表与选择使用 owner-scoped `AnswerVersion` v1.2 投影，同时返回经严格校验的对应 Markdown 与 Citation；
+访客可在当前会话内切换既有版本，但不因此获得账户级会话历史读取权限。
 
 ## 7. Agent-Legible Invariants
 

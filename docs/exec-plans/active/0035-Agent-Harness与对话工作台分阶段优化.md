@@ -654,6 +654,11 @@ EncryptedJSON result persistence”的完整集成测试。现有 owner 均为�
 每个模块完成相关测试和真实页面复验后立即 Conventional Commit；阶段结束时再跑前端 lint、unit、build、
 Playwright 和 axe，并交由独立审阅者判定。
 
+截至消息模块：`MessageBubble` 已由 920 行降至 147 行，正文、公开运行提示、TTS、反馈与操作栏均已拆分。
+Run 反馈实测完成 `value=1/revision=0 → value=0/revision=1` reconciliation。回答 v2 生成后，访客选择 v1
+最初暴露账户历史接口 403；未把该结果判为成功，而是将 `AnswerVersion` 升至 v1.2，返回 owner-scoped、
+严格校验的 Markdown/Citation 投影。复测 `PUT current` 为 200、正文恢复为原 v1、无历史 GET、控制台 0 error。
+
 ### 阶段 6
 
 在线只记录去内容化信号；隔离离线环境固定官方优化器来源、commit 和许可证。候选在独立 worktree 配对评测，经过全切片非劣、预算、HMAC sealed test 和人工审批后才能晋升。

@@ -238,6 +238,9 @@ async def test_register_preserves_history_and_moves_current_pointer() -> None:
     )
 
     assert (first.version, second.version) == (1, 2)
+    assert first.schema_version == "1.2"
+    assert first.answer_markdown == "answer 0"
+    assert first.citations == ()
     assert second.answer_group_id == first.answer_group_id
     assert second.supersedes_id == first.id
     assert repository.versions[0].is_current is False
@@ -400,3 +403,22 @@ async def test_registration_rejects_message_not_produced_by_declared_run() -> No
             tenant_id=TENANT,
             actor_id=ACTOR,
         )
+
+
+@pytest.mark.asyncio
+async def test_invalid_stored_answer_projection_fails_before_commit() -> None:
+    repository, messages = _fixtures()
+    messages[0].content = [{"type": "text", "unexpected": "unsafe"}]
+    service = AnswerVersionService(repository)
+
+    with pytest.raises(AnswerVersionDataError, match="stored message content is invalid"):
+        await service.register(
+            repository.run.id,
+            AnswerVersionRegister(assistant_message_id=messages[0].id),
+            tenant_id=TENANT,
+            actor_id=ACTOR,
+        )
+
+    assert repository.commits == 0
+    assert repository.versions == []
+    assert repository.rollbacks == 1

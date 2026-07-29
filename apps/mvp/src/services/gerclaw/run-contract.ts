@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { storedCitationSchema } from "./stored-citation-contract.ts";
 
 const identifierSchema = z.string().regex(/^[a-zA-Z0-9][a-zA-Z0-9_.:-]{0,127}$/);
 const runStatusSchema = z.enum([
@@ -64,7 +65,7 @@ export const recoverableRunSchema = z
 
 export const answerVersionSchema = z
   .object({
-    schema_version: z.literal("1.1"),
+    schema_version: z.literal("1.2"),
     id: z.string().uuid(),
     run_id: z.string().uuid(),
     producer_run_id: z.string().uuid(),
@@ -73,6 +74,8 @@ export const answerVersionSchema = z
     version: z.number().int().positive(),
     is_current: z.boolean(),
     supersedes_id: z.string().uuid().nullable(),
+    answer_markdown: z.string().min(1).max(50_000).nullable(),
+    citations: z.array(storedCitationSchema).max(50),
     created_at: z.string().datetime(),
   })
   .strict();

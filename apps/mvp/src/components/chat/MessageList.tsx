@@ -7,6 +7,7 @@ import { useAppStore } from "@/stores/appStore";
 import { cn } from "@/lib/utils";
 import { MessageBubble } from "./MessageBubble";
 import type { Message } from "@/types";
+import type { AnswerVersion } from "@/services/gerclaw/run-contract";
 
 interface MessageListProps {
   messages: Message[];
@@ -15,6 +16,11 @@ interface MessageListProps {
   onShare?: (id: string) => void;
   onDelete?: (id: string) => void;
   onEdit?: (id: string) => void;
+  onAnswerVersionSelected?: (
+    sessionId: string,
+    messageId: string,
+    version: AnswerVersion,
+  ) => Promise<void>;
 }
 
 export function MessageList({
@@ -24,6 +30,7 @@ export function MessageList({
   onShare,
   onDelete,
   onEdit,
+  onAnswerVersionSelected,
 }: MessageListProps) {
   const bottomRef = useRef<HTMLDivElement>(null);
   const containerRef = useRef<HTMLDivElement>(null);
@@ -138,6 +145,7 @@ export function MessageList({
                 onShare={onShare}
                 onDelete={onDelete}
                 onEdit={onEdit}
+                onAnswerVersionSelected={onAnswerVersionSelected}
                 isLastMessage={isLast}
               />
             );
