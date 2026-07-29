@@ -37,6 +37,10 @@ from gerclaw_api.middleware import set_active_trace
 from gerclaw_api.modules.agent_harness import StreamEvent
 from gerclaw_api.modules.agent_harness.plugin_runtime import (
     CapabilityCatalogRead,
+    CapabilityEntrypoint,
+    CapabilityInvocationContext,
+    CapabilityResult,
+    GovernedCapabilityRuntime,
     get_default_capability_catalog,
 )
 from gerclaw_api.modules.document import DocumentService
@@ -49,6 +53,8 @@ from gerclaw_api.modules.skill import ProductionSkillModule
 from gerclaw_api.modules.validation import validate_public_chat_stream_event
 from gerclaw_api.repositories.account_model_override import SqlAlchemyAccountModelOverrideRepository
 from gerclaw_api.repositories.approval import SqlAlchemyApprovalRepository
+from gerclaw_api.repositories.cga import SqlAlchemyCgaRepository
+from gerclaw_api.repositories.clinical_intake import SqlAlchemyClinicalIntakeRepository
 from gerclaw_api.repositories.conversation import (
     ConversationConflictError,
     SqlAlchemyConversationRepository,
@@ -57,6 +63,7 @@ from gerclaw_api.repositories.document import SqlAlchemyDocumentRepository
 from gerclaw_api.repositories.memory import SqlAlchemyMemoryRepository
 from gerclaw_api.repositories.prescription_draft import SqlAlchemyPrescriptionDraftRepository
 from gerclaw_api.repositories.risk_alert import SqlAlchemyRiskAlertRepository
+from gerclaw_api.repositories.run_artifact import SqlAlchemyRunArtifactRepository
 from gerclaw_api.repositories.run_resume import SqlAlchemyRunResumeRepository
 from gerclaw_api.repositories.skill import SqlAlchemySkillRepository
 from gerclaw_api.repositories.trace import SqlAlchemyTraceRepository
@@ -65,12 +72,14 @@ from gerclaw_api.services.account_model_configuration import (
     resolve_effective_configs,
     resolve_effective_settings,
 )
+from gerclaw_api.services.cga_service import CgaService
 from gerclaw_api.services.chat_cancellation import (
     ChatCancellationRegistry,
     ChatCancellationUnavailable,
 )
 from gerclaw_api.services.chat_run_journal import DatabaseChatRunJournal
 from gerclaw_api.services.chat_service import ChatService
+from gerclaw_api.services.clinical_intake_service import ClinicalIntakeService
 from gerclaw_api.services.conversation_service import (
     ConversationNotFoundError,
     ConversationService,
@@ -78,6 +87,7 @@ from gerclaw_api.services.conversation_service import (
 from gerclaw_api.services.model_egress_audit import SqlAlchemyModelPromptEgressAudit
 from gerclaw_api.services.model_router import FailoverChatModel, bind_model_prompt_egress_audit
 from gerclaw_api.services.rate_limit import RateLimiter
+from gerclaw_api.services.run_artifact_service import RunArtifactService
 from gerclaw_api.services.run_resume_service import RunResumeService
 from gerclaw_api.services.session_lease import SessionLease
 from gerclaw_api.services.trace_service import TraceService
@@ -416,6 +426,95 @@ async def _stream_chat(
                         trace_id=trace_id,
                     )
 
+                document_service = DocumentService(
+                    SqlAlchemyDocumentRepository(database_session), effective_settings
+                )
+                capability_catalog = get_default_capability_catalog()
+                cga_service = CgaService(SqlAlchemyCgaRepository(database_session))
+                intake_service = ClinicalIntakeService(
+                    SqlAlchemyClinicalIntakeRepository(database_session),
+                    document_service,
+                )
+                artifact_service = RunArtifactService(
+                    SqlAlchemyRunArtifactRepository(database_session)
+                )
+
+                async def invoke_cga(
+                    context: CapabilityInvocationContext,
+                    capability_id: str,
+                ) -> CapabilityResult:
+                    active = await cga_service.active(
+                        tenant_id=context.tenant_id,
+                        actor_id=context.actor_id,
+                        limit=5,
+                    )
+                    return CapabilityResult(
+                        capability_id=capability_id,
+                        result_ref=f"cga-workspace:{context.session_id}",
+                        public_summary=f"CGA 工作台已连接，可继续 {len(active.items)} 项评估。",
+                    )
+
+                async def invoke_medication_review(
+                    context: CapabilityInvocationContext,
+                    capability_id: str,
+                ) -> CapabilityResult:
+                    intake = await intake_service.start(
+                        tenant_id=context.tenant_id,
+                        actor_id=context.actor_id,
+                        session_id=uuid.UUID(context.session_id),
+                        kind="medication_review",
+                    )
+                    return CapabilityResult(
+                        capability_id=capability_id,
+                        result_ref=f"clinical-intake:{intake.intake_id}",
+                        public_summary="用药审查信息收集已连接。",
+                    )
+
+                async def invoke_five_prescription(
+                    context: CapabilityInvocationContext,
+                    capability_id: str,
+                ) -> CapabilityResult:
+                    intake = await intake_service.start(
+                        tenant_id=context.tenant_id,
+                        actor_id=context.actor_id,
+                        session_id=uuid.UUID(context.session_id),
+                        kind="prescription",
+                    )
+                    return CapabilityResult(
+                        capability_id=capability_id,
+                        result_ref=f"clinical-intake:{intake.intake_id}",
+                        public_summary="五大处方信息收集已连接。",
+                    )
+
+                async def invoke_artifact_workspace(
+                    context: CapabilityInvocationContext,
+                    capability_id: str,
+                ) -> CapabilityResult:
+                    artifacts = await artifact_service.list_for_conversation(
+                        uuid.UUID(context.session_id),
+                        tenant_id=context.tenant_id,
+                        actor_id=context.actor_id,
+                        limit=50,
+                    )
+                    return CapabilityResult(
+                        capability_id=capability_id,
+                        result_ref=f"artifact-workspace:{context.session_id}",
+                        public_summary=f"报告产物工作台已连接，当前有 {len(artifacts)} 份产物。",
+                    )
+
+                capability_runtime = GovernedCapabilityRuntime(
+                    catalog=capability_catalog,
+                    handlers={
+                        CapabilityEntrypoint.CGA_ASSESSMENT: invoke_cga,
+                        CapabilityEntrypoint.MEDICATION_REVIEW_INTAKE: (
+                            invoke_medication_review
+                        ),
+                        CapabilityEntrypoint.FIVE_PRESCRIPTION_INTAKE: (
+                            invoke_five_prescription
+                        ),
+                        CapabilityEntrypoint.RUN_ARTIFACT: invoke_artifact_workspace,
+                    },
+                )
                 service = ChatService(
                     settings=effective_settings,
                     conversation=ConversationService(
@@ -441,9 +540,7 @@ async def _stream_chat(
                         allowed_tools=frozenset(effective_settings.skill_allowed_tools),
                     ),
                     approval_repository=SqlAlchemyApprovalRepository(database_session),
-                    document_service=DocumentService(
-                        SqlAlchemyDocumentRepository(database_session), effective_settings
-                    ),
+                    document_service=document_service,
                     risk_alert_service=RiskAlertService(
                         SqlAlchemyRiskAlertRepository(database_session)
                     ),
@@ -451,6 +548,8 @@ async def _stream_chat(
                         database,
                         completion_session=database_session,
                     ),
+                    capability_catalog=capability_catalog,
+                    capability_runtime=capability_runtime,
                 )
                 with bind_model_prompt_egress_audit(
                     SqlAlchemyModelPromptEgressAudit(

@@ -347,6 +347,7 @@ export async function streamAgentChat(
     localSessionId: string;
     message: string;
     loadedSkills: string[];
+    requestedCapabilities?: string[];
     uploadedDocumentIds?: string[];
     images?: ImageAttachment[];
     /** Companion has an isolated, no-tool backend policy. */
@@ -402,6 +403,7 @@ export async function streamAgentChat(
         session_id: sessionId,
         message: input.message,
         loaded_skills: input.loadedSkills,
+        requested_capabilities: input.requestedCapabilities ?? [],
         uploaded_files: input.uploadedDocumentIds ?? [],
         images: (input.images ?? []).map((image) => ({
           media_type: image.mimeType,

@@ -5,13 +5,22 @@ boundary. `GovernedCapabilityCatalog` registers the existing CGA, medication rev
 five-prescription, and Run Artifact owners. Manual, workflow, and deterministic automatic
 selection all resolve through the same allowlist; selection never imports or invokes arbitrary
 Python. `GET /api/v1/capabilities` exposes the content-free manifest directory to account and
-guest workspaces through a strict Pydantic/Zod contract.
+guest workspaces through a strict Pydantic/Zod contract. `ChatRequest.requested_capabilities`
+provides the same allowlisted manual path used by workflow and automatic selection.
 
 The production adapter continues to build the Runtime-owned registry for local RAG, Memory,
 and web search tools. `TurnToolkit` composes the owner-provided AgentScope adapters, while
 `ApprovalCoordinator` validates and durably parks AgentScope ASK requests. Successful
 AgentScope Skill results now complete the matching optional DynamicPlan checkpoint; an unknown,
 failed, or repeated Skill result cannot do so.
+
+`GovernedCapabilityRuntime` validates a content-free owner scope and dispatches every selected
+manifest to its exact injected owner entrypoint. Production connects CGA to its resumable
+assessment workspace, medication review and five-prescription to their idempotent typed
+intakes, and report requests to the actor-owned Artifact workspace. Successful owner results
+complete the matching optional plan checkpoint; missing owners, invalid input, or mismatched
+owner results fail closed. The runtime does not copy scoring, intake, draft, or persistence
+logic into the Harness.
 
 `TurnSharedResultStore` and `TurnResultReuse` hold authorized attachment projections, reduced
 clinical observations, and local retrieval results once per
@@ -25,9 +34,8 @@ and budgets are injected at composition. Failure semantics: unknown/duplicate ca
 unsupported workflow selection, scope mismatch, consumer denial, and reuse-key contract drift
 fail closed with stable codes.
 
-Known limit: a manifest is a governed entrypoint descriptor, not a generic invocation API.
-CGA scoring, medication review, five-prescription generation, and Artifact persistence must
-still execute through their existing typed owner state machines. Stage 5 connects these
-entrypoints to the unified workspace. Measure success with full allowlist coverage, one
+Known limit: chat activation connects the existing owner workspace but does not bypass its
+required user-input or clinical-review state transitions. Stage 5 adds the visible manual
+workspace controls and editable Artifact experience. Measure success with full allowlist coverage, one
 retrieval/attachment projection per turn, exact single terminal events, and identical policy
 for manual and automatic selection.

@@ -29,6 +29,7 @@ class ChatRequest(BaseModel):
     session_id: uuid.UUID
     message: str = Field(min_length=1, max_length=4_000)
     loaded_skills: list[SkillId] = Field(default_factory=list, max_length=20)
+    requested_capabilities: list[str] = Field(default_factory=list, max_length=20)
     uploaded_files: list[uuid.UUID] = Field(default_factory=list, max_length=10)
     images: list[ImageInput] = Field(default_factory=list, max_length=10)
     channel: Literal["web"] = "web"
@@ -43,6 +44,16 @@ class ChatRequest(BaseModel):
         if not normalized:
             raise ValueError("message cannot contain only whitespace")
         return normalized
+
+    @field_validator("requested_capabilities")
+    @classmethod
+    def validate_requested_capabilities(cls, value: list[str]) -> list[str]:
+        if len(set(value)) != len(value):
+            raise ValueError("requested capabilities must be unique")
+        for capability_id in value:
+            if not 2 <= len(capability_id) <= 128 or not capability_id.startswith("gerclaw."):
+                raise ValueError("requested capability id is invalid")
+        return value
 
     @model_validator(mode="after")
     def validate_workflow_context(self) -> ChatRequest:

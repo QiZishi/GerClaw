@@ -22,6 +22,11 @@ from gerclaw_api.modules.agent_harness.plugin_runtime.contracts import (
     ToolRegistryFactory,
     ToolRegistryPort,
 )
+from gerclaw_api.modules.agent_harness.plugin_runtime.invocation import (
+    CapabilityInvocationContext,
+    GovernedCapabilityRuntime,
+    OwnerCapabilityHandler,
+)
 from gerclaw_api.modules.agent_harness.plugin_runtime.shared_results import (
     SharedResult,
     SharedResultKind,
@@ -41,10 +46,13 @@ __all__ = [
     "ApprovalCoordinator",
     "CapabilityCatalogRead",
     "CapabilityEntrypoint",
+    "CapabilityInvocationContext",
     "CapabilityResult",
     "CapabilitySelection",
     "CapabilitySelectionMode",
     "GovernedCapabilityCatalog",
+    "GovernedCapabilityRuntime",
+    "OwnerCapabilityHandler",
     "PluginManifest",
     "PluginRuntime",
     "PluginRuntimeError",

@@ -43,6 +43,8 @@ class _StoredResumePlan(BaseModel):
 
     loaded_skill_count: int = Field(ge=0, le=20)
     loaded_skill_ids: tuple[SkillId, ...] = Field(default=(), max_length=20)
+    requested_capability_count: int = Field(default=0, ge=0, le=20)
+    requested_capability_ids: tuple[str, ...] = Field(default=(), max_length=20)
     uploaded_document_count: int = Field(ge=0, le=10)
     uploaded_document_ids: tuple[uuid.UUID, ...] = Field(default=(), max_length=10)
     uploaded_image_count: int = Field(ge=0, le=10)
@@ -68,12 +70,15 @@ class _StoredResumePlan(BaseModel):
     def validate_counts(self) -> _StoredResumePlan:
         if (
             self.loaded_skill_count != len(self.loaded_skill_ids)
+            or self.requested_capability_count != len(self.requested_capability_ids)
             or self.uploaded_document_count != len(self.uploaded_document_ids)
             or self.uploaded_image_count != len(self.uploaded_image_fingerprints)
         ):
             raise ValueError("resume plan counts do not match stored identifiers")
         if len(set(self.loaded_skill_ids)) != len(self.loaded_skill_ids):
             raise ValueError("resume plan contains duplicate Skill ids")
+        if len(set(self.requested_capability_ids)) != len(self.requested_capability_ids):
+            raise ValueError("resume plan contains duplicate capability ids")
         if len(set(self.uploaded_document_ids)) != len(self.uploaded_document_ids):
             raise ValueError("resume plan contains duplicate document ids")
         if (self.regenerate_from_run_id is None) != (
@@ -168,6 +173,7 @@ class RunResumeService:
                 session_id=record.run.conversation_id,
                 message=message,
                 loaded_skills=list(plan.loaded_skill_ids),
+                requested_capabilities=list(plan.requested_capability_ids),
                 uploaded_files=list(plan.uploaded_document_ids),
                 images=images,
                 channel="web",

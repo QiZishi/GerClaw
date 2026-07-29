@@ -31,6 +31,7 @@ export interface ChatRequest {
   session_id: string;
   message: string;
   loaded_skills?: string[];
+  requested_capabilities?: string[];
   uploaded_files?: string[];
 }
 

@@ -38,6 +38,7 @@ from gerclaw_api.modules.agent_harness.planning import (
 from gerclaw_api.modules.agent_harness.plugin_runtime import (
     ApprovalCallback,
     ApprovalCoordinator,
+    CapabilityResult,
     SharedResultScope,
     ToolRegistryFactory,
     TurnResultReuse,
@@ -142,6 +143,8 @@ class ProductionAgentHarness:
         agent_skills: list[AgentScopeSkill] | None = None,
         loaded_skill_ids: list[str] | None = None,
         governed_capability_ids: tuple[str, ...] = (),
+        completed_capability_ids: tuple[str, ...] = (),
+        capability_results: tuple[CapabilityResult, ...] = (),
         uploaded_documents: list[UploadedDocumentContext] | None = None,
         uploaded_images: list[ImageInput] | None = None,
         runtime_principal: RuntimePrincipal,
@@ -193,6 +196,8 @@ class ProductionAgentHarness:
         self._agent_skills = agent_skills or []
         self._loaded_skill_ids = loaded_skill_ids or []
         self._governed_capability_ids = governed_capability_ids
+        self._completed_capability_ids = completed_capability_ids
+        self._capability_results = capability_results
         self._uploaded_documents = uploaded_documents or []
         self._uploaded_images = uploaded_images or []
         self._uploaded_input = UploadedInputProjector(
@@ -423,6 +428,8 @@ class ProductionAgentHarness:
                 tolerate_failure=has_uploaded_evidence or can_search_for_evidence,
             )
             governance.complete(evidence_node)
+        for capability_id in self._completed_capability_ids:
+            governance.complete_optional_capability(capability_id)
         initial_citations = citations_from_results(
             evidence_results,
             minimum_score=self._config.evidence_min_score,
@@ -722,6 +729,9 @@ class ProductionAgentHarness:
                 "search_attempts": [item.model_dump(mode="json") for item in search_attempts],
                 "loaded_skill_ids": list(context.loaded_skills),
                 "governed_capability_ids": list(self._governed_capability_ids),
+                "capability_results": [
+                    item.model_dump(mode="json") for item in self._capability_results
+                ],
                 "shared_result_kinds": turn_results.public_kinds(),
                 "document_focused": document_focused,
                 "evidence_backed_clinical_conclusion": evidence_backed_clinical_conclusion_allowed,

@@ -24,6 +24,7 @@ from gerclaw_api.modules.agent_harness.harness import (
     UnsupportedAgentContextError,
     _CanonicalTextStream,
 )
+from gerclaw_api.modules.agent_harness.plugin_runtime import CapabilityResult
 from gerclaw_api.modules.agent_harness.protocols import ConversationHistoryMessage, StreamEvent
 from gerclaw_api.modules.agent_harness.safety import (
     MEDICAL_DISCLAIMER,
@@ -240,6 +241,8 @@ def _harness(
     memory: _HarnessMemory | None = None,
     agent_skills: list[AgentScopeSkill] | None = None,
     loaded_skill_ids: list[str] | None = None,
+    governed_capability_ids: tuple[str, ...] = (),
+    completed_capability_ids: tuple[str, ...] = (),
 ) -> ProductionAgentHarness:
     return ProductionAgentHarness(
         settings=settings,
@@ -255,6 +258,16 @@ def _harness(
         uploaded_images=uploaded_images,
         agent_skills=agent_skills,
         loaded_skill_ids=loaded_skill_ids,
+        governed_capability_ids=governed_capability_ids,
+        completed_capability_ids=completed_capability_ids,
+        capability_results=tuple(
+            CapabilityResult(
+                capability_id=capability_id,
+                result_ref=f"owner:{capability_id}",
+                public_summary="专业能力已连接。",
+            )
+            for capability_id in completed_capability_ids
+        ),
         runtime_principal=RuntimePrincipal(
             tenant_id="tenant_public0001",
             actor_id="usr_patient00000001",
@@ -306,6 +319,37 @@ async def test_successful_agentscope_skill_completes_its_dynamic_plan_node(
 
     execution = cast(dict[str, Any], response.structured["plan_execution"])
     assert execution["statuses"]["capability_1"] == "completed"
+
+
+@pytest.mark.asyncio
+async def test_successful_owner_capability_completes_its_dynamic_plan_node(
+    unit_settings: Settings,
+) -> None:
+    harness = _harness(
+        unit_settings,
+        model=_HarnessModel(text="已连接老年综合评估工作台 [E1]。"),
+        rag=_HarnessRAG([_evidence()]),
+        governed_capability_ids=("gerclaw.cga",),
+        completed_capability_ids=("gerclaw.cga",),
+    )
+    context = await harness.assemble_context(
+        "108815d7-05bf-4c2a-a977-cd034f390fab",
+        "usr_patient00000001",
+        [],
+        [],
+    )
+
+    response = await harness.process_message(
+        "请结合资料做老年综合评估",
+        "108815d7-05bf-4c2a-a977-cd034f390fab",
+        context,
+        lambda _event: None,
+    )
+
+    execution = cast(dict[str, Any], response.structured["plan_execution"])
+    assert execution["statuses"]["capability_1"] == "completed"
+    assert response.structured["capability_results"]
+    assert "[C1]" in response.text
 
 
 def test_canonical_text_stream_strips_only_outer_whitespace() -> None:

@@ -47,6 +47,7 @@ from gerclaw_api.modules.agent_harness.planning import (
 )
 from gerclaw_api.modules.agent_harness.plugin_runtime import (
     GovernedCapabilityCatalog,
+    PluginRuntime,
     get_default_capability_catalog,
 )
 from gerclaw_api.modules.agent_harness.routing import (
@@ -181,6 +182,7 @@ class ChatService:
         input_output: ProductionInputOutputModule | None = None,
         clinical_state_reducer: ClinicalStateReducer | None = None,
         capability_catalog: GovernedCapabilityCatalog | None = None,
+        capability_runtime: PluginRuntime | None = None,
     ) -> None:
         self._settings = settings
         self._conversation = conversation
@@ -200,6 +202,7 @@ class ChatService:
         self._input_output = input_output or ProductionInputOutputModule()
         self._clinical_state_reducer = clinical_state_reducer or DeterministicClinicalStateReducer()
         self._capability_catalog = capability_catalog or get_default_capability_catalog()
+        self._capability_runtime = capability_runtime
 
     async def process(
         self,
@@ -374,6 +377,7 @@ class ChatService:
         capability_selection = self._capability_catalog.select(
             message=payload.message,
             workflow=workflow.workflow_id,
+            requested=tuple(payload.requested_capabilities),
         )
         planning_capabilities = tuple(
             [
@@ -581,6 +585,8 @@ class ChatService:
                     plan={
                         "loaded_skill_count": len(payload.loaded_skills),
                         "loaded_skill_ids": [str(item) for item in payload.loaded_skills],
+                        "requested_capability_count": len(payload.requested_capabilities),
+                        "requested_capability_ids": payload.requested_capabilities,
                         "governed_capabilities": [
                             item.model_dump(mode="json") for item in capability_selection.selected
                         ],
@@ -611,6 +617,28 @@ class ChatService:
                 actor_id=identity.actor_id,
             )
             self._active_run_id = run.id
+        capability_results = []
+        planned_capabilities = {node.capability for node in dynamic_plan.nodes}
+        selected_owner_capabilities = [
+            item
+            for item in capability_selection.selected
+            if item.capability_id in planned_capabilities
+        ]
+        if selected_owner_capabilities and not emergency_route:
+            if self._capability_runtime is None:
+                raise UnsupportedAgentContextError("governed capability owners are unavailable")
+            for selected_capability in selected_owner_capabilities:
+                capability_results.append(
+                    await self._capability_runtime.invoke(
+                        selected_capability.capability_id,
+                        {
+                            "tenant_id": identity.tenant_id,
+                            "actor_id": identity.actor_id,
+                            "session_id": str(payload.session_id),
+                            "trace_id": trace_id,
+                        },
+                    )
+                )
         if payload.uploaded_files and self._document_service is None and not emergency_route:
             raise UnsupportedAgentContextError("uploaded document storage is unavailable")
         uploaded_documents = (
@@ -665,6 +693,8 @@ class ChatService:
             agent_skills=agent_skills,
             loaded_skill_ids=[] if emergency_route else payload.loaded_skills,
             governed_capability_ids=(() if emergency_route else capability_selection.ids),
+            completed_capability_ids=tuple(item.capability_id for item in capability_results),
+            capability_results=tuple(capability_results),
             uploaded_documents=uploaded_documents,
             uploaded_images=payload.images,
             runtime_principal=_runtime_principal(identity, user_id=conversation.user_id),

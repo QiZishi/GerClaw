@@ -10,8 +10,11 @@ from gerclaw_api.modules.agent_harness.clinical_state import ClinicalState
 from gerclaw_api.modules.agent_harness.context_snapshot import UploadedInputProjector
 from gerclaw_api.modules.agent_harness.plugin_runtime import (
     CapabilityEntrypoint,
+    CapabilityInvocationContext,
+    CapabilityResult,
     CapabilitySelectionMode,
     GovernedCapabilityCatalog,
+    GovernedCapabilityRuntime,
     PluginRuntimeError,
     SharedResultKind,
     SharedResultScope,
@@ -83,6 +86,49 @@ def test_catalog_fails_closed_for_unknown_or_unsupported_manual_capability() -> 
             message="用药审查",
             workflow="companion",
             requested=("gerclaw.medication_review",),
+        )
+
+
+@pytest.mark.asyncio
+async def test_runtime_dispatches_to_exact_owner_and_rejects_mismatched_result() -> None:
+    calls: list[tuple[str, str]] = []
+
+    async def cga_owner(
+        context: CapabilityInvocationContext,
+        capability_id: str,
+    ) -> CapabilityResult:
+        calls.append((capability_id, context.session_id))
+        return CapabilityResult(
+            capability_id=capability_id,
+            result_ref="cga-workspace:session",
+            public_summary="CGA 工作台已连接。",
+        )
+
+    runtime = GovernedCapabilityRuntime(
+        catalog=GovernedCapabilityCatalog(),
+        handlers={CapabilityEntrypoint.CGA_ASSESSMENT: cga_owner},
+    )
+    result = await runtime.invoke(
+        "gerclaw.cga",
+        {
+            "tenant_id": "tenant-default",
+            "actor_id": "usr_test",
+            "session_id": str(uuid.uuid4()),
+            "trace_id": "trace_capability_runtime_0001",
+        },
+    )
+
+    assert result.capability_id == "gerclaw.cga"
+    assert len(calls) == 1
+    with pytest.raises(PluginRuntimeError, match="CAPABILITY_OWNER_UNAVAILABLE"):
+        await runtime.invoke(
+            "gerclaw.medication_review",
+            {
+                "tenant_id": "tenant-default",
+                "actor_id": "usr_test",
+                "session_id": str(uuid.uuid4()),
+                "trace_id": "trace_capability_runtime_0002",
+            },
         )
 
 

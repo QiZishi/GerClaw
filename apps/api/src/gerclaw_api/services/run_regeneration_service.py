@@ -107,6 +107,7 @@ class RunRegenerationService:
     def _validate_plan(plan: dict[str, Any], request: ChatRequest) -> None:
         expected_workflow = plan.get("workflow")
         expected_skills = plan.get("loaded_skill_ids")
+        expected_capabilities = plan.get("requested_capability_ids", [])
         expected_documents = plan.get("uploaded_document_ids")
         expected_images = plan.get("uploaded_image_fingerprints")
         if expected_skills is None and plan.get("loaded_skill_count") == 0:
@@ -122,6 +123,7 @@ class RunRegenerationService:
         if (
             expected_workflow != request.workflow.value
             or expected_skills != [str(item) for item in request.loaded_skills]
+            or expected_capabilities != request.requested_capabilities
             or expected_documents != [str(item) for item in request.uploaded_files]
             or expected_images != actual_images
         ):

@@ -27,7 +27,9 @@ enters the evidence and composition path.
 
 `DynamicPlanExecutor` is the run-time checkpoint authority. A node cannot start until every
 declared dependency completed; required nodes must complete before the unique terminal result;
-unselected optional capability nodes are recorded as skipped. C3 differential directions are
+unselected optional capability nodes are recorded as skipped. Selected owner capabilities are
+completed only after `GovernedCapabilityRuntime` returns a validated matching result; successful
+AgentScope Skill callbacks use the same checkpoint rule. C3 differential directions are
 constructed only from sourced, non-conflicted `ClinicalState` facts, explicitly marked as
 non-diagnostic, and passed to the model as code-owned constraints rather than model-created
 facts.
@@ -35,9 +37,6 @@ facts.
 Consumers: Chat persists plans and the Harness enforces plan/budget decisions. Configuration:
 all thresholds and reserves arrive through `ResolvedHarnessConfig`. Failure semantics:
 unavailable capability, invalid DAG, aggregate plan overflow, or model preflight failure stops
-the next side effect with a stable code. Known limit: governed capabilities selected for the
-AgentScope ReAct layer remain optional plan nodes because that layer does not yet expose a
-per-tool completion callback; they are reported as skipped unless a code-owned executor runs
-them. Acceptance: route-sensitive plans, valid capability references, deterministic SAVI
+the next side effect with a stable code. Acceptance: route-sensitive plans, valid capability references, deterministic SAVI
 fixtures, enforced checkpoint transitions, source-linked non-diagnostic directions, and zero
 model calls after a failed preflight.
