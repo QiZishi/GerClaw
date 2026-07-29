@@ -70,23 +70,60 @@ class SessionLeaseGuard:
     async def assert_owned(self) -> None:
         """Atomically validate and extend ownership before terminal persistence."""
 
-        try:
-            renewed = await cast(
-                Awaitable[Any],
-                self.redis.eval(
-                    _RENEW_SCRIPT,
-                    1,
-                    self.key,
-                    self.owner_value,
-                    str(self.ttl_seconds * 1_000),
-                ),
-            )
-        except RedisError as error:
-            raise SessionLeaseUnavailableError(
-                "conversation serialization service is unavailable"
-            ) from error
-        if int(renewed) != 1:
-            raise SessionLeaseLostError("conversation lease ownership was superseded")
+        await _assert_owner(
+            self.redis,
+            key=self.key,
+            owner_value=self.owner_value,
+            ttl_seconds=self.ttl_seconds,
+        )
+
+
+@dataclass(frozen=True, slots=True)
+class SessionRecoveryGuard:
+    """Renewable recovery mutex held across the PostgreSQL transition."""
+
+    redis: Redis
+    key: str
+    owner_value: str
+    ttl_seconds: int
+
+    async def assert_owned(self) -> None:
+        """Fail closed unless this reconciler still owns and renews the mutex."""
+
+        await _assert_owner(
+            self.redis,
+            key=self.key,
+            owner_value=self.owner_value,
+            ttl_seconds=self.ttl_seconds,
+        )
+
+
+async def _assert_owner(
+    redis: Redis,
+    *,
+    key: str,
+    owner_value: str,
+    ttl_seconds: int,
+) -> None:
+    """Atomically validate and extend one Redis owner token."""
+
+    try:
+        renewed = await cast(
+            Awaitable[Any],
+            redis.eval(
+                _RENEW_SCRIPT,
+                1,
+                key,
+                owner_value,
+                str(ttl_seconds * 1_000),
+            ),
+        )
+    except RedisError as error:
+        raise SessionLeaseUnavailableError(
+            "conversation serialization service is unavailable"
+        ) from error
+    if int(renewed) != 1:
+        raise SessionLeaseLostError("conversation lease ownership was superseded")
 
 
 class SessionLease:
@@ -175,7 +212,7 @@ class SessionLease:
         *,
         tenant_id: str,
         session_id: uuid.UUID,
-    ) -> AsyncIterator[bool]:
+    ) -> AsyncIterator[SessionRecoveryGuard | None]:
         """Exclude new workers while an absent lease is reconciled in PostgreSQL."""
 
         lease_key = self.key_for(tenant_id=tenant_id, session_id=session_id)
@@ -201,21 +238,41 @@ class SessionLease:
                 "conversation serialization service is unavailable"
             ) from error
         owns_recovery = int(acquired) == 1
+        if not owns_recovery:
+            yield None
+            return
+        owner_task = asyncio.current_task()
+        guard = SessionRecoveryGuard(
+            redis=self._redis,
+            key=recovery_key,
+            owner_value=owner_value,
+            ttl_seconds=self._ttl_seconds,
+        )
+        renewal = asyncio.create_task(
+            self._renew(
+                key=recovery_key,
+                owner_value=owner_value,
+                owner_task=owner_task,
+            ),
+            name=f"chat-recovery-lease-{session_id}",
+        )
         try:
-            yield owns_recovery
+            yield guard
         finally:
-            if owns_recovery:
-                with suppress(RedisError):
-                    release = cast(
-                        Awaitable[Any],
-                        self._redis.eval(
-                            _RELEASE_SCRIPT,
-                            1,
-                            recovery_key,
-                            owner_value,
-                        ),
-                    )
-                    await asyncio.shield(release)
+            renewal.cancel()
+            with suppress(asyncio.CancelledError):
+                await renewal
+            with suppress(RedisError):
+                release = cast(
+                    Awaitable[Any],
+                    self._redis.eval(
+                        _RELEASE_SCRIPT,
+                        1,
+                        recovery_key,
+                        owner_value,
+                    ),
+                )
+                await asyncio.shield(release)
 
     async def _renew(
         self,

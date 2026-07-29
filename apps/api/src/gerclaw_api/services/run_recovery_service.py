@@ -13,6 +13,7 @@ from gerclaw_api.repositories.run_recovery import SqlAlchemyRunRecoveryRepositor
 from gerclaw_api.services.agent_run_service import AgentRunNotFoundError, AgentRunService
 from gerclaw_api.services.session_lease import (
     SessionLease,
+    SessionLeaseLostError,
     SessionLeaseUnavailableError,
 )
 
@@ -56,23 +57,25 @@ class StaleAgentRunReconciler:
                     async with self._lease.recover_orphan(
                         tenant_id=candidate.tenant_id,
                         session_id=candidate.conversation_id,
-                    ) as owns_recovery:
-                        if not owns_recovery:
+                    ) as recovery_guard:
+                        if recovery_guard is None:
                             continue
                         try:
                             async with self._database.session() as session:
-                                await AgentRunService(
-                                    SqlAlchemyAgentRunRepository(session)
-                                ).interrupt_owned(
+                                repository = SqlAlchemyAgentRunRepository(session)
+                                await AgentRunService(repository).interrupt_owned(
                                     candidate.run_id,
                                     tenant_id=candidate.tenant_id,
                                     actor_id=candidate.actor_id,
+                                    commit=False,
                                 )
+                                await recovery_guard.assert_owned()
+                                await repository.commit()
                         except (AgentRunNotFoundError, RunTransitionError):
                             # A concurrent cancel or completion won before the
                             # recovery guard was acquired.
                             continue
-                except SessionLeaseUnavailableError as error:
+                except (SessionLeaseLostError, SessionLeaseUnavailableError) as error:
                     raise RunRecoveryUnavailableError(
                         "cannot verify active Agent run leases"
                     ) from error

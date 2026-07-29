@@ -349,6 +349,7 @@ class AgentRunService:
         tenant_id: str,
         actor_id: str,
         occurred_at: datetime | None = None,
+        commit: bool = True,
     ) -> AgentRunRead:
         """Mark a lease-orphaned unfinished run as recoverable interrupted state."""
 
@@ -376,7 +377,8 @@ class AgentRunService:
                 occurred_at=occurred_at,
             )
             await self._repository.flush()
-            await self._repository.commit()
+            if commit:
+                await self._repository.commit()
         except BaseException:
             await self._repository.rollback()
             raise

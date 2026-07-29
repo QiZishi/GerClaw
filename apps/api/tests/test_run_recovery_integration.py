@@ -209,10 +209,13 @@ async def test_recovery_guard_closes_lease_check_to_interrupt_window(
             app.state.database,
             app.state.redis,
             batch_size=10,
-            guard_ttl_seconds=30,
+            guard_ttl_seconds=1,
         ).reconcile()
     )
     await asyncio.wait_for(entered_interrupt.wait(), timeout=3)
+    # Exceed the old fixed TTL. Renewal must keep excluding a worker for the
+    # entire PostgreSQL transition.
+    await asyncio.sleep(1.2)
     lease = SessionLease(app.state.redis, ttl_seconds=60)
     with pytest.raises(SessionBusyError):
         async with lease.acquire(
