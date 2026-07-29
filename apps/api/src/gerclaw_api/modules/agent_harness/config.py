@@ -14,6 +14,7 @@ class ResolvedHarnessConfig(BaseModel):
     max_output_characters: int = Field(ge=1, le=524_288)
     max_output_bytes: int = Field(ge=4, le=16_777_216)
     evidence_top_k: int = Field(ge=1, le=100)
+    evidence_min_score: float = Field(default=0.2, ge=0, le=1)
     memory_top_k: int = Field(ge=1, le=100)
     memory_min_score: float = Field(ge=0, le=1)
     approval_ttl_seconds: int = Field(ge=60, le=86_400)
@@ -37,6 +38,7 @@ class ResolvedHarnessConfig(BaseModel):
             max_output_characters=settings.agent_max_output_characters,
             max_output_bytes=settings.agent_max_output_bytes,
             evidence_top_k=settings.agent_evidence_top_k,
+            evidence_min_score=settings.agent_evidence_min_score,
             memory_top_k=settings.memory_retrieval_top_k,
             memory_min_score=settings.memory_min_score,
             approval_ttl_seconds=settings.agent_approval_ttl_seconds,

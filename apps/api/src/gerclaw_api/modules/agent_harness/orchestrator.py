@@ -445,7 +445,11 @@ class ProductionAgentHarness:
                 },
             )
             governance.complete(evidence_node)
-        initial_citations = citations_from_results(evidence_results)
+        initial_citations = citations_from_results(
+            evidence_results,
+            minimum_score=self._config.evidence_min_score,
+            limit=self._config.evidence_top_k,
+        )
         if (
             should_prefetch_local_evidence
             and not initial_citations
@@ -601,7 +605,11 @@ class ProductionAgentHarness:
                     initial_citations
                     or self._uploaded_documents
                     or self._uploaded_images
-                    or citations_from_results(agentic_results)
+                    or citations_from_results(
+                        agentic_results,
+                        minimum_score=self._config.evidence_min_score,
+                        limit=self._config.evidence_top_k,
+                    )
                     or citations_from_search_results(search_results)
                 )
 
@@ -661,7 +669,11 @@ class ProductionAgentHarness:
         budget.add_output(disclaimer_delta)
         await self._emit(stream_callback, "text_delta", {"content": disclaimer_delta})
 
-        citations = citations_from_results(evidence_results + agentic_results)
+        citations = citations_from_results(
+            evidence_results + agentic_results,
+            minimum_score=self._config.evidence_min_score,
+            limit=self._config.evidence_top_k,
+        )
         citations.extend(citations_from_search_results(search_results))
         if self._uploaded_documents:
             citations.extend(self._uploaded_input.document_citations())

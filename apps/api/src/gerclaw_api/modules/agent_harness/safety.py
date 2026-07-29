@@ -4,12 +4,9 @@ from __future__ import annotations
 
 import re
 
+from gerclaw_api.modules.agent_harness.evidence import EvidenceAdmissionPolicy
 from gerclaw_api.modules.contracts import Citation, SafetyDecision
 from gerclaw_api.modules.rag.protocols import RetrievalResult
-from gerclaw_api.modules.validation import (
-    RAGEvidenceContractValidationError,
-    validate_local_rag_evidence_provenance,
-)
 
 MEDICAL_DISCLAIMER = "内容由 AI 生成，仅供参考。身体不适请及时就医。"
 _MODEL_DISCLAIMER_FRAGMENTS = (
@@ -196,36 +193,18 @@ def requires_patient_clinical_risk_notice(text: str) -> bool:
     return _PATIENT_RISK_NOTICE_TRIGGER.search(text) is not None
 
 
-def citations_from_results(results: list[RetrievalResult]) -> list[Citation]:
-    """Create stable public citations and deduplicate repeated agentic searches."""
+def citations_from_results(
+    results: list[RetrievalResult],
+    *,
+    minimum_score: float = 0,
+    limit: int = 50,
+) -> list[Citation]:
+    """Admit local evidence through one deterministic public citation policy."""
 
-    citations: list[Citation] = []
-    seen: set[str] = set()
-    for result in results:
-        try:
-            provenance = validate_local_rag_evidence_provenance(result.metadata)
-        except RAGEvidenceContractValidationError:
-            continue
-        chunk_id = provenance.chunk_id
-        if chunk_id in seen:
-            continue
-        citations.append(
-            Citation(
-                source_id=chunk_id,
-                title=provenance.title,
-                locator=(
-                    f"{result.source} | {provenance.chapter} | chunk "
-                    f"{provenance.chunk_index + 1}/{provenance.total_chunks}"
-                ),
-                excerpt=result.content[:2_000],
-                score=result.score,
-                corpus="local_knowledge_base",
-            )
-        )
-        seen.add(chunk_id)
-        if len(citations) >= 50:
-            break
-    return citations
+    return EvidenceAdmissionPolicy(
+        minimum_score=minimum_score,
+        limit=limit,
+    ).citations_from_local_results(results)
 
 
 def build_evidence_context(citations: list[Citation]) -> str:

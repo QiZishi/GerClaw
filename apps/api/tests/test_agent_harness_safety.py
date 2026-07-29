@@ -35,7 +35,7 @@ def _result(index: int, *, valid: bool = True) -> RetrievalResult:
         else {"chunk_id": index, "title": "bad"}
     )
     return RetrievalResult(
-        content=("循证医学内容。" * 100),
+        content=(f"循证医学内容 {index}。" * 100),
         source=f"跌倒/指南-{index}.md",
         score=0.9,
         metadata=metadata,
