@@ -248,6 +248,7 @@ export function ChatArea() {
       userImages.length > 0 ? userImages : undefined,
       userMsg.uploadedFiles ?? [],
       assistantWorkflow,
+      [],
       {
         sourceRunId: currentAnswer.answerGroupRunId,
         expectedCurrentAnswerVersionId: currentAnswer.answerVersionId,
@@ -307,7 +308,8 @@ export function ChatArea() {
   const handleSend = async (
     text: string,
     images?: ImageAttachment[],
-    documents: ChatDocumentAttachment[] = []
+    documents: ChatDocumentAttachment[] = [],
+    requestedCapabilities: string[] = [],
   ) => {
     const workflow = chatAction === "companion" ? "companion" : "standard";
     if (chatAction !== "none" && chatAction !== "companion") {
@@ -326,7 +328,15 @@ export function ChatArea() {
       setCurrentSession(sid);
       try {
         const bindings = await prepareDocuments(sid, documents);
-        doSend(sid, text, false, images, Object.values(bindings), workflow);
+        doSend(
+          sid,
+          text,
+          false,
+          images,
+          Object.values(bindings),
+          workflow,
+          requestedCapabilities,
+        );
         return { accepted: true as const, documentBindings: bindings, documentSessionId: sid };
       } catch (error) {
         toast.show(error instanceof Error ? error.message : "文档无法安全加入本次对话");
@@ -343,7 +353,15 @@ export function ChatArea() {
     }
     try {
       const bindings = await prepareDocuments(currentSessionId, documents);
-      doSend(currentSessionId, text, false, images, Object.values(bindings), workflow);
+      doSend(
+        currentSessionId,
+        text,
+        false,
+        images,
+        Object.values(bindings),
+        workflow,
+        requestedCapabilities,
+      );
       return {
         accepted: true as const,
         documentBindings: bindings,
@@ -362,6 +380,7 @@ export function ChatArea() {
     images?: ImageAttachment[],
     uploadedDocumentIds: string[] = [],
     workflow: "standard" | "companion" = "standard",
+    requestedCapabilities: string[] = [],
     regeneration?: {
       sourceRunId: string;
       expectedCurrentAnswerVersionId: string;
@@ -463,6 +482,7 @@ export function ChatArea() {
         uploadedDocumentIds: workflow === "companion" ? [] : uploadedDocumentIds,
         images: workflow === "companion" ? [] : images,
         workflow,
+        requestedCapabilities: workflow === "companion" ? [] : requestedCapabilities,
         regeneration,
       },
       abortControllerRef.current.signal,
@@ -780,6 +800,7 @@ export function ChatArea() {
         undefined,
         [],
         sourceMessage.workflow ?? "standard",
+        [],
         undefined,
         undefined,
         undefined,

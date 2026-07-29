@@ -42,7 +42,8 @@ interface ChatInputProps {
   onSend?: (
     text: string,
     images?: ImageAttachment[],
-    documents?: ChatDocumentAttachment[]
+    documents?: ChatDocumentAttachment[],
+    requestedCapabilities?: string[],
   ) => boolean | void | ChatSendAccepted | Promise<boolean | void | ChatSendAccepted>;
   isGenerating?: boolean;
   /** A request is being accepted by the backend; block duplicate sends without pretending generation has started. */
@@ -91,6 +92,7 @@ export function ChatInput({
 
   const [text, setText] = useState("");
   const [isTranscribing, setIsTranscribing] = useState(false);
+  const [selectedCapabilityIds, setSelectedCapabilityIds] = useState<string[]>([]);
   const previousSessionIdRef = useRef<string | undefined>(currentSessionId);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const transcriptionAbortRef = useRef<AbortController | null>(null);
@@ -156,6 +158,7 @@ export function ChatInput({
 
     const hadDraft = Boolean(text.trim()) || hasAttachments || isTranscribing || isRecording;
     resetAttachments();
+    setSelectedCapabilityIds([]);
     setText("");
     transcriptionAbortRef.current?.abort();
     transcriptionAbortRef.current = null;
@@ -226,10 +229,11 @@ export function ChatInput({
     ) return;
     const images = buildImages();
     const documents = buildDocuments();
-    const result = await onSend?.(trimmed, images, documents);
+    const result = await onSend?.(trimmed, images, documents, selectedCapabilityIds);
     if (result === false || !result) return;
     if (typeof result === "object") applyDocumentBindings(result);
     setText("");
+    setSelectedCapabilityIds([]);
     clearSentImages();
     if (textareaRef.current) {
       textareaRef.current.style.height = "auto";
@@ -461,6 +465,8 @@ export function ChatInput({
                 onPickFile={handleFileSelect}
                 prescriptionConversation={prescriptionConversation}
                 isGuest={isGuest}
+                selectedCapabilityIds={selectedCapabilityIds}
+                onCapabilityChange={setSelectedCapabilityIds}
               />
             )}
 

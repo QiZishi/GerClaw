@@ -10,6 +10,7 @@ import {
 } from "lucide-react";
 
 import { SkillSelector } from "@/components/skills/SkillSelector";
+import { CapabilitySelector } from "@/components/chat/composer/CapabilitySelector";
 import { Button } from "@/components/ui/button";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { cn } from "@/lib/utils";
@@ -24,6 +25,8 @@ interface ComposerToolbarProps {
   seniorMode: boolean;
   prescriptionConversation: boolean;
   isGuest: boolean;
+  selectedCapabilityIds: string[];
+  onCapabilityChange: (ids: string[]) => void;
   onAction: (action: ComposerAction) => void;
   onPickImage: () => void;
   onPickFile: () => void;
@@ -36,6 +39,8 @@ export function ComposerToolbar({
   seniorMode,
   prescriptionConversation,
   isGuest,
+  selectedCapabilityIds,
+  onCapabilityChange,
   onAction,
   onPickImage,
   onPickFile,
@@ -71,6 +76,14 @@ export function ComposerToolbar({
             disabled={disabled}
           />
         </SkillSelector>
+      )}
+      {!prescriptionConversation && (
+        <CapabilitySelector
+          selectedIds={selectedCapabilityIds}
+          seniorMode={seniorMode}
+          disabled={disabled}
+          onChange={onCapabilityChange}
+        />
       )}
       {!prescriptionConversation && (
         <>
