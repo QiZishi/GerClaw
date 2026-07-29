@@ -460,6 +460,29 @@ GUI 证据位于 gitignored 的 `output/playwright/stage3-routing/`：桌面和�
 解密后的 owner-scoped Run/Event API 结果、数据库 route/终态证据、前后端日志及
 `.playwright-cli/traces/trace-1785348465377.trace`。浏览器已关闭。阶段 3 尚待独立审阅，因此此处不提前判定完成。
 
+首轮独立审阅判定 REJECT（P0=0、P1=4、P2=1）：Emergency 仍在 Skill/Memory/文档依赖之后短路；
+`ClinicalState` 尚未进入生产多轮上下文；SAVI/C3/DAG 只持久化而未治理实际执行；STEP 关键词门禁可被
+“把阿司匹林改为氯吡格雷75mg每日一次”等表达绕过；C3 标签仍可写成确定性诊断。随后按模块修复并分别提交：
+
+- `dfe2086` 将 Emergency 路由提前到依赖初始化之前，任何 Skill、Memory、文档故障均不能阻断 120/急诊提示。
+- `ebbcf8e` 将来源约束的 `ClinicalState` reducer 接入生产消息投影、加密 Run snapshot、多轮回读和 Harness
+  私有上下文；模型推测仍不能成为 confirmed fact。
+- `f29f341` 让 SAVI 选择改变生产计划与副作用顺序；治疗前提缺失时执行唯一 `clinical.ask` 节点，并在 RAG/
+  模型前返回。`DynamicPlanExecutor` 强制依赖和 required checkpoint，C3 方向只能引用非冲突事实且拒绝确定性
+  标签。新增严格 `clinical_clarification` 响应类型：无模型、无伪引用、带安全审计标记。
+- `007b5e5` 引入代码所有的 `MedicationActionClassifier`，覆盖开始、停用、替换、剂量和新剂量频次表达；
+  用户原样提供的用药记录仍可保留，但缺少 STEP 前提的调药候选一律降级为循证审核基线。
+
+修复后组合执行 9 个 Harness/Chat/处方测试文件，135/135 通过；Ruff 通过；Mypy 对 53 个生产文件检查通过。
+第二轮真实 Playwright CLI 仍未设置 route/mock：Quick SSE 200、约 7.139 秒；Emergency SSE 200、约 549 ms，
+持久化 Run 为 `emergency/completed`，事件严格为
+`agent_start → safety_notice → text_delta → done`，owner-scoped Run 查询和 `after_sequence=0` replay 均为
+200。1280 桌面和 390×844 手机均无页面级横向溢出，console 为 0 error / 0 warning。截图、API 日志和 Trace
+归档在 `output/playwright/stage3-rereview/`，原始 Trace 为
+`.playwright-cli/traces/trace-1785351076153.trace`。视觉复核同时确认既有移动端 sticky Composer 会遮挡较长
+急症卡下半部、顶部标题与菜单空间偏紧，继续作为阶段 5 的 UI 重构项，不在本阶段扩大范围。修复集仍待独立复审，
+因此阶段 3 继续保持未完成状态。
+
 ### 阶段 4
 
 完成 Evidence/Citation 真实闭环、Memory proposed/confirmed/conflict 治理和受治理 GerClaw 能力清单；附件、解析、检索和临床观察跨节点复用。
