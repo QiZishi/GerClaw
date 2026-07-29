@@ -6,36 +6,17 @@ import {
   useState,
 } from "react";
 
+import type { ChatDocumentAttachment } from "@/components/chat/ChatInput";
 import {
-  ArrowLeft,
-  AlertTriangle,
-  HeartHandshake,
-} from "lucide-react";
-import { Button } from "@/components/ui/button";
-import {
-  Dialog,
-  DialogContent,
-  DialogHeader,
-  DialogTitle,
-  DialogFooter,
-  DialogClose,
-} from "@/components/ui/dialog";
-import { ChatInput, type ChatDocumentAttachment } from "@/components/chat/ChatInput";
-import { MessageList } from "@/components/chat/MessageList";
-import { ExportDialog } from "@/components/chat/ExportDialog";
-import { WelcomePage } from "@/components/chat/WelcomePage";
+  ChatWorkspaceDialogs,
+  type ExitConfirmType,
+} from "@/components/chat/ChatWorkspaceDialogs";
+import { ChatWorkspaceView } from "@/components/chat/ChatWorkspaceView";
 import { useAgentConversationStream } from "@/components/chat/useAgentConversationStream";
 import { useConversationHistoryRecovery } from "@/components/chat/useConversationHistoryRecovery";
 import { useSessionSkillSelection } from "@/components/chat/useSessionSkillSelection";
-import { SkillManager } from "@/components/skills/SkillManager";
-import { CgaAssessment } from "@/components/cga/CgaAssessment";
-import { ClinicalIntakeForm } from "@/components/prescription/ClinicalIntakeForm";
-import { PrescriptionConversation } from "@/components/prescription/PrescriptionConversation";
-import { ChronicCareLedger } from "@/components/chronic/ChronicCareLedger";
-import { RiskAlertLedger } from "@/components/risk-alert/RiskAlertLedger";
 import { useAppStore } from "@/stores/appStore";
 import { useChatStore } from "@/stores/chatStore";
-import { cn } from "@/lib/utils";
 import {
   toFrontendCitation,
 } from "@/services/gerclaw/conversation-history";
@@ -98,9 +79,8 @@ export function ChatArea() {
 
   // Only workflows with a durable interruption consequence need confirmation.
   const [showExitConfirm, setShowExitConfirm] = useState(false);
-  const [exitConfirmType, setExitConfirmType] = useState<
-    "cga-server" | "clinical-intake" | "prescription"
-  >("cga-server");
+  const [exitConfirmType, setExitConfirmType] =
+    useState<ExitConfirmType>("cga-server");
   // 消息导出/分享弹窗：值为触发的消息 id（用于默认选中），null 表示关闭
   const [exportMessageId, setExportMessageId] = useState<string | null>(null);
   // 消息删除确认弹窗：值为待删除的消息 id，null 表示关闭
@@ -410,243 +390,54 @@ export function ChatArea() {
     setChatAction("none");
   };
 
-  const actionTitles: Record<string, string> = {
-    prescription: role === "doctor" ? "五大处方草案" : "五大处方计划",
-    companion: "暖心陪伴",
-    cga: "老年综合评估",
-    "drug-review": "用药审查",
-    "chronic-care": "我的慢病记录",
-    "risk-alerts": "我的安全提醒",
-    "health-profile": "查看健康画像",
-  };
-
-  if (!mounted) {
-    return (
-      <main className="flex-1 flex flex-col min-w-0 min-h-0 bg-background">
-        <WelcomePage
-          onExampleClick={() => {}}
-          onStartAction={() => {}}
-          role="patient"
-          seniorMode={false}
-        />
-      </main>
-    );
-  }
-
-  if (mainView === "skills") {
-    return (
-      <main className="flex-1 flex flex-col min-w-0 min-h-0 bg-background">
-        <header
-          className={cn(
-            "sticky top-0 z-10 flex min-h-12 items-center gap-2 border-b border-border bg-background/95 px-3 backdrop-blur",
-            seniorMode && "py-2"
-          )}
-          style={sidebarCollapsed ? { paddingLeft: "112px" } : undefined}
-        >
-          <Button
-            variant="ghost"
-            size={seniorMode ? "default" : "icon-sm"}
-            className={cn(
-              "btn-icon shrink-0",
-              seniorMode && "h-12 min-w-32 gap-2 px-4 text-lg"
-            )}
-            onClick={() => setMainView("chat")}
-            aria-label="返回对话"
-          >
-            <ArrowLeft className={cn("size-4", seniorMode && "size-5")} />
-            {seniorMode && <span>返回对话</span>}
-          </Button>
-          <span className={cn("font-medium", seniorMode && "text-lg")}>技能管理</span>
-        </header>
-        <div className="flex-1 min-h-0">
-          <SkillManager />
-        </div>
-      </main>
-    );
-  }
-
   return (
-    <main className="flex-1 flex flex-col min-w-0 min-h-0 bg-background">
-      {/* 粘性头部 — 功能模式下始终显示功能标题栏 */}
-      {(chatAction !== "cga" && (chatAction !== "none" || (currentSessionId && messages.length > 0))) && (
-        <header
-          className={cn(
-            "sticky top-0 z-10 flex h-12 items-center px-4 border-b border-border bg-background/95 backdrop-blur",
-            chatAction !== "none" ? "justify-end sm:justify-between" : "justify-between"
-          )}
-          style={sidebarCollapsed ? { paddingLeft: "112px" } : undefined}
-        >
-          {chatAction !== "none" ? (
-            <>
-              <span className="hidden font-medium sm:block">
-                {actionTitles[chatAction]}
-              </span>
-              <Button
-                variant="ghost"
-                onClick={handleExitAction}
-                className={cn("min-h-10 px-3 text-sm text-muted-foreground hover:text-foreground", seniorMode && "min-h-12 text-lg")}
-              >
-                {chatAction === "chronic-care" || chatAction === "risk-alerts" ? "返回咨询" : "退出"}
-              </Button>
-            </>
-          ) : (
-            <>
-              <span
-                className="font-medium truncate"
-                title={currentSessionTitle}
-              >
-                {currentSessionTitle || "新对话"}
-              </span>
-            </>
-          )}
-        </header>
-      )}
-
-      {messages.length === 0 && chatAction === "none" ? (
-        <WelcomePage
-          onExampleClick={handleExampleClick}
-          onStartAction={handleStartAction}
-          role={role}
-          seniorMode={seniorMode}
-        />
-      ) : chatAction === "cga" ? (
-        <div className="flex-1 min-h-0 overflow-y-auto">
-          <CgaAssessment onExit={handleExitAction} />
-        </div>
-      ) : chatAction === "prescription" ? (
-        currentSessionId ? (
-          <PrescriptionConversation
-            key={currentSessionId}
-            localSessionId={currentSessionId}
-            seniorMode={seniorMode}
-            hasExistingDraft={
-              currentSession?.panelType === "prescription"
-              && Boolean(currentSession.panelContent)
-            }
-            onPrescriptionDraftGenerated={handlePrescriptionDraftGenerated}
-          />
-        ) : null
-      ) : chatAction === "drug-review" ? (
-        currentSessionId ? (
-          <ClinicalIntakeForm
-            localSessionId={currentSessionId}
-            kind="medication_review"
-            seniorMode={seniorMode}
-            isClinician={role === "doctor" || role === "admin"}
-            onExit={handleExitAction}
-          />
-        ) : null
-      ) : chatAction === "chronic-care" ? (
-        <div className="flex-1 min-h-0 overflow-y-auto">
-          <ChronicCareLedger seniorMode={seniorMode} />
-        </div>
-      ) : chatAction === "risk-alerts" ? (
-        <div className="flex-1 min-h-0 overflow-y-auto">
-          <RiskAlertLedger seniorMode={seniorMode} />
-        </div>
-      ) : (
-        <div className="flex-1 min-h-0 overflow-hidden flex flex-col">
-          {chatAction === "companion" && (
-            <section
-              className={cn(
-                "mx-auto mt-4 flex w-full max-w-3xl items-start gap-3 border-l-4 border-primary bg-primary/5 px-4 py-3 text-left",
-                seniorMode ? "text-lg leading-8" : "text-sm leading-6"
-              )}
-              aria-label="暖心陪伴模式说明"
-            >
-              <HeartHandshake className="mt-1 size-5 shrink-0 text-primary" aria-hidden="true" />
-              <div>
-                <p className="font-semibold text-foreground">暖心陪伴</p>
-                <p className="text-muted-foreground">我是一位 AI，可以听您说说心里话。本次不读取健康档案、上传资料或技能，也不替代医疗咨询或紧急援助。</p>
-              </div>
-            </section>
-          )}
-          {messages.length > 0 && (
-            <MessageList
-              messages={messages}
-              onRegenerate={handleRegenerate}
-              onShare={(messageId) => setExportMessageId(messageId)}
-              onDelete={handleDeleteRequest}
-              onAnswerVersionSelected={handleAnswerVersionSelected}
-            />
-          )}
-        </div>
-      )}
-
-      {(chatAction === "none" || chatAction === "companion") && (
-        <ChatInput
-          onSend={handleSend}
-          isGenerating={isGenerating}
-          onStop={handleStop}
-          onStartAction={handleStartAction}
-          contextLoading={Boolean(
-            chatAction !== "companion" && !isGuest && currentSessionId && skillSelectionReadySessionId !== currentSessionId
-          )}
-          companionMode={chatAction === "companion"}
-        />
-      )}
-
-      {/* 消息分享/导出弹窗 */}
-      <ExportDialog
-        open={exportMessageId !== null}
-        onOpenChange={(open) => { if (!open) setExportMessageId(null); }}
+    <>
+      <ChatWorkspaceView
+        mounted={mounted}
+        mainView={mainView}
+        chatAction={chatAction}
+        role={role}
+        seniorMode={seniorMode}
+        sidebarCollapsed={sidebarCollapsed}
+        currentSessionId={currentSessionId}
+        currentSessionTitle={currentSessionTitle}
+        hasExistingPrescriptionDraft={
+          currentSession?.panelType === "prescription" &&
+          Boolean(currentSession.panelContent)
+        }
         messages={messages}
-        defaultSelectedIds={exportMessageId ? [exportMessageId] : []}
+        isGenerating={isGenerating}
+        contextLoading={Boolean(
+          chatAction !== "companion" &&
+            !isGuest &&
+            currentSessionId &&
+            skillSelectionReadySessionId !== currentSessionId,
+        )}
+        onReturnToChat={() => setMainView("chat")}
+        onExampleClick={handleExampleClick}
+        onStartAction={handleStartAction}
+        onExitAction={handleExitAction}
+        onPrescriptionDraftGenerated={handlePrescriptionDraftGenerated}
+        onRegenerate={handleRegenerate}
+        onShare={setExportMessageId}
+        onDelete={handleDeleteRequest}
+        onAnswerVersionSelected={handleAnswerVersionSelected}
+        onSend={handleSend}
+        onStop={handleStop}
       />
-
-      {/* State-specific interruption confirmation; no generic unsaved-work warning. */}
-      <Dialog open={showExitConfirm} onOpenChange={setShowExitConfirm}>
-        <DialogContent className={cn("max-w-sm", seniorMode && "p-5")} showCloseButton={false}>
-          <DialogHeader>
-            <DialogTitle className={cn("flex items-center gap-2", seniorMode && "text-2xl")}>
-              <AlertTriangle className="size-5 text-amber-500" />
-              {exitConfirmType === "cga-server"
-                ? "确认暂时休息？"
-                : exitConfirmType === "clinical-intake"
-                  ? "确认返回咨询？"
-                  : "停止生成并返回？"}
-            </DialogTitle>
-          </DialogHeader>
-          <p className={cn("text-muted-foreground", seniorMode ? "text-lg leading-8" : "text-sm")}>
-            {exitConfirmType === "cga-server"
-              ? "当前进度已安全保存。退出后，您下次可以从这道题继续。"
-              : exitConfirmType === "clinical-intake"
-                ? "本次已提交的信息会保留在当前会话。"
-                : "已收集的信息会保留在当前会话。若草案正在生成，系统会先安全停止；未完成内容不会保存为草案。"}
-          </p>
-          <DialogFooter className={cn("gap-2", seniorMode && "flex-row justify-end gap-3 p-5")}>
-            <DialogClose render={<Button variant="outline" className={cn(seniorMode && "min-h-12 px-4 text-lg")}>取消</Button>} />
-            <Button variant="destructive" className={cn(seniorMode && "min-h-12 px-4 text-lg")} onClick={doExitAction}>
-              {exitConfirmType === "cga-server"
-                ? "保存并休息"
-                : exitConfirmType === "clinical-intake"
-                  ? "返回咨询"
-                  : "停止并返回"}
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
-
-      {/* 消息删除确认弹窗 */}
-      <Dialog open={deleteMessageId !== null} onOpenChange={(open) => { if (!open) handleDeleteCancel(); }}>
-        <DialogContent className={cn("max-w-sm", seniorMode && "p-5")} showCloseButton={false}>
-          <DialogHeader>
-            <DialogTitle className={cn("flex items-center gap-2", seniorMode && "text-2xl")}>
-              <AlertTriangle className="size-5 text-amber-500" />
-              确认删除消息
-            </DialogTitle>
-          </DialogHeader>
-          <p className={cn("text-muted-foreground", seniorMode ? "text-lg leading-8" : "text-sm")}>
-            删除后该条消息将无法恢复。
-          </p>
-          <DialogFooter className={cn("gap-2", seniorMode && "flex-row justify-end gap-3 p-5")}>
-            <DialogClose render={<Button variant="outline" className={cn(seniorMode && "min-h-12 px-4 text-lg")}>取消</Button>} />
-            <Button variant="destructive" className={cn(seniorMode && "min-h-12 px-4 text-lg")} onClick={handleDeleteConfirm}>
-              确认删除
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
-    </main>
+      <ChatWorkspaceDialogs
+        messages={messages}
+        seniorMode={seniorMode}
+        exportMessageId={exportMessageId}
+        deleteMessageId={deleteMessageId}
+        showExitConfirm={showExitConfirm}
+        exitConfirmType={exitConfirmType}
+        onCloseExport={() => setExportMessageId(null)}
+        onCloseDelete={handleDeleteCancel}
+        onConfirmDelete={handleDeleteConfirm}
+        onExitOpenChange={setShowExitConfirm}
+        onConfirmExit={doExitAction}
+      />
+    </>
   );
 }
