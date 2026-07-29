@@ -1,8 +1,9 @@
 # Context Snapshot
 
-This package owns the versioned `AgentContext` and bounded conversation-history models.
-The existing Harness assembler remains the current producer; `ProductionAgentHarness` is
-the consumer.
+This package owns the versioned `AgentContext`, bounded conversation-history models,
+`ProductionContextSnapshotAssembler`, and uploaded input projector. The composition entry
+consumes the assembler through `HarnessComponents`; `ProductionAgentHarness` is the public
+consumer.
 
 Validation forbids unknown fields and caps every collection/text field. A validation failure
 must stop the turn before model construction. Compression, answer-version selection, and
