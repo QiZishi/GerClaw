@@ -95,6 +95,8 @@ def test_artifact_and_feedback_requests_reject_unbounded_or_stale_shapes() -> No
     with pytest.raises(ValidationError):
         ArtifactWrite(title="a" * 301, markdown="")
     with pytest.raises(ValidationError):
+        ArtifactWrite(title="   ", markdown="")
+    with pytest.raises(ValidationError):
         FeedbackReconcileRequest(value=1, expected_revision=-1)
     with pytest.raises(ValidationError):
         FeedbackReconcileRequest(value=2, expected_revision=0)

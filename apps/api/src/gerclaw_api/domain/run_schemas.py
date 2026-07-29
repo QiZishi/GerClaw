@@ -20,6 +20,10 @@ BoundedIdentifier = Annotated[
     str,
     StringConstraints(pattern=r"^[a-zA-Z0-9][a-zA-Z0-9_.:-]{0,127}$"),
 ]
+ArtifactTitle = Annotated[
+    str,
+    StringConstraints(strip_whitespace=True, min_length=1, max_length=300),
+]
 
 
 class AgentRunStatus(StrEnum):
@@ -150,7 +154,7 @@ class ArtifactKind(StrEnum):
 class ArtifactWrite(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
-    title: str = Field(min_length=1, max_length=300)
+    title: ArtifactTitle
     markdown: str = Field(max_length=500_000)
     kind: ArtifactKind = ArtifactKind.MARKDOWN
     expected_revision: int | None = Field(default=None, ge=1)
@@ -163,7 +167,7 @@ class ArtifactRead(BaseModel):
     id: uuid.UUID
     run_id: uuid.UUID
     conversation_id: uuid.UUID
-    title: str = Field(min_length=1, max_length=300)
+    title: ArtifactTitle
     markdown: str = Field(max_length=500_000)
     kind: ArtifactKind
     revision: int = Field(ge=1)
