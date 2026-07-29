@@ -20,7 +20,7 @@ GerClaw 保持老年医学定位。眼科病灶定位不在本计划范围。在
 | 1 | Harness 模块化与稳定合同 | 已完成：两轮审阅问题修复，最终独立审阅 ACCEPT |
 | 2 | Run 事实源、状态机和恢复 | 已完成：两轮 P1 修复、真实 GUI 对抗审计、最终独立复审 ACCEPT |
 | 3 | ClinicalState、动态规划与医疗门禁 | 已完成：四轮独立审阅修复、真实 GUI 与最终 ACCEPT |
-| 4 | 证据、Memory 与受治理能力组合 | 已修复首轮独立审阅问题，真实 GUI 复验完成，等待最终复审 |
+| 4 | 证据、Memory 与受治理能力组合 | 已完成：三项 P1 修复、真实 GUI/数据库复验、最终独立复审 ACCEPT |
 | 5 | 对话工作台 UI 与交互重构 | 未开始 |
 | 6 | 受控离线自进化 | 未开始 |
 | 7 | 最终回归、真实 GUI 对抗审阅与发布 | 未开始 |
@@ -601,8 +601,19 @@ Run 查询均为 2xx；后端日志确认 Memory search/write、唯一聊天终�
 
 已知限制如实保留：部分知识库 Markdown 的题名元数据只有“·指南与共识·”或“·专家论坛·”，因此引用卡题名
 不够具体；卡片仍展示可核对的实际采用摘录、章节和本地来源，并明确提示无公开原文链接。该数据清洗问题不影响
-本阶段“不得伪造引用”的安全门，但应在后续知识库质量工作中改进。阶段 4 修复后尚待同一独立审阅者最终复审，
-不提前标记完成。
+本阶段“不得伪造引用”的安全门，但应在后续知识库质量工作中改进。
+
+同一独立审阅者最终复审结论为 `ACCEPT（P0=0、P1=0、P2=1）`。审阅者独立复跑后端
+`201 passed, 1 warning`、前端 38 passed，Ruff、Mypy 26 files 和相关 ESLint 均通过，并只读核验 Run
+`bb962971-8318-45d5-80ef-e6e56aa0ffbd` 已完成、数据库原始 plan 保持 `enc:v1` 密文、应用层解密后动态节点为
+`evidence.retrieve → gerclaw.cga → answer.compose` 且包含 `cga-workspace` owner 结果。Playwright Trace/截图
+可复现 `[C#]` Popover、CGA 完成态和移动端无溢出；旧能力登录页证据已正确降级。
+
+唯一非阻断 P2 如实保留：当前 owner setup 在 Run 创建及声明的 evidence prerequisite 之前调用，之后才由
+Harness 把 optional node 标为完成；同时缺少 ChatService 层直接覆盖“planned gating → owner invocation →
+EncryptedJSON result persistence”的完整集成测试。现有 owner 均为幂等 intake start 或 owner-scoped read，
+不会产生当前安全/一致性阻断；后续 Run checkpoint 加固应把结果追加改为 Run 创建后的加密 checkpoint，并补
+对应集成测试。阶段 4 至此完成，允许进入阶段 5。
 
 ### 阶段 5
 
