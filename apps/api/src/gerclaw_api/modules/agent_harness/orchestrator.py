@@ -28,6 +28,7 @@ from gerclaw_api.config import Settings
 from gerclaw_api.modules.agent_harness.components import HarnessComponents
 from gerclaw_api.modules.agent_harness.config import ResolvedHarnessConfig
 from gerclaw_api.modules.agent_harness.context_snapshot import (
+    ContextSnapshotError,
     ProductionContextSnapshotAssembler,
     UploadedInputProjector,
 )
@@ -210,7 +211,9 @@ class ProductionAgentHarness:
         """Assemble validated short- and long-term context for one isolated turn."""
 
         if str(self._execution.session_id) != session_id or self._execution.actor_id != user_id:
-            raise ValueError("execution identity does not match requested Agent context")
+            raise ContextSnapshotError(
+                "execution identity does not match requested Agent context"
+            )
         if loaded_skills != self._loaded_skill_ids:
             raise UnsupportedAgentContextError("validated Skill context does not match the request")
         expected_document_ids = [str(item.document_id) for item in self._uploaded_documents]

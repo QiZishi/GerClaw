@@ -15,6 +15,7 @@ from agentscope.model import ChatModelBase, ChatResponse, ChatUsage
 from agentscope.tool import ToolChoice
 
 from gerclaw_api.config import Settings
+from gerclaw_api.modules.agent_harness.context_snapshot import ContextSnapshotError
 from gerclaw_api.modules.agent_harness.harness import (
     AgentApprovalRequiredError,
     AgentHarnessError,
@@ -1077,7 +1078,7 @@ async def test_context_rejects_unimplemented_skill_and_identity(
             ["prescription"],
             [],
         )
-    with pytest.raises(ValueError, match="identity"):
+    with pytest.raises(ContextSnapshotError, match="identity"):
         await harness.assemble_context(
             "108815d7-05bf-4c2a-a977-cd034f390fab",
             "usr_other0000000001",
