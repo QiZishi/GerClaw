@@ -17,7 +17,7 @@ GerClaw 保持老年医学定位。眼科病灶定位不在本计划范围。在
 | 阶段 | 交付目标 | 状态 |
 |---|---|---|
 | 0 | 冻结基线与真实运行审计 | 已完成：HTTP/API/测试、Playwright GUI、清理及独立审阅通过 |
-| 1 | Harness 模块化与稳定合同 | 未开始 |
+| 1 | Harness 模块化与稳定合同 | 已完成：两轮审阅问题修复，最终独立审阅 ACCEPT |
 | 2 | Run 事实源、状态机和恢复 | 未开始 |
 | 3 | ClinicalState、动态规划与医疗门禁 | 未开始 |
 | 4 | 证据、Memory 与受治理能力组合 | 未开始 |
@@ -261,6 +261,69 @@ npx --yes --package @playwright/cli playwright-cli \
 ### 阶段 1
 
 拆分 Harness routing、planning、clinical_state、context_snapshot、run_lifecycle、evidence、plugin_runtime、evolution_signals；公共 facade 保持兼容。每个组件有 `AGENTS.md`、`README.md`、Protocol、强类型错误和独立测试；预算/阈值/超时/重试只从配置注入。
+
+#### 阶段 1 实施记录（2026-07-29）
+
+- 建立全部 8 个组件目录。每个目录均有大写 `AGENTS.md`、`README.md`、版本化 Pydantic 合同和公共 `__init__`。
+- 将 `AgentContext`/历史合同迁入 `context_snapshot`，保留原 `protocols` import 兼容；将上传资料/图片投影迁入
+  `UploadedInputProjector`。
+- 将稳定 Harness 错误、句级医疗安全 buffer 和 canonical text stream 迁入 `run_lifecycle`；根 facade 保留旧私有别名，
+  既有测试与消费者无需修改。
+- 新增 `ResolvedHarnessConfig`，由 `Settings` 在组合边界一次解析。ReAct 轮数、输出上限、证据候选数、Memory 候选数和
+  阈值不再由 Harness 各处分散读取。
+- routing、planning、ClinicalState、Evidence、Plugin Runtime、Evolution Signal 本阶段只建立可独立构造/校验的合同，
+  未激活第二套路由、检索、Memory、能力系统或在线演化。动态计划拒绝自引用、未知节点和依赖环。
+- 根 `harness.py` 从 1340 行降至 27 行，只保留兼容 facade；生产组合入口为 745 行的 `orchestrator.py`。
+  AgentScope 构造、上传输入投影、审批持久化、工具组合和安全事件投影分别由 `planning`、`context_snapshot`、
+  `plugin_runtime` 和 `run_lifecycle` 所有。`run_lifecycle` 通过静态门禁禁止导入具体 Runtime、Memory、RAG、
+  Search、Skill、Workflow 或持久化实现；组合入口后续在阶段 2–4 继续提取观测与 Evidence 协调端口。
+- 首轮独立审阅判定不通过，指出根 Harness 仍集中、8 个组件 Protocol/DI 不完整、Emergency 默认允许模型、
+  EvolutionSignal 可承载内容、配置仍有散落常量，以及 Context/Evidence 合同约束不足。修复后：
+  - 8 个组件均有 Protocol、强类型错误和 `HarnessComponents` 注入槽；
+  - Emergency 合同拒绝 `model_allowed=True`；
+  - EvolutionSignal 使用枚举、受限 ID 和无内容 error code；
+  - Context 字符串逐项限长；Evidence unavailable 禁止伪 locator/adopted text；
+  - 输出字节、审批 TTL、Context ratio 统一进入 `ResolvedHarnessConfig`；
+  - facade 边界和组件禁止直接读取环境变量由静态测试锁定。
+  - `HarnessComponents.run_lifecycle` 与 `context_snapshot_assembler` 已在生产路径真实消费；
+  - `ClinicalState` 的嵌套值、unknown/conflict 单项已限界，confirmed fact 必须含 trusted-tool provenance；
+  - Context 身份不匹配使用 `ContextSnapshotError`，不再泄漏通用 `ValueError`。
+
+实际验证：
+
+```text
+组件 + Harness/RAG/Memory/取消定向：177 passed, 1 warning
+Ruff：All checks passed
+Mypy：Success: no issues found in 36 source files
+关键回归（原 103 + 新增 13）：116 passed, 9 warnings in 11.13s
+```
+
+第一次 integration 运行因只加载 base Compose、未发布 Redis 主机端口而得到 `101 passed, 9 errors`；确认容器健康后，
+改用 `docker-compose.yml + docker-compose.dev.yml` 发布本地端口并完整重跑；初版合同得到 111/111，复审修复后再次
+完整重跑得到上述 116/116。没有把基础设施错误
+记为通过。
+
+最终真实 Playwright CLI 回归使用无 mock 的游客会话发送“我现在胸痛、呼吸困难”：
+
+- BFF session 201、chat 200；
+- 页面显示“立即拨打 120 或尽快前往急诊”和统一免责声明；
+- 完成后无停止按钮，桌面 `scrollWidth == clientWidth == 1280`；
+- 390×844 下 `scrollWidth == clientWidth == 390`，急诊提示仍可见；
+- console 0 error / 0 warning；
+- 证据：`output/playwright/stage1-final/desktop-redflag.png`、
+  `output/playwright/stage1-final/mobile-redflag.png` 和
+  `.playwright-cli/traces/trace-1785328682710.trace`。
+
+较早的测试脚本曾额外等待红旗回答的“重新生成”按钮并超时；Emergency 卡本来不显示该操作，随后直接检查完成态通过。
+该 locator 超时不是生产请求失败。
+
+阶段 1 GUI 审计后已关闭 Playwright 浏览器，停止 API、Next.js、PostgreSQL、Redis 和 Qdrant；3000、8000、5432、
+6379、6333 均无监听，volume 未删除。
+
+独立审阅先以 P1 拒绝“仅搬移单体”、具体 owner 依赖、装饰性 DI 和配置硬编码；第二轮修复后独立复测
+68 个 Harness 核心/组件/合同/安全用例、Ruff 和 Mypy，最终判定 ACCEPT（P0/P1 均无）。审阅遗留的
+ClinicalState 限界、Context typed error 和 Planning 文档 P2 已在 ACCEPT 后分别以独立提交收口；移动端长急诊卡
+被 sticky Composer 部分遮挡但可滚动，登记阶段 5 UI 修复。
 
 ### 阶段 2
 
