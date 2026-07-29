@@ -349,34 +349,6 @@ class ChatService:
         )
         if conversation.user_id is None:
             raise RuntimeError("conversation has no active user principal")
-        if payload.loaded_skills and self._skill_module is None:
-            raise UnsupportedAgentContextError("Skill module is unavailable")
-        agent_skills = (
-            await self._skill_module.resolve_agent_skills(payload.loaded_skills)
-            if self._skill_module is not None
-            else []
-        )
-        skill_versions = {
-            skill_id: version
-            for skill in agent_skills
-            if skill.dir.startswith("skill://") and "@" in skill.dir
-            for skill_id, version in [skill.dir.removeprefix("skill://").rsplit("@", maxsplit=1)]
-        }
-        fallback_skill_id = (
-            payload.loaded_skills[0] if len(payload.loaded_skills) == 1 else "unknown_skill"
-        )
-        fallback_skill_version = skill_versions.get(fallback_skill_id)
-        if self._skill_module is not None:
-            await self._skill_module.replace_session_skills(
-                payload.session_id, payload.loaded_skills, commit=False
-            )
-        memory = self._memory_factory(
-            tenant_id=identity.tenant_id,
-            actor_id=identity.actor_id,
-            user_id=conversation.user_id,
-            session_id=payload.session_id,
-            trace_id=trace_id,
-        )
         workflow = get_default_workflow_registry().validate_context(
             payload.workflow,
             loaded_skill_count=len(payload.loaded_skills),
@@ -404,8 +376,42 @@ class ChatService:
                 high_risk_detected=bool(detect_high_risk(payload.message)),
             )
         )
+        emergency_route = route_decision.route is RouteKind.EMERGENCY
+        if payload.loaded_skills and self._skill_module is None and not emergency_route:
+            raise UnsupportedAgentContextError("Skill module is unavailable")
+        agent_skills = (
+            await self._skill_module.resolve_agent_skills(payload.loaded_skills)
+            if self._skill_module is not None and not emergency_route
+            else []
+        )
+        skill_versions = {
+            skill_id: version
+            for skill in agent_skills
+            if skill.dir.startswith("skill://") and "@" in skill.dir
+            for skill_id, version in [skill.dir.removeprefix("skill://").rsplit("@", maxsplit=1)]
+        }
+        fallback_skill_id = (
+            payload.loaded_skills[0] if len(payload.loaded_skills) == 1 else "unknown_skill"
+        )
+        fallback_skill_version = skill_versions.get(fallback_skill_id)
+        if self._skill_module is not None and not emergency_route:
+            await self._skill_module.replace_session_skills(
+                payload.session_id, payload.loaded_skills, commit=False
+            )
+        memory = (
+            None
+            if emergency_route
+            else self._memory_factory(
+                tenant_id=identity.tenant_id,
+                actor_id=identity.actor_id,
+                user_id=conversation.user_id,
+                session_id=payload.session_id,
+                trace_id=trace_id,
+            )
+        )
         memory_enabled = (
-            not companion and route_decision.route is not RouteKind.QUICK
+            not companion
+            and route_decision.route not in {RouteKind.QUICK, RouteKind.EMERGENCY}
         )
         execution_budget = ExecutionBudget(
             max_steps=resolved_harness_config.max_react_iterations,
@@ -425,7 +431,14 @@ class ChatService:
                 report_requested=requests_report(payload.message),
             )
         )
-        if not memory_enabled:
+        memory_refs: list[str]
+        if emergency_route:
+            history = []
+            session_summary = ""
+            profile_context = ""
+            profile_version = 0
+            memory_refs = []
+        elif not memory_enabled:
             history = await self._conversation.load_history(
                 payload.session_id,
                 tenant_id=identity.tenant_id,
@@ -438,8 +451,10 @@ class ChatService:
             session_summary = ""
             profile_context = ""
             profile_version = 0
-            memory_refs: list[str] = []
+            memory_refs = []
         else:
+            if memory is None:
+                raise RuntimeError("memory module is unavailable for the selected route")
             if regeneration is not None:
                 history = await self._conversation.load_history(
                     payload.session_id,
@@ -537,7 +552,7 @@ class ChatService:
                 actor_id=identity.actor_id,
             )
             self._active_run_id = run.id
-        if payload.uploaded_files and self._document_service is None:
+        if payload.uploaded_files and self._document_service is None and not emergency_route:
             raise UnsupportedAgentContextError("uploaded document storage is unavailable")
         uploaded_documents = (
             await self._document_service.resolve_context(
@@ -547,7 +562,7 @@ class ChatService:
                 session_id=payload.session_id,
                 max_characters=self._settings.document_context_max_characters,
             )
-            if self._document_service is not None
+            if self._document_service is not None and not emergency_route
             else []
         )
         execution = ExecutionContext(
@@ -588,7 +603,7 @@ class ChatService:
             search_enabled=workflow.search_enabled,
             workflow=cast(Any, workflow.workflow_id.value),
             agent_skills=agent_skills,
-            loaded_skill_ids=payload.loaded_skills,
+            loaded_skill_ids=[] if emergency_route else payload.loaded_skills,
             uploaded_documents=uploaded_documents,
             uploaded_images=payload.images,
             runtime_principal=_runtime_principal(identity, user_id=conversation.user_id),
@@ -601,8 +616,8 @@ class ChatService:
         context = await harness.assemble_context(
             str(payload.session_id),
             identity.actor_id,
-            payload.loaded_skills,
-            [str(item) for item in payload.uploaded_files],
+            [] if emergency_route else payload.loaded_skills,
+            [] if emergency_route else [str(item) for item in payload.uploaded_files],
         )
         await self._append_event(
             identity.tenant_id,
@@ -833,7 +848,9 @@ class ChatService:
                 identity.tenant_id,
                 trace_id,
                 response,
-                memory_update=memory.last_update if memory_enabled else None,
+                memory_update=(
+                    memory.last_update if memory_enabled and memory is not None else None
+                ),
                 commit=False,
             )
             if self._run_journal is not None and self._active_run_id is not None:
@@ -881,9 +898,10 @@ class ChatService:
             try:
                 await self._conversation.rollback()
             finally:
-                await memory.compensate_uncommitted_vectors()
+                if memory is not None:
+                    await memory.compensate_uncommitted_vectors()
             raise
-        if memory_enabled:
+        if memory_enabled and memory is not None:
             memory.mark_vectors_committed()
         await callback(
             StreamEvent(

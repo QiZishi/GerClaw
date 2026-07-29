@@ -959,6 +959,54 @@ async def test_emergency_short_circuit_trace_does_not_claim_a_model_call(
 
 
 @pytest.mark.asyncio
+async def test_emergency_bypasses_skill_memory_and_document_dependencies(
+    unit_settings: Settings,
+) -> None:
+    session_id = uuid.uuid4()
+    traces = _TraceFacade(created=True, session_id=session_id)
+
+    def unavailable_memory(**_kwargs: object) -> _MemoryFacade:
+        raise AssertionError("Emergency must not construct Memory")
+
+    service = ChatService(
+        settings=unit_settings,
+        conversation=cast(Any, _ConversationFacade(session_id)),
+        traces=cast(Any, traces),
+        lease=cast(Any, _OwnedLease()),
+        model=cast(Any, _TextModel()),
+        rag_module=cast(Any, _NoopRAG()),
+        memory_factory=unavailable_memory,
+        skill_module=None,
+        document_service=None,
+    )
+
+    async def callback(_event: object) -> None:
+        return None
+
+    response = await service.process(
+        ChatRequest(
+            session_id=session_id,
+            message="老人突然胸痛并且呼吸困难",
+            loaded_skills=["risk-assessment"],
+            uploaded_files=[uuid.uuid4()],
+        ),
+        identity=AuthContext(
+            actor_id="usr_patient_unit0001",
+            tenant_id="tenant_public0001",
+            scopes=frozenset({"chat:write"}),
+        ),
+        request_id="request_chat_emergency_dependencies_0001",
+        trace_id="trace_chat_emergency_dependencies_0001",
+        callback=cast(Any, callback),
+    )
+
+    assert response.emergency_short_circuit is True
+    assert response.structured["model_invoked"] is False
+    assert response.structured["tool_names"] == []
+    assert "立即拨打 120" in response.text
+
+
+@pytest.mark.asyncio
 async def test_cancelled_running_skill_viewer_gets_a_terminal_audit_event(
     unit_settings: Settings,
 ) -> None:

@@ -6,7 +6,9 @@ capabilities, multiple attachments, explicitly complex deliverables, and large r
 Deep; ordinary medical/attachment work selects Standard; only short non-medical requests
 without attachments or capabilities select Quick.
 
-Invalid input fails before model execution. Emergency decisions set `model_allowed=false`;
+Invalid input fails before model execution. Emergency decisions set `model_allowed=false` and
+skip Skill resolution/session mutation, Memory construction/recall/compression, conversation
+context hydration, and uploaded-document resolution before the deterministic notice is emitted;
 Quick disables the turn tool registry, so it cannot call RAG, Memory, Search, Skill, or a
 complex planner. Thresholds are resolved from `Settings` into `ResolvedHarnessConfig`; this
 package reads no environment.

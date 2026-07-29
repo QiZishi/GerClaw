@@ -130,7 +130,7 @@ class ProductionAgentHarness:
         settings: Settings,
         model: ChatModelBase,
         rag_module: RAGModule,
-        memory_module: MemoryModule,
+        memory_module: MemoryModule | None,
         execution: ExecutionContext,
         history: list[ConversationHistoryMessage],
         profile_context: str = "",
@@ -512,6 +512,10 @@ class ProductionAgentHarness:
         )
         if not preflight.allowed:
             raise RuntimeBudgetExceededError(preflight.reason_code)
+        if self._memory_module is None:
+            raise UnsupportedAgentContextError(
+                "memory module is unavailable for a non-emergency route"
+            )
         turn_toolkit = await build_turn_toolkit(
             config=self._config,
             rag_module=self._rag_module,
