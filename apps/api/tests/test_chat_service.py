@@ -679,9 +679,9 @@ async def test_owned_turn_streams_only_after_durable_success(unit_settings: Sett
     assert conversation.response is response
     assert conversation.assistant_commit is False
     assert conversation.rollback_count == 0
-    assert memory.short_term_sessions == [str(session_id)]
-    assert memory.sources == ["您好!"]
-    assert memory.committed_count == 1
+    assert memory.short_term_sessions == []
+    assert memory.sources == []
+    assert memory.committed_count == 0
     assert memory.compensation_count == 0
     assert response.text.endswith("内容由 AI 生成，仅供参考。身体不适请及时就医。")
     assert traces.trace.status == TraceStatus.COMPLETED.value
@@ -693,7 +693,6 @@ async def test_owned_turn_streams_only_after_durable_success(unit_settings: Sett
     assert trace_event_types == [
         "agent.start",
         "model.call",
-        "memory.update",
         "safety.check",
         "agent.finish",
     ]

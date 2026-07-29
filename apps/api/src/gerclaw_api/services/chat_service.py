@@ -35,6 +35,7 @@ from gerclaw_api.modules.agent_harness import (
 from gerclaw_api.modules.agent_harness.config import ResolvedHarnessConfig
 from gerclaw_api.modules.agent_harness.routing import (
     DeterministicRouter,
+    RouteKind,
     RoutingInput,
     RoutingPolicy,
 )
@@ -377,7 +378,30 @@ class ChatService:
             uploaded_image_count=len(payload.images),
         )
         companion = is_companion_workflow(cast(Any, workflow.workflow_id.value))
-        if companion:
+        resolved_harness_config = ResolvedHarnessConfig.from_settings(self._settings)
+        route_decision = DeterministicRouter(
+            RoutingPolicy(
+                quick_max_characters=resolved_harness_config.quick_route_max_characters,
+                deep_min_characters=resolved_harness_config.deep_route_min_characters,
+                deep_attachment_count=resolved_harness_config.deep_route_attachment_count,
+                deep_capability_count=resolved_harness_config.deep_route_capability_count,
+            )
+        ).decide(
+            RoutingInput(
+                message=payload.message,
+                has_images=bool(payload.images),
+                has_documents=bool(payload.uploaded_files),
+                image_count=len(payload.images),
+                document_count=len(payload.uploaded_files),
+                selected_capabilities=tuple(str(item) for item in payload.loaded_skills),
+                medical_content=is_medical_message(payload.message) and not companion,
+                high_risk_detected=bool(detect_high_risk(payload.message)),
+            )
+        )
+        memory_enabled = (
+            not companion and route_decision.route is not RouteKind.QUICK
+        )
+        if not memory_enabled:
             history = await self._conversation.load_history(
                 payload.session_id,
                 tenant_id=identity.tenant_id,
@@ -443,26 +467,6 @@ class ChatService:
                     channel=payload.channel,
                 )
             ).id
-        )
-        resolved_harness_config = ResolvedHarnessConfig.from_settings(self._settings)
-        route_decision = DeterministicRouter(
-            RoutingPolicy(
-                quick_max_characters=resolved_harness_config.quick_route_max_characters,
-                deep_min_characters=resolved_harness_config.deep_route_min_characters,
-                deep_attachment_count=resolved_harness_config.deep_route_attachment_count,
-                deep_capability_count=resolved_harness_config.deep_route_capability_count,
-            )
-        ).decide(
-            RoutingInput(
-                message=payload.message,
-                has_images=bool(payload.images),
-                has_documents=bool(payload.uploaded_files),
-                image_count=len(payload.images),
-                document_count=len(payload.uploaded_files),
-                selected_capabilities=tuple(str(item) for item in payload.loaded_skills),
-                medical_content=is_medical_message(payload.message) and not companion,
-                high_risk_detected=bool(detect_high_risk(payload.message)),
-            )
         )
         if self._run_journal is not None:
             run = await self._run_journal.start(
@@ -802,7 +806,7 @@ class ChatService:
                 identity.tenant_id,
                 trace_id,
                 response,
-                memory_update=None if companion else memory.last_update,
+                memory_update=memory.last_update if memory_enabled else None,
                 commit=False,
             )
             if self._run_journal is not None and self._active_run_id is not None:
@@ -852,7 +856,7 @@ class ChatService:
             finally:
                 await memory.compensate_uncommitted_vectors()
             raise
-        if not companion:
+        if memory_enabled:
             memory.mark_vectors_committed()
         await callback(
             StreamEvent(

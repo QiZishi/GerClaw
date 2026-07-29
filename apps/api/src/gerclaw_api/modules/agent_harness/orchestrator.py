@@ -239,10 +239,19 @@ class ProductionAgentHarness:
                 "validated uploaded-document context does not match the request"
             )
         companion = is_companion_workflow(self._workflow)
-        tool_names = [] if companion else ["search_knowledge", "search_memory"]
-        if not companion and self._search_module is not None and self._search_enabled:
+        quick_route = (
+            self._route_decision is not None
+            and self._route_decision.route is RouteKind.QUICK
+        )
+        tool_names = [] if companion or quick_route else ["search_knowledge", "search_memory"]
+        if (
+            not companion
+            and not quick_route
+            and self._search_module is not None
+            and self._search_enabled
+        ):
             tool_names.append("web_search")
-        if not companion and self._agent_skills:
+        if not companion and not quick_route and self._agent_skills:
             tool_names.append("Skill")
         return self._context_assembler.assemble(
             execution=self._execution,
@@ -514,6 +523,7 @@ class ProductionAgentHarness:
             memory_middleware=turn_toolkit.memory_middleware,
             high_risk=bool(high_risk_codes),
             document_focused=document_focused,
+            retrieval_disabled=route_decision.route is RouteKind.QUICK,
         )
 
         skill_metadata: dict[str, tuple[str, str]] = {}
@@ -751,6 +761,7 @@ class ProductionAgentHarness:
         memory_middleware: Mem0Middleware,
         high_risk: bool,
         document_focused: bool,
+        retrieval_disabled: bool,
     ) -> Agent:
         return self._agent_factory.build(
             session_id=session_id,
@@ -760,6 +771,7 @@ class ProductionAgentHarness:
             memory_middleware=memory_middleware,
             high_risk=high_risk,
             document_focused=document_focused,
+            retrieval_disabled=retrieval_disabled,
         )
 
     def _render_uploaded_documents(self) -> str:

@@ -235,12 +235,13 @@ def _harness(
     uploaded_documents: list[UploadedDocumentContext] | None = None,
     uploaded_images: list[ImageInput] | None = None,
     actor_role: ActorRole = ActorRole.PATIENT,
+    memory: _HarnessMemory | None = None,
 ) -> ProductionAgentHarness:
     return ProductionAgentHarness(
         settings=settings,
         model=cast(FailoverChatModel, model),
         rag_module=cast(Any, rag),
-        memory_module=cast(Any, _HarnessMemory()),
+        memory_module=cast(Any, memory or _HarnessMemory()),
         execution=_execution(),
         history=history or [],
         search_module=cast(Any, search),
@@ -896,7 +897,8 @@ async def test_final_only_provider_output_still_obeys_character_limit(
 async def test_non_medical_small_talk_bypasses_evidence(unit_settings: Settings) -> None:
     model = _HarnessModel(text="您好，很高兴为您服务。")
     rag = _HarnessRAG([])
-    harness = _harness(unit_settings, model=model, rag=rag)
+    memory = _HarnessMemory()
+    harness = _harness(unit_settings, model=model, rag=rag, memory=memory)
     context = await harness.assemble_context(
         "108815d7-05bf-4c2a-a977-cd034f390fab",
         "usr_patient00000001",
@@ -912,6 +914,7 @@ async def test_non_medical_small_talk_bypasses_evidence(unit_settings: Settings)
     assert not response.medical_content
     assert response.citations == []
     assert rag.calls == []
+    assert memory.searches == []
     assert response.structured["route"] == "quick"
     assert response.structured["route_reason"] == "short_non_medical"
 

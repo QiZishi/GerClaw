@@ -55,6 +55,7 @@ class AgentFactory(Protocol):
         memory_middleware: Mem0Middleware,
         high_risk: bool,
         document_focused: bool,
+        retrieval_disabled: bool,
     ) -> Agent:
         """Build an isolated agent without executing it."""
 
@@ -83,6 +84,7 @@ class ProductionAgentFactory:
         memory_middleware: Mem0Middleware,
         high_risk: bool,
         document_focused: bool,
+        retrieval_disabled: bool,
     ) -> Agent:
         companion = is_companion_workflow(self._workflow)
         prompt = COMPANION_SYSTEM_PROMPT if companion else GERIATRIC_SYSTEM_PROMPT
@@ -106,7 +108,9 @@ class ProductionAgentFactory:
             model=self._model,
             toolkit=toolkit,
             middlewares=(
-                [] if document_focused or companion else [memory_middleware, rag_middleware]
+                []
+                if document_focused or companion or retrieval_disabled
+                else [memory_middleware, rag_middleware]
             ),
             state=AgentState(session_id=session_id, context=state_context),
             context_config=ContextConfig(
