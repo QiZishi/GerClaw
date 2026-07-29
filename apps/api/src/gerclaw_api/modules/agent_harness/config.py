@@ -27,11 +27,11 @@ class ResolvedHarnessConfig(BaseModel):
         return cls(
             max_react_iterations=settings.agent_max_react_iterations,
             max_output_characters=settings.agent_max_output_characters,
-            max_output_bytes=min(settings.agent_max_output_characters * 4, 2_097_152),
+            max_output_bytes=settings.agent_max_output_bytes,
             evidence_top_k=settings.agent_evidence_top_k,
             memory_top_k=settings.memory_retrieval_top_k,
             memory_min_score=settings.memory_min_score,
-            approval_ttl_seconds=900,
-            context_trigger_ratio=0.85,
-            context_reserve_ratio=0.2,
+            approval_ttl_seconds=settings.agent_approval_ttl_seconds,
+            context_trigger_ratio=settings.agent_context_trigger_ratio,
+            context_reserve_ratio=settings.agent_context_reserve_ratio,
         )

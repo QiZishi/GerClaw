@@ -125,6 +125,10 @@ class Settings(BaseSettings):
     # Keep the stream-side safety budget compatible with the configured model
     # completion ceiling.  A 32k-token English completion can exceed 50k chars.
     agent_max_output_characters: int = Field(default=131_072, ge=1_000, le=131_072)
+    agent_max_output_bytes: int = Field(default=524_288, ge=4_000, le=2_097_152)
+    agent_approval_ttl_seconds: int = Field(default=900, ge=60, le=86_400)
+    agent_context_trigger_ratio: float = Field(default=0.85, gt=0, lt=1)
+    agent_context_reserve_ratio: float = Field(default=0.2, gt=0, lt=1)
     document_max_markdown_characters: int = Field(default=1_000_000, ge=10_000, le=2_000_000)
     # The five-prescription conversation may combine up to ten MinerU-extracted
     # reports.  This is a hard aggregate input budget, not a silent truncation
