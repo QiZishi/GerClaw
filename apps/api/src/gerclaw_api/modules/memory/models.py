@@ -9,6 +9,7 @@ from typing import Final, Literal
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 from gerclaw_api.modules.memory.protocols import (
+    MemoryAccessLevel,
     MemoryCategory,
     MemoryFactView,
     MemoryStatus,
@@ -119,6 +120,7 @@ class HealthProfileRead(BaseModel):
 
     schema_version: int = Field(ge=1)
     version: int = Field(ge=0)
+    cross_session_recall_enabled: bool = True
     profile: dict[str, object]
     facts: list[MemoryFactView] = Field(default_factory=list, max_length=200)
 
@@ -130,6 +132,25 @@ class MemoryFactDecisionRequest(BaseModel):
 
     expected_revision: int = Field(ge=1)
     decision: Literal["confirm", "reject"]
+    access_level: MemoryAccessLevel = "standard"
+
+
+class MemoryRecallPreferenceRequest(BaseModel):
+    """Revision-fenced owner choice for cross-session recall."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    expected_profile_version: int = Field(ge=0)
+    enabled: bool
+
+
+class MemoryRecallPreferenceRead(BaseModel):
+    """Updated recall choice without returning health content."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    enabled: bool
+    profile_version: int = Field(ge=1)
 
 
 class MemoryFactDecisionRead(BaseModel):
@@ -150,12 +171,14 @@ class MemoryFactRevisionRead(BaseModel):
     category: MemoryCategory
     memory_type: MemoryType
     status: MemoryStatus
+    access_level: MemoryAccessLevel = "standard"
     statement: str = Field(min_length=1, max_length=1_000)
     details: dict[str, object]
     confidence: float = Field(ge=0, le=1)
     source_trace_id: str | None = Field(default=None, max_length=64)
     occurred_at: datetime | None = None
     confirmed_at: datetime | None = None
+    expires_at: datetime | None = None
     updated_at: datetime | None = None
     recorded_at: datetime
 

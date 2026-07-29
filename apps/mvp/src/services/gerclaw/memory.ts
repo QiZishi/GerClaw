@@ -4,12 +4,30 @@ import {
   healthProfileSchema,
   memoryFactDecisionSchema,
   memoryFactHistorySchema,
+  memoryRecallPreferenceSchema,
   type HealthProfile,
   type MemoryFactHistory,
 } from "./schemas";
 
 export function readHealthProfile(): Promise<HealthProfile> {
   return gerclawRequest("memory/profile", healthProfileSchema);
+}
+
+export function updateMemoryRecallPreference(
+  expectedProfileVersion: number,
+  enabled: boolean
+) {
+  return gerclawRequest(
+    "memory/profile/recall",
+    memoryRecallPreferenceSchema,
+    {
+      method: "PATCH",
+      body: JSON.stringify({
+        expected_profile_version: expectedProfileVersion,
+        enabled,
+      }),
+    }
+  );
 }
 
 export function decideMemoryFact(

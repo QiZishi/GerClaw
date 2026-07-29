@@ -508,6 +508,9 @@ class HealthProfile(TimestampMixin, Base):
     )
     schema_version: Mapped[int] = mapped_column(Integer, default=1, nullable=False)
     version: Mapped[int] = mapped_column(Integer, default=1, nullable=False)
+    cross_session_recall_enabled: Mapped[bool] = mapped_column(
+        Boolean, default=True, server_default="true", nullable=False
+    )
     profile: Mapped[dict[str, Any]] = mapped_column(EncryptedJSON(), default=dict, nullable=False)
 
 
@@ -937,7 +940,14 @@ class MemoryFact(TimestampMixin, Base):
             name="valid_category",
         ),
         CheckConstraint("memory_type IN ('stable','evolving','event')", name="valid_memory_type"),
-        CheckConstraint("status IN ('confirmed','pending','inactive')", name="valid_status"),
+        CheckConstraint(
+            "status IN ('proposed','confirmed','conflicted','pending','inactive')",
+            name="valid_status",
+        ),
+        CheckConstraint(
+            "access_level IN ('standard','restricted')",
+            name="valid_access_level",
+        ),
         CheckConstraint("confidence >= 0 AND confidence <= 1", name="valid_confidence"),
         CheckConstraint("revision > 0", name="positive_revision"),
         CheckConstraint("vector_revision >= 0", name="nonnegative_vector_revision"),
@@ -958,6 +968,9 @@ class MemoryFact(TimestampMixin, Base):
     memory_type: Mapped[str] = mapped_column(String(16), nullable=False)
     fact_key: Mapped[str] = mapped_column(String(64), nullable=False)
     status: Mapped[str] = mapped_column(String(16), nullable=False)
+    access_level: Mapped[str] = mapped_column(
+        String(16), default="standard", server_default="standard", nullable=False
+    )
     statement: Mapped[str] = mapped_column(EncryptedText(), nullable=False)
     details: Mapped[dict[str, Any]] = mapped_column(EncryptedJSON(), default=dict, nullable=False)
     confidence: Mapped[float] = mapped_column(Float, nullable=False)
@@ -965,6 +978,7 @@ class MemoryFact(TimestampMixin, Base):
     vector_revision: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
     occurred_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     confirmed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    expires_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
 
 
 class MemoryFactRevision(Base):

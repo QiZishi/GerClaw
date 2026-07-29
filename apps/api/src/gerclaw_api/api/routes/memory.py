@@ -15,6 +15,8 @@ from gerclaw_api.modules.memory.models import (
     MemoryFactDecisionRead,
     MemoryFactDecisionRequest,
     MemoryFactHistoryRead,
+    MemoryRecallPreferenceRead,
+    MemoryRecallPreferenceRequest,
 )
 from gerclaw_api.modules.memory.profile import empty_profile
 from gerclaw_api.modules.memory.runtime import create_memory_module
@@ -60,7 +62,13 @@ async def get_profile(
     repository = SqlAlchemyMemoryRepository(session)
     user = await repository.get_user(tenant_id=identity.tenant_id, actor_id=identity.actor_id)
     if user is None:
-        return HealthProfileRead(schema_version=1, version=0, profile=empty_profile(), facts=[])
+        return HealthProfileRead(
+            schema_version=1,
+            version=0,
+            cross_session_recall_enabled=True,
+            profile=empty_profile(),
+            facts=[],
+        )
     module = create_memory_module(
         settings=request.app.state.settings,
         repository=repository,
@@ -74,6 +82,57 @@ async def get_profile(
         trace_id=str(request.state.trace_id),
     )
     return await module.read_profile()
+
+
+@router.patch("/profile/recall", response_model=MemoryRecallPreferenceRead)
+async def update_recall_preference(
+    payload: MemoryRecallPreferenceRequest,
+    request: Request,
+    session: SessionDependency,
+    identity: MemoryWriteIdentity,
+) -> MemoryRecallPreferenceRead:
+    """Enable or disable owner-controlled cross-session memory recall."""
+
+    await _enforce_rate_limit(request, identity)
+    repository = SqlAlchemyMemoryRepository(session)
+    user = await repository.get_user(
+        tenant_id=identity.tenant_id,
+        actor_id=identity.actor_id,
+    )
+    if user is None:
+        user = await repository.get_or_create_user(
+            tenant_id=identity.tenant_id,
+            actor_id=identity.actor_id,
+            role=identity.role,
+        )
+    module = create_memory_module(
+        settings=request.app.state.settings,
+        repository=repository,
+        model=_required_model(request),
+        embedding_model=request.app.state.rag_runtime.embedding_model,
+        vector_store=request.app.state.memory_store,
+        tenant_id=identity.tenant_id,
+        actor_id=identity.actor_id,
+        user_id=user.id,
+        session_id=_NO_SESSION,
+        trace_id=str(request.state.trace_id),
+    )
+    try:
+        result = await module.set_recall_preference(payload)
+        await module.commit()
+        return result
+    except MemoryConflictError as error:
+        await module.rollback()
+        raise HTTPException(
+            status_code=409,
+            detail={
+                "code": "MEMORY_REVISION_CONFLICT",
+                "message": "健康记录已更新, 请刷新后重试。",
+            },
+        ) from error
+    except BaseException:
+        await module.rollback()
+        raise
 
 
 @router.post("/facts/{fact_id}/decision", response_model=MemoryFactDecisionRead)

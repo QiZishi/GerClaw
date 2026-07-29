@@ -160,6 +160,7 @@ class Settings(BaseSettings):
     memory_context_budget_ratio: float = Field(default=0.55, ge=0.2, le=0.8)
     memory_extraction_min_confidence: float = Field(default=0.8, ge=0.5, le=1)
     memory_max_facts_per_turn: int = Field(default=12, ge=1, le=30)
+    memory_transient_fact_ttl_days: int = Field(default=90, ge=1, le=3_650)
     search_timeout_seconds: float = Field(default=10.0, gt=0, le=30)
     search_max_retries: int = Field(default=1, ge=0, le=1)
     search_max_response_bytes: int = Field(

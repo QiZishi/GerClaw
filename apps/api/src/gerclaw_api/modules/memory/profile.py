@@ -55,7 +55,7 @@ def rebuild_profile(facts: list[MemoryFact]) -> dict[str, JsonValue]:
             "occurred_at": fact.occurred_at.isoformat() if fact.occurred_at else None,
             "details": fact.details,
         }
-        if fact.status == "pending":
+        if fact.status in {"proposed", "pending", "conflicted"}:
             pending.append({"category": fact.category, **entry})
             continue
         if fact.status != "confirmed":

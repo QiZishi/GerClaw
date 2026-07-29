@@ -37,6 +37,14 @@ class MemoryRepository(Protocol):
 
     async def get_user(self, *, tenant_id: str, actor_id: str) -> User | None: ...
 
+    async def get_or_create_user(
+        self,
+        *,
+        tenant_id: str,
+        actor_id: str,
+        role: str,
+    ) -> User: ...
+
     async def require_session(
         self, session_id: uuid.UUID, *, tenant_id: str, actor_id: str
     ) -> ConversationSession: ...
@@ -103,6 +111,31 @@ class SqlAlchemyMemoryRepository:
             User.is_active.is_(True),
         )
         return cast(User | None, await self._session.scalar(statement))
+
+    async def get_or_create_user(
+        self,
+        *,
+        tenant_id: str,
+        actor_id: str,
+        role: str,
+    ) -> User:
+        """Resolve a write-authorized principal without requiring a chat first."""
+
+        await self._session.execute(
+            pg_insert(User)
+            .values(
+                id=uuid.uuid4(),
+                tenant_id=tenant_id,
+                external_id=actor_id,
+                role=role,
+                is_active=True,
+            )
+            .on_conflict_do_nothing(index_elements=["tenant_id", "external_id"])
+        )
+        user = await self.get_user(tenant_id=tenant_id, actor_id=actor_id)
+        if user is None:
+            raise MemoryRepositoryError("memory principal is inactive")
+        return user
 
     async def require_session(
         self, session_id: uuid.UUID, *, tenant_id: str, actor_id: str

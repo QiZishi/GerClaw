@@ -4,9 +4,15 @@ import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } fro
 import { Check, History, RefreshCw, X } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { InlineLoadingState } from "@/components/ui/inline-loading-state";
+import { Switch } from "@/components/ui/switch";
 import { toast } from "@/components/ui/toast";
 import { cn } from "@/lib/utils";
-import { decideMemoryFact, readHealthProfile, readMemoryFactHistory } from "@/services/gerclaw/memory";
+import {
+  decideMemoryFact,
+  readHealthProfile,
+  readMemoryFactHistory,
+  updateMemoryRecallPreference,
+} from "@/services/gerclaw/memory";
 import type { HealthProfile, MemoryFact, MemoryFactHistory } from "@/services/gerclaw/schemas";
 import { useAppStore } from "@/stores/appStore";
 
@@ -37,6 +43,7 @@ export function HealthProfilePanel() {
   const [factHistory, setFactHistory] = useState<MemoryFactHistory | null>(null);
   const [historyError, setHistoryError] = useState<string | null>(null);
   const [historyLoading, setHistoryLoading] = useState(false);
+  const [recallUpdating, setRecallUpdating] = useState(false);
   const requestIdRef = useRef(0);
   const historyRequestIdRef = useRef(0);
 
@@ -73,8 +80,32 @@ export function HealthProfilePanel() {
     return [...sections.entries()];
   }, [profile]);
   const pendingFacts = useMemo(
-    () => (profile?.facts ?? []).filter((fact) => fact.status === "pending"),
+    () =>
+      (profile?.facts ?? []).filter((fact) =>
+        ["proposed", "pending", "conflicted"].includes(fact.status)
+      ),
     [profile]
+  );
+
+  const handleRecallPreference = useCallback(
+    async (enabled: boolean) => {
+      if (!profile || recallUpdating) return;
+      setRecallUpdating(true);
+      try {
+        await updateMemoryRecallPreference(profile.version, enabled);
+        toast.show(enabled ? "已开启跨会话健康记忆" : "已关闭跨会话健康记忆");
+        await refresh();
+      } catch (preferenceError) {
+        toast.show(
+          preferenceError instanceof Error
+            ? preferenceError.message
+            : "召回设置未保存，请刷新后重试"
+        );
+      } finally {
+        setRecallUpdating(false);
+      }
+    },
+    [profile, recallUpdating, refresh]
   );
 
   const handleDecision = useCallback(
@@ -200,6 +231,24 @@ export function HealthProfilePanel() {
         </p>
       )}
 
+      {profile && (
+        <div className="mb-4 flex items-center justify-between gap-4 rounded-lg border border-border bg-card p-3">
+          <div>
+            <p className={cn("font-medium", bodyClassName)}>跨会话健康记忆</p>
+            <p className={cn("text-muted-foreground", bodyClassName)}>
+              关闭后，已确认记录仍保留，但不会自动加入新的对话。
+            </p>
+          </div>
+          <Switch
+            checked={profile.cross_session_recall_enabled}
+            disabled={recallUpdating || loadState === "loading"}
+            onCheckedChange={(checked) => void handleRecallPreference(checked)}
+            aria-label="跨会话健康记忆"
+            className={cn(isSeniorPatient && "scale-125")}
+          />
+        </div>
+      )}
+
       {confirmedSections.length === 0 && pendingFacts.length === 0 ? (
           <PanelStatus
             className={bodyClassName}
@@ -259,8 +308,14 @@ export function HealthProfilePanel() {
               <ul className="space-y-3">
                 {pendingFacts.map((fact) => {
                   const isDeciding = decidingFactId === fact.id;
+                  const isConflicted = fact.status === "conflicted";
                   return (
                     <li key={fact.id} className={cn("rounded-lg border border-primary/30 bg-primary/5 p-3", bodyClassName)}>
+                      {isConflicted && (
+                        <p className="mb-1 font-medium text-amber-700">
+                          此信息与已确认记录冲突，确认前不会用于回答。
+                        </p>
+                      )}
                       <p>{fact.statement}</p>
                       <div className="mt-3 flex flex-wrap gap-2">
                         <Button
@@ -271,7 +326,11 @@ export function HealthProfilePanel() {
                           onClick={() => void handleDecision(fact, "confirm")}
                         >
                           <Check className="size-4" />
-                          {isDeciding ? "正在保存" : "确认准确"}
+                          {isDeciding
+                            ? "正在保存"
+                            : isConflicted
+                              ? "采用新版本"
+                              : "确认准确"}
                         </Button>
                         <Button
                           type="button"
@@ -282,7 +341,7 @@ export function HealthProfilePanel() {
                           onClick={() => void handleDecision(fact, "reject")}
                         >
                           <X className="size-4" />
-                          忽略此条
+                          {isConflicted ? "保留原记录" : "忽略此条"}
                         </Button>
                       </div>
                     </li>

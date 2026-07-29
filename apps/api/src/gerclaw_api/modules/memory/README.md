@@ -15,8 +15,13 @@
 1. 从加密 `messages` 加载有界短期历史；超出 token budget 时用 AgentScope 医疗摘要压缩，强制保留过敏、当前/停用药物、红旗事件和待确认信息。
 2. 将确认画像和摘要作为 `<untrusted-user-memory>` 背景，而不是 system instruction。
 3. `Mem0Middleware(mode="both")` 自动召回并暴露 `search_memory`/`add_memory`；GerClaw async client adapter 将调用映射回同一 `ProductionMemoryModule`。
-4. 写入只抽取本轮真实 user message，不从 assistant 回复或工具建议反向造事实。模型投影必须符合严格、显式版本化的 `memory-extraction-model-output-v1`；缺失/旧版本、未知字段或异常 shape 在证据核对和持久化前失败。否认按 category/entity 作用域处理；限定频率和双重否定不得错误停用事实，低置信度和不确定冲突进入 pending/inactive。
+4. 写入只抽取本轮真实 user message，不从 assistant 回复或工具建议反向造事实。模型投影必须符合严格、显式版本化的 `memory-extraction-model-output-v1`；缺失/旧版本、未知字段或异常 shape 在证据核对和持久化前失败。所有新事实默认进入 `proposed`，只有用户通过 revision-fenced decision 明确确认后才写入向量和画像。否认同样先成为提案；确认后才将对应事实转为 inactive。
 5. assistant、事实/画像、`memory.update` Trace 与 completed Trace 在同一 request-scoped PostgreSQL 事务提交。模型、Qdrant、schema 或 ownership 失败均不发送 `done`。
+
+同一 category/entity 的新提案若与 confirmed 版本不一致，当前投影进入
+`conflicted`，旧确认版本保存在加密 revision/conflict snapshot 中。冲突期间两边都不
+进入 prompt；用户可采用新版本或保留旧版本。含“可能/怀疑/鉴别”等诊断方向的
+condition/assessment 不写入长期 Memory。
 
 Qdrant 在 PostgreSQL commit 前可能存在不含 PHI 的孤儿 revision point；authoritative point-ID allowlist 令其不可检索。当前 Unit of Work 在写入前已持有精确 UUIDv5 fenced point IDs，回滚补偿直接删除这些 IDs；只有按 fact ID 做泛化维护清理时才先 scroll 快照 point IDs，禁止宽 filter 误删并发新 revision。
 
@@ -25,6 +30,7 @@ Qdrant 在 PostgreSQL commit 前可能存在不含 PHI 的孤儿 revision point�
 - `GET /api/v1/memory/profile`：`memory:read`，返回当前 actor 的解密画像和事实；未建档 actor 返回空画像。
 - `GET /api/v1/memory/facts/{fact_id}/history?limit=10`：`memory:read`，仅返回当前 actor 拥有的、每次变更前保存的不可变版本；跨 actor/tenant 和不存在事实统一 404，不返回当前投影以外的其他事实。
 - `POST /api/v1/memory/facts/{fact_id}/decision`：`memory:write`，使用 `expected_revision` 乐观锁确认或拒绝当前 actor 的事实；跨 actor/tenant 统一 404。
+- `PATCH /api/v1/memory/profile/recall`：`memory:write`，使用 profile version 乐观锁开关跨会话召回；关闭后记录仍保留在本人健康档案，但不注入对话。
 
 所有 endpoint 共用 Redis principal 限流。Trace 只记录 fact UUID、category、数量、画像版本和结果，不记录健康文本。
 
@@ -32,6 +38,11 @@ Qdrant 在 PostgreSQL commit 前可能存在不含 PHI 的孤儿 revision point�
 
 **可安全改进。** 可优化抽取器、冲突合并、画像展示、生命周期和受授权医生投影；新事实类别需定义证据来源、确认/拒绝、版本迁移与向量 payload 策略。任何模型抽取改动先以合成否定、他人主体和未绑定实体 case 固定边界。
 
-**不可破坏的契约。** 事实与版本必须加密并按 tenant/actor 隔离；`pending`/`inactive` 不得进入医生投影或自动作为事实。不得把原健康文本写入 Qdrant/Trace，且每次决定必须带 `expected_revision`，不能以最后写入者覆盖。
+**不可破坏的契约。** 事实与版本必须加密并按 tenant/actor 隔离；只有未过期、
+`standard` 且无冲突的 `confirmed` 事实可召回，`proposed`/`pending`/`conflicted`/
+`inactive` 均不得自动作为事实。用药、生命体征和评估提案按
+`GERCLAW_MEMORY_TRANSIENT_FACT_TTL_DAYS` 设置有效期；restricted 或关闭跨会话
+召回时即使已确认也不进入 prompt。不得把原健康文本写入 Qdrant/Trace，且每次决定
+必须带 `expected_revision`，不能以最后写入者覆盖。
 
 **性能与回归验收。** 覆盖确认、拒绝、否定、冲突、历史、跨 actor 404、向量 fence 与 revision 冲突；运行 memory extraction case。画像读取在历史增长下记录 p95、解密数和向量过滤命中率；10 并发 decision 必须只有一个 revision 成功。

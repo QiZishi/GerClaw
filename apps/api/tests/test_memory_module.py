@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import uuid
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from types import SimpleNamespace
 from typing import Any, cast
 
@@ -44,6 +44,7 @@ from gerclaw_api.modules.memory.models import (
     ExtractedMemoryFact,
     MemoryFactDecisionRequest,
     MemoryFactDetails,
+    MemoryRecallPreferenceRequest,
     MemoryVectorCandidate,
     MemoryVectorRecord,
 )
@@ -94,6 +95,8 @@ def _fact(
     statement: str = "用户自述对青霉素过敏",
     entity: str = "青霉素",
     revision: int = 1,
+    access_level: str = "standard",
+    expires_at: datetime | None = None,
 ) -> MemoryFact:
     now = _now()
     return MemoryFact(
@@ -106,12 +109,14 @@ def _fact(
         memory_type="stable",
         fact_key=uuid.uuid4().hex,
         status=status,
+        access_level=access_level,
         statement=statement,
         details={"entity": entity, "source": "user_self_report"},
         confidence=0.95,
         revision=revision,
         vector_revision=revision if status == "confirmed" else 0,
         confirmed_at=now if status == "confirmed" else None,
+        expires_at=expires_at,
         created_at=now,
         updated_at=now,
     )
@@ -774,8 +779,18 @@ async def test_real_extractor_reaches_all_core_profile_categories() -> None:
         "usr_memory_unit0001",
         [MemoryMessage(role="user", content=[{"type": "text", "text": source}])],
     )
-
+    assert all(fact.status == "proposed" for fact in repository.facts)
     assert repository.profile is not None
+    assert len(cast(list[object], repository.profile.profile["pending_items"])) == 6
+    for fact in list(repository.facts):
+        await module.decide_fact(
+            fact.id,
+            MemoryFactDecisionRequest(
+                expected_revision=fact.revision,
+                decision="confirm",
+            ),
+        )
+
     profile = repository.profile.profile
     assert set(module.last_update.categories) == {
         "basic_info",
@@ -1228,6 +1243,7 @@ class _Repository:
                 user_id=cast(uuid.UUID, kwargs["user_id"]),
                 schema_version=1,
                 version=1,
+                cross_session_recall_enabled=True,
                 profile={},
                 created_at=now,
                 updated_at=now,
@@ -1335,11 +1351,20 @@ async def test_production_memory_updates_profile_retrieves_revision_and_is_idemp
     )
 
     await module.extract_and_update_profile("usr_memory_unit0001", [source])
-    assert module.last_update.confirmed_count == 1
-    assert module.last_update.pending_count == 1
+    assert module.last_update.confirmed_count == 0
+    assert module.last_update.pending_count == 2
     assert len(repository.facts) == 2
-    assert len(vector_store.records) == 1
+    assert len(vector_store.records) == 0
     assert repository.profile is not None
+    assert len(cast(list[object], repository.profile.profile["allergies"])) == 0
+    assert len(cast(list[object], repository.profile.profile["pending_items"])) == 2
+
+    allergy = next(fact for fact in repository.facts if fact.category == "allergy")
+    await module.decide_fact(
+        allergy.id,
+        MemoryFactDecisionRequest(expected_revision=1, decision="confirm"),
+    )
+    assert len(vector_store.records) == 1
     assert len(cast(list[object], repository.profile.profile["allergies"])) == 1
 
     await module.extract_and_update_profile(
@@ -1375,6 +1400,146 @@ async def test_production_memory_updates_profile_retrieves_revision_and_is_idemp
         await module.get_long_term("other_actor", query="过敏")
     with pytest.raises(ValueError):
         await module.get_long_term("usr_memory_unit0001", query="x" * 4_001)
+
+
+@pytest.mark.asyncio
+async def test_recall_excludes_proposed_conflicted_expired_and_restricted_facts() -> None:
+    user_id = uuid.uuid4()
+    repository = _Repository(user_id=user_id, session_id=uuid.uuid4())
+    vector_store = _VectorStore()
+    active = _fact(user_id=user_id, entity="青霉素")
+    restricted = _fact(
+        user_id=user_id,
+        entity="磺胺",
+        access_level="restricted",
+    )
+    expired = _fact(
+        user_id=user_id,
+        entity="头孢",
+        expires_at=_now() - timedelta(days=1),
+    )
+    proposed = _fact(user_id=user_id, entity="阿司匹林", status="proposed")
+    conflicted = _fact(user_id=user_id, entity="布洛芬", status="conflicted")
+    repository.facts.extend([active, restricted, expired, proposed, conflicted])
+    profile = await repository.lock_or_create_profile(
+        tenant_id="tenant_memory0001",
+        user_id=user_id,
+    )
+    profile.profile = rebuild_profile(repository.facts)
+    vector_store.candidates = [
+        MemoryVectorCandidate(
+            fact_id=fact.id,
+            revision=fact.revision,
+            category=fact.category,
+            score=0.9,
+        )
+        for fact in (active, restricted, expired)
+    ]
+    module = _module(repository, _Extractor([]), vector_store)
+
+    recalled = await module.get_long_term(
+        "usr_memory_unit0001",
+        query="过敏史",
+    )
+
+    assert [fact.id for fact in recalled.relevant_facts] == [active.id]
+
+
+@pytest.mark.asyncio
+async def test_owner_can_disable_cross_session_recall_with_revision_fencing() -> None:
+    user_id = uuid.uuid4()
+    repository = _Repository(user_id=user_id, session_id=uuid.uuid4())
+    vector_store = _VectorStore()
+    fact = _fact(user_id=user_id)
+    repository.facts.append(fact)
+    profile = await repository.lock_or_create_profile(
+        tenant_id="tenant_memory0001",
+        user_id=user_id,
+    )
+    profile.profile = rebuild_profile(repository.facts)
+    vector_store.candidates = [
+        MemoryVectorCandidate(
+            fact_id=fact.id,
+            revision=fact.revision,
+            category=fact.category,
+            score=0.95,
+        )
+    ]
+    module = _module(repository, _Extractor([]), vector_store)
+
+    updated = await module.set_recall_preference(
+        MemoryRecallPreferenceRequest(
+            expected_profile_version=profile.version,
+            enabled=False,
+        )
+    )
+    recalled = await module.get_long_term(
+        "usr_memory_unit0001",
+        query="过敏史",
+    )
+    rendered, version, refs = await module.core_profile_context()
+
+    assert (updated.enabled, updated.profile_version) == (False, 2)
+    assert recalled.relevant_facts == []
+    assert recalled.cross_session_recall_enabled is False
+    assert (rendered, version, refs) == ("", 2, [])
+    with pytest.raises(MemoryConflictError, match="profile version"):
+        await module.set_recall_preference(
+            MemoryRecallPreferenceRequest(
+                expected_profile_version=1,
+                enabled=True,
+            )
+        )
+
+
+@pytest.mark.asyncio
+async def test_empty_profile_accepts_only_version_zero_recall_preference() -> None:
+    repository = _Repository(user_id=uuid.uuid4(), session_id=uuid.uuid4())
+    module = _module(repository, _Extractor([]), _VectorStore())
+
+    updated = await module.set_recall_preference(
+        MemoryRecallPreferenceRequest(
+            expected_profile_version=0,
+            enabled=False,
+        )
+    )
+
+    assert (updated.enabled, updated.profile_version) == (False, 2)
+    assert repository.profile is not None
+    assert repository.profile.cross_session_recall_enabled is False
+
+
+@pytest.mark.asyncio
+async def test_differential_hypothesis_is_not_persisted_as_memory() -> None:
+    repository = _Repository(user_id=uuid.uuid4(), session_id=uuid.uuid4())
+    module = _module(
+        repository,
+        _Extractor(
+            [
+                (
+                    _candidate(
+                        "冠心病",
+                        category="condition",
+                        evidence="我怀疑可能是冠心病",
+                    ),
+                    "pending",
+                )
+            ]
+        ),
+        _VectorStore(),
+    )
+
+    await module.extract_and_update_profile(
+        "usr_memory_unit0001",
+        [
+            MemoryMessage(
+                role="user",
+                content=[{"type": "text", "text": "我怀疑可能是冠心病"}],
+            )
+        ],
+    )
+
+    assert repository.facts == []
 
 
 @pytest.mark.asyncio
@@ -1420,8 +1585,16 @@ async def test_distinct_dated_events_keep_separate_idempotent_fact_keys() -> Non
 
     message = MemoryMessage(role="user", content=[{"type": "text", "text": "跌倒事件"}])
     await first.extract_and_update_profile("usr_memory_unit0001", [message])
+    await first.decide_fact(
+        repository.facts[0].id,
+        MemoryFactDecisionRequest(expected_revision=1, decision="confirm"),
+    )
     await first.commit()
     await second.extract_and_update_profile("usr_memory_unit0001", [message])
+    await second.decide_fact(
+        repository.facts[1].id,
+        MemoryFactDecisionRequest(expected_revision=1, decision="confirm"),
+    )
     await second.commit()
     await first.extract_and_update_profile("usr_memory_unit0001", [message])
 
@@ -1464,6 +1637,11 @@ async def test_fact_mutation_preserves_encrypted_revision_audit_projection() -> 
         "usr_memory_unit0001",
         [MemoryMessage(role="user", content=[{"type": "text", "text": "服药"}])],
     )
+    fact = repository.facts[0]
+    await first.decide_fact(
+        fact.id,
+        MemoryFactDecisionRequest(expected_revision=1, decision="confirm"),
+    )
     await first.commit()
     second = _module(
         repository,
@@ -1490,26 +1668,30 @@ async def test_fact_mutation_preserves_encrypted_revision_audit_projection() -> 
         [MemoryMessage(role="user", content=[{"type": "text", "text": "停药"}])],
     )
 
-    fact = repository.facts[0]
+    assert (fact.status, fact.revision) == ("conflicted", 3)
+    await second.decide_fact(
+        fact.id,
+        MemoryFactDecisionRequest(expected_revision=3, decision="confirm"),
+    )
     assert (fact.status, fact.revision, fact.source_trace_id) == (
         "inactive",
-        2,
+        4,
         "trace_medication_stopped",
     )
-    assert len(repository.revisions) == 1
-    history = repository.revisions[0]
-    assert (history.fact_id, history.revision) == (fact.id, 1)
+    assert len(repository.revisions) == 3
+    history = repository.revisions[1]
+    assert (history.fact_id, history.revision) == (fact.id, 2)
     assert history.snapshot["status"] == "confirmed"
     assert history.snapshot["source_trace_id"] == "trace_medication_active"
     assert cast(dict[str, object], history.snapshot["details"])["dose"] == "100mg"
 
     response = await second.read_fact_history(fact.id, limit=10)
     assert response.fact_id == fact.id
-    assert len(response.items) == 1
-    assert response.items[0].revision == 1
-    assert response.items[0].status == "confirmed"
-    assert response.items[0].statement == "用户自述: 我每日服用阿司匹林100mg"
-    assert response.items[0].details["dose"] == "100mg"
+    assert len(response.items) == 3
+    confirmed_item = next(item for item in response.items if item.status == "confirmed")
+    assert confirmed_item.revision == 2
+    assert confirmed_item.statement == "用户自述: 我每日服用阿司匹林100mg"
+    assert confirmed_item.details["dose"] == "100mg"
     with pytest.raises(ValueError, match="history limit"):
         await second.read_fact_history(fact.id, limit=0)
 
@@ -1598,16 +1780,16 @@ async def test_negative_fact_is_inactive_and_cannot_be_confirmed_or_injected() -
 
     assert len(repository.facts) == 1
     negative = repository.facts[0]
-    assert negative.status == "inactive"
+    assert negative.status == "proposed"
     assert negative.details["polarity"] == "negative"
     assert vector_store.records == []
     assert repository.profile is not None
     assert cast(list[object], repository.profile.profile["allergies"]) == []
-    with pytest.raises(MemoryConflictError, match="does not accept"):
-        await module.decide_fact(
-            negative.id,
-            MemoryFactDecisionRequest(expected_revision=1, decision="confirm"),
-        )
+    await module.decide_fact(
+        negative.id,
+        MemoryFactDecisionRequest(expected_revision=1, decision="confirm"),
+    )
+    assert negative.status == "inactive"
     rendered, _version, _refs = await module.core_profile_context()
     assert "青霉素" not in rendered
     assert vector_store.records == []
@@ -1628,7 +1810,11 @@ async def test_memory_commit_failure_compensates_only_current_fenced_vector_poin
         [MemoryMessage(role="user", content=[{"type": "text", "text": "我对青霉素过敏"}])],
     )
     fact = repository.facts[0]
-    expected_point = memory_point_id(fact.id, fact.revision)
+    await module.decide_fact(
+        fact.id,
+        MemoryFactDecisionRequest(expected_revision=1, decision="confirm"),
+    )
+    expected_point = memory_point_id(fact.id, 2)
     assert len(vector_store.records) == 1
 
     async def failing_commit() -> None:
@@ -1654,8 +1840,12 @@ async def test_uncertain_updates_never_downgrade_an_existing_confirmed_fact() ->
         "usr_memory_unit0001",
         [MemoryMessage(role="user", content=[{"type": "text", "text": "我对青霉素过敏"}])],
     )
-    await module.commit()
     fact = repository.facts[0]
+    await module.decide_fact(
+        fact.id,
+        MemoryFactDecisionRequest(expected_revision=1, decision="confirm"),
+    )
+    await module.commit()
     original = (fact.revision, fact.vector_revision, fact.statement, dict(fact.details))
 
     extractor.facts = [
@@ -1684,15 +1874,16 @@ async def test_uncertain_updates_never_downgrade_an_existing_confirmed_fact() ->
     )
 
     assert (fact.status, fact.revision, fact.vector_revision) == (
-        "confirmed",
-        original[0],
+        "conflicted",
+        original[0] + 2,
         original[1],
     )
-    assert (fact.statement, fact.details) == (original[2], original[3])
+    assert fact.statement != original[2]
+    assert "conflict_previous" in fact.details
     assert len(vector_store.records) == 1
     assert repository.profile is not None
-    assert len(cast(list[object], repository.profile.profile["allergies"])) == 1
-    assert module.last_update.changed_fact_ids == []
+    assert len(cast(list[object], repository.profile.profile["allergies"])) == 0
+    assert module.last_update.changed_fact_ids == [fact.id]
 
 
 @pytest.mark.asyncio
@@ -1719,6 +1910,11 @@ async def test_continued_use_never_retires_an_existing_confirmed_medication() ->
     await first.extract_and_update_profile(
         "usr_memory_unit0001",
         [MemoryMessage(role="user", content=[{"type": "text", "text": "我服用阿司匹林"}])],
+    )
+    medication = repository.facts[0]
+    await first.decide_fact(
+        medication.id,
+        MemoryFactDecisionRequest(expected_revision=1, decision="confirm"),
     )
     await first.commit()
 
@@ -1747,7 +1943,6 @@ async def test_continued_use_never_retires_an_existing_confirmed_medication() ->
         ],
     )
 
-    medication = repository.facts[0]
     assert (medication.status, medication.revision, medication.vector_revision) == (
         "confirmed",
         2,
@@ -1755,7 +1950,7 @@ async def test_continued_use_never_retires_an_existing_confirmed_medication() ->
     )
     assert repository.profile is not None
     assert len(cast(list[object], repository.profile.profile["medications"])) == 1
-    assert second.last_update.confirmed_count == 1
+    assert second.last_update.changed_fact_ids == []
 
 
 @pytest.mark.asyncio

@@ -24,7 +24,8 @@ MemoryCategory = Literal[
     "goal",
 ]
 MemoryType = Literal["stable", "evolving", "event"]
-MemoryStatus = Literal["confirmed", "pending", "inactive"]
+MemoryStatus = Literal["proposed", "confirmed", "conflicted", "pending", "inactive"]
+MemoryAccessLevel = Literal["standard", "restricted"]
 
 
 class MemoryUpdateView(Protocol):
@@ -65,6 +66,7 @@ class MemoryFactView(BaseModel):
     category: MemoryCategory
     memory_type: MemoryType
     status: MemoryStatus
+    access_level: MemoryAccessLevel
     statement: str = Field(min_length=1, max_length=1_000)
     details: dict[str, JsonValue]
     confidence: float = Field(ge=0, le=1)
@@ -72,6 +74,7 @@ class MemoryFactView(BaseModel):
     source_trace_id: str | None = Field(default=None, max_length=64)
     occurred_at: datetime | None = None
     confirmed_at: datetime | None = None
+    expires_at: datetime | None = None
     updated_at: datetime
     relevance_score: float | None = Field(default=None, ge=0, le=1)
 
@@ -84,6 +87,7 @@ class UserProfile(BaseModel):
     schema_version: int = Field(ge=1)
     version: int = Field(ge=0)
     profile: dict[str, JsonValue]
+    cross_session_recall_enabled: bool = True
     provenance_refs: list[str] = Field(default_factory=list, max_length=200)
     relevant_facts: list[MemoryFactView] = Field(default_factory=list, max_length=50)
 

@@ -288,7 +288,8 @@ export const memoryFactSchema = z
     id: z.string().uuid(),
     category: memoryCategorySchema,
     memory_type: z.enum(["stable", "evolving", "event"]),
-    status: z.enum(["confirmed", "pending", "inactive"]),
+    status: z.enum(["proposed", "confirmed", "conflicted", "pending", "inactive"]),
+    access_level: z.enum(["standard", "restricted"]),
     statement: z.string().min(1).max(1_000),
     details: z.record(z.string(), z.unknown()),
     confidence: z.number().min(0).max(1),
@@ -296,6 +297,7 @@ export const memoryFactSchema = z
     source_trace_id: z.string().min(1).max(64).nullable(),
     occurred_at: z.string().datetime().nullable(),
     confirmed_at: z.string().datetime().nullable(),
+    expires_at: z.string().datetime().nullable(),
     updated_at: z.string().datetime(),
     relevance_score: z.number().min(0).max(1).nullable(),
   })
@@ -305,6 +307,7 @@ export const healthProfileSchema = z
   .object({
     schema_version: z.number().int().min(1),
     version: z.number().int().min(0),
+    cross_session_recall_enabled: z.boolean(),
     profile: z.record(z.string(), z.unknown()),
     facts: z.array(memoryFactSchema).max(200),
   })
@@ -317,18 +320,27 @@ export const memoryFactDecisionSchema = z
   })
   .strict();
 
+export const memoryRecallPreferenceSchema = z
+  .object({
+    enabled: z.boolean(),
+    profile_version: z.number().int().positive(),
+  })
+  .strict();
+
 export const memoryFactRevisionSchema = z
   .object({
     revision: z.number().int().positive(),
     category: memoryCategorySchema,
     memory_type: z.enum(["stable", "evolving", "event"]),
-    status: z.enum(["confirmed", "pending", "inactive"]),
+    status: z.enum(["proposed", "confirmed", "conflicted", "pending", "inactive"]),
+    access_level: z.enum(["standard", "restricted"]),
     statement: z.string().min(1).max(1_000),
     details: z.record(z.string(), z.unknown()),
     confidence: z.number().min(0).max(1),
     source_trace_id: z.string().min(1).max(64).nullable(),
     occurred_at: z.string().datetime().nullable(),
     confirmed_at: z.string().datetime().nullable(),
+    expires_at: z.string().datetime().nullable(),
     updated_at: z.string().datetime().nullable(),
     recorded_at: z.string().datetime(),
   })

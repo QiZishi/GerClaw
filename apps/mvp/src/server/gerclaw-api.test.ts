@@ -234,6 +234,8 @@ test("memory proxy permits only caller-owned immutable history reads", () => {
   assert.equal(isAllowedGerclawProxyTarget(`memory/facts/${factId}/history`, "GET"), true);
   assert.equal(isAllowedGerclawProxyTarget(`memory/facts/${factId}/history`, "POST"), false);
   assert.equal(isAllowedGerclawProxyTarget("memory/facts/not-a-uuid/history", "GET"), false);
+  assert.equal(isAllowedGerclawProxyTarget("memory/profile/recall", "PATCH"), true);
+  assert.equal(isAllowedGerclawProxyTarget("memory/profile/recall", "POST"), false);
 });
 
 test("RAG proxy permits only the bounded evidence retrieval request", () => {

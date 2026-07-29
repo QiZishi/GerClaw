@@ -60,4 +60,5 @@ def create_memory_module(
         trace_id=trace_id,
         retrieval_top_k=settings.memory_retrieval_top_k,
         retrieval_candidates=settings.memory_retrieval_candidates,
+        transient_fact_ttl_days=settings.memory_transient_fact_ttl_days,
     )

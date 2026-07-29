@@ -5,9 +5,11 @@ from __future__ import annotations
 import hashlib
 import hmac
 import logging
+import re
 import unicodedata
 import uuid
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
+from typing import cast
 
 from pydantic import TypeAdapter, ValidationError
 
@@ -20,13 +22,17 @@ from gerclaw_api.modules.memory.models import (
     MemoryFactDecisionRequest,
     MemoryFactHistoryRead,
     MemoryFactRevisionRead,
+    MemoryRecallPreferenceRead,
+    MemoryRecallPreferenceRequest,
     MemoryUpdateResult,
     MemoryVectorRecord,
 )
 from gerclaw_api.modules.memory.profile import empty_profile, rebuild_profile, render_core_profile
 from gerclaw_api.modules.memory.protocols import (
+    MemoryAccessLevel,
     MemoryFactView,
     MemoryMessage,
+    MemoryType,
     UserProfile,
 )
 from gerclaw_api.modules.memory.store import (
@@ -43,7 +49,15 @@ from gerclaw_api.repositories.memory import (
 from gerclaw_api.security import JsonValue
 
 _PROFILE = TypeAdapter(dict[str, JsonValue])
+_MEMORY_TYPE: TypeAdapter[MemoryType] = TypeAdapter(MemoryType)
+_MEMORY_ACCESS_LEVEL: TypeAdapter[MemoryAccessLevel] = TypeAdapter(MemoryAccessLevel)
+_OPTIONAL_DATETIME: TypeAdapter[datetime | None] = TypeAdapter(datetime | None)
+_FLOAT: TypeAdapter[float] = TypeAdapter(float)
 _LOGGER = logging.getLogger("gerclaw.memory")
+_TRANSIENT_CATEGORIES = frozenset({"medication", "vital_sign", "assessment"})
+_DIFFERENTIAL_HYPOTHESIS = re.compile(
+    r"(?:可能|怀疑|疑似|鉴别|考虑|待排|不能排除|也许|或许|倾向)"
+)
 
 
 class MemoryDataError(RuntimeError):
@@ -89,12 +103,14 @@ def _event_identity(
 def _revision_snapshot(fact: MemoryFact) -> dict[str, JsonValue]:
     """Serialize the complete pre-update projection for encrypted audit storage."""
 
+    expires_at = getattr(fact, "expires_at", None)
     return {
         "source_session_id": str(fact.source_session_id) if fact.source_session_id else None,
         "source_trace_id": fact.source_trace_id,
         "category": fact.category,
         "memory_type": fact.memory_type,
         "status": fact.status,
+        "access_level": fact.access_level or "standard",
         "statement": fact.statement,
         "details": _PROFILE.validate_python(fact.details),
         "confidence": fact.confidence,
@@ -102,6 +118,7 @@ def _revision_snapshot(fact: MemoryFact) -> dict[str, JsonValue]:
         "vector_revision": fact.vector_revision,
         "occurred_at": fact.occurred_at.isoformat() if fact.occurred_at else None,
         "confirmed_at": fact.confirmed_at.isoformat() if fact.confirmed_at else None,
+        "expires_at": expires_at.isoformat() if expires_at else None,
         "updated_at": fact.updated_at.isoformat() if fact.updated_at else None,
     }
 
@@ -114,6 +131,7 @@ def _fact_view(fact: MemoryFact, *, relevance_score: float | None = None) -> Mem
             category=fact.category,
             memory_type=fact.memory_type,
             status=fact.status,
+            access_level=fact.access_level or "standard",
             statement=fact.statement,
             details=details,
             confidence=fact.confidence,
@@ -121,6 +139,7 @@ def _fact_view(fact: MemoryFact, *, relevance_score: float | None = None) -> Mem
             source_trace_id=fact.source_trace_id,
             occurred_at=fact.occurred_at,
             confirmed_at=fact.confirmed_at,
+            expires_at=getattr(fact, "expires_at", None),
             updated_at=fact.updated_at,
             relevance_score=relevance_score,
         )
@@ -138,12 +157,14 @@ def _revision_view(revision: MemoryFactRevision) -> MemoryFactRevisionRead:
             category=snapshot["category"],
             memory_type=snapshot["memory_type"],
             status=snapshot["status"],
+            access_level=snapshot.get("access_level", "standard"),
             statement=snapshot["statement"],
             details=snapshot["details"],
             confidence=snapshot["confidence"],
             source_trace_id=snapshot.get("source_trace_id"),
             occurred_at=snapshot.get("occurred_at"),
             confirmed_at=snapshot.get("confirmed_at"),
+            expires_at=snapshot.get("expires_at"),
             updated_at=snapshot.get("updated_at"),
             recorded_at=revision.created_at,
         )
@@ -170,6 +191,7 @@ class ProductionMemoryModule:
         trace_id: str,
         retrieval_top_k: int,
         retrieval_candidates: int,
+        transient_fact_ttl_days: int = 90,
     ) -> None:
         # This import stays at the construction boundary.  Importing the
         # security registry while modules are merely being discovered would
@@ -198,6 +220,9 @@ class ProductionMemoryModule:
         self._trace_id = trace_id
         self._retrieval_top_k = retrieval_top_k
         self._retrieval_candidates = retrieval_candidates
+        if not 1 <= transient_fact_ttl_days <= 3_650:
+            raise ValueError("transient fact TTL must be between 1 and 3,650 days")
+        self._transient_fact_ttl_days = transient_fact_ttl_days
         self._cached_queries: dict[str, UserProfile] = {}
         self._uncommitted_vector_point_ids: set[uuid.UUID] = set()
         self.last_update = MemoryUpdateResult(profile_version=0)
@@ -253,15 +278,30 @@ class ProductionMemoryModule:
                 raise MemoryDataError("stored health profile is invalid") from error
             schema_version = stored_profile.schema_version
             version = stored_profile.version
+        recall_enabled = (
+            stored_profile.cross_session_recall_enabled is not False
+            if stored_profile is not None
+            else True
+        )
 
         relevant: list[MemoryFactView] = []
-        if normalized_query:
+        if normalized_query and recall_enabled:
             confirmed = await self._repository.list_facts(
                 tenant_id=self._tenant_id,
                 user_id=self._user_id,
                 statuses=["confirmed"],
                 limit=200,
             )
+            now = datetime.now(UTC)
+            confirmed = [
+                fact
+                for fact in confirmed
+                if (fact.access_level or "standard") == "standard"
+                and (
+                    getattr(fact, "expires_at", None) is None
+                    or cast(datetime, fact.expires_at) > now
+                )
+            ]
             if confirmed:
                 embedding = await self._embedding_model([normalized_query])
                 tenant_namespace, user_namespace = memory_namespace(
@@ -294,6 +334,11 @@ class ProductionMemoryModule:
                         fact is None
                         or fact.revision != candidate.revision
                         or fact.vector_revision != candidate.revision
+                        or (fact.access_level or "standard") != "standard"
+                        or (
+                            getattr(fact, "expires_at", None) is not None
+                            and cast(datetime, fact.expires_at) <= now
+                        )
                     ):
                         continue
                     relevant.append(_fact_view(fact, relevance_score=candidate.score))
@@ -304,6 +349,7 @@ class ProductionMemoryModule:
             schema_version=schema_version,
             version=version,
             profile=profile_value,
+            cross_session_recall_enabled=recall_enabled,
             provenance_refs=[str(item.id) for item in relevant],
             relevant_facts=relevant,
         )
@@ -356,7 +402,12 @@ class ProductionMemoryModule:
         )
         changed: list[MemoryFact] = []
         now = datetime.now(UTC)
-        for candidate, status in candidates:
+        for candidate, extracted_status in candidates:
+            if (
+                candidate.category in {"condition", "assessment"}
+                and _DIFFERENTIAL_HYPOTHESIS.search(candidate.evidence_span) is not None
+            ):
+                continue
             event_identity = (
                 _event_identity(
                     occurred_at=candidate.occurred_at,
@@ -384,11 +435,17 @@ class ProductionMemoryModule:
                     "evidence_span": candidate.evidence_span,
                     "polarity": "negative" if candidate.action == "deactivate" else "positive",
                     "source": "user_self_report",
+                    "proposal_source_status": extracted_status,
                 }
             )
             # The model's free-form statement is never persisted: only the
             # extractor-validated exact user evidence can become durable text.
             statement = f"用户自述: {candidate.evidence_span.strip()}"
+            expires_at = (
+                now + timedelta(days=self._transient_fact_ttl_days)
+                if candidate.category in _TRANSIENT_CATEGORIES
+                else None
+            )
             if existing is None:
                 fact = MemoryFact(
                     id=uuid.uuid4(),
@@ -399,26 +456,44 @@ class ProductionMemoryModule:
                     category=candidate.category,
                     memory_type=candidate.memory_type,
                     fact_key=fact_key,
-                    status=status,
+                    status="proposed",
+                    access_level="standard",
                     statement=statement,
                     details=details,
                     confidence=candidate.confidence,
                     revision=1,
                     vector_revision=0,
                     occurred_at=candidate.occurred_at,
-                    confirmed_at=now if status == "confirmed" else None,
+                    confirmed_at=None,
+                    expires_at=expires_at,
                 )
                 await self._repository.add_fact(fact)
                 changed.append(fact)
                 continue
-            # Uncertainty must never erase an already confirmed high-risk fact.
-            # Without a separate candidate table, preserve the authoritative row
-            # and wait for either an explicit inactive correction or a user API
-            # rejection before changing the active profile.
-            if existing.status == "confirmed" and status == "pending":
+            comparable_existing = {
+                key: value
+                for key, value in existing.details.items()
+                if key
+                not in {
+                    "evidence_span",
+                    "source",
+                    "proposal_source_status",
+                    "conflict_previous",
+                }
+            }
+            comparable_candidate = {
+                key: value
+                for key, value in details.items()
+                if key not in {"evidence_span", "source", "proposal_source_status"}
+            }
+            if (
+                existing.status == "confirmed"
+                and comparable_existing == comparable_candidate
+                and existing.details.get("polarity") == details["polarity"]
+            ):
                 continue
             unchanged = (
-                existing.status == status
+                existing.status == "proposed"
                 and existing.statement == statement
                 and existing.details == details
                 and existing.memory_type == candidate.memory_type
@@ -437,15 +512,27 @@ class ProductionMemoryModule:
                     snapshot=_revision_snapshot(existing),
                 )
             )
+            if existing.status == "confirmed":
+                details["conflict_previous"] = _revision_snapshot(existing)
+                next_status = "conflicted"
+            elif existing.status == "conflicted":
+                conflict_previous = existing.details.get("conflict_previous")
+                if isinstance(conflict_previous, dict):
+                    details["conflict_previous"] = conflict_previous
+                next_status = "conflicted"
+            else:
+                next_status = "proposed"
             existing.source_session_id = self._session_id
             existing.source_trace_id = self._trace_id
             existing.memory_type = candidate.memory_type
-            existing.status = status
+            existing.status = next_status
+            existing.access_level = "standard"
             existing.statement = statement
             existing.details = details
             existing.confidence = candidate.confidence
             existing.occurred_at = candidate.occurred_at
-            existing.confirmed_at = now if status == "confirmed" else existing.confirmed_at
+            existing.confirmed_at = None
+            existing.expires_at = expires_at
             existing.revision += 1
             changed.append(existing)
 
@@ -497,7 +584,7 @@ class ProductionMemoryModule:
             profile_version=profile.version,
             changed_fact_ids=[fact.id for fact in changed],
             confirmed_count=sum(fact.status == "confirmed" for fact in changed),
-            pending_count=sum(fact.status == "pending" for fact in changed),
+            pending_count=sum(fact.status in {"proposed", "pending"} for fact in changed),
             inactive_count=sum(fact.status == "inactive" for fact in changed),
             categories=list(dict.fromkeys(fact.category for fact in changed)),
         )
@@ -537,6 +624,8 @@ class ProductionMemoryModule:
         """Return a bounded prompt projection and opaque provenance IDs."""
 
         profile = await self.get_long_term(self._actor_id)
+        if not profile.cross_session_recall_enabled:
+            return "", profile.version, []
         return (
             render_core_profile(profile.profile),
             profile.version,
@@ -555,6 +644,7 @@ class ProductionMemoryModule:
         return HealthProfileRead(
             schema_version=profile.schema_version,
             version=profile.version,
+            cross_session_recall_enabled=profile.cross_session_recall_enabled,
             profile=profile.profile,
             facts=[_fact_view(fact) for fact in facts],
         )
@@ -616,8 +706,6 @@ class ProductionMemoryModule:
                 entity=entity if isinstance(entity, str) else None,
             )
         )
-        if decision.decision == "confirm" and negative_evidence:
-            raise MemoryConflictError("negative memory fact cannot become active")
         await self._repository.add_fact_revision(
             MemoryFactRevision(
                 id=uuid.uuid4(),
@@ -628,7 +716,41 @@ class ProductionMemoryModule:
                 snapshot=_revision_snapshot(fact),
             )
         )
-        fact.status = "confirmed" if decision.decision == "confirm" else "inactive"
+        conflict_previous = stored_details.get("conflict_previous")
+        if (
+            decision.decision == "reject"
+            and fact.status == "conflicted"
+            and isinstance(conflict_previous, dict)
+        ):
+            try:
+                fact.memory_type = _MEMORY_TYPE.validate_python(
+                    conflict_previous["memory_type"]
+                )
+                fact.status = "confirmed"
+                fact.access_level = _MEMORY_ACCESS_LEVEL.validate_python(
+                    conflict_previous.get("access_level", "standard")
+                )
+                fact.statement = str(conflict_previous["statement"])
+                fact.details = _PROFILE.validate_python(conflict_previous["details"])
+                fact.confidence = _FLOAT.validate_python(
+                    conflict_previous["confidence"]
+                )
+                fact.occurred_at = _OPTIONAL_DATETIME.validate_python(
+                    conflict_previous.get("occurred_at")
+                )
+                fact.confirmed_at = _OPTIONAL_DATETIME.validate_python(
+                    conflict_previous.get("confirmed_at")
+                )
+                fact.expires_at = _OPTIONAL_DATETIME.validate_python(
+                    conflict_previous.get("expires_at")
+                )
+            except (KeyError, TypeError, ValueError, ValidationError) as error:
+                raise MemoryDataError("stored memory conflict is invalid") from error
+        elif decision.decision == "confirm":
+            fact.status = "inactive" if negative_evidence else "confirmed"
+            fact.access_level = decision.access_level
+        else:
+            fact.status = "inactive"
         fact.revision += 1
         if fact.status == "confirmed":
             fact.confirmed_at = datetime.now(UTC)
@@ -663,6 +785,35 @@ class ProductionMemoryModule:
         profile.version += 1
         await self._repository.flush()
         return MemoryFactDecisionRead(fact=_fact_view(fact), profile_version=profile.version)
+
+    async def set_recall_preference(
+        self,
+        request: MemoryRecallPreferenceRequest,
+    ) -> MemoryRecallPreferenceRead:
+        """Replace the owner-controlled cross-session recall choice."""
+
+        existing = await self._repository.get_profile(
+            tenant_id=self._tenant_id,
+            user_id=self._user_id,
+        )
+        profile = await self._repository.lock_or_create_profile(
+            tenant_id=self._tenant_id,
+            user_id=self._user_id,
+        )
+        expected_version = 0 if existing is None else existing.version
+        if (
+            request.expected_profile_version != expected_version
+            or (existing is None and profile.version != 1)
+        ):
+            raise MemoryConflictError("health profile version is stale")
+        profile.cross_session_recall_enabled = request.enabled
+        profile.version += 1
+        await self._repository.flush()
+        self._cached_queries.clear()
+        return MemoryRecallPreferenceRead(
+            enabled=request.enabled,
+            profile_version=profile.version,
+        )
 
     async def commit(self) -> None:
         """Commit standalone profile API changes."""
