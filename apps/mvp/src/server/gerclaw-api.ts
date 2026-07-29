@@ -69,6 +69,41 @@ const proxyRules: Array<{ pattern: RegExp; methods: ReadonlySet<string> }> = [
     pattern: /^chat\/trace_[A-Za-z0-9][A-Za-z0-9_.:-]{7,57}\/cancel$/,
     methods: new Set(["POST"]),
   },
+  {
+    pattern: new RegExp(`^runs/${uuidPattern}$`, "i"),
+    methods: new Set(["GET"]),
+  },
+  {
+    pattern: new RegExp(`^runs/${uuidPattern}/(?:events|answer-versions)$`, "i"),
+    methods: new Set(["GET"]),
+  },
+  {
+    pattern: new RegExp(`^runs/${uuidPattern}/cancel$`, "i"),
+    methods: new Set(["POST"]),
+  },
+  {
+    pattern: new RegExp(`^runs/${uuidPattern}/feedback$`, "i"),
+    methods: new Set(["GET", "PUT"]),
+  },
+  {
+    pattern: new RegExp(`^runs/${uuidPattern}/artifacts$`, "i"),
+    methods: new Set(["POST"]),
+  },
+  {
+    pattern: new RegExp(
+      `^runs/${uuidPattern}/answer-versions/${uuidPattern}/current$`,
+      "i"
+    ),
+    methods: new Set(["PUT"]),
+  },
+  {
+    pattern: new RegExp(`^conversations/${uuidPattern}/artifacts$`, "i"),
+    methods: new Set(["GET"]),
+  },
+  {
+    pattern: new RegExp(`^artifacts/${uuidPattern}$`, "i"),
+    methods: new Set(["GET", "PUT", "DELETE"]),
+  },
   { pattern: /^traces\/[A-Za-z0-9_.-]{3,64}$/, methods: new Set(["GET"]) },
   { pattern: /^feedback$/, methods: new Set(["POST"]) },
   { pattern: /^access-grants$/, methods: new Set(["GET", "POST"]) },

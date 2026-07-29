@@ -8,6 +8,8 @@ const alertId = "8a3e70a1-8b3a-4a9b-9e6a-0148d6e1ef3b";
 const sessionId = "f177dc56-cf27-4c5f-8ebd-683d6a2d6e75";
 const intakeId = "8c711e7e-7ddd-47df-8863-1a0f3d183509";
 const approvalId = "8f711e7e-7ddd-47df-8863-1a0f3d183509";
+const runId = "0f4d021b-5054-461d-88e4-109bc422f616";
+const versionId = "d0350e1c-970f-4b9f-9e90-4c718405ec32";
 
 test("session proxy permits only the declared session lifecycle operations", () => {
   assert.equal(isAllowedGerclawProxyTarget("sessions", "POST"), true);
@@ -18,6 +20,29 @@ test("session proxy permits only the declared session lifecycle operations", () 
   assert.equal(isAllowedGerclawProxyTarget(`sessions/${sessionId}/messages`, "POST"), false);
   assert.equal(isAllowedGerclawProxyTarget(`sessions/${sessionId}`, "PATCH"), false);
   assert.equal(isAllowedGerclawProxyTarget("sessions/not-a-uuid", "DELETE"), false);
+});
+
+test("Run proxy exposes only owner-scoped lifecycle and resource operations", () => {
+  assert.equal(isAllowedGerclawProxyTarget(`runs/${runId}`, "GET"), true);
+  assert.equal(isAllowedGerclawProxyTarget(`runs/${runId}/events`, "GET"), true);
+  assert.equal(isAllowedGerclawProxyTarget(`runs/${runId}/cancel`, "POST"), true);
+  assert.equal(isAllowedGerclawProxyTarget(`runs/${runId}/feedback`, "PUT"), true);
+  assert.equal(isAllowedGerclawProxyTarget(`runs/${runId}/artifacts`, "POST"), true);
+  assert.equal(
+    isAllowedGerclawProxyTarget(
+      `runs/${runId}/answer-versions/${versionId}/current`,
+      "PUT"
+    ),
+    true
+  );
+  assert.equal(
+    isAllowedGerclawProxyTarget(`conversations/${sessionId}/artifacts`, "GET"),
+    true
+  );
+  assert.equal(isAllowedGerclawProxyTarget(`artifacts/${versionId}`, "DELETE"), true);
+  assert.equal(isAllowedGerclawProxyTarget(`runs/${runId}/events`, "POST"), false);
+  assert.equal(isAllowedGerclawProxyTarget("runs/not-a-uuid", "GET"), false);
+  assert.equal(isAllowedGerclawProxyTarget(`artifacts/${versionId}/export`, "GET"), false);
 });
 
 test("chronic-care proxy only exposes the measurement ledger routes", () => {

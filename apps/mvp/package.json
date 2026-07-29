@@ -8,7 +8,7 @@
     "start": "node scripts/with-root-env.mjs start",
     "lint": "eslint",
     "test": "npm run test:unit",
-    "test:unit": "npm run test:audio && npm run test:cga-audio && npm run test:markdown && npm run test:export && npm run test:account && npm run test:guest-access && npm run test:document && npm run test:gerclaw-proxy && npm run test:feedback && npm run test:chat && npm run test:prescription-report",
+    "test:unit": "npm run test:audio && npm run test:cga-audio && npm run test:markdown && npm run test:export && npm run test:account && npm run test:guest-access && npm run test:document && npm run test:gerclaw-proxy && npm run test:feedback && npm run test:runs && npm run test:chat && npm run test:prescription-report",
     "test:audio": "node --test src/lib/audioPlaybackCoordinator.test.mjs src/lib/cga-audio.test.mjs src/lib/tts-text.test.mjs src/services/voice/pcm-wav.test.mjs",
     "test:cga-audio": "node scripts/verify-cga-audio-assets.mjs",
     "test:markdown": "node --test src/lib/markdown-gfm.test.ts",
@@ -18,6 +18,7 @@
     "test:document": "node --test src/server/mineru-contract.test.ts",
     "test:gerclaw-proxy": "node --test src/server/gerclaw-api.test.ts",
     "test:feedback": "node --test src/services/gerclaw/feedback.test.ts",
+    "test:runs": "node --test src/services/gerclaw/run-contract.test.ts",
     "test:chat": "node --test src/services/gerclaw/chat.test.ts src/services/gerclaw/conversation-history.test.ts",
     "test:prescription-report": "node --test src/services/gerclaw/prescription-report.test.ts"
   },
