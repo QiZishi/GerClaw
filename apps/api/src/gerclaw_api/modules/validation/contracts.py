@@ -189,8 +189,14 @@ def _validate(event: StreamEvent, schemas: Mapping[str, type[BaseModel]]) -> Str
         raise StreamContractValidationError(
             f"invalid {PUBLIC_CHAT_SSE_SCHEMA_VERSION} {event.event_type} payload"
         ) from error
+    # Tool result optionals are absent-or-valid in the browser contract, while
+    # terminal answer metadata and citation scores intentionally use explicit
+    # nulls. Keep that distinction at this single projection boundary.
+    exclude_none = isinstance(validated, _ToolResultData)
     return event.model_copy(
-        update={"data": validated.model_dump(mode="json", exclude_none=True)}
+        update={
+            "data": validated.model_dump(mode="json", exclude_none=exclude_none)
+        }
     )
 
 

@@ -80,6 +80,10 @@ def test_public_terminal_contract_requires_trace_and_session_provenance() -> Non
 
     assert validated.data["trace_id"] == "trace_validation_0001"
     assert validated.data["replayed"] is False
+    assert validated.data["run_id"] is None
+    assert validated.data["answer_group_run_id"] is None
+    assert validated.data["answer_version_id"] is None
+    assert validated.data["answer_version"] is None
 
 
 def test_public_tool_result_omits_absent_optional_fields() -> None:
