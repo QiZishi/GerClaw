@@ -54,9 +54,7 @@ def build_chat_toolkit(
                 version="1.0.0",
                 description="Read-only local medical evidence retrieval.",
                 required_scopes=frozenset({"rag:read"}),
-                allowed_roles=frozenset(
-                    {ActorRole.GUEST, ActorRole.PATIENT, ActorRole.DOCTOR}
-                ),
+                allowed_roles=frozenset({ActorRole.GUEST, ActorRole.PATIENT, ActorRole.DOCTOR}),
                 risk_level=RiskLevel.LOW,
                 side_effect=SideEffect.NONE,
                 network_access=NetworkAccess.INTERNAL,
@@ -70,9 +68,7 @@ def build_chat_toolkit(
                 version="1.0.0",
                 description="Read-only retrieval of caller-owned health memory.",
                 required_scopes=frozenset({"memory:read"}),
-                allowed_roles=frozenset(
-                    {ActorRole.GUEST, ActorRole.PATIENT, ActorRole.DOCTOR}
-                ),
+                allowed_roles=frozenset({ActorRole.GUEST, ActorRole.PATIENT, ActorRole.DOCTOR}),
                 risk_level=RiskLevel.LOW,
                 side_effect=SideEffect.NONE,
                 network_access=NetworkAccess.INTERNAL,
@@ -87,9 +83,7 @@ def build_chat_toolkit(
                 version="1.0.0",
                 description="Read-only redacted external medical evidence search.",
                 required_scopes=frozenset({"search:read"}),
-                allowed_roles=frozenset(
-                    {ActorRole.GUEST, ActorRole.PATIENT, ActorRole.DOCTOR}
-                ),
+                allowed_roles=frozenset({ActorRole.GUEST, ActorRole.PATIENT, ActorRole.DOCTOR}),
                 risk_level=RiskLevel.MEDIUM,
                 side_effect=SideEffect.NONE,
                 network_access=NetworkAccess.EXTERNAL,

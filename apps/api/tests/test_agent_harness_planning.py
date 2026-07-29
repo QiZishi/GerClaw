@@ -170,6 +170,25 @@ def test_dynamic_plan_executor_enforces_dependencies_and_skips_optional_nodes() 
     assert snapshot.statuses["answer"] is PlanNodeStatus.COMPLETED
 
 
+def test_dynamic_plan_executor_completes_only_observed_optional_capability() -> None:
+    plan = _planner().build(
+        PlanRequest(
+            route=RouteKind.DEEP,
+            selected_capabilities=("risk-assessment",),
+            available_capabilities=("risk-assessment",),
+        )
+    )
+    executor = DynamicPlanExecutor(plan)
+
+    assert executor.complete_optional_capability("unknown-skill") is False
+    assert executor.complete_optional_capability("risk-assessment") is True
+    assert executor.complete_optional_capability("risk-assessment") is False
+    answer_node = executor.start_capability("answer.compose")
+    executor.complete(answer_node)
+
+    assert executor.finalize().statuses["capability_1"] is PlanNodeStatus.COMPLETED
+
+
 def test_dynamic_plan_rejects_unavailable_capability_and_aggregate_budget() -> None:
     with pytest.raises(PlanningError, match="PLAN_CAPABILITY_UNAVAILABLE"):
         _planner().build(

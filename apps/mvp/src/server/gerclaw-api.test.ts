@@ -11,6 +11,13 @@ const approvalId = "8f711e7e-7ddd-47df-8863-1a0f3d183509";
 const runId = "0f4d021b-5054-461d-88e4-109bc422f616";
 const versionId = "d0350e1c-970f-4b9f-9e90-4c718405ec32";
 
+test("capability catalog is guest-readable and mutation is rejected", () => {
+  assert.equal(isAllowedGerclawProxyTarget("capabilities", "GET"), true);
+  assert.equal(isGuestAllowedGerclawProxyTarget("capabilities", "GET"), true);
+  assert.equal(isAllowedGerclawProxyTarget("capabilities", "POST"), false);
+  assert.equal(isAllowedGerclawProxyTarget("capabilities/gerclaw.cga", "GET"), false);
+});
+
 test("session proxy permits only the declared session lifecycle operations", () => {
   assert.equal(isAllowedGerclawProxyTarget("sessions", "POST"), true);
   assert.equal(isAllowedGerclawProxyTarget("sessions", "GET"), true);

@@ -42,6 +42,7 @@ _LOGGER = logging.getLogger("gerclaw.agent_harness")
 EventEmitter = Callable[[str, dict[str, JsonValue]], Awaitable[None]]
 ApprovalParker = Callable[[list[ToolCallBlock]], Awaitable[tuple[str, ...]]]
 EvidenceAvailable = Callable[[], bool]
+ToolResultObserver = Callable[[str, str, dict[str, JsonValue]], Awaitable[None]]
 
 
 class StreamBudget(Protocol):
@@ -125,6 +126,7 @@ async def project_agent_stream(
     search_results: list[Any],
     lifecycle: RunLifecycle,
     timeout_error_factory: Callable[[], Exception],
+    tool_result_observer: ToolResultObserver | None = None,
 ) -> AgentStreamResult:
     """Execute one agent stream while enforcing safety, budgets, and terminal integrity."""
 
@@ -221,11 +223,15 @@ async def project_agent_stream(
                 result_data.update(_skill_result_identity(argument_text, skill_metadata))
             if tool_name == "web_search" and len(search_results) > search_emitted:
                 current_results = search_results[search_emitted:]
-                result_data["results"] = [
-                    item.model_dump(mode="json") for item in current_results
-                ]
+                result_data["results"] = [item.model_dump(mode="json") for item in current_results]
                 search_emitted = len(search_results)
             await emit("tool_result", result_data)
+            if tool_result_observer is not None:
+                await tool_result_observer(
+                    tool_name,
+                    str(result_data["status"]),
+                    result_data,
+                )
         elif isinstance(event, TextBlockDeltaEvent):
             budget.check_wall_clock()
             raw_character_count += len(event.delta)
@@ -293,9 +299,7 @@ async def project_agent_stream(
             missing_final_text = ""
         else:
             _LOGGER.warning("agent_state_stream_mismatch", extra=diagnostic_attributes)
-            raise AgentHarnessError(
-                "AgentScope final state did not match the public model stream"
-            )
+            raise AgentHarnessError("AgentScope final state did not match the public model stream")
     if missing_final_text:
         public_final = canonical_stream.feed(missing_final_text)
         if public_final:

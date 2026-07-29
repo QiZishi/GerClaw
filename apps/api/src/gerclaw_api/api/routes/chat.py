@@ -35,6 +35,10 @@ from gerclaw_api.domain.chat_schemas import (
 from gerclaw_api.domain.trace_schemas import TRACE_ID_PATTERN
 from gerclaw_api.middleware import set_active_trace
 from gerclaw_api.modules.agent_harness import StreamEvent
+from gerclaw_api.modules.agent_harness.plugin_runtime import (
+    CapabilityCatalogRead,
+    get_default_capability_catalog,
+)
 from gerclaw_api.modules.document import DocumentService
 from gerclaw_api.modules.memory.memory_module import ProductionMemoryModule
 from gerclaw_api.modules.memory.runtime import create_memory_module
@@ -115,6 +119,17 @@ async def _enforce_rate_limit(request: Request, identity: AuthContext) -> None:
 
 def _conversation_service(session: AsyncSession) -> ConversationService:
     return ConversationService(SqlAlchemyConversationRepository(session))
+
+
+@router.get("/capabilities", response_model=CapabilityCatalogRead)
+async def list_capabilities(
+    request: Request,
+    identity: ChatReadIdentity,
+) -> CapabilityCatalogRead:
+    """List content-free governed entrypoints for account and guest workspaces."""
+
+    await _enforce_rate_limit(request, identity)
+    return CapabilityCatalogRead(capabilities=get_default_capability_catalog().manifests())
 
 
 @router.post(
@@ -298,9 +313,7 @@ async def resume_run(
 ) -> StreamingResponse:
     """Reconstruct and stream the exact persisted input of one interrupted Run."""
 
-    command = await RunResumeService(
-        SqlAlchemyRunResumeRepository(session)
-    ).prepare(
+    command = await RunResumeService(SqlAlchemyRunResumeRepository(session)).prepare(
         run_id,
         tenant_id=identity.tenant_id,
         actor_id=identity.actor_id,

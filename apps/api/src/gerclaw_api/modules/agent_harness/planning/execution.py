@@ -36,9 +36,7 @@ class DynamicPlanExecutor:
 
     def __init__(self, plan: DynamicPlan) -> None:
         self._plan = plan
-        self._statuses = {
-            node.node_id: PlanNodeStatus.PENDING for node in plan.nodes
-        }
+        self._statuses = {node.node_id: PlanNodeStatus.PENDING for node in plan.nodes}
 
     def start_capability(self, capability: str) -> str:
         node = next(
@@ -58,9 +56,7 @@ class DynamicPlanExecutor:
             if self._statuses[dependency] is not PlanNodeStatus.COMPLETED
         ]
         if incomplete:
-            raise PlanningError(
-                f"PLAN_DEPENDENCY_INCOMPLETE:{node.node_id}:{','.join(incomplete)}"
-            )
+            raise PlanningError(f"PLAN_DEPENDENCY_INCOMPLETE:{node.node_id}:{','.join(incomplete)}")
         self._statuses[node.node_id] = PlanNodeStatus.RUNNING
         return node.node_id
 
@@ -68,6 +64,31 @@ class DynamicPlanExecutor:
         if self._statuses.get(node_id) is not PlanNodeStatus.RUNNING:
             raise PlanningError(f"PLAN_NODE_NOT_RUNNING:{node_id}")
         self._statuses[node_id] = PlanNodeStatus.COMPLETED
+
+    def complete_optional_capability(self, capability: str) -> bool:
+        """Complete one actually observed optional capability, at most once."""
+
+        node = next(
+            (
+                item
+                for item in self._plan.nodes
+                if not item.required
+                and item.capability == capability
+                and self._statuses[item.node_id] is PlanNodeStatus.PENDING
+            ),
+            None,
+        )
+        if node is None:
+            return False
+        incomplete = [
+            dependency
+            for dependency in node.dependencies
+            if self._statuses[dependency] is not PlanNodeStatus.COMPLETED
+        ]
+        if incomplete:
+            raise PlanningError(f"PLAN_DEPENDENCY_INCOMPLETE:{node.node_id}:{','.join(incomplete)}")
+        self._statuses[node.node_id] = PlanNodeStatus.COMPLETED
+        return True
 
     def skip_optional(self) -> None:
         for node in self._plan.nodes:
@@ -79,8 +100,7 @@ class DynamicPlanExecutor:
         incomplete = [
             node.node_id
             for node in self._plan.nodes
-            if node.required
-            and self._statuses[node.node_id] is not PlanNodeStatus.COMPLETED
+            if node.required and self._statuses[node.node_id] is not PlanNodeStatus.COMPLETED
         ]
         if incomplete:
             raise PlanningError(f"PLAN_REQUIRED_NODE_INCOMPLETE:{','.join(incomplete)}")
@@ -114,6 +134,9 @@ class TurnExecutionGovernance:
     def complete(self, node_id: str) -> None:
         self._executor.complete(node_id)
 
+    def complete_optional_capability(self, capability: str) -> bool:
+        return self._executor.complete_optional_capability(capability)
+
     def finish(self) -> dict[str, JsonValue]:
         snapshot = self._executor.finalize()
         return {
@@ -146,10 +169,7 @@ class TurnExecutionGovernance:
         if not unknowns:
             raise PlanningError("SAVI_ASK_WITHOUT_UNKNOWNS")
         questions = "\n".join(f"- {item}" for item in unknowns)
-        return (
-            "为避免在关键信息不足时直接给出判断或调药建议, 请先补充:\n"
-            f"{questions}"
-        )
+        return f"为避免在关键信息不足时直接给出判断或调药建议, 请先补充:\n{questions}"
 
     def answer_capability(self) -> str:
         for capability in ("answer.quick", "report.compose", "answer.compose"):

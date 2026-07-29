@@ -12,6 +12,7 @@ import pytest
 from agentscope.credential import CredentialBase
 from agentscope.message import Base64Source, DataBlock, Msg, TextBlock, ToolCallBlock
 from agentscope.model import ChatModelBase, ChatResponse, ChatUsage
+from agentscope.skill import Skill as AgentScopeSkill
 from agentscope.tool import ToolChoice
 
 from gerclaw_api.config import Settings
@@ -237,6 +238,8 @@ def _harness(
     uploaded_images: list[ImageInput] | None = None,
     actor_role: ActorRole = ActorRole.PATIENT,
     memory: _HarnessMemory | None = None,
+    agent_skills: list[AgentScopeSkill] | None = None,
+    loaded_skill_ids: list[str] | None = None,
 ) -> ProductionAgentHarness:
     return ProductionAgentHarness(
         settings=settings,
@@ -250,6 +253,8 @@ def _harness(
         workflow=cast(Any, workflow),
         uploaded_documents=uploaded_documents,
         uploaded_images=uploaded_images,
+        agent_skills=agent_skills,
+        loaded_skill_ids=loaded_skill_ids,
         runtime_principal=RuntimePrincipal(
             tenant_id="tenant_public0001",
             actor_id="usr_patient00000001",
@@ -259,6 +264,48 @@ def _harness(
             patient_access_verified=True,
         ),
     )
+
+
+@pytest.mark.asyncio
+async def test_successful_agentscope_skill_completes_its_dynamic_plan_node(
+    unit_settings: Settings,
+) -> None:
+    skill = AgentScopeSkill(
+        name="风险评估",
+        description="根据已知信息整理非诊断性风险核对项",
+        dir="skill://risk-assessment@1.0.0",
+        markdown="# 风险评估\n\n仅整理风险核对项, 不输出确诊结论。",
+        updated_at=1.0,
+    )
+    model = _HarnessModel(
+        use_tool=True,
+        text="已按风险评估技能整理核对项。",
+        tool_name="Skill",
+        tool_input='{"skill":"风险评估"}',
+    )
+    harness = _harness(
+        unit_settings,
+        model=model,
+        rag=_HarnessRAG([_evidence()]),
+        agent_skills=[skill],
+        loaded_skill_ids=["risk-assessment"],
+    )
+    context = await harness.assemble_context(
+        "108815d7-05bf-4c2a-a977-cd034f390fab",
+        "usr_patient00000001",
+        ["risk-assessment"],
+        [],
+    )
+
+    response = await harness.process_message(
+        "请结合老年跌倒风险资料执行风险评估技能并给出核对项",
+        "108815d7-05bf-4c2a-a977-cd034f390fab",
+        context,
+        lambda _event: None,
+    )
+
+    execution = cast(dict[str, Any], response.structured["plan_execution"])
+    assert execution["statuses"]["capability_1"] == "completed"
 
 
 def test_canonical_text_stream_strips_only_outer_whitespace() -> None:

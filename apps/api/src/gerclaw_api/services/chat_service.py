@@ -45,6 +45,10 @@ from gerclaw_api.modules.agent_harness.planning import (
     PlanRequest,
     requests_report,
 )
+from gerclaw_api.modules.agent_harness.plugin_runtime import (
+    GovernedCapabilityCatalog,
+    get_default_capability_catalog,
+)
 from gerclaw_api.modules.agent_harness.routing import (
     DeterministicRouter,
     RouteKind,
@@ -176,6 +180,7 @@ class ChatService:
         run_journal: ChatRunJournal | None = None,
         input_output: ProductionInputOutputModule | None = None,
         clinical_state_reducer: ClinicalStateReducer | None = None,
+        capability_catalog: GovernedCapabilityCatalog | None = None,
     ) -> None:
         self._settings = settings
         self._conversation = conversation
@@ -193,9 +198,8 @@ class ChatService:
         self._active_run_id: uuid.UUID | None = None
         self._answer_group_run_id: uuid.UUID | None = None
         self._input_output = input_output or ProductionInputOutputModule()
-        self._clinical_state_reducer = (
-            clinical_state_reducer or DeterministicClinicalStateReducer()
-        )
+        self._clinical_state_reducer = clinical_state_reducer or DeterministicClinicalStateReducer()
+        self._capability_catalog = capability_catalog or get_default_capability_catalog()
 
     async def process(
         self,
@@ -355,9 +359,7 @@ class ChatService:
             if self._run_journal is not None
             else None
         )
-        self._answer_group_run_id = (
-            regeneration.source_run_id if regeneration is not None else None
-        )
+        self._answer_group_run_id = regeneration.source_run_id if regeneration is not None else None
         if conversation.user_id is None:
             raise RuntimeError("conversation has no active user principal")
         workflow = get_default_workflow_registry().validate_context(
@@ -369,6 +371,16 @@ class ChatService:
         companion = is_companion_workflow(cast(Any, workflow.workflow_id.value))
         medical_content = is_medical_message(payload.message) and not companion
         high_risk_codes = tuple(detect_high_risk(payload.message))
+        capability_selection = self._capability_catalog.select(
+            message=payload.message,
+            workflow=workflow.workflow_id,
+        )
+        planning_capabilities = tuple(
+            [
+                *(str(item) for item in payload.loaded_skills),
+                *capability_selection.ids,
+            ]
+        )
         resolved_harness_config = ResolvedHarnessConfig.from_settings(self._settings)
         route_decision = DeterministicRouter(
             RoutingPolicy(
@@ -384,7 +396,7 @@ class ChatService:
                 has_documents=bool(payload.uploaded_files),
                 image_count=len(payload.images),
                 document_count=len(payload.uploaded_files),
-                selected_capabilities=tuple(str(item) for item in payload.loaded_skills),
+                selected_capabilities=planning_capabilities,
                 medical_content=medical_content,
                 high_risk_detected=bool(high_risk_codes),
             )
@@ -422,10 +434,10 @@ class ChatService:
                 trace_id=trace_id,
             )
         )
-        memory_enabled = (
-            not companion
-            and route_decision.route not in {RouteKind.QUICK, RouteKind.EMERGENCY}
-        )
+        memory_enabled = not companion and route_decision.route not in {
+            RouteKind.QUICK,
+            RouteKind.EMERGENCY,
+        }
         execution_budget = ExecutionBudget(
             max_steps=resolved_harness_config.max_react_iterations,
             max_output_bytes=resolved_harness_config.max_output_bytes,
@@ -472,10 +484,7 @@ class ChatService:
                     short_term,
                     max_tokens=max(
                         1,
-                        int(
-                            self._model.context_size
-                            * self._settings.memory_context_budget_ratio
-                        ),
+                        int(self._model.context_size * self._settings.memory_context_budget_ratio),
                     ),
                 )
                 history = [
@@ -516,9 +525,7 @@ class ChatService:
             else ClinicalState()
         )
         if medical_content:
-            clinical_state = UserMessageClinicalProjector(
-                self._clinical_state_reducer
-            ).project(
+            clinical_state = UserMessageClinicalProjector(self._clinical_state_reducer).project(
                 clinical_state,
                 message_id=user_message_id,
                 message=payload.message,
@@ -552,8 +559,8 @@ class ChatService:
                 medical_content=medical_content,
                 image_count=len(payload.images),
                 document_count=len(payload.uploaded_files),
-                selected_capabilities=tuple(str(item) for item in payload.loaded_skills),
-                available_capabilities=tuple(str(item) for item in payload.loaded_skills),
+                selected_capabilities=planning_capabilities,
+                available_capabilities=planning_capabilities,
                 report_requested=requests_report(payload.message),
                 selected_action=selected_action,
             )
@@ -574,10 +581,11 @@ class ChatService:
                     plan={
                         "loaded_skill_count": len(payload.loaded_skills),
                         "loaded_skill_ids": [str(item) for item in payload.loaded_skills],
-                        "uploaded_document_count": len(payload.uploaded_files),
-                        "uploaded_document_ids": [
-                            str(item) for item in payload.uploaded_files
+                        "governed_capabilities": [
+                            item.model_dump(mode="json") for item in capability_selection.selected
                         ],
+                        "uploaded_document_count": len(payload.uploaded_files),
+                        "uploaded_document_ids": [str(item) for item in payload.uploaded_files],
                         "uploaded_image_count": len(payload.images),
                         "uploaded_image_fingerprints": [
                             image_fingerprint(image.media_type, image.base64)
@@ -588,9 +596,7 @@ class ChatService:
                         "clinical_decision": clinical_decision.model_dump(mode="json"),
                         **(
                             {
-                                "regenerate_from_run_id": str(
-                                    regeneration.source_run_id
-                                ),
+                                "regenerate_from_run_id": str(regeneration.source_run_id),
                                 "expected_current_answer_version_id": str(
                                     regeneration.current_answer_version_id
                                 ),
@@ -658,6 +664,7 @@ class ChatService:
             workflow=cast(Any, workflow.workflow_id.value),
             agent_skills=agent_skills,
             loaded_skill_ids=[] if emergency_route else payload.loaded_skills,
+            governed_capability_ids=(() if emergency_route else capability_selection.ids),
             uploaded_documents=uploaded_documents,
             uploaded_images=payload.images,
             runtime_principal=_runtime_principal(identity, user_id=conversation.user_id),
@@ -843,8 +850,7 @@ class ChatService:
                     )
                 except RunTerminalConflictError:
                     cancellation_is_durable = (
-                        cancellation_requested is not None
-                        and await cancellation_requested()
+                        cancellation_requested is not None and await cancellation_requested()
                     )
                     if not cancellation_is_durable:
                         raise
@@ -918,17 +924,13 @@ class ChatService:
                     fencing_token=lease_guard.fencing_token,
                     answer_group_run_id=self._answer_group_run_id,
                     expected_current_version_id=(
-                        regeneration.current_answer_version_id
-                        if regeneration is not None
-                        else None
+                        regeneration.current_answer_version_id if regeneration is not None else None
                     ),
                 )
                 done = done.model_copy(
                     update={
                         "run_id": self._active_run_id,
-                        "answer_group_run_id": (
-                            self._answer_group_run_id or self._active_run_id
-                        ),
+                        "answer_group_run_id": (self._answer_group_run_id or self._active_run_id),
                         "answer_version_id": answer_version.id,
                         "answer_version": answer_version.version,
                     }
@@ -965,14 +967,12 @@ class ChatService:
                 timestamp=datetime.now(UTC),
                 run_id=(
                     self._active_run_id
-                    if self._run_journal is not None
-                    and self._active_run_id is not None
+                    if self._run_journal is not None and self._active_run_id is not None
                     else None
                 ),
                 sequence=(
                     completed_run.last_sequence
-                    if self._run_journal is not None
-                    and self._active_run_id is not None
+                    if self._run_journal is not None and self._active_run_id is not None
                     else None
                 ),
             )
@@ -1265,9 +1265,7 @@ class ChatService:
                     actor_id=identity.actor_id,
                     fencing_token=fencing_token,
                     public_summary=(
-                        "已停止生成"
-                        if status is TraceStatus.CANCELLED
-                        else "本次执行未完成"
+                        "已停止生成" if status is TraceStatus.CANCELLED else "本次执行未完成"
                     ),
                 )
             return True
@@ -1338,12 +1336,8 @@ class ChatService:
             trace_id=trace_id,
             session_id=session_id,
             run_id=answer.run_id if answer is not None else None,
-            answer_group_run_id=(
-                answer.answer_group_run_id if answer is not None else None
-            ),
-            answer_version_id=(
-                answer.answer_version_id if answer is not None else None
-            ),
+            answer_group_run_id=(answer.answer_group_run_id if answer is not None else None),
+            answer_version_id=(answer.answer_version_id if answer is not None else None),
             answer_version=answer.answer_version if answer is not None else None,
             replayed=True,
         )

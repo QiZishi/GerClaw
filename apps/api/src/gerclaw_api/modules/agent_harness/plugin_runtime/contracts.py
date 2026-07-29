@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from collections.abc import Sequence
+from enum import StrEnum
 from typing import Literal, Protocol
 
 from agentscope.tool import ToolBase
@@ -16,6 +17,23 @@ class PluginRuntimeError(RuntimeError):
     """Stable capability selection or invocation failure."""
 
 
+class CapabilityEntrypoint(StrEnum):
+    """Existing owner boundary that performs the capability's real work."""
+
+    CGA_ASSESSMENT = "cga_assessment"
+    MEDICATION_REVIEW_INTAKE = "medication_review_intake"
+    FIVE_PRESCRIPTION_INTAKE = "five_prescription_intake"
+    RUN_ARTIFACT = "run_artifact"
+
+
+class CapabilitySelectionMode(StrEnum):
+    """A capability may be requested explicitly or selected by code-owned rules."""
+
+    MANUAL = "manual"
+    AUTOMATIC = "automatic"
+    WORKFLOW = "workflow"
+
+
 class PluginManifest(BaseModel):
     model_config = ConfigDict(extra="forbid", frozen=True)
 
@@ -24,10 +42,49 @@ class PluginManifest(BaseModel):
     version: str = Field(min_length=1, max_length=64)
     display_name: str = Field(min_length=1, max_length=128)
     risk_level: Literal["low", "medium", "high"]
+    owner_module: str = Field(
+        default="agent_harness",
+        pattern=r"^[a-z][a-z0-9_]{1,63}$",
+    )
+    entrypoint: CapabilityEntrypoint | None = None
     automatic_selection: bool = False
+    manual_selection: bool = True
+    supported_workflows: tuple[str, ...] = Field(default=("standard",), max_length=10)
     required_tools: tuple[str, ...] = Field(default=(), max_length=50)
+    shared_result_kinds: tuple[str, ...] = Field(default=(), max_length=20)
     input_schema: dict[str, JsonValue] = Field(default_factory=dict)
     output_schema: dict[str, JsonValue] = Field(default_factory=dict)
+
+
+class SelectedCapability(BaseModel):
+    """Content-free selection decision for one allowlisted capability."""
+
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    capability_id: str = Field(pattern=r"^[a-z][a-z0-9_.-]{1,127}$")
+    source: CapabilitySelectionMode
+    entrypoint: CapabilityEntrypoint
+    owner_module: str = Field(pattern=r"^[a-z][a-z0-9_]{1,63}$")
+
+
+class CapabilitySelection(BaseModel):
+    """Bounded multi-capability selection; it never contains user content."""
+
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    selected: tuple[SelectedCapability, ...] = Field(default=(), max_length=20)
+
+    @property
+    def ids(self) -> tuple[str, ...]:
+        return tuple(item.capability_id for item in self.selected)
+
+
+class CapabilityCatalogRead(BaseModel):
+    """Public allowlist; owner entrypoints remain server-controlled."""
+
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    capabilities: tuple[PluginManifest, ...] = Field(default=(), max_length=50)
 
 
 class CapabilityResult(BaseModel):
@@ -43,9 +100,7 @@ class PluginRuntime(Protocol):
     def manifests(self) -> tuple[PluginManifest, ...]:
         """Return the governed capability allowlist."""
 
-    async def invoke(
-        self, capability_id: str, payload: dict[str, JsonValue]
-    ) -> CapabilityResult:
+    async def invoke(self, capability_id: str, payload: dict[str, JsonValue]) -> CapabilityResult:
         """Invoke one capability through its existing owner."""
 
 
