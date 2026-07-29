@@ -2,36 +2,14 @@
 
 import { useEffect, useState } from "react";
 import {
-  ArrowLeftRight,
-  Copy,
   Zap,
-  HelpCircle,
-  History,
-  LogOut,
   Menu,
-  Moon,
   Plus,
-  Settings,
-  ShieldCheck,
   Stethoscope,
-  Sun,
-  Trash2,
-  User,
 } from "lucide-react";
-import { Avatar, AvatarFallback } from "@/components/ui/avatar";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Separator } from "@/components/ui/separator";
-import { Switch } from "@/components/ui/switch";
-import {
-  DropdownMenu,
-  DropdownMenuContent,
-  DropdownMenuGroup,
-  DropdownMenuItem,
-  DropdownMenuLabel,
-  DropdownMenuSeparator,
-  DropdownMenuTrigger,
-} from "@/components/ui/dropdown-menu";
 import {
   Tooltip,
   TooltipContent,
@@ -43,6 +21,7 @@ import { useTheme } from "@/context/ThemeProvider";
 import { cn } from "@/lib/utils";
 import { SidebarSessionHistory } from "@/components/layout/sidebar/SidebarSessionHistory";
 import { SidebarSessionDialogs } from "@/components/layout/sidebar/SidebarSessionDialogs";
+import { SidebarAccountMenu } from "@/components/layout/sidebar/SidebarAccountMenu";
 import type { Session } from "@/types";
 import { toast } from "@/components/ui/toast";
 import { AccountDialog } from "@/components/account/AccountDialog";
@@ -163,17 +142,6 @@ export function Sidebar({ onNavigate }: SidebarProps) {
         return "";
       default:
         return "";
-    }
-  }
-
-  function getModeLabel() {
-    switch (role) {
-      case "doctor":
-        return "医生模式";
-      case "patient":
-        return "患者模式";
-      default:
-        return "患者模式";
     }
   }
 
@@ -317,8 +285,6 @@ export function Sidebar({ onNavigate }: SidebarProps) {
     window.location.assign("/?workspace=admin");
   };
 
-  const isAdministrator = account?.account_role === "admin";
-
   async function copyReviewCode(kind: "医生" | "患者") {
     if (!account || !navigator.clipboard) {
       toast.show(`暂时无法复制${kind}代码`);
@@ -436,200 +402,38 @@ export function Sidebar({ onNavigate }: SidebarProps) {
       />
       <Separator className="bg-sidebar-border" />
 
-      {/* ===== 底部：用户菜单（最下方；设置/主题/角色/老年模式均收纳进下拉菜单）===== */}
-      <div className="px-3 py-2">
-        <DropdownMenu>
-          <DropdownMenuTrigger
-            render={
-              <button
-                type="button"
-                className={cn(
-                  "flex items-center gap-2 w-full rounded-lg hover:bg-sidebar-accent p-1.5 transition-colors",
-                  seniorMode && "min-h-14 px-2 py-2 text-lg"
-                )}
-                aria-label="用户菜单"
-              />
-            }
-          >
-            <Avatar size="default" className="shrink-0">
-              <AvatarFallback>
-                {isDoctor ? (
-                  <Stethoscope className="size-4" />
-                ) : isPatient ? (
-                  <User className="size-4" />
-                ) : <User className="size-4" />}
-              </AvatarFallback>
-            </Avatar>
-            <div className="flex-1 min-w-0 text-left">
-              <div className={cn("text-sm font-medium truncate", seniorMode && "text-lg")}>{account ? "已登录账户" : isGuest ? "本次使用" : "未登录"}</div>
-              <div className={cn("text-xs text-muted-foreground truncate", seniorMode && "text-base")}>
-                {getModeLabel()}
-              </div>
-            </div>
-          </DropdownMenuTrigger>
-          <DropdownMenuContent align="end" className={cn("w-60", seniorMode && "w-72 text-base")}>
-            <DropdownMenuGroup>
-              <DropdownMenuLabel>{account ? "账户身份由服务端验证" : "本次使用"}</DropdownMenuLabel>
-            </DropdownMenuGroup>
-            <DropdownMenuSeparator />
-
-            {!account && <>
-              <DropdownMenuItem className={cn("cursor-pointer", seniorMode && "min-h-12 text-base")} onClick={() => setAccountDialogOpen(true)}>
-                <User className="size-4" />
-                登录或创建账户
-              </DropdownMenuItem>
-              <DropdownMenuSeparator />
-            </>}
-
-            {/* 老年模式（仅患者端）*/}
-            {isPatient && (
-              <div className={cn("flex items-center justify-between px-2 py-1.5 text-sm", seniorMode && "min-h-12 text-base")}>
-                <span>老年模式</span>
-                <Switch
-                  checked={seniorMode}
-                  onCheckedChange={(v) => setSeniorMode(v)}
-                  aria-label="切换老年模式"
-                />
-              </div>
-            )}
-
-            {/* 主题切换 */}
-            <DropdownMenuItem
-              onClick={toggleTheme}
-              className={cn("flex items-center justify-between cursor-pointer", seniorMode && "min-h-12 text-base")}
-            >
-              <span className="flex items-center gap-2">
-                {resolvedTheme === "dark" ? (
-                  <Sun className="size-4" />
-                ) : (
-                  <Moon className="size-4" />
-                )}
-                主题
-              </span>
-              <span className={cn("text-xs text-muted-foreground", seniorMode && "text-base")}>
-                {resolvedTheme === "dark" ? "深色" : "浅色"}
-              </span>
-            </DropdownMenuItem>
-
-            <DropdownMenuSeparator />
-            <DropdownMenuGroup>
-              {isPatient && effectiveSessions.length > 0 && (
-                <DropdownMenuItem
-                  className={cn("cursor-pointer", seniorMode && "min-h-12 text-base")}
-                  onClick={() => setPatientHistoryOpen(true)}
-                >
-                  <History className="size-4" />
-                  对话记录
-                </DropdownMenuItem>
-              )}
-              <DropdownMenuItem className={cn("cursor-pointer", seniorMode && "min-h-12 text-base")} onClick={handleOpenSettings}>
-                <Settings className="size-4" />
-                设置
-              </DropdownMenuItem>
-              <DropdownMenuItem className={cn("cursor-pointer", seniorMode && "min-h-12 text-base")} onClick={handleShowHelp}>
-                <HelpCircle className="size-4" />
-                帮助
-              </DropdownMenuItem>
-              {account?.account_role === "patient" && (
-                <DropdownMenuItem className={cn("cursor-pointer", seniorMode && "min-h-12 text-base")} onClick={() => setPrescriptionReviewAccessOpen(true)}>
-                  <ShieldCheck className="size-4" />
-                  医生资料授权
-                </DropdownMenuItem>
-              )}
-              {account?.account_role === "patient" && (
-                <DropdownMenuItem className={cn("cursor-pointer", seniorMode && "min-h-12 text-base")} onClick={() => void copyReviewCode("患者")}>
-                  <Copy className="size-4" />
-                  复制我的患者代码
-                </DropdownMenuItem>
-              )}
-              {account?.account_role === "doctor" && (
-                <DropdownMenuItem className={cn("cursor-pointer", seniorMode && "min-h-12 text-base")} onClick={() => setDoctorPatientDirectoryOpen(true)}>
-                  <User className="size-4" />
-                  患者列表
-                </DropdownMenuItem>
-              )}
-              {account?.account_role === "doctor" && (
-                <DropdownMenuItem className={cn("cursor-pointer", seniorMode && "min-h-12 text-base")} onClick={() => setDoctorHealthProfileOpen(true)}>
-                  <User className="size-4" />
-                  患者健康画像
-                </DropdownMenuItem>
-              )}
-              {account?.account_role === "doctor" && (
-                <DropdownMenuItem className={cn("cursor-pointer", seniorMode && "min-h-12 text-base")} onClick={() => setRuntimeApprovalReviewOpen(true)}>
-                  <ShieldCheck className="size-4" />
-                  操作授权复核
-                </DropdownMenuItem>
-              )}
-              {account?.account_role === "doctor" && (
-                <DropdownMenuItem className={cn("cursor-pointer", seniorMode && "min-h-12 text-base")} onClick={() => setDoctorPrescriptionReviewOpen(true)}>
-                  <ShieldCheck className="size-4" />
-                  五大处方草案复核
-                </DropdownMenuItem>
-              )}
-              {account?.account_role === "doctor" && (
-                <DropdownMenuItem className={cn("cursor-pointer", seniorMode && "min-h-12 text-base")} onClick={() => setDoctorMedicationReviewOpen(true)}>
-                  <Stethoscope className="size-4" />
-                  用药审查记录
-                </DropdownMenuItem>
-              )}
-              {account?.account_role === "doctor" && (
-                <DropdownMenuItem className={cn("cursor-pointer", seniorMode && "min-h-12 text-base")} onClick={() => setDoctorRiskAlertOpen(true)}>
-                  <ShieldCheck className="size-4" />
-                  患者安全提醒
-                </DropdownMenuItem>
-              )}
-              {account?.account_role === "doctor" && (
-                <DropdownMenuItem className={cn("cursor-pointer", seniorMode && "min-h-12 text-base")} onClick={() => setDoctorChronicCareOpen(true)}>
-                  <Stethoscope className="size-4" />
-                  患者慢病记录
-                </DropdownMenuItem>
-              )}
-              {account?.account_role === "doctor" && (
-                <DropdownMenuItem className={cn("cursor-pointer", seniorMode && "min-h-12 text-base")} onClick={() => setDoctorCgaWorkspaceOpen(true)}>
-                  <Stethoscope className="size-4" />
-                  CGA 报告工作区
-                </DropdownMenuItem>
-              )}
-              {account?.account_role === "doctor" && (
-                <DropdownMenuItem className={cn("cursor-pointer", seniorMode && "min-h-12 text-base")} onClick={() => void copyReviewCode("医生")}>
-                  <Copy className="size-4" />
-                  复制我的复核代码
-                </DropdownMenuItem>
-              )}
-            </DropdownMenuGroup>
-            {isAdministrator && <>
-              <DropdownMenuSeparator />
-              <DropdownMenuGroup>
-                <DropdownMenuItem className={cn("cursor-pointer", seniorMode && "min-h-12 text-base")} onClick={openAdminConsole}>
-                  <ShieldCheck className="size-4" />
-                  管理控制台
-                </DropdownMenuItem>
-                {role !== "patient" && <DropdownMenuItem className={cn("cursor-pointer", seniorMode && "min-h-12 text-base")} onClick={() => void handleAdminWorkspace("patient")}>
-                  <ArrowLeftRight className="size-4" />
-                  切换到患者端
-                </DropdownMenuItem>}
-                {role !== "doctor" && <DropdownMenuItem className={cn("cursor-pointer", seniorMode && "min-h-12 text-base")} onClick={() => void handleAdminWorkspace("doctor")}>
-                  <ArrowLeftRight className="size-4" />
-                  切换到医生端
-                </DropdownMenuItem>}
-              </DropdownMenuGroup>
-            </>}
-            <DropdownMenuSeparator />
-            {account && <>
-              <DropdownMenuItem className={cn("cursor-pointer text-destructive focus:text-destructive", seniorMode && "min-h-12 text-base")} onClick={() => setAccountDeactivationOpen(true)}>
-                <Trash2 className="size-4" />
-                停用账户
-              </DropdownMenuItem>
-              <DropdownMenuSeparator />
-            </>}
-            <DropdownMenuItem className={cn("cursor-pointer", seniorMode && "min-h-12 text-base")} onClick={() => void handleExit()}>
-              <LogOut className="size-4" />
-              {account ? "退出账户" : "结束本次使用"}
-            </DropdownMenuItem>
-          </DropdownMenuContent>
-        </DropdownMenu>
-      </div>
-
+      <SidebarAccountMenu
+        account={account}
+        role={role}
+        isGuest={isGuest}
+        seniorMode={seniorMode}
+        resolvedTheme={resolvedTheme}
+        sessionCount={effectiveSessions.length}
+        actions={{
+          openAccount: () => setAccountDialogOpen(true),
+          setSeniorMode,
+          toggleTheme,
+          openHistory: () => setPatientHistoryOpen(true),
+          openSettings: handleOpenSettings,
+          openHelp: handleShowHelp,
+          openPrescriptionAccess: () => setPrescriptionReviewAccessOpen(true),
+          copyPatientCode: () => void copyReviewCode("患者"),
+          openPatientDirectory: () => setDoctorPatientDirectoryOpen(true),
+          openHealthProfile: () => setDoctorHealthProfileOpen(true),
+          openRuntimeApproval: () => setRuntimeApprovalReviewOpen(true),
+          openPrescriptionReview: () => setDoctorPrescriptionReviewOpen(true),
+          openMedicationReview: () => setDoctorMedicationReviewOpen(true),
+          openRiskAlerts: () => setDoctorRiskAlertOpen(true),
+          openChronicCare: () => setDoctorChronicCareOpen(true),
+          openCgaWorkspace: () => setDoctorCgaWorkspaceOpen(true),
+          copyDoctorCode: () => void copyReviewCode("医生"),
+          openAdminConsole,
+          openPatientWorkspace: () => void handleAdminWorkspace("patient"),
+          openDoctorWorkspace: () => void handleAdminWorkspace("doctor"),
+          deactivateAccount: () => setAccountDeactivationOpen(true),
+          exit: () => void handleExit(),
+        }}
+      />
       <SidebarSessionDialogs
         seniorMode={seniorMode}
         isDoctor={isDoctor}
