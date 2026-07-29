@@ -56,7 +56,9 @@ class _Repository:
         *,
         tenant_id: str,
         actor_id: str,
+        for_update: bool = False,
     ) -> AgentRun | None:
+        del for_update
         return next(
             (
                 run
@@ -352,3 +354,57 @@ async def test_lease_orphan_can_be_marked_interrupted(
     assert interrupted.status is AgentRunStatus.INTERRUPTED
     assert interrupted.completed_at is not None
     assert repository.events[-1].status == "interrupted"
+
+
+@pytest.mark.asyncio
+async def test_new_worker_adopts_interrupted_run_and_fences_old_worker() -> None:
+    repository = _Repository()
+    service = AgentRunService(repository)
+    request = _request()
+    created = await service.create_run(request, tenant_id=TENANT, actor_id=ACTOR)
+    interrupted = await service.interrupt_owned(
+        created.id,
+        tenant_id=TENANT,
+        actor_id=ACTOR,
+    )
+
+    resumed = await service.adopt_for_worker(
+        request.model_copy(update={"fencing_token": 8}),
+        tenant_id=TENANT,
+        actor_id=ACTOR,
+    )
+
+    assert resumed.id == interrupted.id
+    assert resumed.status is AgentRunStatus.RUNNING
+    assert resumed.completed_at is None
+    assert repository.runs[resumed.id].fencing_token == 8
+    assert repository.events[-1].event_type == "run.resumed"
+    with pytest.raises(RunFenceConflictError):
+        await service.append_event(
+            resumed.id,
+            RunEventWrite(event_type="text_delta", status="running"),
+            tenant_id=TENANT,
+            actor_id=ACTOR,
+            fencing_token=7,
+        )
+
+
+@pytest.mark.asyncio
+async def test_adoption_rejects_stale_fence_and_nonrecoverable_terminal() -> None:
+    repository = _Repository()
+    service = AgentRunService(repository)
+    request = _request()
+    created = await service.create_run(request, tenant_id=TENANT, actor_id=ACTOR)
+    with pytest.raises(AgentRunConflictError, match="stale"):
+        await service.adopt_for_worker(
+            request.model_copy(update={"fencing_token": 6}),
+            tenant_id=TENANT,
+            actor_id=ACTOR,
+        )
+    await service.cancel_owned(created.id, tenant_id=TENANT, actor_id=ACTOR)
+    with pytest.raises(AgentRunConflictError, match="terminal"):
+        await service.adopt_for_worker(
+            request.model_copy(update={"fencing_token": 8}),
+            tenant_id=TENANT,
+            actor_id=ACTOR,
+        )

@@ -9,17 +9,51 @@ from httpx import AsyncClient
 from sqlalchemy import select
 
 from gerclaw_api.database.models import AgentRun, RunEvent
+from gerclaw_api.domain.chat_schemas import ChatRequest
 from gerclaw_api.domain.run_schemas import AgentRunCreate
+from gerclaw_api.domain.trace_schemas import TraceStartRequest
 from gerclaw_api.modules.agent_harness.routing import RouteKind
+from gerclaw_api.modules.agent_harness.safety import MEDICAL_DISCLAIMER
+from gerclaw_api.modules.contracts import AgentResponse, SafetyDecision
+from gerclaw_api.modules.workflows import get_default_workflow_registry
 from gerclaw_api.repositories.agent_run import SqlAlchemyAgentRunRepository
 from gerclaw_api.repositories.conversation import SqlAlchemyConversationRepository
+from gerclaw_api.repositories.trace import SqlAlchemyTraceRepository
+from gerclaw_api.services import chat_service as chat_service_module
 from gerclaw_api.services.agent_run_service import AgentRunService
+from gerclaw_api.services.chat_service import _fingerprint
 from gerclaw_api.services.conversation_service import ConversationService
 from gerclaw_api.services.run_recovery_service import StaleAgentRunReconciler
 from gerclaw_api.services.session_lease import SessionLease
+from gerclaw_api.services.trace_service import TraceService
 
 TENANT = "tenant_public0001"
 ACTOR = "usr_patient_integration0001"
+
+
+class _ResumeHarness:
+    def __init__(self, **_kwargs: object) -> None:
+        pass
+
+    async def assemble_context(self, *_args: object, **_kwargs: object) -> object:
+        return object()
+
+    async def process_message(self, *_args: object, **_kwargs: object) -> AgentResponse:
+        return AgentResponse(
+            text=f"恢复后的安全回答。\n\n{MEDICAL_DISCLAIMER}",
+            safety=SafetyDecision(
+                reviewed=True,
+                disclaimer_applied=True,
+                deterministic_diagnosis_blocked=False,
+                high_risk_escalation_checked=True,
+                notices=[
+                    "medical_disclaimer_applied",
+                    "deterministic_diagnosis_checked",
+                    "high_risk_escalation_checked",
+                ],
+            ),
+            medical_content=False,
+        )
 
 
 @pytest.mark.integration
@@ -109,3 +143,112 @@ async def test_recovery_interrupts_only_runs_without_cross_replica_lease(
     assert orphan.completed_at is not None
     assert active is not None and active.status == "running"
     assert [event.status for event in orphan_events] == ["interrupted"]
+
+
+@pytest.mark.integration
+@pytest.mark.asyncio
+async def test_same_trace_retry_adopts_interrupted_run_and_completes_it(
+    integration_client: tuple[AsyncClient, object],
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    client, app = integration_client
+    session_id = uuid.uuid4()
+    trace_id = "trace_recovery_retry_0001"
+    payload = ChatRequest(session_id=session_id, message="请恢复这次回答")
+    assert (
+        await client.post("/api/v1/sessions", json={"session_id": str(session_id)})
+    ).status_code == 201
+    workflow = get_default_workflow_registry().validate_context(
+        payload.workflow,
+        loaded_skill_count=0,
+        uploaded_file_count=0,
+        uploaded_image_count=0,
+    )
+    async with app.state.database.session() as session:
+        conversation_service = ConversationService(
+            SqlAlchemyConversationRepository(session)
+        )
+        conversation = await conversation_service.require_session(
+            session_id,
+            tenant_id=TENANT,
+            actor_id=ACTOR,
+        )
+        message = await conversation_service.store_user_message(
+            tenant_id=TENANT,
+            conversation=conversation,
+            session_id=session_id,
+            trace_id=trace_id,
+            text=payload.message,
+            channel=payload.channel,
+        )
+        old_fence = await conversation_service.next_fencing_token()
+        await TraceService(SqlAlchemyTraceRepository(session)).start_trace(
+            TraceStartRequest(
+                session_id=session_id,
+                execution_type="agent.chat",
+                attributes={
+                    "channel": payload.channel,
+                    "feature": "medical_chat",
+                    "module": "agent_harness",
+                    "operation": "process_message",
+                    "request_fingerprint": _fingerprint(payload, app.state.settings),
+                    "workflow": workflow.workflow_id.value,
+                    "workflow_version": workflow.version,
+                    "workflow_owner_module": workflow.owner_module,
+                },
+            ),
+            "request_recovery_retry_0001",
+            trace_id=trace_id,
+            tenant_id=TENANT,
+            actor_id=ACTOR,
+        )
+        run_service = AgentRunService(SqlAlchemyAgentRunRepository(session))
+        run = await run_service.create_run(
+            AgentRunCreate(
+                conversation_id=session_id,
+                input_message_id=message.id,
+                trace_id=trace_id,
+                route=RouteKind.STANDARD,
+                context_snapshot={},
+                plan={
+                    "loaded_skill_count": 0,
+                    "uploaded_document_count": 0,
+                    "uploaded_image_count": 0,
+                    "workflow": workflow.workflow_id.value,
+                },
+                fencing_token=old_fence,
+            ),
+            tenant_id=TENANT,
+            actor_id=ACTOR,
+        )
+        await run_service.interrupt_owned(
+            run.id,
+            tenant_id=TENANT,
+            actor_id=ACTOR,
+        )
+        run_id = run.id
+
+    monkeypatch.setattr(chat_service_module, "ProductionAgentHarness", _ResumeHarness)
+    response = await client.post(
+        "/api/v1/chat",
+        headers={"X-Trace-ID": trace_id},
+        json=payload.model_dump(mode="json"),
+    )
+
+    assert response.status_code == 200, response.text
+    assert "event: done" in response.text
+    async with app.state.database.session() as session:
+        resumed = await session.get(AgentRun, run_id)
+        events = list(
+            (
+                await session.scalars(
+                    select(RunEvent)
+                    .where(RunEvent.run_id == run_id)
+                    .order_by(RunEvent.sequence)
+                )
+            ).all()
+        )
+    assert resumed is not None and resumed.status == "completed"
+    assert resumed.current_answer_version_id is not None
+    assert "run.resumed" in [event.event_type for event in events]
+    assert [event.sequence for event in events] == list(range(1, len(events) + 1))

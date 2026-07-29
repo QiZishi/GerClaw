@@ -100,6 +100,83 @@ class AgentRunService:
             return self.to_public_run(existing)
         return self.to_public_run(run)
 
+    async def adopt_for_worker(
+        self,
+        request: AgentRunCreate,
+        *,
+        tenant_id: str,
+        actor_id: str,
+    ) -> AgentRunRead:
+        """Create a Run or fence an orphaned same-Trace Run to the new lease owner."""
+
+        existing = await self._repository.get_owned_run_by_trace(
+            request.trace_id,
+            tenant_id=tenant_id,
+            actor_id=actor_id,
+            for_update=True,
+        )
+        if existing is None:
+            return await self.create_run(
+                request,
+                tenant_id=tenant_id,
+                actor_id=actor_id,
+            )
+        self._validate_replayed_create(
+            existing,
+            request,
+            compare_context=False,
+            compare_fence=False,
+        )
+        current = self._lifecycle_state(existing)
+        if (
+            current.status is AgentRunStatus.RUNNING
+            and current.fencing_token == request.fencing_token
+        ):
+            result = self.to_public_run(existing)
+            await self._repository.rollback()
+            return result
+        if request.fencing_token <= current.fencing_token:
+            await self._repository.rollback()
+            raise AgentRunConflictError("run adoption fencing token is stale")
+        if current.status in {
+            AgentRunStatus.COMPLETED,
+            AgentRunStatus.COMPLETED_WITH_WARNINGS,
+            AgentRunStatus.FAILED,
+            AgentRunStatus.CANCELLED,
+        }:
+            await self._repository.rollback()
+            raise AgentRunConflictError("terminal run cannot be adopted")
+        try:
+            if current.status in {
+                AgentRunStatus.INTERRUPTED,
+                AgentRunStatus.WAITING_FOR_USER,
+            }:
+                updated = self._state_machine.transition(
+                    current,
+                    AgentRunStatus.RUNNING,
+                    expected_revision=current.revision,
+                    fencing_token=current.fencing_token,
+                )
+                existing.status = updated.status.value
+                existing.completed_at = updated.completed_at
+            existing.fencing_token = request.fencing_token
+            existing.revision += 1
+            existing.warnings = []
+            await self._stage_event(
+                existing,
+                RunEventWrite(
+                    event_type="run.resumed",
+                    status=AgentRunStatus.RUNNING.value,
+                    public_summary="已恢复执行",
+                ),
+            )
+            await self._repository.flush()
+            await self._repository.commit()
+        except BaseException:
+            await self._repository.rollback()
+            raise
+        return self.to_public_run(existing)
+
     async def get_run(
         self,
         run_id: uuid.UUID,
@@ -349,14 +426,20 @@ class AgentRunService:
         )
 
     @staticmethod
-    def _validate_replayed_create(run: AgentRun, request: AgentRunCreate) -> None:
+    def _validate_replayed_create(
+        run: AgentRun,
+        request: AgentRunCreate,
+        *,
+        compare_context: bool = True,
+        compare_fence: bool = True,
+    ) -> None:
         if (
             run.conversation_id != request.conversation_id
             or run.input_message_id != request.input_message_id
             or run.route != request.route.value
-            or run.context_snapshot != request.context_snapshot
+            or (compare_context and run.context_snapshot != request.context_snapshot)
             or run.plan != request.plan
-            or run.fencing_token != request.fencing_token
+            or (compare_fence and run.fencing_token != request.fencing_token)
         ):
             raise AgentRunConflictError("run trace conflicts with stored identity")
 

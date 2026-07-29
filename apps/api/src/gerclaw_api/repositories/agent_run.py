@@ -35,6 +35,7 @@ class AgentRunRepository(Protocol):
         *,
         tenant_id: str,
         actor_id: str,
+        for_update: bool = False,
     ) -> AgentRun | None:
         """Return an idempotently created actor-owned run."""
 
@@ -94,12 +95,15 @@ class SqlAlchemyAgentRunRepository:
         *,
         tenant_id: str,
         actor_id: str,
+        for_update: bool = False,
     ) -> AgentRun | None:
         statement = select(AgentRun).where(
             AgentRun.trace_id == trace_id,
             AgentRun.tenant_id == tenant_id,
             AgentRun.actor_id == actor_id,
         )
+        if for_update:
+            statement = statement.with_for_update().execution_options(populate_existing=True)
         return cast(AgentRun | None, await self._session.scalar(statement))
 
     async def add_run(self, run: AgentRun) -> None:

@@ -84,7 +84,7 @@ class DatabaseChatRunJournal:
         async with self._database.session() as session:
             return await AgentRunService(
                 SqlAlchemyAgentRunRepository(session)
-            ).create_run(
+            ).adopt_for_worker(
                 request,
                 tenant_id=tenant_id,
                 actor_id=actor_id,
