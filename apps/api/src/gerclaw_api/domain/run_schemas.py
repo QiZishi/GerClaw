@@ -87,6 +87,61 @@ class RunEventWrite(BaseModel):
     duration_ms: int | None = Field(default=None, ge=0)
 
 
+class RunAttemptStatus(StrEnum):
+    STAGING = "staging"
+    VALIDATED = "validated"
+    REJECTED = "rejected"
+    INVALIDATED = "invalidated"
+
+
+class ValidationFeedback(BaseModel):
+    """Content-free repair instruction retained only in the private audit plane."""
+
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    schema_version: Literal["1.0"] = "1.0"
+    step_id: BoundedIdentifier
+    attempt: int = Field(ge=1)
+    error_code: BoundedIdentifier
+    field_paths: tuple[BoundedIdentifier, ...] = Field(default=(), max_length=20)
+    contract_version: BoundedIdentifier
+    repair_action: BoundedIdentifier
+    checkpoint_id: BoundedIdentifier
+
+
+class RunAttemptCreate(BaseModel):
+    """Start one private attempt for a stable user-facing operation."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    id: uuid.UUID = Field(default_factory=uuid.uuid4)
+    public_operation_id: uuid.UUID
+    step_id: BoundedIdentifier
+    checkpoint_id: BoundedIdentifier
+    expected_current_attempt_id: uuid.UUID | None = None
+
+
+class RunAttemptRead(BaseModel):
+    """Private audit metadata; never serialize this contract on public Run routes."""
+
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    schema_version: Literal["1.0"] = "1.0"
+    id: uuid.UUID
+    run_id: uuid.UUID
+    public_operation_id: uuid.UUID
+    attempt: int = Field(ge=1)
+    step_id: BoundedIdentifier
+    checkpoint_id: BoundedIdentifier
+    fencing_token: int = Field(ge=1)
+    status: RunAttemptStatus
+    expected_current_attempt_id: uuid.UUID | None = None
+    error_code: BoundedIdentifier | None = None
+    feedback: ValidationFeedback | None = None
+    created_at: datetime
+    completed_at: datetime | None = None
+
+
 class AgentRunCreate(BaseModel):
     """Validated immutable identity and initial state for one durable run."""
 
@@ -113,6 +168,7 @@ class AgentRunRead(BaseModel):
     route: RouteKind
     status: AgentRunStatus
     current_answer_version_id: uuid.UUID | None = None
+    current_valid_attempt_id: uuid.UUID | None = None
     warnings: tuple[BoundedIdentifier, ...] = Field(default=(), max_length=50)
     last_sequence: int = Field(default=0, ge=0)
     revision: int = Field(ge=1)

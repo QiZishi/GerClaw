@@ -6,14 +6,23 @@ import uuid
 from collections.abc import Mapping
 from datetime import UTC, datetime
 
-from gerclaw_api.database.models import AgentRun, RunEvent
+from gerclaw_api.database.models import (
+    AgentRun,
+    AgentRunAttempt,
+    AgentRunAttemptEvent,
+    RunEvent,
+)
 from gerclaw_api.domain.run_schemas import (
     RUN_EVENT_CLOSED_STATUSES,
     AgentRunCreate,
     AgentRunRead,
     AgentRunStatus,
+    RunAttemptCreate,
+    RunAttemptRead,
+    RunAttemptStatus,
     RunEventRead,
     RunEventWrite,
+    ValidationFeedback,
 )
 from gerclaw_api.modules.agent_harness.routing import RouteKind
 from gerclaw_api.modules.agent_harness.run_lifecycle import (
@@ -34,6 +43,10 @@ class AgentRunNotFoundError(LookupError):
 
 class AgentRunConflictError(RuntimeError):
     """Raised when an idempotent run identity conflicts with durable state."""
+
+
+class RunAttemptConflictError(RuntimeError):
+    """Raised when a private attempt loses fencing or current-pointer CAS."""
 
 
 class AgentRunService:
@@ -221,6 +234,210 @@ class AgentRunService:
             raise
         return self.to_public_event(event)
 
+    async def begin_attempt(
+        self,
+        run_id: uuid.UUID,
+        request: RunAttemptCreate,
+        *,
+        tenant_id: str,
+        actor_id: str,
+        fencing_token: int,
+    ) -> RunAttemptRead:
+        """Create a private staging area without changing the public projection."""
+
+        run = await self._locked_run(run_id, tenant_id=tenant_id, actor_id=actor_id)
+        if run.fencing_token != fencing_token:
+            await self._repository.rollback()
+            raise RunFenceConflictError("agent run fencing token is stale")
+        if AgentRunStatus(run.status) in RUN_EVENT_CLOSED_STATUSES:
+            await self._repository.rollback()
+            raise RunTerminalConflictError("closed agent run cannot start an attempt")
+        if run.current_valid_attempt_id != request.expected_current_attempt_id:
+            await self._repository.rollback()
+            raise RunAttemptConflictError("current valid attempt changed")
+        attempt_number = await self._repository.next_attempt_number(
+            run_id,
+            request.public_operation_id,
+        )
+        now = datetime.now(UTC)
+        attempt = AgentRunAttempt(
+            id=request.id,
+            run_id=run_id,
+            public_operation_id=request.public_operation_id,
+            attempt=attempt_number,
+            step_id=request.step_id,
+            checkpoint_id=request.checkpoint_id,
+            fencing_token=fencing_token,
+            status=RunAttemptStatus.STAGING.value,
+            expected_current_attempt_id=request.expected_current_attempt_id,
+            error_code=None,
+            validation_feedback=None,
+            created_at=now,
+            completed_at=None,
+        )
+        await self._repository.add_attempt(attempt)
+        try:
+            await self._repository.flush()
+            await self._repository.commit()
+        except BaseException:
+            await self._repository.rollback()
+            raise
+        return self.to_private_attempt(attempt)
+
+    async def stage_attempt_event(
+        self,
+        attempt_id: uuid.UUID,
+        request: RunEventWrite,
+        *,
+        tenant_id: str,
+        actor_id: str,
+        fencing_token: int,
+    ) -> RunAttemptRead:
+        """Persist one encrypted private event; no public sequence is allocated."""
+
+        attempt = await self._repository.get_attempt(attempt_id, for_update=True)
+        if attempt is None:
+            raise AgentRunNotFoundError(str(attempt_id))
+        run = await self._locked_run(
+            attempt.run_id,
+            tenant_id=tenant_id,
+            actor_id=actor_id,
+        )
+        self._assert_staging_attempt(run, attempt, fencing_token=fencing_token)
+        staged = await self._repository.list_attempt_events(attempt.id)
+        event = AgentRunAttemptEvent(
+            attempt_id=attempt.id,
+            ordinal=len(staged) + 1,
+            event_type=request.event_type,
+            status=request.status,
+            public_summary=request.public_summary,
+            payload=request.payload,
+            duration_ms=request.duration_ms,
+            created_at=datetime.now(UTC),
+        )
+        await self._repository.add_attempt_event(event)
+        try:
+            await self._repository.flush()
+            await self._repository.commit()
+        except BaseException:
+            await self._repository.rollback()
+            raise
+        return self.to_private_attempt(attempt)
+
+    async def reject_attempt(
+        self,
+        attempt_id: uuid.UUID,
+        feedback: ValidationFeedback,
+        *,
+        tenant_id: str,
+        actor_id: str,
+        fencing_token: int,
+    ) -> RunAttemptRead:
+        """Retain content-free failure metadata while keeping staged output private."""
+
+        attempt = await self._repository.get_attempt(attempt_id, for_update=True)
+        if attempt is None:
+            raise AgentRunNotFoundError(str(attempt_id))
+        run = await self._locked_run(
+            attempt.run_id,
+            tenant_id=tenant_id,
+            actor_id=actor_id,
+        )
+        self._assert_staging_attempt(run, attempt, fencing_token=fencing_token)
+        if feedback.attempt != attempt.attempt or feedback.checkpoint_id != attempt.checkpoint_id:
+            await self._repository.rollback()
+            raise RunAttemptConflictError("validation feedback does not match attempt")
+        attempt.status = RunAttemptStatus.REJECTED.value
+        attempt.error_code = feedback.error_code
+        attempt.validation_feedback = feedback.model_dump(mode="json")
+        attempt.completed_at = datetime.now(UTC)
+        try:
+            await self._repository.flush()
+            await self._repository.commit()
+        except BaseException:
+            await self._repository.rollback()
+            raise
+        return self.to_private_attempt(attempt)
+
+    async def commit_attempt(
+        self,
+        attempt_id: uuid.UUID,
+        *,
+        tenant_id: str,
+        actor_id: str,
+        fencing_token: int,
+        target: AgentRunStatus,
+        terminal_event: RunEventWrite,
+        commit: bool = True,
+    ) -> tuple[AgentRunRead, tuple[RunEventRead, ...]]:
+        """CAS-promote a validated attempt and its public events in one transaction."""
+
+        attempt = await self._repository.get_attempt(attempt_id, for_update=True)
+        if attempt is None:
+            raise AgentRunNotFoundError(str(attempt_id))
+        run = await self._locked_run(
+            attempt.run_id,
+            tenant_id=tenant_id,
+            actor_id=actor_id,
+        )
+        self._assert_staging_attempt(run, attempt, fencing_token=fencing_token)
+        if run.current_valid_attempt_id != attempt.expected_current_attempt_id:
+            await self._repository.rollback()
+            raise RunAttemptConflictError("current valid attempt changed")
+        current = self._lifecycle_state(run)
+        updated = self._state_machine.transition(
+            current,
+            target,
+            expected_revision=current.revision,
+            fencing_token=fencing_token,
+        )
+        staged = await self._repository.list_attempt_events(attempt.id)
+        private_terminal = AgentRunAttemptEvent(
+            attempt_id=attempt.id,
+            ordinal=len(staged) + 1,
+            event_type=terminal_event.event_type,
+            status=terminal_event.status,
+            public_summary=terminal_event.public_summary,
+            payload=terminal_event.payload,
+            duration_ms=terminal_event.duration_ms,
+            created_at=datetime.now(UTC),
+        )
+        await self._repository.add_attempt_event(private_terminal)
+        staged.append(private_terminal)
+        public_events: list[RunEvent] = []
+        for private_event in staged:
+            public_event = await self._stage_event(
+                run,
+                RunEventWrite(
+                    event_type=private_event.event_type,
+                    status=private_event.status,
+                    public_summary=private_event.public_summary,
+                    payload=private_event.payload,
+                    duration_ms=private_event.duration_ms,
+                ),
+                occurred_at=private_event.created_at,
+            )
+            public_events.append(public_event)
+        run.status = updated.status.value
+        run.revision = updated.revision
+        run.warnings = list(updated.warnings)
+        run.interrupted_at = updated.interrupted_at
+        run.completed_at = updated.completed_at
+        run.current_valid_attempt_id = attempt.id
+        attempt.status = RunAttemptStatus.VALIDATED.value
+        attempt.completed_at = datetime.now(UTC)
+        try:
+            await self._repository.flush()
+            if commit:
+                await self._repository.commit()
+        except BaseException:
+            await self._repository.rollback()
+            raise
+        return (
+            self.to_public_run(run),
+            tuple(self.to_public_event(event) for event in public_events),
+        )
+
     async def list_events(
         self,
         run_id: uuid.UUID,
@@ -287,6 +504,15 @@ class AgentRunService:
             run.warnings = list(updated.warnings)
             run.interrupted_at = updated.interrupted_at
             run.completed_at = updated.completed_at
+            if target in {
+                AgentRunStatus.FAILED,
+                AgentRunStatus.CANCELLED,
+                AgentRunStatus.INTERRUPTED,
+            }:
+                await self._repository.invalidate_staging_attempts(
+                    run.id,
+                    completed_at=occurred_at or datetime.now(UTC),
+                )
             event_request = terminal_event or RunEventWrite(
                 event_type="run.status",
                 status=updated.status.value,
@@ -330,6 +556,10 @@ class AgentRunService:
             run.warnings = list(updated.warnings)
             run.interrupted_at = updated.interrupted_at
             run.completed_at = updated.completed_at
+            await self._repository.invalidate_staging_attempts(
+                run.id,
+                completed_at=occurred_at or datetime.now(UTC),
+            )
             await self._stage_event(
                 run,
                 RunEventWrite(
@@ -372,6 +602,10 @@ class AgentRunService:
             run.warnings = list(updated.warnings)
             run.interrupted_at = updated.interrupted_at
             run.completed_at = updated.completed_at
+            await self._repository.invalidate_staging_attempts(
+                run.id,
+                completed_at=occurred_at or datetime.now(UTC),
+            )
             await self._stage_event(
                 run,
                 RunEventWrite(
@@ -482,6 +716,7 @@ class AgentRunService:
             route=RouteKind(run.route),
             status=AgentRunStatus(run.status),
             current_answer_version_id=run.current_answer_version_id,
+            current_valid_attempt_id=run.current_valid_attempt_id,
             warnings=tuple(run.warnings),
             last_sequence=run.last_sequence,
             revision=run.revision,
@@ -501,4 +736,41 @@ class AgentRunService:
             payload=event.payload,
             duration_ms=event.duration_ms,
             created_at=event.created_at,
+        )
+
+    @staticmethod
+    def _assert_staging_attempt(
+        run: AgentRun,
+        attempt: AgentRunAttempt,
+        *,
+        fencing_token: int,
+    ) -> None:
+        if run.fencing_token != fencing_token or attempt.fencing_token != fencing_token:
+            raise RunFenceConflictError("agent run attempt fencing token is stale")
+        if attempt.status != RunAttemptStatus.STAGING.value:
+            raise RunAttemptConflictError("attempt is no longer staging")
+        if AgentRunStatus(run.status) in RUN_EVENT_CLOSED_STATUSES:
+            raise RunTerminalConflictError("closed agent run cannot accept attempt output")
+
+    @staticmethod
+    def to_private_attempt(attempt: AgentRunAttempt) -> RunAttemptRead:
+        feedback = (
+            ValidationFeedback.model_validate(attempt.validation_feedback)
+            if attempt.validation_feedback is not None
+            else None
+        )
+        return RunAttemptRead(
+            id=attempt.id,
+            run_id=attempt.run_id,
+            public_operation_id=attempt.public_operation_id,
+            attempt=attempt.attempt,
+            step_id=attempt.step_id,
+            checkpoint_id=attempt.checkpoint_id,
+            fencing_token=attempt.fencing_token,
+            status=RunAttemptStatus(attempt.status),
+            expected_current_attempt_id=attempt.expected_current_attempt_id,
+            error_code=attempt.error_code,
+            feedback=feedback,
+            created_at=attempt.created_at,
+            completed_at=attempt.completed_at,
         )

@@ -29,9 +29,13 @@ from gerclaw_api.domain.run_schemas import (
     AgentRunStatus,
     AnswerVersionRead,
     RunAnswerContext,
+    RunAttemptCreate,
+    RunAttemptRead,
+    RunAttemptStatus,
     RunEventRead,
     RunEventWrite,
     RunRegenerationContext,
+    ValidationFeedback,
 )
 from gerclaw_api.domain.trace_schemas import (
     TraceEventCreate,
@@ -364,6 +368,8 @@ class _RunJournal:
         self.regeneration: RunRegenerationContext | None = None
         self.completion_error: Exception | None = None
         self.clinical_state = ClinicalState()
+        self.attempt: RunAttemptRead | None = None
+        self.rejected_attempts: list[ValidationFeedback] = []
 
     async def resolve_regeneration(
         self,
@@ -433,9 +439,75 @@ class _RunJournal:
             created_at=datetime.now(UTC),
         )
 
+    async def begin_attempt(
+        self,
+        run_id: uuid.UUID,
+        request: RunAttemptCreate,
+        *,
+        tenant_id: str,
+        actor_id: str,
+        fencing_token: int,
+    ) -> RunAttemptRead:
+        del tenant_id, actor_id
+        assert run_id == self.run_id
+        self.attempt = RunAttemptRead(
+            id=request.id,
+            run_id=run_id,
+            public_operation_id=request.public_operation_id,
+            attempt=1,
+            step_id=request.step_id,
+            checkpoint_id=request.checkpoint_id,
+            fencing_token=fencing_token,
+            status=RunAttemptStatus.STAGING,
+            expected_current_attempt_id=request.expected_current_attempt_id,
+            created_at=datetime.now(UTC),
+        )
+        return self.attempt
+
+    async def stage_attempt_event(
+        self,
+        attempt_id: uuid.UUID,
+        event: RunEventWrite,
+        *,
+        tenant_id: str,
+        actor_id: str,
+        fencing_token: int,
+    ) -> RunAttemptRead:
+        del tenant_id, actor_id
+        assert self.attempt is not None
+        assert attempt_id == self.attempt.id
+        assert fencing_token == 17
+        self.events.append(event)
+        return self.attempt
+
+    async def reject_attempt(
+        self,
+        attempt_id: uuid.UUID,
+        feedback: ValidationFeedback,
+        *,
+        tenant_id: str,
+        actor_id: str,
+        fencing_token: int,
+    ) -> RunAttemptRead:
+        del tenant_id, actor_id
+        assert self.attempt is not None
+        assert attempt_id == self.attempt.id
+        assert fencing_token == 17
+        self.rejected_attempts.append(feedback)
+        self.attempt = self.attempt.model_copy(
+            update={
+                "status": RunAttemptStatus.REJECTED,
+                "error_code": feedback.error_code,
+                "feedback": feedback,
+                "completed_at": datetime.now(UTC),
+            }
+        )
+        return self.attempt
+
     async def complete_answer(
         self,
         run_id: uuid.UUID,
+        attempt_id: uuid.UUID,
         assistant_message_id: uuid.UUID,
         done_payload: dict[str, JsonValue],
         *,
@@ -444,9 +516,11 @@ class _RunJournal:
         fencing_token: int,
         answer_group_run_id: uuid.UUID | None = None,
         expected_current_version_id: uuid.UUID | None = None,
-    ) -> tuple[AnswerVersionRead, AgentRunRead]:
+    ) -> tuple[AnswerVersionRead, AgentRunRead, tuple[RunEventRead, ...]]:
         del tenant_id, actor_id, expected_current_version_id
         assert run_id == self.run_id
+        assert self.attempt is not None
+        assert attempt_id == self.attempt.id
         assert fencing_token == 17
         if self.completion_error is not None:
             raise self.completion_error
@@ -469,6 +543,15 @@ class _RunJournal:
             )
         )
         self.transitions.append(AgentRunStatus.COMPLETED)
+        public_events = tuple(
+            RunEventRead(
+                run_id=run_id,
+                sequence=index,
+                **event.model_dump(),
+                created_at=datetime.now(UTC),
+            )
+            for index, event in enumerate(self.events, start=1)
+        )
         return (
             answer,
             self._run(
@@ -476,6 +559,7 @@ class _RunJournal:
                 AgentRunStatus.COMPLETED,
                 revision=len(self.transitions) + 1,
             ),
+            public_events,
         )
 
     async def complete_with_warnings(
@@ -794,9 +878,10 @@ async def test_completion_fence_failure_never_publishes_done(unit_settings: Sett
             callback=cast(Any, callback),
         )
 
-    assert all(cast(Any, event).event_type != "done" for event in events)
+    assert events == []
     assert run_journal.answer_message_ids == []
     assert run_journal.transitions == [AgentRunStatus.FAILED]
+    assert len(run_journal.rejected_attempts) == 1
 
 
 @pytest.mark.asyncio
@@ -894,9 +979,10 @@ async def test_durable_cancel_intent_fences_success_when_runtime_swallows_task_c
     assert memory.committed_count == 0
     assert traces.trace.status == TraceStatus.CANCELLED.value
     assert traces.finishes[-1].status is TraceStatus.CANCELLED
-    assert all(cast(Any, event).event_type != "done" for event in events)
+    assert events == []
     assert run_journal.answer_message_ids == []
     assert run_journal.transitions == [AgentRunStatus.CANCELLED]
+    assert len(run_journal.rejected_attempts) == 1
 
 
 @pytest.mark.asyncio

@@ -5,11 +5,23 @@ transactions, leases, traces, conversations, or SSE transport.
 
 Trust boundary: accept only already validated text and evidence-presence callbacks.
 Never expose provider payloads, credentials, private reasoning, or partial unsafe medical
-sentences. Preserve a single public terminal outcome and cancellation idempotency.
+sentences. An attempt is private until the owning boundary validates it and the persistence
+owner wins both worker fencing and current-attempt CAS. Never allocate a public sequence,
+update AnswerVersion/Memory/Context/Artifact, or invoke user-facing SSE/TTS/copy/export from a
+staging, rejected, or invalidated attempt. Preserve a single public terminal outcome and
+cancellation idempotency.
+
+`public_operation_id` is stable across repair attempts. Attempt numbers are monotonic.
+`ValidationFeedback` must contain only bounded error metadata and checkpoint/contract
+identifiers—never user text, provider payload, hidden prompts, credentials, sealed cases, or
+private reasoning. Cancellation, interruption, and immediate steer invalidate uncommitted
+attempts; resume starts after the latest committed checkpoint.
 
 Inputs are bounded text deltas and validated lifecycle commands; outputs are safe public
 text fragments or stable typed errors. Do not import concrete Runtime, Memory, RAG, Search,
 Skill, Workflow, or persistence implementations.
 
-Run `tests/test_agent_harness.py`, `tests/test_agent_harness_safety.py`, and
-`tests/test_chat_cancellation.py` after changes.
+Run `tests/test_agent_harness.py`, `tests/test_agent_harness_safety.py`,
+`tests/test_agent_run_service.py`, `tests/test_chat_service.py`, and
+`tests/test_chat_cancellation.py` after changes. When persistence changes, also run Alembic
+upgrade, downgrade, re-upgrade, and `alembic check` against PostgreSQL.

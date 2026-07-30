@@ -333,6 +333,15 @@ class AgentRun(TimestampMixin, Base):
         ),
         nullable=True,
     )
+    current_valid_attempt_id: Mapped[uuid.UUID | None] = mapped_column(
+        ForeignKey(
+            "agent_run_attempts.id",
+            name="fk_agent_runs_current_valid_attempt",
+            ondelete="SET NULL",
+            use_alter=True,
+        ),
+        nullable=True,
+    )
     fencing_token: Mapped[int] = mapped_column(BigInteger, nullable=False)
     last_sequence: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
     revision: Mapped[int] = mapped_column(Integer, default=1, nullable=False)
@@ -362,6 +371,88 @@ class RunEvent(Base):
         ForeignKey("agent_runs.id", ondelete="CASCADE"), nullable=False
     )
     sequence: Mapped[int] = mapped_column(Integer, nullable=False)
+    event_type: Mapped[str] = mapped_column(String(128), nullable=False)
+    status: Mapped[str] = mapped_column(String(128), nullable=False)
+    public_summary: Mapped[str | None] = mapped_column(EncryptedText(), nullable=True)
+    payload: Mapped[dict[str, Any]] = mapped_column(EncryptedJSON(), default=dict, nullable=False)
+    duration_ms: Mapped[int | None] = mapped_column(BigInteger, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), nullable=False
+    )
+
+
+class AgentRunAttempt(Base):
+    """Private append-retained attempt lineage for one stable public operation."""
+
+    __tablename__ = "agent_run_attempts"
+    __table_args__ = (
+        UniqueConstraint(
+            "run_id",
+            "public_operation_id",
+            "attempt",
+            name="uq_agent_run_attempt_number",
+        ),
+        CheckConstraint("attempt > 0", name="positive_agent_run_attempt"),
+        CheckConstraint("fencing_token > 0", name="positive_agent_run_attempt_fence"),
+        CheckConstraint(
+            "status IN ('staging','validated','rejected','invalidated')",
+            name="valid_agent_run_attempt_status",
+        ),
+        CheckConstraint(
+            "((status = 'staging' AND completed_at IS NULL) OR "
+            "(status != 'staging' AND completed_at IS NOT NULL))",
+            name="valid_agent_run_attempt_completion",
+        ),
+        Index(
+            "ix_agent_run_attempts_operation",
+            "run_id",
+            "public_operation_id",
+            "attempt",
+        ),
+    )
+
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    run_id: Mapped[uuid.UUID] = mapped_column(
+        ForeignKey("agent_runs.id", ondelete="CASCADE"), nullable=False
+    )
+    public_operation_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), nullable=False)
+    attempt: Mapped[int] = mapped_column(Integer, nullable=False)
+    step_id: Mapped[str] = mapped_column(String(128), nullable=False)
+    checkpoint_id: Mapped[str] = mapped_column(String(128), nullable=False)
+    fencing_token: Mapped[int] = mapped_column(BigInteger, nullable=False)
+    status: Mapped[str] = mapped_column(String(16), nullable=False)
+    expected_current_attempt_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True), nullable=True
+    )
+    error_code: Mapped[str | None] = mapped_column(String(128), nullable=True)
+    validation_feedback: Mapped[dict[str, Any] | None] = mapped_column(
+        EncryptedJSON(), nullable=True
+    )
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), nullable=False
+    )
+    completed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+
+
+class AgentRunAttemptEvent(Base):
+    """Encrypted event staged privately until its owning attempt validates."""
+
+    __tablename__ = "agent_run_attempt_events"
+    __table_args__ = (
+        UniqueConstraint("attempt_id", "ordinal", name="uq_agent_run_attempt_event_ordinal"),
+        CheckConstraint("ordinal > 0", name="positive_agent_run_attempt_event_ordinal"),
+        CheckConstraint(
+            "duration_ms IS NULL OR duration_ms >= 0",
+            name="nonnegative_agent_run_attempt_event_duration",
+        ),
+        Index("ix_agent_run_attempt_events_attempt", "attempt_id", "ordinal"),
+    )
+
+    id: Mapped[int] = mapped_column(BigInteger, primary_key=True, autoincrement=True)
+    attempt_id: Mapped[uuid.UUID] = mapped_column(
+        ForeignKey("agent_run_attempts.id", ondelete="CASCADE"), nullable=False
+    )
+    ordinal: Mapped[int] = mapped_column(Integer, nullable=False)
     event_type: Mapped[str] = mapped_column(String(128), nullable=False)
     status: Mapped[str] = mapped_column(String(128), nullable=False)
     public_summary: Mapped[str | None] = mapped_column(EncryptedText(), nullable=True)

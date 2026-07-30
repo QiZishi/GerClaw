@@ -19,7 +19,11 @@ from gerclaw_api.domain.enums import TraceEventStatus, TraceEventType, TraceStat
 from gerclaw_api.domain.run_schemas import (
     AgentRunCreate,
     AgentRunStatus,
+    RunAttemptCreate,
+    RunAttemptRead,
+    RunEventRead,
     RunEventWrite,
+    ValidationFeedback,
 )
 from gerclaw_api.domain.trace_schemas import (
     TraceEventCreate,
@@ -214,6 +218,7 @@ class ChatService:
         self._risk_alert_service = risk_alert_service
         self._run_journal = run_journal
         self._active_run_id: uuid.UUID | None = None
+        self._active_attempt: RunAttemptRead | None = None
         self._answer_group_run_id: uuid.UUID | None = None
         self._input_output = input_output or ProductionInputOutputModule()
         self._clinical_state_reducer = clinical_state_reducer or DeterministicClinicalStateReducer()
@@ -947,6 +952,18 @@ class ChatService:
                 actor_id=identity.actor_id,
             )
             self._active_run_id = run.id
+            self._active_attempt = await self._run_journal.begin_attempt(
+                run.id,
+                RunAttemptCreate(
+                    public_operation_id=run.id,
+                    step_id="chat.answer",
+                    checkpoint_id="chat.answer.pre_model.v1",
+                    expected_current_attempt_id=run.current_valid_attempt_id,
+                ),
+                tenant_id=identity.tenant_id,
+                actor_id=identity.actor_id,
+                fencing_token=lease_guard.fencing_token,
+            )
         await self._append_event(
             identity.tenant_id,
             trace_id,
@@ -963,6 +980,8 @@ class ChatService:
             },
             commit=False,
         )
+
+        buffered_events: list[StreamEvent] = []
 
         async def projected(event: StreamEvent) -> None:
             if event.event_type == "done":
@@ -1099,20 +1118,14 @@ class ChatService:
                         commit=False,
                     )
             validated_event = validate_public_chat_stream_event(event)
-            if self._run_journal is not None and self._active_run_id is not None:
+            if self._run_journal is not None and self._active_attempt is not None:
                 try:
-                    persisted_event = await self._run_journal.append(
-                        self._active_run_id,
+                    await self._run_journal.stage_attempt_event(
+                        self._active_attempt.id,
                         self._run_event(validated_event),
                         tenant_id=identity.tenant_id,
                         actor_id=identity.actor_id,
                         fencing_token=lease_guard.fencing_token,
-                    )
-                    validated_event = validated_event.model_copy(
-                        update={
-                            "run_id": persisted_event.run_id,
-                            "sequence": persisted_event.sequence,
-                        }
                     )
                 except RunTerminalConflictError:
                     cancellation_is_durable = (
@@ -1120,8 +1133,9 @@ class ChatService:
                     )
                     if not cancellation_is_durable:
                         raise
-            await callback(validated_event)
+            buffered_events.append(validated_event)
 
+        promoted_events: tuple[RunEventRead, ...] = ()
         try:
             response = await harness.process_message(
                 payload.message,
@@ -1180,9 +1194,18 @@ class ChatService:
                 ),
                 commit=False,
             )
-            if self._run_journal is not None and self._active_run_id is not None:
-                answer_version, completed_run = await self._run_journal.complete_answer(
+            if (
+                self._run_journal is not None
+                and self._active_run_id is not None
+                and self._active_attempt is not None
+            ):
+                (
+                    answer_version,
+                    _completed_run,
+                    promoted_events,
+                ) = await self._run_journal.complete_answer(
                     self._active_run_id,
+                    self._active_attempt.id,
                     assistant_message.id,
                     done.model_dump(mode="json"),
                     tenant_id=identity.tenant_id,
@@ -1228,23 +1251,27 @@ class ChatService:
             memory.mark_vectors_committed()
         if self._evolution_signal_collector is not None and self._active_run_id is not None:
             self._evolution_signal_collector.schedule(self._active_run_id)
-        await callback(
-            StreamEvent(
-                event_type="done",
-                data=done.model_dump(mode="json"),
-                timestamp=datetime.now(UTC),
-                run_id=(
-                    self._active_run_id
-                    if self._run_journal is not None and self._active_run_id is not None
-                    else None
-                ),
-                sequence=(
-                    completed_run.last_sequence
-                    if self._run_journal is not None and self._active_run_id is not None
-                    else None
-                ),
+        if promoted_events:
+            for persisted_event in promoted_events:
+                await callback(
+                    StreamEvent(
+                        event_type=cast(Any, persisted_event.event_type),
+                        data=persisted_event.payload,
+                        timestamp=persisted_event.created_at,
+                        run_id=persisted_event.run_id,
+                        sequence=persisted_event.sequence,
+                    )
+                )
+        else:
+            for buffered_event in buffered_events:
+                await callback(buffered_event)
+            await callback(
+                StreamEvent(
+                    event_type="done",
+                    data=done.model_dump(mode="json"),
+                    timestamp=datetime.now(UTC),
+                )
             )
-        )
         return response
 
     async def _record_success(
@@ -1522,6 +1549,22 @@ class ChatService:
                 and self._active_run_id is not None
                 and fencing_token is not None
             ):
+                if self._active_attempt is not None:
+                    await self._run_journal.reject_attempt(
+                        self._active_attempt.id,
+                        ValidationFeedback(
+                            step_id=self._active_attempt.step_id,
+                            attempt=self._active_attempt.attempt,
+                            error_code=code.casefold(),
+                            field_paths=(),
+                            contract_version="chat-stream-v1",
+                            repair_action="resume_from_pre_step_checkpoint",
+                            checkpoint_id=self._active_attempt.checkpoint_id,
+                        ),
+                        tenant_id=identity.tenant_id,
+                        actor_id=identity.actor_id,
+                        fencing_token=fencing_token,
+                    )
                 await self._run_journal.transition(
                     self._active_run_id,
                     (

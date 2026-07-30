@@ -3,13 +3,19 @@
 from __future__ import annotations
 
 import uuid
+from datetime import datetime
 from typing import Protocol, cast
 
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from gerclaw_api.database.models import AgentRun, RunEvent
+from gerclaw_api.database.models import (
+    AgentRun,
+    AgentRunAttempt,
+    AgentRunAttemptEvent,
+    RunEvent,
+)
 
 
 class DuplicateAgentRunError(RuntimeError):
@@ -53,6 +59,41 @@ class AgentRunRepository(Protocol):
 
     async def add_event(self, event: RunEvent) -> None:
         """Stage one monotonically sequenced event."""
+
+    async def get_attempt(
+        self,
+        attempt_id: uuid.UUID,
+        *,
+        for_update: bool = False,
+    ) -> AgentRunAttempt | None:
+        """Return one private attempt, optionally locked."""
+
+    async def next_attempt_number(
+        self,
+        run_id: uuid.UUID,
+        public_operation_id: uuid.UUID,
+    ) -> int:
+        """Return the next monotonic attempt number for an operation."""
+
+    async def add_attempt(self, attempt: AgentRunAttempt) -> None:
+        """Stage private attempt metadata."""
+
+    async def add_attempt_event(self, event: AgentRunAttemptEvent) -> None:
+        """Stage one private event that is not replayable."""
+
+    async def list_attempt_events(
+        self,
+        attempt_id: uuid.UUID,
+    ) -> list[AgentRunAttemptEvent]:
+        """Return private staged events in ordinal order."""
+
+    async def invalidate_staging_attempts(
+        self,
+        run_id: uuid.UUID,
+        *,
+        completed_at: datetime,
+    ) -> None:
+        """Invalidate every uncommitted attempt for a terminal/interrupted run."""
 
     async def list_events(
         self,
@@ -139,6 +180,67 @@ class SqlAlchemyAgentRunRepository:
 
     async def add_event(self, event: RunEvent) -> None:
         self._session.add(event)
+
+    async def get_attempt(
+        self,
+        attempt_id: uuid.UUID,
+        *,
+        for_update: bool = False,
+    ) -> AgentRunAttempt | None:
+        statement = select(AgentRunAttempt).where(AgentRunAttempt.id == attempt_id)
+        if for_update:
+            statement = statement.with_for_update().execution_options(populate_existing=True)
+        return cast(AgentRunAttempt | None, await self._session.scalar(statement))
+
+    async def next_attempt_number(
+        self,
+        run_id: uuid.UUID,
+        public_operation_id: uuid.UUID,
+    ) -> int:
+        latest = await self._session.scalar(
+            select(func.max(AgentRunAttempt.attempt)).where(
+                AgentRunAttempt.run_id == run_id,
+                AgentRunAttempt.public_operation_id == public_operation_id,
+            )
+        )
+        return int(latest or 0) + 1
+
+    async def add_attempt(self, attempt: AgentRunAttempt) -> None:
+        self._session.add(attempt)
+
+    async def add_attempt_event(self, event: AgentRunAttemptEvent) -> None:
+        self._session.add(event)
+
+    async def list_attempt_events(
+        self,
+        attempt_id: uuid.UUID,
+    ) -> list[AgentRunAttemptEvent]:
+        statement = (
+            select(AgentRunAttemptEvent)
+            .where(AgentRunAttemptEvent.attempt_id == attempt_id)
+            .order_by(AgentRunAttemptEvent.ordinal)
+        )
+        return list((await self._session.scalars(statement)).all())
+
+    async def invalidate_staging_attempts(
+        self,
+        run_id: uuid.UUID,
+        *,
+        completed_at: datetime,
+    ) -> None:
+        attempts = list(
+            (
+                await self._session.scalars(
+                    select(AgentRunAttempt).where(
+                        AgentRunAttempt.run_id == run_id,
+                        AgentRunAttempt.status == "staging",
+                    )
+                )
+            ).all()
+        )
+        for attempt in attempts:
+            attempt.status = "invalidated"
+            attempt.completed_at = completed_at
 
     async def list_events(
         self,

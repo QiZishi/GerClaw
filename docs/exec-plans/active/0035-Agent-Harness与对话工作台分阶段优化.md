@@ -1242,6 +1242,16 @@ checkpoint persisted
   十路并发只有一个 current；旧 worker 迟到提交失败；重试耗尽时只显示一次局部降级。Playwright 通过后台
   Trace 证明修复真实发生，同时录制的页面和网络公开载荷中没有失败 attempt 痕迹。
 
+2026-07-30 第一变更集已实现后端 current-attempt 事实源：新增加密
+`agent_run_attempts/agent_run_attempt_events` 私有暂存、稳定 `public_operation_id`、单调 attempt、
+版本化无正文 `ValidationFeedback` 和 `AgentRun.current_valid_attempt_id`。Chat 不再从 Harness callback
+直接公开未完成增量，而是在私有 attempt 暂存；回答、AnswerVersion、Run 终态和 current pointer 通过
+fencing + compare-and-swap 成功后，才一次性分配公开 sequence 并发送。失败/取消会拒绝或失效未提交
+attempt，公开 replay 仍只读取 `run_events`，因此坏输出没有公开序号，也不能进入当前 AnswerVersion。
+验证记录：相关 pytest 39/39，Ruff、Mypy、Alembic `upgrade → downgrade → upgrade → check` 通过。
+该变更集暂以完整回答作为最小提升单元；节点内确定性 repair/fallback、多 attempt 真正重试、十路 PostgreSQL
+并发 CAS、steer/queue 后继 Run、前端网络/DOM 无泄漏 Playwright 仍属于后续独立变更集，未标记完成。
+
 ### 阶段 7
 
 执行完整后端、前端、迁移、Compose、Playwright 和 axe 回归，覆盖患者、医生、访客和响应式关键路径；更新架构、Harness、前端、设计和产品规格，经独立审阅后归档本计划。

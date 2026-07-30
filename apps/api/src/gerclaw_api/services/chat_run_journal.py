@@ -16,9 +16,12 @@ from gerclaw_api.domain.run_schemas import (
     AnswerVersionRead,
     AnswerVersionRegister,
     RunAnswerContext,
+    RunAttemptCreate,
+    RunAttemptRead,
     RunEventRead,
     RunEventWrite,
     RunRegenerationContext,
+    ValidationFeedback,
 )
 from gerclaw_api.modules.agent_harness.clinical_state import (
     ClinicalState,
@@ -86,9 +89,43 @@ class ChatRunJournal(Protocol):
     ) -> RunEventRead:
         """Persist one fenced public SSE event immediately."""
 
+    async def begin_attempt(
+        self,
+        run_id: uuid.UUID,
+        request: RunAttemptCreate,
+        *,
+        tenant_id: str,
+        actor_id: str,
+        fencing_token: int,
+    ) -> RunAttemptRead:
+        """Create a private staging attempt for one stable public operation."""
+
+    async def stage_attempt_event(
+        self,
+        attempt_id: uuid.UUID,
+        event: RunEventWrite,
+        *,
+        tenant_id: str,
+        actor_id: str,
+        fencing_token: int,
+    ) -> RunAttemptRead:
+        """Persist an event privately without allocating a public sequence."""
+
+    async def reject_attempt(
+        self,
+        attempt_id: uuid.UUID,
+        feedback: ValidationFeedback,
+        *,
+        tenant_id: str,
+        actor_id: str,
+        fencing_token: int,
+    ) -> RunAttemptRead:
+        """Close a failed attempt with bounded content-free repair metadata."""
+
     async def complete_answer(
         self,
         run_id: uuid.UUID,
+        attempt_id: uuid.UUID,
         assistant_message_id: uuid.UUID,
         done_payload: dict[str, JsonValue],
         *,
@@ -97,8 +134,8 @@ class ChatRunJournal(Protocol):
         fencing_token: int,
         answer_group_run_id: uuid.UUID | None = None,
         expected_current_version_id: uuid.UUID | None = None,
-    ) -> tuple[AnswerVersionRead, AgentRunRead]:
-        """Atomically register the answer and publish the single completed terminal event."""
+    ) -> tuple[AnswerVersionRead, AgentRunRead, tuple[RunEventRead, ...]]:
+        """Atomically register the answer and CAS-promote the validated attempt."""
 
     async def transition(
         self,
@@ -203,9 +240,7 @@ class DatabaseChatRunJournal:
             try:
                 return ClinicalState.model_validate(raw_state)
             except ValueError as exc:
-                raise ClinicalStateError(
-                    "PERSISTED_CLINICAL_STATE_INVALID"
-                ) from exc
+                raise ClinicalStateError("PERSISTED_CLINICAL_STATE_INVALID") from exc
 
     async def start(
         self,
@@ -215,9 +250,7 @@ class DatabaseChatRunJournal:
         actor_id: str,
     ) -> AgentRunRead:
         async with self._database.session() as session:
-            return await AgentRunService(
-                SqlAlchemyAgentRunRepository(session)
-            ).adopt_for_worker(
+            return await AgentRunService(SqlAlchemyAgentRunRepository(session)).adopt_for_worker(
                 request,
                 tenant_id=tenant_id,
                 actor_id=actor_id,
@@ -233,11 +266,63 @@ class DatabaseChatRunJournal:
         fencing_token: int,
     ) -> RunEventRead:
         async with self._database.session() as session:
-            return await AgentRunService(
-                SqlAlchemyAgentRunRepository(session)
-            ).append_event(
+            return await AgentRunService(SqlAlchemyAgentRunRepository(session)).append_event(
                 run_id,
                 event,
+                tenant_id=tenant_id,
+                actor_id=actor_id,
+                fencing_token=fencing_token,
+            )
+
+    async def begin_attempt(
+        self,
+        run_id: uuid.UUID,
+        request: RunAttemptCreate,
+        *,
+        tenant_id: str,
+        actor_id: str,
+        fencing_token: int,
+    ) -> RunAttemptRead:
+        async with self._database.session() as session:
+            return await AgentRunService(SqlAlchemyAgentRunRepository(session)).begin_attempt(
+                run_id,
+                request,
+                tenant_id=tenant_id,
+                actor_id=actor_id,
+                fencing_token=fencing_token,
+            )
+
+    async def stage_attempt_event(
+        self,
+        attempt_id: uuid.UUID,
+        event: RunEventWrite,
+        *,
+        tenant_id: str,
+        actor_id: str,
+        fencing_token: int,
+    ) -> RunAttemptRead:
+        async with self._database.session() as session:
+            return await AgentRunService(SqlAlchemyAgentRunRepository(session)).stage_attempt_event(
+                attempt_id,
+                event,
+                tenant_id=tenant_id,
+                actor_id=actor_id,
+                fencing_token=fencing_token,
+            )
+
+    async def reject_attempt(
+        self,
+        attempt_id: uuid.UUID,
+        feedback: ValidationFeedback,
+        *,
+        tenant_id: str,
+        actor_id: str,
+        fencing_token: int,
+    ) -> RunAttemptRead:
+        async with self._database.session() as session:
+            return await AgentRunService(SqlAlchemyAgentRunRepository(session)).reject_attempt(
+                attempt_id,
+                feedback,
                 tenant_id=tenant_id,
                 actor_id=actor_id,
                 fencing_token=fencing_token,
@@ -246,6 +331,7 @@ class DatabaseChatRunJournal:
     async def complete_answer(
         self,
         run_id: uuid.UUID,
+        attempt_id: uuid.UUID,
         assistant_message_id: uuid.UUID,
         done_payload: dict[str, JsonValue],
         *,
@@ -254,11 +340,12 @@ class DatabaseChatRunJournal:
         fencing_token: int,
         answer_group_run_id: uuid.UUID | None = None,
         expected_current_version_id: uuid.UUID | None = None,
-    ) -> tuple[AnswerVersionRead, AgentRunRead]:
+    ) -> tuple[AnswerVersionRead, AgentRunRead, tuple[RunEventRead, ...]]:
         if self._completion_session is not None:
             return await self._complete_answer_in_session(
                 self._completion_session,
                 run_id,
+                attempt_id,
                 assistant_message_id,
                 done_payload,
                 tenant_id=tenant_id,
@@ -272,6 +359,7 @@ class DatabaseChatRunJournal:
             result = await self._complete_answer_in_session(
                 session,
                 run_id,
+                attempt_id,
                 assistant_message_id,
                 done_payload,
                 tenant_id=tenant_id,
@@ -289,6 +377,7 @@ class DatabaseChatRunJournal:
     async def _complete_answer_in_session(
         session: AsyncSession,
         run_id: uuid.UUID,
+        attempt_id: uuid.UUID,
         assistant_message_id: uuid.UUID,
         done_payload: dict[str, JsonValue],
         *,
@@ -298,10 +387,8 @@ class DatabaseChatRunJournal:
         answer_group_run_id: uuid.UUID | None,
         expected_current_version_id: uuid.UUID | None,
         commit: bool,
-    ) -> tuple[AnswerVersionRead, AgentRunRead]:
-        answer = await AnswerVersionService(
-            SqlAlchemyAnswerVersionRepository(session)
-        ).register(
+    ) -> tuple[AnswerVersionRead, AgentRunRead, tuple[RunEventRead, ...]]:
+        answer = await AnswerVersionService(SqlAlchemyAnswerVersionRepository(session)).register(
             answer_group_run_id or run_id,
             AnswerVersionRegister(
                 assistant_message_id=assistant_message_id,
@@ -319,15 +406,12 @@ class DatabaseChatRunJournal:
             "answer_version_id": str(answer.id),
             "answer_version": answer.version,
         }
-        run = await AgentRunService(
-            SqlAlchemyAgentRunRepository(session)
-        ).transition(
-            run_id,
-            AgentRunStatus.COMPLETED,
+        run, events = await AgentRunService(SqlAlchemyAgentRunRepository(session)).commit_attempt(
+            attempt_id,
             tenant_id=tenant_id,
             actor_id=actor_id,
-            expected_revision=None,
             fencing_token=fencing_token,
+            target=AgentRunStatus.COMPLETED,
             terminal_event=RunEventWrite(
                 event_type="done",
                 status=AgentRunStatus.COMPLETED.value,
@@ -336,7 +420,7 @@ class DatabaseChatRunJournal:
             ),
             commit=commit,
         )
-        return answer, run
+        return answer, run, events
 
     async def transition(
         self,

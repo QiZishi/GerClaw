@@ -7,11 +7,19 @@ from datetime import UTC, datetime
 
 import pytest
 
-from gerclaw_api.database.models import AgentRun, RunEvent
+from gerclaw_api.database.models import (
+    AgentRun,
+    AgentRunAttempt,
+    AgentRunAttemptEvent,
+    RunEvent,
+)
 from gerclaw_api.domain.run_schemas import (
     AgentRunCreate,
     AgentRunStatus,
+    RunAttemptCreate,
+    RunAttemptStatus,
     RunEventWrite,
+    ValidationFeedback,
 )
 from gerclaw_api.modules.agent_harness.routing import RouteKind
 from gerclaw_api.modules.agent_harness.run_lifecycle import (
@@ -23,6 +31,7 @@ from gerclaw_api.services.agent_run_service import (
     AgentRunConflictError,
     AgentRunNotFoundError,
     AgentRunService,
+    RunAttemptConflictError,
 )
 
 TENANT = "tenant_public0001"
@@ -33,6 +42,8 @@ class _Repository:
     def __init__(self) -> None:
         self.runs: dict[uuid.UUID, AgentRun] = {}
         self.events: list[RunEvent] = []
+        self.attempts: dict[uuid.UUID, AgentRunAttempt] = {}
+        self.attempt_events: list[AgentRunAttemptEvent] = []
         self.commits = 0
         self.rollbacks = 0
 
@@ -77,6 +88,60 @@ class _Repository:
         event.id = len(self.events) + 1
         self.events.append(event)
 
+    async def get_attempt(
+        self,
+        attempt_id: uuid.UUID,
+        *,
+        for_update: bool = False,
+    ) -> AgentRunAttempt | None:
+        del for_update
+        return self.attempts.get(attempt_id)
+
+    async def next_attempt_number(
+        self,
+        run_id: uuid.UUID,
+        public_operation_id: uuid.UUID,
+    ) -> int:
+        return (
+            max(
+                (
+                    attempt.attempt
+                    for attempt in self.attempts.values()
+                    if attempt.run_id == run_id
+                    and attempt.public_operation_id == public_operation_id
+                ),
+                default=0,
+            )
+            + 1
+        )
+
+    async def add_attempt(self, attempt: AgentRunAttempt) -> None:
+        self.attempts[attempt.id] = attempt
+
+    async def add_attempt_event(self, event: AgentRunAttemptEvent) -> None:
+        event.id = len(self.attempt_events) + 1
+        self.attempt_events.append(event)
+
+    async def list_attempt_events(
+        self,
+        attempt_id: uuid.UUID,
+    ) -> list[AgentRunAttemptEvent]:
+        return sorted(
+            (event for event in self.attempt_events if event.attempt_id == attempt_id),
+            key=lambda event: event.ordinal,
+        )
+
+    async def invalidate_staging_attempts(
+        self,
+        run_id: uuid.UUID,
+        *,
+        completed_at: datetime,
+    ) -> None:
+        for attempt in self.attempts.values():
+            if attempt.run_id == run_id and attempt.status == RunAttemptStatus.STAGING.value:
+                attempt.status = RunAttemptStatus.INVALIDATED.value
+                attempt.completed_at = completed_at
+
     async def list_events(
         self,
         run_id: uuid.UUID,
@@ -86,9 +151,7 @@ class _Repository:
         after_sequence: int,
         limit: int,
     ) -> list[RunEvent]:
-        if await self.get_owned_run(
-            run_id, tenant_id=tenant_id, actor_id=actor_id
-        ) is None:
+        if await self.get_owned_run(run_id, tenant_id=tenant_id, actor_id=actor_id) is None:
             return []
         return [
             event
@@ -198,6 +261,171 @@ async def test_event_sequence_and_after_sequence_replay_are_monotonic() -> None:
     assert (first.sequence, second.sequence) == (1, 2)
     assert [event.sequence for event in replay] == [2]
     assert (await service.get_run(created.id, tenant_id=TENANT, actor_id=ACTOR)).last_sequence == 2
+
+
+@pytest.mark.asyncio
+async def test_private_attempt_events_are_invisible_until_atomic_promotion() -> None:
+    repository = _Repository()
+    service = AgentRunService(repository)
+    created = await service.create_run(_request(), tenant_id=TENANT, actor_id=ACTOR)
+    operation_id = uuid.uuid4()
+    attempt = await service.begin_attempt(
+        created.id,
+        RunAttemptCreate(
+            public_operation_id=operation_id,
+            step_id="chat.answer",
+            checkpoint_id="chat.answer.pre_model.v1",
+        ),
+        tenant_id=TENANT,
+        actor_id=ACTOR,
+        fencing_token=7,
+    )
+    await service.stage_attempt_event(
+        attempt.id,
+        RunEventWrite(
+            event_type="text_delta",
+            status="running",
+            payload={"content": "validated answer"},
+        ),
+        tenant_id=TENANT,
+        actor_id=ACTOR,
+        fencing_token=7,
+    )
+
+    assert (
+        await service.list_events(
+            created.id,
+            tenant_id=TENANT,
+            actor_id=ACTOR,
+        )
+        == []
+    )
+    completed, events = await service.commit_attempt(
+        attempt.id,
+        tenant_id=TENANT,
+        actor_id=ACTOR,
+        fencing_token=7,
+        target=AgentRunStatus.COMPLETED,
+        terminal_event=RunEventWrite(event_type="done", status="completed"),
+    )
+
+    assert completed.current_valid_attempt_id == attempt.id
+    assert [event.event_type for event in events] == ["text_delta", "done"]
+    assert [event.sequence for event in events] == [1, 2]
+    assert [
+        event.event_type
+        for event in await service.list_events(
+            created.id,
+            tenant_id=TENANT,
+            actor_id=ACTOR,
+        )
+    ] == ["text_delta", "done"]
+
+
+@pytest.mark.asyncio
+async def test_rejected_attempt_never_enters_public_replay_and_retry_keeps_operation_id() -> None:
+    repository = _Repository()
+    service = AgentRunService(repository)
+    created = await service.create_run(_request(), tenant_id=TENANT, actor_id=ACTOR)
+    operation_id = uuid.uuid4()
+    first = await service.begin_attempt(
+        created.id,
+        RunAttemptCreate(
+            public_operation_id=operation_id,
+            step_id="chat.answer",
+            checkpoint_id="chat.answer.pre_model.v1",
+        ),
+        tenant_id=TENANT,
+        actor_id=ACTOR,
+        fencing_token=7,
+    )
+    await service.stage_attempt_event(
+        first.id,
+        RunEventWrite(
+            event_type="text_delta",
+            status="running",
+            payload={"content": "bad hidden output"},
+        ),
+        tenant_id=TENANT,
+        actor_id=ACTOR,
+        fencing_token=7,
+    )
+    rejected = await service.reject_attempt(
+        first.id,
+        ValidationFeedback(
+            step_id="chat.answer",
+            attempt=1,
+            error_code="citation_contract_invalid",
+            field_paths=("citations.0.locator",),
+            contract_version="citation-v1",
+            repair_action="rebind_citation",
+            checkpoint_id="chat.answer.pre_model.v1",
+        ),
+        tenant_id=TENANT,
+        actor_id=ACTOR,
+        fencing_token=7,
+    )
+    second = await service.begin_attempt(
+        created.id,
+        RunAttemptCreate(
+            public_operation_id=operation_id,
+            step_id="chat.answer",
+            checkpoint_id="chat.answer.pre_model.v1",
+        ),
+        tenant_id=TENANT,
+        actor_id=ACTOR,
+        fencing_token=7,
+    )
+
+    assert rejected.status is RunAttemptStatus.REJECTED
+    assert second.attempt == 2
+    assert second.public_operation_id == first.public_operation_id
+    assert (
+        await service.list_events(
+            created.id,
+            tenant_id=TENANT,
+            actor_id=ACTOR,
+        )
+        == []
+    )
+
+
+@pytest.mark.asyncio
+async def test_attempt_cas_and_fence_block_stale_promotion() -> None:
+    repository = _Repository()
+    service = AgentRunService(repository)
+    created = await service.create_run(_request(), tenant_id=TENANT, actor_id=ACTOR)
+    attempt = await service.begin_attempt(
+        created.id,
+        RunAttemptCreate(
+            public_operation_id=uuid.uuid4(),
+            step_id="chat.answer",
+            checkpoint_id="chat.answer.pre_model.v1",
+        ),
+        tenant_id=TENANT,
+        actor_id=ACTOR,
+        fencing_token=7,
+    )
+
+    with pytest.raises(RunFenceConflictError):
+        await service.commit_attempt(
+            attempt.id,
+            tenant_id=TENANT,
+            actor_id=ACTOR,
+            fencing_token=8,
+            target=AgentRunStatus.COMPLETED,
+            terminal_event=RunEventWrite(event_type="done", status="completed"),
+        )
+    repository.runs[created.id].current_valid_attempt_id = uuid.uuid4()
+    with pytest.raises(RunAttemptConflictError):
+        await service.commit_attempt(
+            attempt.id,
+            tenant_id=TENANT,
+            actor_id=ACTOR,
+            fencing_token=7,
+            target=AgentRunStatus.COMPLETED,
+            terminal_event=RunEventWrite(event_type="done", status="completed"),
+        )
 
 
 @pytest.mark.asyncio
@@ -342,6 +570,17 @@ async def test_owner_cancel_uses_stored_fence_and_remains_idempotent() -> None:
     repository = _Repository()
     service = AgentRunService(repository)
     created = await service.create_run(_request(), tenant_id=TENANT, actor_id=ACTOR)
+    attempt = await service.begin_attempt(
+        created.id,
+        RunAttemptCreate(
+            public_operation_id=uuid.uuid4(),
+            step_id="chat.answer",
+            checkpoint_id="chat.answer.pre_model.v1",
+        ),
+        tenant_id=TENANT,
+        actor_id=ACTOR,
+        fencing_token=7,
+    )
 
     cancelled = await service.cancel_owned(
         created.id,
@@ -357,6 +596,7 @@ async def test_owner_cancel_uses_stored_fence_and_remains_idempotent() -> None:
     assert cancelled.status is AgentRunStatus.CANCELLED
     assert replay == cancelled
     assert [event.status for event in repository.events] == ["cancelled"]
+    assert repository.attempts[attempt.id].status == RunAttemptStatus.INVALIDATED.value
     with pytest.raises(AgentRunNotFoundError):
         await service.cancel_owned(
             created.id,
@@ -377,6 +617,17 @@ async def test_lease_orphan_can_be_marked_interrupted(
     service = AgentRunService(repository)
     created = await service.create_run(_request(), tenant_id=TENANT, actor_id=ACTOR)
     repository.runs[created.id].status = initial_status.value
+    attempt = await service.begin_attempt(
+        created.id,
+        RunAttemptCreate(
+            public_operation_id=uuid.uuid4(),
+            step_id="chat.answer",
+            checkpoint_id="chat.answer.pre_model.v1",
+        ),
+        tenant_id=TENANT,
+        actor_id=ACTOR,
+        fencing_token=7,
+    )
 
     interrupted = await service.interrupt_owned(
         created.id,
@@ -388,6 +639,7 @@ async def test_lease_orphan_can_be_marked_interrupted(
     assert interrupted.completed_at is None
     assert interrupted.interrupted_at is not None
     assert repository.events[-1].status == "interrupted"
+    assert repository.attempts[attempt.id].status == RunAttemptStatus.INVALIDATED.value
 
 
 @pytest.mark.asyncio
