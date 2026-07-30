@@ -22,20 +22,10 @@ import { cn } from "@/lib/utils";
 import { SidebarSessionHistory } from "@/components/layout/sidebar/SidebarSessionHistory";
 import { SidebarSessionDialogs } from "@/components/layout/sidebar/SidebarSessionDialogs";
 import { SidebarAccountMenu } from "@/components/layout/sidebar/SidebarAccountMenu";
+import { SidebarAccountDialogs } from "@/components/layout/sidebar/SidebarAccountDialogs";
 import type { Session } from "@/types";
 import { toast } from "@/components/ui/toast";
-import { AccountDialog } from "@/components/account/AccountDialog";
-import { AccountDeactivationDialog } from "@/components/account/AccountDeactivationDialog";
-import { PrescriptionReviewAccessDialog } from "@/components/consent/PrescriptionReviewAccessDialog";
-import { DoctorCgaWorkspaceDialog } from "@/components/consent/DoctorCgaWorkspaceDialog";
-import { DoctorChronicCareDialog } from "@/components/consent/DoctorChronicCareDialog";
-import { DoctorHealthProfileDialog } from "@/components/consent/DoctorHealthProfileDialog";
-import { DoctorPatientDirectoryDialog } from "@/components/consent/DoctorPatientDirectoryDialog";
 import type { PatientGrantResource } from "@/services/gerclaw/consent";
-import { DoctorPrescriptionReviewDialog } from "@/components/consent/DoctorPrescriptionReviewDialog";
-import { DoctorMedicationReviewDialog } from "@/components/consent/DoctorMedicationReviewDialog";
-import { DoctorRiskAlertDialog } from "@/components/consent/DoctorRiskAlertDialog";
-import { RuntimeApprovalReviewDialog } from "@/components/runtime/RuntimeApprovalReviewDialog";
 import {
   getAccountIdentity,
   exitGuestSession,
@@ -450,21 +440,54 @@ export function Sidebar({ onNavigate }: SidebarProps) {
         onCloseRoleChange={() => setPendingRole(null)}
         onConfirmRoleChange={confirmRoleChange}
       />
-      <AccountDialog
-        open={accountDialogOpen}
-        onOpenChange={setAccountDialogOpen}
+      <SidebarAccountDialogs
+        account={account}
         seniorMode={seniorMode}
+        selectedPatientActorId={selectedPatientActorId}
+        accountDialogOpen={accountDialogOpen}
+        accountDeactivationOpen={accountDeactivationOpen}
+        prescriptionReviewAccessOpen={prescriptionReviewAccessOpen}
+        doctorPrescriptionReviewOpen={doctorPrescriptionReviewOpen}
+        doctorMedicationReviewOpen={doctorMedicationReviewOpen}
+        doctorRiskAlertOpen={doctorRiskAlertOpen}
+        doctorCgaWorkspaceOpen={doctorCgaWorkspaceOpen}
+        doctorChronicCareOpen={doctorChronicCareOpen}
+        doctorHealthProfileOpen={doctorHealthProfileOpen}
+        doctorPatientDirectoryOpen={doctorPatientDirectoryOpen}
+        runtimeApprovalReviewOpen={runtimeApprovalReviewOpen}
+        onAccountDialogOpenChange={setAccountDialogOpen}
+        onAccountDeactivationOpenChange={setAccountDeactivationOpen}
+        onPrescriptionReviewAccessOpenChange={setPrescriptionReviewAccessOpen}
+        onDoctorPrescriptionReviewOpenChange={(open) =>
+          closeSelectedPatientWorkspace(setDoctorPrescriptionReviewOpen, open)
+        }
+        onDoctorMedicationReviewOpenChange={(open) =>
+          closeSelectedPatientWorkspace(setDoctorMedicationReviewOpen, open)
+        }
+        onDoctorRiskAlertOpenChange={(open) =>
+          closeSelectedPatientWorkspace(setDoctorRiskAlertOpen, open)
+        }
+        onDoctorCgaWorkspaceOpenChange={(open) =>
+          closeSelectedPatientWorkspace(setDoctorCgaWorkspaceOpen, open)
+        }
+        onDoctorChronicCareOpenChange={(open) =>
+          closeSelectedPatientWorkspace(setDoctorChronicCareOpen, open)
+        }
+        onDoctorHealthProfileOpenChange={(open) =>
+          closeSelectedPatientWorkspace(setDoctorHealthProfileOpen, open)
+        }
+        onDoctorPatientDirectoryOpenChange={setDoctorPatientDirectoryOpen}
+        onRuntimeApprovalReviewOpenChange={setRuntimeApprovalReviewOpen}
         onAuthenticated={(identity) => {
           clearAllData();
           setAccount(identity);
           setRole(identity.role);
-          toast.show(identity.role === "doctor" ? "已登录医生账户。临床权限仍需患者授权。" : "已登录患者账户");
+          toast.show(
+            identity.role === "doctor"
+              ? "已登录医生账户。临床权限仍需患者授权。"
+              : "已登录患者账户",
+          );
         }}
-      />
-      <AccountDeactivationDialog
-        open={accountDeactivationOpen}
-        onOpenChange={setAccountDeactivationOpen}
-        seniorMode={seniorMode}
         onDeactivated={() => {
           setAccount(null);
           window.location.assign("/");
@@ -473,59 +496,8 @@ export function Sidebar({ onNavigate }: SidebarProps) {
           toast.show("账户已停用，请使用其他账户登录。");
           onNavigate?.();
         }}
-      />
-      {account?.account_role === "patient" && <PrescriptionReviewAccessDialog
-        open={prescriptionReviewAccessOpen}
-        onOpenChange={setPrescriptionReviewAccessOpen}
-        seniorMode={seniorMode}
-      />}
-      {account?.account_role === "doctor" && <DoctorPrescriptionReviewDialog
-        open={doctorPrescriptionReviewOpen}
-        onOpenChange={(nextOpen) => closeSelectedPatientWorkspace(setDoctorPrescriptionReviewOpen, nextOpen)}
-        seniorMode={seniorMode}
-        initialPatientActorId={selectedPatientActorId}
-      />}
-      {account?.account_role === "doctor" && <DoctorMedicationReviewDialog
-        open={doctorMedicationReviewOpen}
-        onOpenChange={(nextOpen) => closeSelectedPatientWorkspace(setDoctorMedicationReviewOpen, nextOpen)}
-        seniorMode={seniorMode}
-        initialPatientActorId={selectedPatientActorId}
-      />}
-      {account?.account_role === "doctor" && <DoctorRiskAlertDialog
-        open={doctorRiskAlertOpen}
-        onOpenChange={(nextOpen) => closeSelectedPatientWorkspace(setDoctorRiskAlertOpen, nextOpen)}
-        seniorMode={seniorMode}
-        initialPatientActorId={selectedPatientActorId}
-      />}
-      {account?.account_role === "doctor" && <DoctorChronicCareDialog
-        open={doctorChronicCareOpen}
-        onOpenChange={(nextOpen) => closeSelectedPatientWorkspace(setDoctorChronicCareOpen, nextOpen)}
-        seniorMode={seniorMode}
-        initialPatientActorId={selectedPatientActorId}
-      />}
-      {account?.account_role === "doctor" && <RuntimeApprovalReviewDialog
-        open={runtimeApprovalReviewOpen}
-        onOpenChange={setRuntimeApprovalReviewOpen}
-        seniorMode={seniorMode}
-      />}
-      {account?.account_role === "doctor" && <DoctorCgaWorkspaceDialog
-        open={doctorCgaWorkspaceOpen}
-        onOpenChange={(nextOpen) => closeSelectedPatientWorkspace(setDoctorCgaWorkspaceOpen, nextOpen)}
-        seniorMode={seniorMode}
-        initialPatientActorId={selectedPatientActorId}
-      />}
-      {account?.account_role === "doctor" && <DoctorHealthProfileDialog
-        open={doctorHealthProfileOpen}
-        onOpenChange={(nextOpen) => closeSelectedPatientWorkspace(setDoctorHealthProfileOpen, nextOpen)}
-        seniorMode={seniorMode}
-        initialPatientActorId={selectedPatientActorId}
-      />}
-      {account?.account_role === "doctor" && <DoctorPatientDirectoryDialog
-        open={doctorPatientDirectoryOpen}
-        onOpenChange={setDoctorPatientDirectoryOpen}
-        seniorMode={seniorMode}
         onSelectPatient={openAuthorizedPatientWorkspace}
-      />}
+      />
     </aside>
   );
 }
