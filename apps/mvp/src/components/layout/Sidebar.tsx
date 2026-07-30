@@ -23,7 +23,7 @@ import { SidebarSessionHistory } from "@/components/layout/sidebar/SidebarSessio
 import { SidebarSessionDialogs } from "@/components/layout/sidebar/SidebarSessionDialogs";
 import { SidebarAccountMenu } from "@/components/layout/sidebar/SidebarAccountMenu";
 import { SidebarAccountDialogs } from "@/components/layout/sidebar/SidebarAccountDialogs";
-import type { Session } from "@/types";
+import { useSidebarSessionController } from "@/components/layout/sidebar/useSidebarSessionController";
 import { toast } from "@/components/ui/toast";
 import type { PatientGrantResource } from "@/services/gerclaw/consent";
 import {
@@ -33,7 +33,6 @@ import {
   switchAdministratorView,
   type AccountIdentity,
 } from "@/services/account";
-import { deleteBackendSession } from "@/services/gerclaw/skills";
 
 interface SidebarProps {
   /** 移动端用：关闭抽屉的回调 */
@@ -53,31 +52,39 @@ export function Sidebar({ onNavigate }: SidebarProps) {
   const isGuest = useAppStore((s) => s.isGuest);
   const seniorMode = useAppStore((s) => s.seniorMode);
   const toggleSidebar = useAppStore((s) => s.toggleSidebar);
-  const currentSessionId = useAppStore((s) => s.currentSessionId);
   const setCurrentSession = useAppStore((s) => s.setCurrentSession);
-  const setChatAction = useAppStore((s) => s.setChatAction);
   const setRole = useAppStore((s) => s.setRole);
   const setSeniorMode = useAppStore((s) => s.setSeniorMode);
   const setRightPanel = useAppStore((s) => s.setRightPanel);
-  const setPanelContent = useAppStore((s) => s.setPanelContent);
   const closeRightPanel = useAppStore((s) => s.closeRightPanel);
   const mainView = useAppStore((s) => s.mainView);
   const setMainView = useAppStore((s) => s.setMainView);
   const { resolvedTheme, toggleTheme } = useTheme();
 
-  const sessions = useChatStore((s) => s.sessions);
-  const createSession = useChatStore((s) => s.createSession);
-  const renameSession = useChatStore((s) => s.renameSession);
-  const removeSession = useChatStore((s) => s.removeSession);
-  const togglePinSession = useChatStore((s) => s.togglePinSession);
   const clearAllData = useChatStore((s) => s.clearAllData);
 
-  const [patientHistoryOpen, setPatientHistoryOpen] = useState(false);
-  const [renameTarget, setRenameTarget] = useState<Session | null>(null);
-  const [renameTitle, setRenameTitle] = useState("");
-  const [deleteTarget, setDeleteTarget] = useState<Session | null>(null);
-  const [deletingSession, setDeletingSession] = useState(false);
-  const [pendingRole, setPendingRole] = useState<"patient" | "doctor" | null>(null);
+  const {
+    sessions,
+    currentSessionId,
+    patientHistoryOpen,
+    setPatientHistoryOpen,
+    renameTarget,
+    renameTitle,
+    setRenameTitle,
+    setRenameTarget,
+    deleteTarget,
+    setDeleteTarget,
+    deletingSession,
+    pendingRole,
+    setPendingRole,
+    handleNewSession,
+    handleSelectSession,
+    confirmRoleChange,
+    openRename,
+    confirmRename,
+    confirmDelete,
+    togglePinSession,
+  } = useSidebarSessionController(onNavigate);
   const [account, setAccount] = useState<AccountIdentity | null>(null);
   const [accountDialogOpen, setAccountDialogOpen] = useState(false);
   const [accountDeactivationOpen, setAccountDeactivationOpen] = useState(false);
@@ -137,34 +144,6 @@ export function Sidebar({ onNavigate }: SidebarProps) {
 
   const effectiveSessions = sessions;
 
-  const handleNewSession = () => {
-    const id = createSession(role);
-    setCurrentSession(id);
-    setMainView("chat");
-    setPanelContent("");
-    closeRightPanel();
-    onNavigate?.();
-  };
-
-  const handleSelectSession = (id: string) => {
-    setCurrentSession(id);
-    setMainView("chat");
-    // 根据会话 panelType 自动展开右侧面板（若该会话有生成结果）
-    const session = effectiveSessions.find((s) => s.id === id);
-    if (session?.panelType) {
-      // A generated prescription is a conversation, not merely a detached
-      // preview. Restore its chat-native status and clinician feedback while
-      // keeping the persisted report open alongside it.
-      if (session.panelType === "prescription") setChatAction("prescription");
-      setRightPanel(session.panelType);
-      setPanelContent(session.panelContent ?? "");
-    } else {
-      setPanelContent("");
-      closeRightPanel();
-    }
-    onNavigate?.();
-  };
-
   const handleToggleSkills = () => {
     // 对齐 Trae Work：技能管理切换到中间栏显示
     setMainView(mainView === "skills" ? "chat" : "skills");
@@ -177,53 +156,6 @@ export function Sidebar({ onNavigate }: SidebarProps) {
       return;
     }
     toggleSidebar();
-  };
-
-  const confirmRoleChange = () => {
-    if (!pendingRole) return;
-    setRole(pendingRole);
-    setPendingRole(null);
-    onNavigate?.();
-  };
-
-  const openRename = (session: Session) => {
-    setRenameTarget(session);
-    setRenameTitle(session.title);
-  };
-
-  const confirmRename = () => {
-    const title = renameTitle.trim();
-    if (!renameTarget || !title) return;
-    renameSession(renameTarget.id, title);
-    setRenameTarget(null);
-    toast.show(isDoctor ? "病例会话名称已更新" : "对话名称已更新");
-  };
-
-  const confirmDelete = async () => {
-    if (!deleteTarget) return;
-    setDeletingSession(true);
-    try {
-      await deleteBackendSession(deleteTarget.id);
-      const wasCurrentSession = deleteTarget.id === currentSessionId;
-      removeSession(deleteTarget.id);
-      if (wasCurrentSession) {
-        setCurrentSession(null);
-        setMainView("chat");
-        setPanelContent("");
-        closeRightPanel();
-      }
-      setDeleteTarget(null);
-      toast.show(isDoctor ? "病例会话已删除" : "对话已删除");
-      onNavigate?.();
-    } catch {
-      toast.show(
-        isDoctor
-          ? "暂时无法删除病例会话，请稍后重试。"
-          : "暂时无法删除对话，请稍后重试。",
-      );
-    } finally {
-      setDeletingSession(false);
-    }
   };
 
   const handleOpenSettings = () => {
