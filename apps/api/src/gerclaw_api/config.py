@@ -153,6 +153,21 @@ class Settings(BaseSettings):
     agent_run_recovery_guard_ttl_seconds: int = Field(default=30, ge=5, le=60)
     agent_run_stream_poll_interval_seconds: float = Field(default=0.25, ge=0.05, le=2)
     agent_run_stream_heartbeat_seconds: float = Field(default=10.0, ge=1, le=30)
+    evolution_signal_collection_timeout_seconds: float = Field(
+        default=1.0,
+        ge=0.05,
+        le=5.0,
+    )
+    evolution_signal_max_pending_collections: int = Field(
+        default=256,
+        ge=1,
+        le=10_000,
+    )
+    evolution_signal_max_concurrent_collections: int = Field(
+        default=2,
+        ge=1,
+        le=16,
+    )
     memory_collection_name: str = Field(
         default="gerclaw_user_memory_v1",
         min_length=3,
@@ -195,6 +210,10 @@ class Settings(BaseSettings):
     )
     guest_identity_secret: SecretStr = Field(
         default_factory=lambda: _load_or_create_local_secret("guest-identity.key"),
+        min_length=32,
+    )
+    evolution_signal_hmac_key: SecretStr = Field(
+        default_factory=lambda: _load_or_create_local_secret("evolution-signals.key"),
         min_length=32,
     )
     auth_jwt_issuer: str = Field(default="gerclaw", min_length=2, max_length=128)
@@ -583,15 +602,24 @@ class Settings(BaseSettings):
             raise ValueError("RAG rerank candidates cannot exceed retrieval candidates")
         if self.memory_retrieval_top_k > self.memory_retrieval_candidates:
             raise ValueError("memory top-k cannot exceed retrieval candidates")
+        if (
+            self.evolution_signal_max_concurrent_collections
+            > self.evolution_signal_max_pending_collections
+        ):
+            raise ValueError(
+                "evolution signal concurrency cannot exceed the pending-task limit"
+            )
 
         if self.app_env == "production":
             if not {
                 "auth_jwt_secret",
                 "guest_identity_secret",
                 "data_encryption_key",
+                "evolution_signal_hmac_key",
             }.issubset(self.model_fields_set):
                 raise ValueError(
-                    "production requires explicit JWT, guest-identity, and data-encryption secrets"
+                    "production requires explicit JWT, guest-identity, data-encryption, "
+                    "and evolution-signal secrets"
                 )
             origins = {str(origin).rstrip("/") for origin in self.cors_origins}
             if any(not origin.startswith("https://") for origin in origins):
@@ -693,6 +721,7 @@ class Settings(BaseSettings):
                 self.auth_jwt_secret,
                 self.guest_identity_secret,
                 self.data_encryption_key,
+                self.evolution_signal_hmac_key,
                 self.agent_primary_api_key,
                 self.agent_backup1_api_key,
                 self.agent_backup2_api_key,

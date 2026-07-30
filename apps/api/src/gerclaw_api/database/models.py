@@ -504,6 +504,52 @@ class RunFeedbackRevision(Base):
     )
 
 
+class EvolutionSignalRecord(TimestampMixin, Base):
+    """Current metadata-only evolution signal keyed by an HMAC Run fingerprint."""
+
+    __tablename__ = "evolution_signal_records"
+    __table_args__ = (
+        CheckConstraint(
+            "route IN ('quick','standard','deep','emergency')",
+            name="valid_evolution_signal_route",
+        ),
+        CheckConstraint(
+            "run_status IN "
+            "('waiting_for_user','completed','completed_with_warnings',"
+            "'failed','cancelled','interrupted')",
+            name="valid_evolution_signal_status",
+        ),
+        CheckConstraint(
+            "risk_level IN ('low','medium','high','critical')",
+            name="valid_evolution_signal_risk",
+        ),
+        CheckConstraint(
+            "input_tokens >= 0 AND output_tokens >= 0 AND duration_ms >= 0",
+            name="nonnegative_evolution_signal_metrics",
+        ),
+        CheckConstraint(
+            "feedback_value IN (-1,0,1) AND feedback_revision >= 0",
+            name="valid_evolution_signal_feedback",
+        ),
+        Index("ix_evolution_signal_occurred", "occurred_at", "run_fingerprint"),
+    )
+
+    run_fingerprint: Mapped[str] = mapped_column(String(64), primary_key=True)
+    schema_version: Mapped[str] = mapped_column(String(16), default="1.0", nullable=False)
+    route: Mapped[str] = mapped_column(String(16), nullable=False)
+    run_status: Mapped[str] = mapped_column(String(32), nullable=False)
+    error_code: Mapped[str | None] = mapped_column(String(128), nullable=True)
+    risk_level: Mapped[str] = mapped_column(String(16), nullable=False)
+    capability_ids: Mapped[list[str]] = mapped_column(JSONB, default=list, nullable=False)
+    skill_ids: Mapped[list[str]] = mapped_column(JSONB, default=list, nullable=False)
+    input_tokens: Mapped[int] = mapped_column(BigInteger, default=0, nullable=False)
+    output_tokens: Mapped[int] = mapped_column(BigInteger, default=0, nullable=False)
+    duration_ms: Mapped[int] = mapped_column(BigInteger, default=0, nullable=False)
+    feedback_value: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
+    feedback_revision: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
+    occurred_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+
+
 class HealthProfile(TimestampMixin, Base):
     """Versioned patient profile stored in one AES-GCM encrypted column."""
 

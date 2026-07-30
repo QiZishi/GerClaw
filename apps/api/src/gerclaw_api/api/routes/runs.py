@@ -293,6 +293,7 @@ async def cancel_run(
         tenant_id=identity.tenant_id,
         actor_id=identity.actor_id,
     )
+    request.app.state.evolution_signal_collector.schedule(run_id)
     registry: ChatCancellationRegistry = request.app.state.chat_cancellations
     try:
         await registry.request_cancel(
@@ -492,9 +493,11 @@ async def reconcile_run_feedback(
     """Reconcile one current value without duplicating same-value signals."""
 
     await _enforce_rate_limit(request, identity)
-    return await _feedback_service(session).reconcile(
+    result = await _feedback_service(session).reconcile(
         run_id,
         payload,
         tenant_id=identity.tenant_id,
         actor_id=identity.actor_id,
     )
+    request.app.state.evolution_signal_collector.schedule(run_id)
+    return result

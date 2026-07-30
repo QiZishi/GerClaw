@@ -17,6 +17,7 @@ from gerclaw_api.database.models import (
     AgentRun,
     AnswerVersion,
     BadCase,
+    EvolutionSignalRecord,
     Message,
     RunEvent,
 )
@@ -585,6 +586,7 @@ async def test_terminal_trace_failure_atomically_rolls_back_assistant(
     assert response.status_code == 200
     assert "event: error" in response.text
     assert "event: done" not in response.text
+    await app.state.evolution_signal_collector.wait_pending()
 
     async with app.state.database.session() as session:
         assistant_count = await session.scalar(
@@ -738,6 +740,10 @@ async def test_explicit_cancel_keeps_sse_open_until_tool_and_trace_are_terminal(
     async with app.state.database.session() as session:
         run = await session.scalar(select(AgentRun).where(AgentRun.trace_id == trace_id))
         assert run is not None
+        signal = await session.scalar(select(EvolutionSignalRecord))
+        assert signal is not None
+        assert signal.run_status == "cancelled"
+        assert signal.error_code == "CHAT_CANCELLED"
         terminal_events = list(
             (
                 await session.scalars(
@@ -1138,6 +1144,12 @@ async def test_run_cancel_endpoint_fences_and_notifies_active_worker(
     assert cancelled.json()["status"] == "cancelled"
     assert "event: cancelled" in chat.text
     assert "event: done" not in chat.text
+    await app.state.evolution_signal_collector.wait_pending()
+    async with app.state.database.session() as session:
+        signal = await session.scalar(select(EvolutionSignalRecord))
+        assert signal is not None
+        assert signal.run_status == "cancelled"
+        assert signal.error_code == "CHAT_CANCELLED"
     replay = await client.get(f"/api/v1/runs/{run_id}/events?limit=100")
     terminal_events = [
         event for event in replay.json()["events"] if event["event_type"] == "run.status"

@@ -24,6 +24,7 @@ from gerclaw_api.modules.agent_harness.clinical_state import (
     ClinicalState,
     ClinicalStateError,
 )
+from gerclaw_api.modules.agent_harness.evolution_signals import EvolutionSignalCollector
 from gerclaw_api.repositories.agent_run import SqlAlchemyAgentRunRepository
 from gerclaw_api.repositories.answer_version import SqlAlchemyAnswerVersionRepository
 from gerclaw_api.repositories.run_regeneration import (
@@ -121,9 +122,11 @@ class DatabaseChatRunJournal:
         database: Database,
         *,
         completion_session: AsyncSession | None = None,
+        evolution_signal_collector: EvolutionSignalCollector | None = None,
     ) -> None:
         self._database = database
         self._completion_session = completion_session
+        self._evolution_signal_collector = evolution_signal_collector
 
     async def resolve_regeneration(
         self,
@@ -266,7 +269,7 @@ class DatabaseChatRunJournal:
                 commit=False,
             )
         async with self._database.session() as session:
-            return await self._complete_answer_in_session(
+            result = await self._complete_answer_in_session(
                 session,
                 run_id,
                 assistant_message_id,
@@ -278,6 +281,9 @@ class DatabaseChatRunJournal:
                 expected_current_version_id=expected_current_version_id,
                 commit=True,
             )
+        if self._evolution_signal_collector is not None:
+            self._evolution_signal_collector.schedule(run_id)
+        return result
 
     @staticmethod
     async def _complete_answer_in_session(
@@ -350,7 +356,7 @@ class DatabaseChatRunJournal:
                 tenant_id=tenant_id,
                 actor_id=actor_id,
             )
-            return await service.transition(
+            transitioned = await service.transition(
                 run_id,
                 target,
                 tenant_id=tenant_id,
@@ -360,3 +366,6 @@ class DatabaseChatRunJournal:
                 warnings=warnings,
                 public_summary=public_summary,
             )
+        if self._evolution_signal_collector is not None:
+            self._evolution_signal_collector.schedule(run_id)
+        return transitioned

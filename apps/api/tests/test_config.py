@@ -35,6 +35,9 @@ def _values() -> dict[str, object]:
         "cors_origins": ["https://gerclaw.example.com"],
         "auth_jwt_secret": "strong-jwt-secret-with-at-least-thirty-two-characters",
         "guest_identity_secret": "strong-guest-identity-secret-with-at-least-thirty-two-chars",
+        "evolution_signal_hmac_key": (
+            "strong-evolution-signal-secret-with-at-least-thirty-two-chars"
+        ),
         "data_encryption_key": "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=",
         "data_encryption_key_id": "production-v1",
         "agent_primary_url": "https://primary.example.com/v1",
@@ -120,6 +123,7 @@ def test_production_settings_accept_explicit_safe_endpoints() -> None:
         ("agent_model_timeout_seconds", 300.01),
         ("agent_model_max_output_tokens", 32_769),
         ("prescription_generation_timeout_seconds", 900.01),
+        ("evolution_signal_collection_timeout_seconds", 5.01),
     ],
 )
 def test_model_deadline_and_output_budget_are_hard_upper_bounds(field: str, value: object) -> None:
@@ -143,6 +147,15 @@ def test_production_settings_reject_unsafe_configuration(field: str, value: obje
     values[field] = value
 
     with pytest.raises(ValidationError):
+        _settings(values)
+
+
+def test_evolution_signal_concurrency_cannot_exceed_pending_limit() -> None:
+    values = _values()
+    values["evolution_signal_max_pending_collections"] = 2
+    values["evolution_signal_max_concurrent_collections"] = 3
+
+    with pytest.raises(ValidationError, match="concurrency"):
         _settings(values)
 
 

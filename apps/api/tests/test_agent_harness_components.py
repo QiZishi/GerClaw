@@ -542,7 +542,7 @@ def test_evolution_signal_rejects_content_fields() -> None:
     signal = EvolutionSignal(
         run_fingerprint="a" * 64,
         route="quick",
-        terminal_status="completed",
+        run_status="completed",
         risk_level="low",
         input_tokens=10,
         output_tokens=20,

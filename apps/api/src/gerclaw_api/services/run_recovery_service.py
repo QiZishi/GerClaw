@@ -7,6 +7,7 @@ import uuid
 from redis.asyncio import Redis
 
 from gerclaw_api.database.session import Database
+from gerclaw_api.modules.agent_harness.evolution_signals import EvolutionSignalCollector
 from gerclaw_api.modules.agent_harness.run_lifecycle import RunTransitionError
 from gerclaw_api.repositories.agent_run import SqlAlchemyAgentRunRepository
 from gerclaw_api.repositories.run_recovery import SqlAlchemyRunRecoveryRepository
@@ -32,12 +33,14 @@ class StaleAgentRunReconciler:
         *,
         batch_size: int,
         guard_ttl_seconds: int,
+        evolution_signal_collector: EvolutionSignalCollector | None = None,
     ) -> None:
         if batch_size < 1:
             raise ValueError("batch_size must be positive")
         self._database = database
         self._lease = SessionLease(redis, ttl_seconds=guard_ttl_seconds)
         self._batch_size = batch_size
+        self._evolution_signal_collector = evolution_signal_collector
 
     async def reconcile(self) -> int:
         """Return the number of runs durably moved to interrupted."""
@@ -71,6 +74,8 @@ class StaleAgentRunReconciler:
                                 )
                                 await recovery_guard.assert_owned()
                                 await repository.commit()
+                            if self._evolution_signal_collector is not None:
+                                self._evolution_signal_collector.schedule(candidate.run_id)
                         except (AgentRunNotFoundError, RunTransitionError):
                             # A concurrent cancel or completion won before the
                             # recovery guard was acquired.

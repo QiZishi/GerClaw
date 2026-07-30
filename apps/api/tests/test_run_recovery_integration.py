@@ -10,7 +10,12 @@ import pytest
 from httpx import AsyncClient
 from sqlalchemy import select
 
-from gerclaw_api.database.models import AgentRun, AnswerVersion, RunEvent
+from gerclaw_api.database.models import (
+    AgentRun,
+    AnswerVersion,
+    EvolutionSignalRecord,
+    RunEvent,
+)
 from gerclaw_api.domain.chat_schemas import ChatRequest
 from gerclaw_api.domain.run_schemas import AgentRunCreate
 from gerclaw_api.domain.trace_schemas import TraceStartRequest
@@ -249,9 +254,11 @@ async def test_recovery_interrupts_only_runs_without_cross_replica_lease(
             app.state.redis,
             batch_size=1,
             guard_ttl_seconds=30,
+            evolution_signal_collector=app.state.evolution_signal_collector,
         ).reconcile()
     finally:
         await app.state.redis.delete(active_lease_key)
+    await app.state.evolution_signal_collector.wait_pending()
 
     async with app.state.database.session() as session:
         orphan = await session.get(AgentRun, orphan_run_id)
@@ -259,12 +266,14 @@ async def test_recovery_interrupts_only_runs_without_cross_replica_lease(
         orphan_events = list(
             (await session.scalars(select(RunEvent).where(RunEvent.run_id == orphan_run_id))).all()
         )
+        signals = list((await session.scalars(select(EvolutionSignalRecord))).all())
     assert interrupted_count == 1
     assert orphan is not None and orphan.status == "interrupted"
     assert orphan.completed_at is None
     assert orphan.interrupted_at is not None
     assert active is not None and active.status == "running"
     assert [event.status for event in orphan_events] == ["interrupted"]
+    assert [signal.run_status for signal in signals] == ["interrupted"]
     active_recoverable = await client.get(
         f"/api/v1/conversations/{active_session_id}/recoverable-run"
     )

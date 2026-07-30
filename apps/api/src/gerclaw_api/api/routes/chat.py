@@ -550,9 +550,13 @@ async def _stream_chat(
                     run_journal=DatabaseChatRunJournal(
                         database,
                         completion_session=database_session,
+                        evolution_signal_collector=(
+                            request.app.state.evolution_signal_collector
+                        ),
                     ),
                     capability_catalog=capability_catalog,
                     capability_runtime=capability_runtime,
+                    evolution_signal_collector=request.app.state.evolution_signal_collector,
                 )
                 with bind_model_prompt_egress_audit(
                     SqlAlchemyModelPromptEgressAudit(

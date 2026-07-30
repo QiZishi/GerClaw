@@ -17,6 +17,9 @@ from gerclaw_api.config import Settings
 
 TEST_JWT_SECRET = "tests-only-jwt-secret-that-is-longer-than-32-characters"
 TEST_GUEST_IDENTITY_SECRET = "tests-only-guest-identity-secret-longer-than-32-characters"
+TEST_EVOLUTION_SIGNAL_SECRET = (
+    "tests-only-evolution-signal-secret-longer-than-32-characters"
+)
 TEST_DATA_KEY = "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA="
 
 
@@ -42,6 +45,7 @@ def make_settings(**overrides: object) -> Settings:
         "readiness_cache_seconds": 0,
         "auth_jwt_secret": TEST_JWT_SECRET,
         "guest_identity_secret": TEST_GUEST_IDENTITY_SECRET,
+        "evolution_signal_hmac_key": TEST_EVOLUTION_SIGNAL_SECRET,
         "data_encryption_key": TEST_DATA_KEY,
         "data_encryption_key_id": "test-v1",
     }
@@ -148,7 +152,8 @@ async def integration_client(
         async with app.state.database.engine.begin() as connection:
             await connection.execute(
                 text(
-                    "TRUNCATE provider_egress_events, runtime_checkpoints, runtime_approvals, "
+                    "TRUNCATE evolution_signal_records, provider_egress_events, "
+                    "runtime_checkpoints, runtime_approvals, "
                     "prescription_draft_reviews, patient_access_grants, "
                     "bad_cases, user_feedback, "
                     "trace_events, messages, "

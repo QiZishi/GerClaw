@@ -24,7 +24,7 @@ Memory/Skill 的治理机制。
 | 3 | ClinicalState、动态规划与医疗门禁 | 已完成：四轮独立审阅修复、真实 GUI 与最终 ACCEPT |
 | 4 | 证据、Memory 与受治理能力组合 | 已完成：三项 P1 修复、真实 GUI/数据库复验、最终独立复审 ACCEPT |
 | 5 | 对话工作台 UI 与交互重构 | 已完成：独立审阅 3 项 P1 修复，真实 Playwright/axe 复验，最终 ACCEPT |
-| 6 | 双轨受控自进化 | 进行中：完成组件宪章、双轨分类、Memory 在线 CRUD 和 Skill 在线/离线分轨；继续 sealed evaluator、信号、离线评测与晋升控制面 |
+| 6 | 双轨受控自进化 | 进行中：完成组件宪章、双轨分类、Memory 在线 CRUD、Skill 在线/离线分轨和去内容化信号；继续 sealed evaluator、离线评测与晋升控制面 |
 | 7 | 最终回归、真实 GUI 对抗审阅与发布 | 未开始 |
 
 ## 3. 阶段 0：冻结基线与真实运行审计
@@ -885,6 +885,24 @@ Agents SDK、HL7 FHIR、Mem0、Agent Skills、A-Evolve、GEPA 和 Adaptive Auto-
 
 四项前置 P1 已全部关闭，组件宪章、双轨分类事实源、Memory/Skill 生产写边界已经落地；任何
 immutable 候选执行或晋升前仍必须完成 sealed evaluator 和离线控制器接入。
+
+去内容化在线信号已接入生产事实源：Run 在 completed、failed、cancelled 或启动恢复产生 interrupted
+事实提交后，使用独立 `GERCLAW_EVOLUTION_SIGNAL_HMAC_KEY` 对 Run UUID 做用途隔离 HMAC，只向
+`evolution_signal_records` reconciliation 一条当前记录。字段命名为 `run_status`，明确
+`waiting_for_user` / `interrupted` 是可恢复状态而非真正终态。持久化及 JSONL 导出 allowlist 仅含
+route、Run 当前状态、稳定 error code、代码拥有的风险级别、manifest allowlist capability ID、
+HMAC 假名化 Skill ID、Token/耗时和当前反馈值/revision；不得包含 tenant、actor、Run、Conversation、
+Trace ID、对话、临床、证据、文件名、
+联系方式、凭据或 Provider 原始载荷。反馈同值重放不增加 revision，也不增加记录。采集严格在业务事实
+提交后由注入 timeout/队列上限/低并发数据库闸门的后台任务执行，请求路径不等待，遥测不得占满业务
+连接池；失败、超时、队列饱和或采集任务取消不得改变回答、取消、恢复或反馈结果。upsert 同时要求
+occurred_at 和 feedback_revision 单调，迟到任务
+不得回退新状态；启动孤儿 Run 转 interrupted 后补采集。
+真实 `gerclaw_test` PostgreSQL 已完成 migration upgrade → downgrade → upgrade，并在真实
+PostgreSQL/Redis/Qdrant 上验证 Emergency Run、反馈 reconciliation 和有界 JSONL 导出。
+独立子智能体最终复审 `ACCEPT（P0=0，P1=0，P2=3）`。Stage 6 后续必须处理三项非阻塞债务：
+`risk_level` 只是 route-derived proxy、不得解释为临床风险评分；HMAC key rotation 尚无旧记录 rekey/
+epoch 迁移流程；legacy plan 安全降为空 IDs 时尚无 quality marker，离线暂时无法区分真实空计划与降级。
 
 #### 6.1 必须保留的语义
 

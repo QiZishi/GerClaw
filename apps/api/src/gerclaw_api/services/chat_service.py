@@ -13,6 +13,7 @@ from typing import Any, Literal, Protocol, cast
 
 from gerclaw_api.auth import AuthContext
 from gerclaw_api.config import Settings
+from gerclaw_api.domain.chat_error_codes import public_chat_error_code
 from gerclaw_api.domain.chat_schemas import ChatDoneData, ChatRequest
 from gerclaw_api.domain.enums import TraceEventStatus, TraceEventType, TraceStatus
 from gerclaw_api.domain.run_schemas import (
@@ -47,6 +48,7 @@ from gerclaw_api.modules.agent_harness.context_snapshot import (
     PersistedRunPlan,
     estimate_context_tokens,
 )
+from gerclaw_api.modules.agent_harness.evolution_signals import EvolutionSignalCollector
 from gerclaw_api.modules.agent_harness.planning import (
     ClinicalDecisionCoordinator,
     DeterministicPlanner,
@@ -196,6 +198,7 @@ class ChatService:
         clinical_state_reducer: ClinicalStateReducer | None = None,
         capability_catalog: GovernedCapabilityCatalog | None = None,
         capability_runtime: PluginRuntime | None = None,
+        evolution_signal_collector: EvolutionSignalCollector | None = None,
     ) -> None:
         self._settings = settings
         self._conversation = conversation
@@ -216,6 +219,7 @@ class ChatService:
         self._clinical_state_reducer = clinical_state_reducer or DeterministicClinicalStateReducer()
         self._capability_catalog = capability_catalog or get_default_capability_catalog()
         self._capability_runtime = capability_runtime
+        self._evolution_signal_collector = evolution_signal_collector
 
     async def process(
         self,
@@ -1222,6 +1226,8 @@ class ChatService:
             raise
         if memory_enabled and memory is not None:
             memory.mark_vectors_committed()
+        if self._evolution_signal_collector is not None and self._active_run_id is not None:
+            self._evolution_signal_collector.schedule(self._active_run_id)
         await callback(
             StreamEvent(
                 event_type="done",
@@ -1615,35 +1621,4 @@ class ChatService:
     def error_code(error: Exception) -> str:
         """Map internal exceptions to stable, non-provider public codes."""
 
-        name = type(error).__name__
-        mapping = {
-            "SessionBusyError": "CHAT_SESSION_BUSY",
-            "SessionLeaseUnavailableError": "CHAT_COORDINATION_UNAVAILABLE",
-            "SessionLeaseLostError": "CHAT_COORDINATION_UNAVAILABLE",
-            "ConversationConflictError": "CHAT_CONFLICT",
-            "ConversationNotFoundError": "CHAT_SESSION_NOT_FOUND",
-            "RunRegenerationNotFoundError": "CHAT_REGENERATION_NOT_FOUND",
-            "RunRegenerationConflictError": "CHAT_REGENERATION_CONFLICT",
-            "AnswerVersionConflictError": "CHAT_REGENERATION_CONFLICT",
-            "EvidenceUnavailableError": "CHAT_EVIDENCE_UNAVAILABLE",
-            "RAGUnavailableError": "CHAT_EVIDENCE_UNAVAILABLE",
-            "ModelChainExhaustedError": "CHAT_MODEL_UNAVAILABLE",
-            "PartialModelStreamError": "CHAT_MODEL_STREAM_INTERRUPTED",
-            "AgentIterationLimitError": "CHAT_ITERATION_LIMIT",
-            "RuntimeBudgetExceededError": "CHAT_RUNTIME_BUDGET_EXCEEDED",
-            "AgentApprovalRequiredError": "CHAT_APPROVAL_REQUIRED",
-            "UnsupportedAgentContextError": "CHAT_CONTEXT_UNSUPPORTED",
-            "WorkflowContextError": "CHAT_CONTEXT_UNSUPPORTED",
-            "DocumentContextError": "CHAT_DOCUMENT_UNAVAILABLE",
-            "EmptyAgentResponseError": "CHAT_EMPTY_RESPONSE",
-            "AgentScopeMemoryAdapterError": "CHAT_MEMORY_UNAVAILABLE",
-            "MemoryDataError": "CHAT_MEMORY_UNAVAILABLE",
-            "MemoryExtractionError": "CHAT_MEMORY_UNAVAILABLE",
-            "MemoryRepositoryError": "CHAT_MEMORY_UNAVAILABLE",
-            "MemoryStoreError": "CHAT_MEMORY_UNAVAILABLE",
-            "SkillNotFoundError": "CHAT_SKILL_UNAVAILABLE",
-            "SkillDisabledError": "CHAT_SKILL_UNAVAILABLE",
-            "CorruptSkillError": "CHAT_SKILL_UNAVAILABLE",
-            "ChatCancellationFinalizationError": "CHAT_CANCELLATION_FINALIZATION_FAILED",
-        }
-        return mapping.get(name, "CHAT_EXECUTION_FAILED")
+        return public_chat_error_code(error)

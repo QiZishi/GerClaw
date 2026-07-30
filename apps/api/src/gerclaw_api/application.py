@@ -79,6 +79,9 @@ from gerclaw_api.services.answer_version_service import (
     AnswerVersionNotFoundError,
 )
 from gerclaw_api.services.chat_cancellation import ChatCancellationRegistry
+from gerclaw_api.services.evolution_signal_service import (
+    DatabaseEvolutionSignalCollector,
+)
 from gerclaw_api.services.health_service import DependencyHealthService
 from gerclaw_api.services.model_router import FailoverChatModel
 from gerclaw_api.services.rate_limit import RateLimiter, RateLimitExceeded, RateLimitUnavailable
@@ -134,6 +137,13 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         voice_module = create_voice_module(resolved)
         search_runtime = create_search_runtime(resolved)
         memory_store = create_memory_store(resolved, qdrant_client)
+        evolution_signal_collector = DatabaseEvolutionSignalCollector(
+            database,
+            hmac_key=resolved.evolution_signal_hmac_key.get_secret_value().encode("utf-8"),
+            timeout_seconds=resolved.evolution_signal_collection_timeout_seconds,
+            max_pending=resolved.evolution_signal_max_pending_collections,
+            max_concurrent=resolved.evolution_signal_max_concurrent_collections,
+        )
         model_configs = resolved.agent_model_configs
         app.state.database = database
         app.state.redis = redis_client
@@ -145,6 +155,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         app.state.voice_module = voice_module
         app.state.search_runtime = search_runtime
         app.state.memory_store = memory_store
+        app.state.evolution_signal_collector = evolution_signal_collector
         app.state.agentic_rag_middleware = build_agentic_rag_middleware(rag_runtime.module)
         app.state.agent_model = (
             FailoverChatModel(model_configs) if len(model_configs) == 3 else None
@@ -170,10 +181,12 @@ def create_app(settings: Settings | None = None) -> FastAPI:
                 redis_client,
                 batch_size=resolved.agent_run_recovery_batch_size,
                 guard_ttl_seconds=resolved.agent_run_recovery_guard_ttl_seconds,
+                evolution_signal_collector=evolution_signal_collector,
             ).reconcile()
             yield
         finally:
             await chat_cancellations.aclose()
+            await evolution_signal_collector.aclose()
             if agent_model is not None:
                 await agent_model.aclose()
             await search_runtime.aclose()
