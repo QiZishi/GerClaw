@@ -170,6 +170,6 @@ class OrchestrationSupportMixin:
         ) -> None:
             skill_id = result_data.get("skill")
             if tool_name == "Skill" and status == "success" and isinstance(skill_id, str):
-                governance.complete_optional_capability(skill_id)
+                await governance.complete_optional_capability_persisted(skill_id)
 
         return observe

@@ -1484,6 +1484,16 @@ Mypy 通过。真实集成启动曾先因命令漏传显式知识库路径、
 持久化事实源；Harness 每个实际节点前后回调、owner capability 移到 Run 创建后、
 interrupted-running 归一化和 optional failure → `completed_with_warnings` 仍是下一独立变更集。
 
+第三小步已把生产 Harness 的 checkpoint/complete/fail/fallback/optional/finalize 全部接到异步
+PlanExecution observer：attachment、evidence、answer model、deterministic emergency/ask、Skill 和已验证
+能力结果的节点状态都会写入事实源；其中 attachment、evidence 和 answer model 在实际副作用前先提交
+`running`，成功后再提交 `completed`。节点异常写入稳定无正文 error code，旧 fence 或持久化失败会在
+这些受管副作用前中止。Harness 注入冻结 execution snapshot，Chat
+observer 使用当前 Run ID、actor 和 lease fencing token 写入唯一事实源。聚焦回归 `117 passed`，Ruff 与
+3 个直接源文件 Mypy 通过，并有显式反例证明 checkpoint observer 失败时 model 调用数为 0。此小步尚未
+解决 owner capability 仍在 Run 建立前调用、恢复时 completed 节点的 durable output reuse、
+interrupted-running 归一化和 warning 终态，因此不将 PlanNode resume 整体标记完成。
+
 ### 阶段 7
 
 执行完整后端、前端、迁移、Compose、Playwright 和 axe 回归，覆盖患者、医生、访客和响应式关键路径；更新架构、Harness、前端、设计和产品规格，经独立审阅后归档本计划。

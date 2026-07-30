@@ -33,6 +33,8 @@ from gerclaw_api.modules.agent_harness.planning import (
     AgentFactory,
     ClinicalDecisionCoordinator,
     DynamicPlan,
+    PlanExecutionObserver,
+    PlanExecutionSnapshot,
     ProductionAgentFactory,
     TurnClinicalDecision,
     TurnExecutionGovernance,
@@ -165,6 +167,8 @@ class ProductionAgentHarness(OrchestrationSupportMixin):
         agent_factory: AgentFactory | None = None,
         route_decision: RouteDecision | None = None,
         dynamic_plan: DynamicPlan | None = None,
+        plan_execution_snapshot: PlanExecutionSnapshot | None = None,
+        plan_execution_observer: PlanExecutionObserver | None = None,
         clinical_decision: TurnClinicalDecision | None = None,
         preassembled_context: AgentContext | None = None,
         directive_loader: DirectiveLoader | None = None,
@@ -234,6 +238,8 @@ class ProductionAgentHarness(OrchestrationSupportMixin):
         )
         self._approval_callback = approval_callback
         self._clinical_decision = clinical_decision
+        self._plan_execution_snapshot = plan_execution_snapshot
+        self._plan_execution_observer = plan_execution_observer
         self._preassembled_context = preassembled_context
         self._attempt_repair_observer = attempt_repair_observer
         self._runtime_directives = RuntimeDirectiveCoordinator(
@@ -358,6 +364,8 @@ class ProductionAgentHarness(OrchestrationSupportMixin):
         governance = TurnExecutionGovernance(
             plan=dynamic_plan,
             decision=clinical_decision,
+            execution_snapshot=self._plan_execution_snapshot,
+            observer=self._plan_execution_observer,
         )
         # A pure request to summarize/read an attachment should not fabricate
         # unrelated medical context.  Once the user asks for a medical
@@ -376,8 +384,8 @@ class ProductionAgentHarness(OrchestrationSupportMixin):
         )
         safe_high_risk_codes: list[JsonValue] = list(high_risk_codes)
         if route_decision.route is RouteKind.EMERGENCY:
-            emergency_node = governance.checkpoint("safety.emergency")
-            governance.complete(emergency_node)
+            emergency_node = await governance.checkpoint_persisted("safety.emergency")
+            await governance.complete_persisted(emergency_node)
             return await emit_deterministic_clarification(
                 body=HIGH_RISK_NOTICE,
                 high_risk_codes=high_risk_codes,
@@ -390,13 +398,13 @@ class ProductionAgentHarness(OrchestrationSupportMixin):
                     "route": route_decision.route.value,
                     "route_reason": route_decision.reason_code,
                     "plan_node_ids": [node.node_id for node in dynamic_plan.nodes],
-                    **governance.finish(),
+                    **(await governance.finish_persisted()),
                 },
                 emergency_short_circuit=True,
             )
         if governance.should_ask:
-            ask_node = governance.checkpoint("clinical.ask")
-            governance.complete(ask_node)
+            ask_node = await governance.checkpoint_persisted("clinical.ask")
+            await governance.complete_persisted(ask_node)
             return await emit_deterministic_clarification(
                 body=governance.clarification_text(),
                 high_risk_codes=high_risk_codes,
@@ -407,19 +415,26 @@ class ProductionAgentHarness(OrchestrationSupportMixin):
                     "route": route_decision.route.value,
                     "route_reason": route_decision.reason_code,
                     "plan_node_ids": [node.node_id for node in dynamic_plan.nodes],
-                    **governance.finish(),
+                    **(await governance.finish_persisted()),
                 },
                 clinical_clarification=True,
             )
         attachment_projector = self._uploaded_input
         if self._uploaded_documents or self._uploaded_images:
-            attachment_node = governance.checkpoint("attachment.inspect")
-            attachment_projector = await turn_results.attachment_projector()
-            governance.complete(attachment_node)
+            attachment_node = await governance.checkpoint_persisted("attachment.inspect")
+            try:
+                attachment_projector = await turn_results.attachment_projector()
+            except Exception:
+                await governance.fail_persisted(
+                    attachment_node,
+                    "ATTACHMENT_INSPECTION_FAILED",
+                )
+                raise
+            await governance.complete_persisted(attachment_node)
 
         evidence_results = []
         if should_prefetch_local_evidence:
-            evidence_node = governance.checkpoint("evidence.retrieve")
+            evidence_node = await governance.checkpoint_persisted("evidence.retrieve")
             await self._emit(
                 stream_callback,
                 "reasoning_summary",
@@ -431,21 +446,28 @@ class ProductionAgentHarness(OrchestrationSupportMixin):
             # trace: users must be able to see evidence work actually occurring,
             # and no second retrieval or provider call is introduced here.
             prefetch_call_id = f"rag-prefetch:{self._execution.trace_id}"
-            evidence_results = await turn_results.prefetch_local_evidence(
-                call_id=prefetch_call_id,
-                retrieve=lambda: self._rag_module.retrieve(
-                    user_message,
-                    top_k=self._config.evidence_top_k,
-                ),
-                add_tool_call=budget.add_tool_call,
-                emit=lambda kind, data: self._emit(stream_callback, kind, data),
-                # Uploads and governed web search are independent evidence
-                # sources. With neither available, retain fail-closed behavior.
-                tolerate_failure=has_uploaded_evidence or can_search_for_evidence,
-            )
-            governance.complete(evidence_node)
+            try:
+                evidence_results = await turn_results.prefetch_local_evidence(
+                    call_id=prefetch_call_id,
+                    retrieve=lambda: self._rag_module.retrieve(
+                        user_message,
+                        top_k=self._config.evidence_top_k,
+                    ),
+                    add_tool_call=budget.add_tool_call,
+                    emit=lambda kind, data: self._emit(stream_callback, kind, data),
+                    # Uploads and governed web search are independent evidence
+                    # sources. With neither available, retain fail-closed behavior.
+                    tolerate_failure=has_uploaded_evidence or can_search_for_evidence,
+                )
+            except Exception:
+                await governance.fail_persisted(
+                    evidence_node,
+                    "EVIDENCE_RETRIEVAL_FAILED",
+                )
+                raise
+            await governance.complete_persisted(evidence_node)
         for capability_id in self._completed_capability_ids:
-            governance.complete_optional_capability(capability_id)
+            await governance.complete_optional_capability_persisted(capability_id)
         initial_citations = citations_from_results(
             evidence_results,
             minimum_score=self._config.evidence_min_score,
@@ -457,8 +479,10 @@ class ProductionAgentHarness(OrchestrationSupportMixin):
             and not has_uploaded_evidence
             and not can_search_for_evidence
         ):
-            answer_node = governance.checkpoint(governance.answer_capability())
-            governance.complete(answer_node)
+            answer_node = await governance.checkpoint_persisted(
+                governance.answer_capability()
+            )
+            await governance.complete_persisted(answer_node)
             return await emit_deterministic_clarification(
                 body=_EVIDENCE_UNAVAILABLE_CLARIFICATION,
                 high_risk_codes=high_risk_codes,
@@ -472,7 +496,7 @@ class ProductionAgentHarness(OrchestrationSupportMixin):
                     "route": route_decision.route.value,
                     "route_reason": route_decision.reason_code,
                     "plan_node_ids": [node.node_id for node in dynamic_plan.nodes],
-                    **governance.finish(),
+                    **(await governance.finish_persisted()),
                 },
                 evidence_unavailable=True,
             )
@@ -607,7 +631,9 @@ class ProductionAgentHarness(OrchestrationSupportMixin):
         )
         if directive_response is not None:
             return directive_response
-        answer_node = governance.checkpoint(governance.answer_capability())
+        answer_node = await governance.checkpoint_persisted(
+            governance.answer_capability()
+        )
 
         skill_metadata = self._skill_metadata(self._agent_skills)
         output_contract_retries = 0
@@ -662,11 +688,19 @@ class ProductionAgentHarness(OrchestrationSupportMixin):
                     )
                 )
             except RuntimeDirectiveEmergency as emergency:
+                await governance.complete_persisted(answer_node)
+                await governance.finish_persisted()
                 return await self._emit_runtime_directive_emergency(
                     emergency.risk_codes,
                     budget=budget,
                     stream_callback=stream_callback,
                 )
+            except Exception:
+                await governance.fail_persisted(
+                    answer_node,
+                    "ANSWER_EXECUTION_FAILED",
+                )
+                raise
             selected_model_preference = next(
                 (item.preference for item in reversed(attempts) if item.outcome == "succeeded"),
                 None,
@@ -674,9 +708,13 @@ class ProductionAgentHarness(OrchestrationSupportMixin):
 
         model_text = stream_result.text
         if not model_text.strip():
+            await governance.fail_persisted(
+                answer_node,
+                "ANSWER_OUTPUT_EMPTY",
+            )
             raise EmptyAgentResponseError("model completed without public text")
-        governance.complete(answer_node)
-        governance_result = governance.finish()
+        await governance.complete_persisted(answer_node)
+        governance_result = await governance.finish_persisted()
         reusable_evidence = turn_results.evidence_for(
             "report.compose"
             if governance.answer_capability() == "report.compose"

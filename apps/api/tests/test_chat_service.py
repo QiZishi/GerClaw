@@ -57,6 +57,10 @@ from gerclaw_api.modules.agent_harness.context_snapshot import (
     PersistedContextSnapshot,
     PersistedRunPlan,
 )
+from gerclaw_api.modules.agent_harness.planning import (
+    PlanExecutionSnapshot,
+    PlanNodeStatus,
+)
 from gerclaw_api.modules.agent_harness.routing import RouteKind
 from gerclaw_api.modules.agent_harness.run_lifecycle import RunFenceConflictError
 from gerclaw_api.modules.memory.models import MemoryUpdateResult
@@ -440,6 +444,7 @@ class _RunJournal:
         self.rejected_attempts: list[ValidationFeedback] = []
         self.attempt_count = 0
         self.attempt_event_start = 0
+        self.plan_executions: list[PlanExecutionSnapshot] = []
 
     async def resolve_regeneration(
         self,
@@ -508,6 +513,21 @@ class _RunJournal:
             **event.model_dump(),
             created_at=datetime.now(UTC),
         )
+
+    async def update_plan_execution(
+        self,
+        run_id: uuid.UUID,
+        updated: PlanExecutionSnapshot,
+        *,
+        tenant_id: str,
+        actor_id: str,
+        fencing_token: int,
+    ) -> PlanExecutionSnapshot:
+        del tenant_id, actor_id
+        assert run_id == self.run_id
+        assert fencing_token == 17
+        self.plan_executions.append(updated)
+        return updated
 
     async def begin_attempt(
         self,
@@ -1018,6 +1038,13 @@ async def test_owned_turn_streams_only_after_durable_success(unit_settings: Sett
     assert run_journal.answer_message_ids
     assert run_journal.events[-1].event_type == "done"
     assert run_journal.transitions == [AgentRunStatus.COMPLETED]
+    assert [
+        snapshot.statuses["quick_answer"]
+        for snapshot in run_journal.plan_executions
+    ] == [
+        PlanNodeStatus.RUNNING,
+        PlanNodeStatus.COMPLETED,
+    ]
 
     replay_events: list[object] = []
 

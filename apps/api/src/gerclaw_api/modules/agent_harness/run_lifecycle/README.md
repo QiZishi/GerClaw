@@ -45,8 +45,14 @@ single-node transition, and atomically updates the snapshot/revision with a cont
 append-only `agent_run_plan_node_events` record. Declared multi-node optional skips expand to
 one audit record per node in the same transaction. Stale fences, repeated snapshots,
 dependency bypasses, and non-running Runs cannot advance the plan. This change establishes
-the durable checkpoint fact source; production node callbacks and interrupted-running-node
-normalization are tracked as the next orchestration change rather than being implied here.
+the durable checkpoint fact source. The production Harness now observes every checkpoint
+before its attachment, evidence, answer-model, emergency, or clarification side effect and
+persists completion only after success. Skill and already-returned governed-capability results
+persist their optional-node completion after result validation. A stale fence or persistence
+failure therefore stops the next governed Harness side effect. Stable node failures are
+persisted privately and are not added to the public answer. Moving owner capabilities behind
+the Run checkpoint, interrupted-running-node normalization, and durable node output reuse
+remain separate recovery work rather than being implied here.
 
 Queued requirements are available through the owner-scoped Trace create API and Run list/delete
 APIs. The Trace lookup closes the period before a successful stream reveals a Run ID. The

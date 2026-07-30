@@ -261,6 +261,7 @@ def _harness(
     directive_claimer: Any = None,
     directive_applier: Any = None,
     attempt_repair_observer: Any = None,
+    plan_execution_observer: Any = None,
     execution_budget: ExecutionBudget | None = None,
 ) -> ProductionAgentHarness:
     return ProductionAgentHarness(
@@ -299,6 +300,7 @@ def _harness(
         directive_claimer=directive_claimer,
         directive_applier=directive_applier,
         attempt_repair_observer=attempt_repair_observer,
+        plan_execution_observer=plan_execution_observer,
         execution_budget=execution_budget,
     )
 
@@ -327,6 +329,38 @@ def _directive(
         claimed_at=now if boundary_id is not None else None,
         applied_at=now if status is RunDirectiveStatus.APPLIED else None,
     )
+
+
+@pytest.mark.asyncio
+async def test_plan_checkpoint_persistence_failure_stops_before_model_side_effect(
+    unit_settings: Settings,
+) -> None:
+    model = _HarnessModel(text="这是不应被调用的模型回答。")
+
+    async def reject_checkpoint(_snapshot: object) -> None:
+        raise RuntimeError("stale worker fence")
+
+    harness = _harness(
+        unit_settings,
+        model=model,
+        rag=_HarnessRAG([]),
+        plan_execution_observer=reject_checkpoint,
+    )
+    context = await harness.assemble_context(
+        "108815d7-05bf-4c2a-a977-cd034f390fab",
+        "usr_patient00000001",
+        [],
+        [],
+    )
+
+    with pytest.raises(RuntimeError, match="stale worker fence"):
+        await harness.process_message(
+            "您好",
+            "108815d7-05bf-4c2a-a977-cd034f390fab",
+            context,
+            lambda _event: None,
+        )
+    assert model.calls == 0
 
 
 @pytest.mark.asyncio

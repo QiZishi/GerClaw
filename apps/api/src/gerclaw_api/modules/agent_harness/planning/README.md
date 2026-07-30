@@ -64,6 +64,12 @@ specific node as `skipped` in the lineage before the next sibling becomes eligib
 optional skipping remains private to successful finalization, so it cannot destroy a failed
 required node's recovery path.
 
+Production governance exposes observer-backed async transitions for checkpoint, completion,
+failure, fallback start, unavailable-fallback skip, optional capability completion, and
+finalization. The Run persistence observer must finish before the owner side effect starts;
+observer failure aborts the operation. Synchronous executor methods remain deterministic unit
+primitives and are not the production orchestration entry.
+
 Consumers: Chat persists plans and the Harness enforces plan/budget decisions. Configuration:
 all thresholds and reserves arrive through `ResolvedHarnessConfig`. Failure semantics:
 unavailable capability, invalid DAG, aggregate plan overflow, or model preflight failure stops

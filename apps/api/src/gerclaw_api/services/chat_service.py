@@ -1109,6 +1109,19 @@ class ChatService:
                 )
                 buffered_events.append(retained_event)
 
+        async def persist_plan_execution(snapshot: PlanExecutionSnapshot) -> None:
+            if self._run_journal is None or self._active_run_id is None:
+                raise UnsupportedAgentContextError(
+                    "plan execution persistence is unavailable"
+                )
+            await self._run_journal.update_plan_execution(
+                self._active_run_id,
+                snapshot,
+                tenant_id=identity.tenant_id,
+                actor_id=identity.actor_id,
+                fencing_token=lease_guard.fencing_token,
+            )
+
         harness = ProductionAgentHarness(
             settings=self._settings,
             model=self._model,
@@ -1137,6 +1150,14 @@ class ChatService:
             execution_budget=execution_budget,
             route_decision=route_decision,
             dynamic_plan=dynamic_plan,
+            plan_execution_snapshot=(
+                resume_state.plan.effective_plan_execution()
+                if resume_state is not None
+                else PlanExecutionSnapshot.initial(dynamic_plan)
+            ),
+            plan_execution_observer=(
+                persist_plan_execution if self._run_journal is not None else None
+            ),
             clinical_decision=clinical_decision,
             preassembled_context=(
                 resume_state.snapshot.agent_context if resume_state is not None else None
