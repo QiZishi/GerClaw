@@ -551,6 +551,52 @@ class AgentRunAttemptEvent(Base):
     )
 
 
+class AgentRunPlanNodeEvent(Base):
+    """Append-only content-free audit of one persisted plan-node transition."""
+
+    __tablename__ = "agent_run_plan_node_events"
+    __table_args__ = (
+        UniqueConstraint(
+            "run_id",
+            "node_id",
+            "attempt",
+            "status",
+            name="uq_agent_run_plan_node_transition",
+        ),
+        CheckConstraint("attempt >= 0", name="nonnegative_plan_node_attempt"),
+        CheckConstraint("fencing_token > 0", name="positive_plan_node_event_fence"),
+        CheckConstraint(
+            "status IN ('pending','running','completed','failed','skipped')",
+            name="valid_plan_node_event_status",
+        ),
+        CheckConstraint(
+            "((status = 'failed' AND error_code IS NOT NULL) OR "
+            "(status != 'failed' AND error_code IS NULL))",
+            name="valid_plan_node_event_error",
+        ),
+        Index(
+            "ix_agent_run_plan_node_events_run_created",
+            "run_id",
+            "created_at",
+            "id",
+        ),
+    )
+
+    id: Mapped[int] = mapped_column(BigInteger, primary_key=True, autoincrement=True)
+    run_id: Mapped[uuid.UUID] = mapped_column(
+        ForeignKey("agent_runs.id", ondelete="CASCADE"), nullable=False
+    )
+    node_id: Mapped[str] = mapped_column(String(64), nullable=False)
+    attempt: Mapped[int] = mapped_column(Integer, nullable=False)
+    status: Mapped[str] = mapped_column(String(16), nullable=False)
+    error_code: Mapped[str | None] = mapped_column(String(128), nullable=True)
+    fallback_for_node_id: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    fencing_token: Mapped[int] = mapped_column(BigInteger, nullable=False)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), nullable=False
+    )
+
+
 class AnswerVersion(Base):
     """One immutable answer revision in a replaceable answer group."""
 

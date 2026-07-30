@@ -30,6 +30,7 @@ from gerclaw_api.modules.agent_harness.clinical_state import (
     ClinicalStateError,
 )
 from gerclaw_api.modules.agent_harness.evolution_signals import EvolutionSignalCollector
+from gerclaw_api.modules.agent_harness.planning import PlanExecutionSnapshot
 from gerclaw_api.repositories.agent_run import SqlAlchemyAgentRunRepository
 from gerclaw_api.repositories.answer_version import SqlAlchemyAnswerVersionRepository
 from gerclaw_api.repositories.run_directive import SqlAlchemyRunDirectiveRepository
@@ -103,6 +104,17 @@ class ChatRunJournal(Protocol):
         fencing_token: int,
     ) -> RunAttemptRead:
         """Create a private staging attempt for one stable public operation."""
+
+    async def update_plan_execution(
+        self,
+        run_id: uuid.UUID,
+        updated: PlanExecutionSnapshot,
+        *,
+        tenant_id: str,
+        actor_id: str,
+        fencing_token: int,
+    ) -> PlanExecutionSnapshot:
+        """Persist exactly one fenced PlanNode transition."""
 
     async def stage_attempt_event(
         self,
@@ -441,6 +453,26 @@ class DatabaseChatRunJournal:
             return await AgentRunService(SqlAlchemyAgentRunRepository(session)).begin_attempt(
                 run_id,
                 request,
+                tenant_id=tenant_id,
+                actor_id=actor_id,
+                fencing_token=fencing_token,
+            )
+
+    async def update_plan_execution(
+        self,
+        run_id: uuid.UUID,
+        updated: PlanExecutionSnapshot,
+        *,
+        tenant_id: str,
+        actor_id: str,
+        fencing_token: int,
+    ) -> PlanExecutionSnapshot:
+        async with self._database.session() as session:
+            return await AgentRunService(
+                SqlAlchemyAgentRunRepository(session)
+            ).update_plan_execution(
+                run_id,
+                updated,
                 tenant_id=tenant_id,
                 actor_id=actor_id,
                 fencing_token=fencing_token,

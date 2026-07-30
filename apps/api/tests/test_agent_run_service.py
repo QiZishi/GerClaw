@@ -7,10 +7,12 @@ from datetime import UTC, datetime
 
 import pytest
 
+from gerclaw_api.config import Settings
 from gerclaw_api.database.models import (
     AgentRun,
     AgentRunAttempt,
     AgentRunAttemptEvent,
+    AgentRunPlanNodeEvent,
     RunEvent,
 )
 from gerclaw_api.domain.run_schemas import (
@@ -21,12 +23,26 @@ from gerclaw_api.domain.run_schemas import (
     RunEventWrite,
     ValidationFeedback,
 )
-from gerclaw_api.modules.agent_harness.routing import RouteKind
+from gerclaw_api.modules.agent_harness.clinical_state import ClinicalState
+from gerclaw_api.modules.agent_harness.config import ResolvedHarnessConfig
+from gerclaw_api.modules.agent_harness.context_snapshot import PersistedRunPlan
+from gerclaw_api.modules.agent_harness.planning import (
+    ClinicalDecisionCoordinator,
+    DeterministicPlanner,
+    DynamicPlan,
+    DynamicPlanExecutor,
+    PlanExecutionSnapshot,
+    PlanNode,
+    PlanRequest,
+)
+from gerclaw_api.modules.agent_harness.routing import RouteDecision, RouteKind
 from gerclaw_api.modules.agent_harness.run_lifecycle import (
     RunFenceConflictError,
     RunRevisionConflictError,
     RunTerminalConflictError,
 )
+from gerclaw_api.modules.runtime.models import ExecutionBudget
+from gerclaw_api.modules.workflows import get_default_workflow_registry
 from gerclaw_api.services.agent_run_service import (
     AgentRunConflictError,
     AgentRunNotFoundError,
@@ -44,6 +60,7 @@ class _Repository:
         self.events: list[RunEvent] = []
         self.attempts: dict[uuid.UUID, AgentRunAttempt] = {}
         self.attempt_events: list[AgentRunAttemptEvent] = []
+        self.plan_node_events: list[AgentRunPlanNodeEvent] = []
         self.commits = 0
         self.rollbacks = 0
         self.deferred_binding_calls = 0
@@ -122,6 +139,10 @@ class _Repository:
     async def add_attempt_event(self, event: AgentRunAttemptEvent) -> None:
         event.id = len(self.attempt_events) + 1
         self.attempt_events.append(event)
+
+    async def add_plan_node_event(self, event: AgentRunPlanNodeEvent) -> None:
+        event.id = len(self.plan_node_events) + 1
+        self.plan_node_events.append(event)
 
     async def list_attempt_events(
         self,
@@ -205,6 +226,43 @@ def _request(**updates: object) -> AgentRunCreate:
     return AgentRunCreate.model_validate(values)
 
 
+def _persisted_plan() -> PersistedRunPlan:
+    resolved = ResolvedHarnessConfig.from_settings(Settings())
+    budget = ExecutionBudget(
+        max_steps=resolved.max_react_iterations,
+        max_output_bytes=resolved.max_output_bytes,
+    )
+    route = RouteDecision(route=RouteKind.QUICK, reason_code="test_quick")
+    dynamic_plan = DeterministicPlanner(
+        execution_budget=budget,
+        output_reserve_tokens=resolved.model_output_reserve_tokens,
+    ).build(PlanRequest(route=RouteKind.QUICK))
+    workflow = get_default_workflow_registry().resolve("standard")
+    return PersistedRunPlan(
+        loaded_skill_count=0,
+        requested_capability_count=0,
+        uploaded_document_count=0,
+        uploaded_image_count=0,
+        workflow=workflow.workflow_id,
+        workflow_definition=workflow,
+        workflow_version=workflow.version,
+        workflow_owner_module=workflow.owner_module,
+        search_enabled=workflow.search_enabled,
+        route_decision=route,
+        dynamic_plan=dynamic_plan,
+        plan_execution=PlanExecutionSnapshot.initial(dynamic_plan),
+        clinical_decision=ClinicalDecisionCoordinator(
+            minimum_score=resolved.savi_minimum_score
+        ).prepare(
+            state=ClinicalState(),
+            message="你好",
+            has_attachments=False,
+        ),
+        resolved_config=resolved,
+        execution_budget=budget,
+    )
+
+
 @pytest.mark.asyncio
 async def test_create_is_trace_idempotent_and_rejects_conflicting_replay() -> None:
     repository = _Repository()
@@ -227,6 +285,177 @@ async def test_create_is_trace_idempotent_and_rejects_conflicting_replay() -> No
             tenant_id=TENANT,
             actor_id=ACTOR,
         )
+
+
+@pytest.mark.asyncio
+async def test_plan_node_transition_is_fenced_atomic_and_append_audited() -> None:
+    repository = _Repository()
+    service = AgentRunService(repository)
+    persisted_plan = _persisted_plan()
+    created = await service.create_run(
+        _request(plan=persisted_plan.model_dump(mode="json")),
+        tenant_id=TENANT,
+        actor_id=ACTOR,
+    )
+    executor = DynamicPlanExecutor(
+        persisted_plan.dynamic_plan,
+        snapshot=persisted_plan.effective_plan_execution(),
+    )
+    node_id = executor.start_capability("answer.quick")
+
+    with pytest.raises(RunFenceConflictError):
+        await service.update_plan_execution(
+            created.id,
+            executor.snapshot(),
+            tenant_id=TENANT,
+            actor_id=ACTOR,
+            fencing_token=6,
+        )
+    running = await service.update_plan_execution(
+        created.id,
+        executor.snapshot(),
+        tenant_id=TENANT,
+        actor_id=ACTOR,
+        fencing_token=7,
+    )
+    executor.complete(node_id)
+    completed = await service.update_plan_execution(
+        created.id,
+        executor.snapshot(),
+        tenant_id=TENANT,
+        actor_id=ACTOR,
+        fencing_token=7,
+    )
+
+    assert running.statuses[node_id].value == "running"
+    assert completed.statuses[node_id].value == "completed"
+    stored = PersistedRunPlan.model_validate(repository.runs[created.id].plan)
+    assert stored.plan_execution == completed
+    assert repository.runs[created.id].revision == 3
+    assert [
+        (event.node_id, event.attempt, event.status, event.error_code)
+        for event in repository.plan_node_events
+    ] == [
+        (node_id, 1, "running", None),
+        (node_id, 1, "completed", None),
+    ]
+
+
+@pytest.mark.asyncio
+async def test_plan_node_transition_rejects_replay_and_multi_node_drift() -> None:
+    repository = _Repository()
+    service = AgentRunService(repository)
+    persisted_plan = _persisted_plan()
+    created = await service.create_run(
+        _request(plan=persisted_plan.model_dump(mode="json")),
+        tenant_id=TENANT,
+        actor_id=ACTOR,
+    )
+    executor = DynamicPlanExecutor(
+        persisted_plan.dynamic_plan,
+        snapshot=persisted_plan.effective_plan_execution(),
+    )
+    executor.start_capability("answer.quick")
+    running = executor.snapshot()
+    await service.update_plan_execution(
+        created.id,
+        running,
+        tenant_id=TENANT,
+        actor_id=ACTOR,
+        fencing_token=7,
+    )
+
+    with pytest.raises(AgentRunConflictError, match="stored run plan"):
+        await service.update_plan_execution(
+            created.id,
+            running,
+            tenant_id=TENANT,
+            actor_id=ACTOR,
+            fencing_token=7,
+        )
+    assert len(repository.plan_node_events) == 1
+
+
+@pytest.mark.asyncio
+async def test_plan_node_transition_expands_optional_finalize_audit_atomically() -> None:
+    repository = _Repository()
+    service = AgentRunService(repository)
+    base = _persisted_plan()
+    dynamic_plan = DynamicPlan(
+        route=RouteKind.QUICK,
+        nodes=(
+            PlanNode(
+                node_id="answer",
+                capability="answer.quick",
+                public_summary="正在整理回答",
+            ),
+            PlanNode(
+                node_id="optional_one",
+                required=False,
+                capability="optional.one",
+                public_summary="正在准备可选能力一",
+            ),
+            PlanNode(
+                node_id="optional_two",
+                required=False,
+                capability="optional.two",
+                public_summary="正在准备可选能力二",
+            ),
+        ),
+    )
+    persisted_plan = PersistedRunPlan.model_validate(
+        base.model_dump(mode="json")
+        | {
+            "dynamic_plan": dynamic_plan.model_dump(mode="json"),
+            "plan_execution": PlanExecutionSnapshot.initial(dynamic_plan).model_dump(
+                mode="json"
+            ),
+        }
+    )
+    created = await service.create_run(
+        _request(plan=persisted_plan.model_dump(mode="json")),
+        tenant_id=TENANT,
+        actor_id=ACTOR,
+    )
+    executor = DynamicPlanExecutor(
+        dynamic_plan,
+        snapshot=persisted_plan.effective_plan_execution(),
+    )
+    node_id = executor.start_capability("answer.quick")
+    await service.update_plan_execution(
+        created.id,
+        executor.snapshot(),
+        tenant_id=TENANT,
+        actor_id=ACTOR,
+        fencing_token=7,
+    )
+    executor.complete(node_id)
+    await service.update_plan_execution(
+        created.id,
+        executor.snapshot(),
+        tenant_id=TENANT,
+        actor_id=ACTOR,
+        fencing_token=7,
+    )
+    finalized = executor.finalize()
+    await service.update_plan_execution(
+        created.id,
+        finalized,
+        tenant_id=TENANT,
+        actor_id=ACTOR,
+        fencing_token=7,
+    )
+
+    assert [
+        (event.node_id, event.status)
+        for event in repository.plan_node_events[-2:]
+    ] == [
+        ("optional_one", "skipped"),
+        ("optional_two", "skipped"),
+    ]
+    assert PersistedRunPlan.model_validate(
+        repository.runs[created.id].plan
+    ).plan_execution == finalized
 
 
 @pytest.mark.asyncio

@@ -1463,6 +1463,27 @@ history 必须是声明列表的非空有序前缀，且每个目标已实际产
 对应反例加入后 Planning/Harness `61 passed`，Ruff 与 Planning 全包 Mypy 通过，继续等待复审，不把
 首次或二次 REJECT 写成通过。
 
+第三至第五轮复审继续发现并关闭了 fallback 执行语义中的真实 P1：fallback 必须逐项串行且先持久化
+`running`，失败的 `finalize()` 不得先跳过可恢复节点；一旦进入 fallback 链，primary 不能回头重试并
+清空 lineage；历史中的旧 fallback 不能被普通 capability 入口重新启动；嵌套 fallback 必须深度优先，
+其运行中、已满足或尚未耗尽时不能并发启动父级 sibling。executor 与 transition validator 现在共用
+“下一合法 fallback”判定，恢复快照也拒绝非串行/逆序 lineage。相关反例扩大后
+Planning/Harness/Run Service `83 passed`，Ruff 和直接源文件 Mypy 通过；第六轮独立复审仍在进行，未将
+该模块标记为最终通过。
+
+PlanNode 收口第二小步已建立 Run Lifecycle 持久化事实源：新 Run 显式冻结
+`plan-execution-v1` 初始快照，旧 `run-plan-v1` 缺失该字段时只在恢复边界解释为 all-pending；
+actor-scoped Run 锁同时验证 `running` 与当前 fencing token，精确转换、加密计划快照和 Run revision
+与内容无关的 append-only `agent_run_plan_node_events` 在同一事务提交。多个合法 optional skip 在同一
+事务展开为逐节点审计；重复快照、旧 fence、非 running Run 和计划漂移均拒绝且不产生审计行。迁移
+`d13c814f2059` 已对真实 `gerclaw_test` PostgreSQL 实际完成 `c13 → d13 → c13 → d13` 及
+`alembic check`；真实 PostgreSQL/Redis/Qdrant owner/fence/replay 集成测试 `1 passed`，定向单元回归
+`78 passed`，另一次包含未启用 integration 的组合为 `77 passed, 5 skipped`；Ruff 与 6 个直接源文件
+Mypy 通过。真实集成启动曾先因命令漏传显式知识库路径、
+再因本地 Redis URL 改写漏掉密码而被测试保护层拒绝，修正启动配置后才取得上述通过结果。此小步只声明
+持久化事实源；Harness 每个实际节点前后回调、owner capability 移到 Run 创建后、
+interrupted-running 归一化和 optional failure → `completed_with_warnings` 仍是下一独立变更集。
+
 ### 阶段 7
 
 执行完整后端、前端、迁移、Compose、Playwright 和 axe 回归，覆盖患者、医生、访客和响应式关键路径；更新架构、Harness、前端、设计和产品规格，经独立审阅后归档本计划。

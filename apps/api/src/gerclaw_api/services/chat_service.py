@@ -61,6 +61,7 @@ from gerclaw_api.modules.agent_harness.evolution_signals import EvolutionSignalC
 from gerclaw_api.modules.agent_harness.planning import (
     ClinicalDecisionCoordinator,
     DeterministicPlanner,
+    PlanExecutionSnapshot,
     PlanRequest,
     requests_report,
 )
@@ -1188,6 +1189,7 @@ class ChatService:
                 search_enabled=workflow.search_enabled,
                 route_decision=route_decision,
                 dynamic_plan=dynamic_plan,
+                plan_execution=PlanExecutionSnapshot.initial(dynamic_plan),
                 clinical_decision=clinical_decision,
                 resolved_config=resolved_harness_config,
                 execution_budget=execution_budget,

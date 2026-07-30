@@ -14,6 +14,7 @@ from gerclaw_api.database.models import (
     AgentRun,
     AgentRunAttempt,
     AgentRunAttemptEvent,
+    AgentRunPlanNodeEvent,
     ConversationSession,
     RunDirective,
     RunEvent,
@@ -82,6 +83,9 @@ class AgentRunRepository(Protocol):
 
     async def add_attempt_event(self, event: AgentRunAttemptEvent) -> None:
         """Stage one private event that is not replayable."""
+
+    async def add_plan_node_event(self, event: AgentRunPlanNodeEvent) -> None:
+        """Stage one append-only content-free plan transition."""
 
     async def list_attempt_events(
         self,
@@ -231,6 +235,9 @@ class SqlAlchemyAgentRunRepository:
         self._session.add(attempt)
 
     async def add_attempt_event(self, event: AgentRunAttemptEvent) -> None:
+        self._session.add(event)
+
+    async def add_plan_node_event(self, event: AgentRunPlanNodeEvent) -> None:
         self._session.add(event)
 
     async def list_attempt_events(

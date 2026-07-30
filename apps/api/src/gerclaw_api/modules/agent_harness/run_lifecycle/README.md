@@ -37,6 +37,17 @@ resume, and may transition to `running` or `cancelled`. Only `completed`,
 states have no outgoing transitions. A resumed Run retains its last interruption timestamp for
 audit while a new fencing token prevents the old worker from writing.
 
+`AgentRun.plan` now carries an encrypted `plan-execution-v1` snapshot bound to the canonical
+full `DynamicPlan`. New Runs persist the all-pending snapshot; legacy rows without it recover
+as all-pending without rewriting their frozen payload. The persistence owner locks the
+actor-scoped Run, verifies `running` plus the exact fencing token, validates the proposed
+single-node transition, and atomically updates the snapshot/revision with a content-free
+append-only `agent_run_plan_node_events` record. Declared multi-node optional skips expand to
+one audit record per node in the same transaction. Stale fences, repeated snapshots,
+dependency bypasses, and non-running Runs cannot advance the plan. This change establishes
+the durable checkpoint fact source; production node callbacks and interrupted-running-node
+normalization are tracked as the next orchestration change rather than being implied here.
+
 Queued requirements are available through the owner-scoped Trace create API and Run list/delete
 APIs. The Trace lookup closes the period before a successful stream reveals a Run ID. The
 production Harness checks before the initial model call and immediately after each completed

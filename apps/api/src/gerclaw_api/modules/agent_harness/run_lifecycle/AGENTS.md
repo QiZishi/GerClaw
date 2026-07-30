@@ -17,6 +17,13 @@ identifiers—never user text, provider payload, hidden prompts, credentials, se
 private reasoning. Cancellation, interruption, and immediate steer invalidate uncommitted
 attempts; resume starts after the latest committed checkpoint.
 
+Every persisted `PlanNode` transition must be validated against the exact frozen
+`DynamicPlan`, protected by the current worker fencing token, and committed atomically with
+the encrypted `plan-execution-v1` snapshot plus a content-free append-only audit row. Never
+advance a plan for a non-running Run or accept a replayed/multi-node transition that did not
+come from the declared optional-skip operation. A legacy plan without an execution snapshot
+restores as all-pending; new Runs must persist the initial snapshot explicitly.
+
 Execution-time user instructions use the encrypted `RunDirective` ledger. Conversation
 sequence allocation is monotonic; idempotency is actor-scoped. A worker may consume a queued
 instruction only after a fencing-protected claim at a named safe boundary, and may mark it
@@ -46,5 +53,6 @@ Run `tests/test_agent_harness.py`, `tests/test_agent_harness_safety.py`,
 `tests/test_run_directive_service.py`, `tests/test_runtime_directive_coordinator.py`, and
 `tests/test_run_directive_integration.py`; boundary injection changes require the
 queued-directive cases in `tests/test_agent_harness.py` and `tests/test_chat_service.py`.
-When persistence changes, also run Alembic upgrade, downgrade, re-upgrade, and `alembic check`
-against PostgreSQL.
+Plan checkpoint persistence also requires `tests/test_run_recovery_integration.py`. When
+persistence changes, run Alembic upgrade, downgrade, re-upgrade, and `alembic check` against
+PostgreSQL.

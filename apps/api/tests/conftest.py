@@ -157,6 +157,7 @@ async def integration_client(
                     "prescription_draft_reviews, patient_access_grants, "
                     "bad_cases, user_feedback, "
                     "trace_events, messages, "
+                    "agent_run_plan_node_events, "
                     "skill_evolution_proposals, skill_definition_revisions, "
                     "session_skills, skill_definitions, "
                     "memory_fact_revisions, memory_facts, health_profiles, sessions, users, "

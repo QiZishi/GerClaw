@@ -10,6 +10,7 @@ from gerclaw_api.database.models import (
     AgentRun,
     AgentRunAttempt,
     AgentRunAttemptEvent,
+    AgentRunPlanNodeEvent,
     RunEvent,
 )
 from gerclaw_api.domain.run_schemas import (
@@ -24,6 +25,12 @@ from gerclaw_api.domain.run_schemas import (
     RunEventRead,
     RunEventWrite,
     ValidationFeedback,
+)
+from gerclaw_api.modules.agent_harness.context_snapshot import PersistedRunPlan
+from gerclaw_api.modules.agent_harness.planning import (
+    PlanExecutionSnapshot,
+    PlanningError,
+    validate_plan_execution_transition,
 )
 from gerclaw_api.modules.agent_harness.routing import RouteKind
 from gerclaw_api.modules.agent_harness.run_lifecycle import (
@@ -291,6 +298,60 @@ class AgentRunService:
             await self._repository.rollback()
             raise
         return self.to_private_attempt(attempt)
+
+    async def update_plan_execution(
+        self,
+        run_id: uuid.UUID,
+        updated: PlanExecutionSnapshot,
+        *,
+        tenant_id: str,
+        actor_id: str,
+        fencing_token: int,
+    ) -> PlanExecutionSnapshot:
+        """Persist exactly one fenced PlanNode transition and its current snapshot."""
+
+        run = await self._locked_run(run_id, tenant_id=tenant_id, actor_id=actor_id)
+        if run.fencing_token != fencing_token:
+            await self._repository.rollback()
+            raise RunFenceConflictError("agent run fencing token is stale")
+        if AgentRunStatus(run.status) is not AgentRunStatus.RUNNING:
+            await self._repository.rollback()
+            raise RunTerminalConflictError("non-running agent run cannot advance its plan")
+        try:
+            plan = PersistedRunPlan.model_validate(run.plan)
+            current = plan.effective_plan_execution()
+            transitions = validate_plan_execution_transition(
+                plan.dynamic_plan,
+                current,
+                updated,
+            )
+            persisted_plan = plan.model_copy(update={"plan_execution": updated})
+        except (PlanningError, ValueError) as error:
+            await self._repository.rollback()
+            raise AgentRunConflictError("stored run plan is invalid") from error
+        run.plan = persisted_plan.model_dump(mode="json")
+        run.revision += 1
+        transitioned_at = datetime.now(UTC)
+        for transition in transitions:
+            await self._repository.add_plan_node_event(
+                AgentRunPlanNodeEvent(
+                    run_id=run.id,
+                    node_id=transition.node_id,
+                    attempt=transition.attempt,
+                    status=transition.status.value,
+                    error_code=transition.error_code,
+                    fallback_for_node_id=transition.fallback_for_node_id,
+                    fencing_token=fencing_token,
+                    created_at=transitioned_at,
+                )
+            )
+        try:
+            await self._repository.flush()
+            await self._repository.commit()
+        except BaseException:
+            await self._repository.rollback()
+            raise
+        return updated
 
     async def stage_attempt_event(
         self,

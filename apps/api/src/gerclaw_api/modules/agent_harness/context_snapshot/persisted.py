@@ -13,7 +13,8 @@ from gerclaw_api.modules.agent_harness.context_snapshot.models import AgentConte
 from gerclaw_api.modules.agent_harness.planning.clinical_decision import (
     TurnClinicalDecision,
 )
-from gerclaw_api.modules.agent_harness.planning.contracts import DynamicPlan
+from gerclaw_api.modules.agent_harness.planning.contracts import DynamicPlan, PlanningError
+from gerclaw_api.modules.agent_harness.planning.execution import PlanExecutionSnapshot
 from gerclaw_api.modules.agent_harness.plugin_runtime.contracts import (
     CapabilityResult,
     CapabilitySelection,
@@ -95,6 +96,7 @@ class PersistedRunPlan(BaseModel):
     search_enabled: bool
     route_decision: RouteDecision
     dynamic_plan: DynamicPlan
+    plan_execution: PlanExecutionSnapshot | None = None
     clinical_decision: TurnClinicalDecision
     resolved_config: ResolvedHarnessConfig
     execution_budget: ExecutionBudget
@@ -129,6 +131,11 @@ class PersistedRunPlan(BaseModel):
             raise ValueError("run plan regeneration identifiers must be paired")
         if self.route_decision.route is not self.dynamic_plan.route:
             raise ValueError("route decision and dynamic plan route must match")
+        if self.plan_execution is not None:
+            try:
+                self.plan_execution.validate_for(self.dynamic_plan)
+            except PlanningError as error:
+                raise ValueError("plan execution does not match dynamic plan") from error
         if (
             self.workflow_definition.workflow_id is not self.workflow
             or self.workflow_definition.version != self.workflow_version
@@ -140,6 +147,11 @@ class PersistedRunPlan(BaseModel):
         if any(result.capability_id not in selected_ids for result in self.capability_results):
             raise ValueError("capability result is not part of the frozen selection")
         return self
+
+    def effective_plan_execution(self) -> PlanExecutionSnapshot:
+        """Restore legacy plans as all-pending without mutating their frozen payload."""
+
+        return self.plan_execution or PlanExecutionSnapshot.initial(self.dynamic_plan)
 
 
 class FrozenRunState(BaseModel):

@@ -12,6 +12,7 @@ from sqlalchemy import select
 
 from gerclaw_api.database.models import (
     AgentRun,
+    AgentRunPlanNodeEvent,
     AnswerVersion,
     EvolutionSignalRecord,
     RunEvent,
@@ -31,6 +32,8 @@ from gerclaw_api.modules.agent_harness.context_snapshot import (
 from gerclaw_api.modules.agent_harness.planning import (
     ClinicalDecisionCoordinator,
     DeterministicPlanner,
+    DynamicPlanExecutor,
+    PlanExecutionSnapshot,
     PlanRequest,
 )
 from gerclaw_api.modules.agent_harness.routing import RouteDecision, RouteKind
@@ -46,7 +49,10 @@ from gerclaw_api.repositories.agent_run import SqlAlchemyAgentRunRepository
 from gerclaw_api.repositories.conversation import SqlAlchemyConversationRepository
 from gerclaw_api.repositories.trace import SqlAlchemyTraceRepository
 from gerclaw_api.services import chat_service as chat_service_module
-from gerclaw_api.services.agent_run_service import AgentRunService
+from gerclaw_api.services.agent_run_service import (
+    AgentRunConflictError,
+    AgentRunService,
+)
 from gerclaw_api.services.chat_service import _fingerprint
 from gerclaw_api.services.conversation_service import ConversationService
 from gerclaw_api.services.run_recovery_service import StaleAgentRunReconciler
@@ -139,6 +145,7 @@ def _frozen_run_material(
         search_enabled=workflow.search_enabled,
         route_decision=route,
         dynamic_plan=dynamic_plan,
+        plan_execution=PlanExecutionSnapshot.initial(dynamic_plan),
         clinical_decision=clinical_decision,
         resolved_config=resolved,
         execution_budget=budget,
@@ -149,6 +156,120 @@ def _frozen_run_material(
         snapshot.model_dump(mode="json"),
         plan.model_dump(mode="json"),
     )
+
+
+@pytest.mark.integration
+@pytest.mark.asyncio
+async def test_plan_node_transitions_are_fenced_persisted_and_append_audited(
+    integration_client: tuple[AsyncClient, object],
+) -> None:
+    client, app = integration_client
+    session_id = uuid.uuid4()
+    response = await client.post(
+        "/api/v1/sessions",
+        json={"session_id": str(session_id)},
+    )
+    assert response.status_code == 201, response.text
+
+    payload = ChatRequest(session_id=session_id, message="计划节点持久化测试")
+    trace_id = "trace_plan_node_integration_0001"
+    async with app.state.database.session() as session:
+        conversation_service = ConversationService(
+            SqlAlchemyConversationRepository(session)
+        )
+        conversation = await conversation_service.require_session(
+            session_id,
+            tenant_id=TENANT,
+            actor_id=ACTOR,
+        )
+        message = await conversation_service.store_user_message(
+            tenant_id=TENANT,
+            conversation=conversation,
+            session_id=session_id,
+            trace_id=trace_id,
+            text=payload.message,
+            channel="web",
+        )
+        context, plan_payload = _frozen_run_material(
+            settings=app.state.settings,
+            payload=payload,
+            input_message_id=message.id,
+            trace_id=trace_id,
+            request_id="req_plan_node_integration_0001",
+        )
+        service = AgentRunService(SqlAlchemyAgentRunRepository(session))
+        created = await service.create_run(
+            AgentRunCreate(
+                conversation_id=session_id,
+                input_message_id=message.id,
+                trace_id=trace_id,
+                route=RouteKind.STANDARD,
+                fencing_token=23,
+                context_snapshot=context,
+                plan=plan_payload,
+            ),
+            tenant_id=TENANT,
+            actor_id=ACTOR,
+        )
+
+    persisted = PersistedRunPlan.model_validate(plan_payload)
+    executor = DynamicPlanExecutor(
+        persisted.dynamic_plan,
+        snapshot=persisted.effective_plan_execution(),
+    )
+    first_node = persisted.dynamic_plan.nodes[0]
+    node_id = executor.start_capability(first_node.capability)
+    async with app.state.database.session() as session:
+        service = AgentRunService(SqlAlchemyAgentRunRepository(session))
+        running = await service.update_plan_execution(
+            created.id,
+            executor.snapshot(),
+            tenant_id=TENANT,
+            actor_id=ACTOR,
+            fencing_token=23,
+        )
+    executor.complete(node_id)
+    async with app.state.database.session() as session:
+        service = AgentRunService(SqlAlchemyAgentRunRepository(session))
+        completed = await service.update_plan_execution(
+            created.id,
+            executor.snapshot(),
+            tenant_id=TENANT,
+            actor_id=ACTOR,
+            fencing_token=23,
+        )
+        with pytest.raises(AgentRunConflictError):
+            await service.update_plan_execution(
+                created.id,
+                completed,
+                tenant_id=TENANT,
+                actor_id=ACTOR,
+                fencing_token=23,
+            )
+
+    async with app.state.database.session() as session:
+        stored = await session.get(AgentRun, created.id)
+        events = list(
+            (
+                await session.scalars(
+                    select(AgentRunPlanNodeEvent)
+                    .where(AgentRunPlanNodeEvent.run_id == created.id)
+                    .order_by(AgentRunPlanNodeEvent.id.asc())
+                )
+            ).all()
+        )
+    assert stored is not None
+    stored_plan = PersistedRunPlan.model_validate(stored.plan)
+    assert stored_plan.plan_execution == completed
+    assert running.statuses[node_id].value == "running"
+    assert completed.statuses[node_id].value == "completed"
+    assert [
+        (event.node_id, event.attempt, event.status, event.fencing_token)
+        for event in events
+    ] == [
+        (node_id, 1, "running", 23),
+        (node_id, 1, "completed", 23),
+    ]
 
 
 class _ResumeHarness:
