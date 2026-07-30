@@ -492,6 +492,9 @@ class ProductionAgentHarness(ProductionHarnessCompositionSetup, OrchestrationSup
             tools_disabled=(
                 document_focused or companion or route_decision.route is RouteKind.QUICK
             ),
+            prefetched_local_evidence=(
+                evidence_results if should_prefetch_local_evidence else None
+            ),
             tool_execution_preflight=bind_allowed_tool_preflight(
                 boundary=react_boundaries,
                 result_limit_tokens=self._config.tool_result_reserve_tokens,

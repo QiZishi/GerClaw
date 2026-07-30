@@ -20,7 +20,13 @@ from gerclaw_api.modules.agent_harness.plugin_runtime.production import build_ch
 from gerclaw_api.modules.memory.agentscope_adapter import GerClawMem0Client
 from gerclaw_api.modules.memory.protocols import MemoryModule
 from gerclaw_api.modules.rag import build_agentic_rag_middleware
-from gerclaw_api.modules.rag.protocols import RAGModule
+from gerclaw_api.modules.rag.protocols import (
+    IndexResult,
+    RAGFilters,
+    RAGModule,
+    RAGStatus,
+    RetrievalResult,
+)
 from gerclaw_api.modules.runtime.models import RuntimePrincipal, ToolCapability
 from gerclaw_api.modules.search import build_web_search_tool
 from gerclaw_api.modules.search.protocols import SearchModule
@@ -46,6 +52,41 @@ class AllowedToolBoundary(Protocol):
         tool_arguments: str,
         result_reserve_tokens: int,
     ) -> None: ...
+
+
+class PrefetchedTurnRAGModule:
+    """Serve the turn's frozen retrieval result to later Agent tool calls.
+
+    The mandatory evidence node already queried and reranked against the
+    user's request.  A later model-authored query must not replace that stable
+    result with evidence relevant only to the model's own drifted wording.
+    """
+
+    def __init__(
+        self,
+        *,
+        delegate: RAGModule,
+        results: list[RetrievalResult],
+    ) -> None:
+        self._delegate = delegate
+        self._results = tuple(results)
+
+    async def retrieve(
+        self,
+        query: str,
+        top_k: int = 5,
+        filters: RAGFilters | None = None,
+    ) -> list[RetrievalResult]:
+        del query
+        if filters is not None:
+            return []
+        return list(self._results[:top_k])
+
+    async def index_document(self, file_path: str, doc_type: str) -> IndexResult:
+        return await self._delegate.index_document(file_path, doc_type)
+
+    async def status(self) -> RAGStatus:
+        return await self._delegate.status()
 
 
 def bind_allowed_tool_preflight(
@@ -86,12 +127,21 @@ async def build_turn_toolkit(
     skills: list[AgentScopeSkill],
     registry_factory: ToolRegistryFactory,
     tools_disabled: bool,
+    prefetched_local_evidence: list[RetrievalResult] | None = None,
     tool_execution_preflight: ToolExecutionPreflight | None = None,
 ) -> TurnToolkit:
     """Compose owner-provided adapters without duplicating their capabilities."""
 
+    turn_rag_module: RAGModule = (
+        PrefetchedTurnRAGModule(
+            delegate=rag_module,
+            results=prefetched_local_evidence,
+        )
+        if prefetched_local_evidence is not None
+        else rag_module
+    )
     rag_middleware = build_agentic_rag_middleware(
-        rag_module,
+        turn_rag_module,
         top_k=config.evidence_top_k,
         score_threshold=config.evidence_min_score,
     )

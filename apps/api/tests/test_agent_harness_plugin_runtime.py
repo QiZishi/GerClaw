@@ -22,7 +22,10 @@ from gerclaw_api.modules.agent_harness.plugin_runtime import (
     TurnResultReuse,
     TurnSharedResultStore,
 )
-from gerclaw_api.modules.rag.protocols import RetrievalResult
+from gerclaw_api.modules.agent_harness.plugin_runtime.turn_toolkit import (
+    PrefetchedTurnRAGModule,
+)
+from gerclaw_api.modules.rag.protocols import IndexResult, RAGModule, RAGStatus, RetrievalResult
 from gerclaw_api.security import JsonValue
 
 
@@ -343,3 +346,51 @@ async def test_tolerated_prefetch_failure_never_emits_a_false_success() -> None:
         == []
     )
     assert [data["status"] for kind, data in events if kind == "tool_result"] == ["failed"]
+
+
+@pytest.mark.asyncio
+async def test_agentic_rag_reuses_prefetched_user_query_results_without_retrieval_drift() -> None:
+    class _RAGDelegate:
+        def __init__(self) -> None:
+            self.retrieve_calls = 0
+
+        async def retrieve(
+            self,
+            query: str,
+            top_k: int = 5,
+            filters: object | None = None,
+        ) -> list[RetrievalResult]:
+            del query, top_k, filters
+            self.retrieve_calls += 1
+            return [
+                RetrievalResult(
+                    content="模型漂移查询得到的不相关证据",
+                    source="unrelated.md",
+                    score=0.99,
+                )
+            ]
+
+        async def index_document(self, file_path: str, doc_type: str) -> IndexResult:
+            del file_path, doc_type
+            raise AssertionError("indexing is not part of a chat turn")
+
+        async def status(self) -> RAGStatus:
+            raise AssertionError("status is not part of a chat turn")
+
+    delegate = _RAGDelegate()
+    prefetched = [
+        RetrievalResult(
+            content="用户原始问题对应的用药核对证据",
+            source="medication-reconciliation.md",
+            score=0.8,
+        )
+    ]
+    turn_module = PrefetchedTurnRAGModule(
+        delegate=cast(RAGModule, delegate),
+        results=prefetched,
+    )
+
+    repeated = await turn_module.retrieve("模型后来改写成了衰弱筛查", top_k=5)
+
+    assert repeated == prefetched
+    assert delegate.retrieve_calls == 0

@@ -1623,7 +1623,7 @@ async def test_agentic_search_tool_projects_tool_events(unit_settings: Settings)
         events.append,
     )
     assert model.calls == 2
-    assert len(rag.calls) == 2
+    assert rag.calls == ["怎样预防老年人跌倒？"]
     tool_calls = [event for event in events if event.event_type == "tool_call"]
     tool_results = [event for event in events if event.event_type == "tool_result"]
     assert len(tool_calls) == 2

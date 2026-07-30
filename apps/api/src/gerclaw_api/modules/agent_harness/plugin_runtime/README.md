@@ -48,7 +48,10 @@ not in a parallel Harness payload.
 clinical observations, and local retrieval results once per
 `tenant + actor + session + trace`. References are opaque and consumer-allowlisted; private
 payloads never enter the reference or a public event. A tolerated RAG outage emits exactly one
-failed terminal tool event and cannot be relabelled as success.
+failed terminal tool event and cannot be relabelled as success. After the mandatory evidence
+node retrieves against the original user request, later AgentScope `search_knowledge` calls
+receive that frozen result without another provider/store call; a model-authored query cannot
+replace it with evidence relevant only to the model's drifted wording.
 
 Consumers: ChatService planning, the production Harness, the capability directory client, and
 the existing owner flows. Configuration: Runtime principal, approval callback/TTL, manifests,
