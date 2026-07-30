@@ -52,6 +52,7 @@ from gerclaw_api.modules.agent_harness.clinical_state import (
     FactProvenance,
 )
 from gerclaw_api.modules.agent_harness.context_snapshot import (
+    ControlledSuccessorState,
     FrozenRunState,
     PersistedContextSnapshot,
     PersistedRunPlan,
@@ -670,6 +671,39 @@ class _DirectiveJournal:
         self.applied: list[tuple[uuid.UUID, RunDirectiveClaim]] = []
         self.directive_id = uuid.uuid4()
         self.recent: tuple[RunDirectiveRead, ...] = ()
+        self.successor_bindings: list[tuple[uuid.UUID, uuid.UUID, int]] = []
+
+    async def bind_successor_input(
+        self,
+        directive_id: uuid.UUID,
+        successor_run_id: uuid.UUID,
+        *,
+        tenant_id: str,
+        actor_id: str,
+        fencing_token: int,
+    ) -> RunDirectiveRead:
+        del tenant_id, actor_id
+        self.successor_bindings.append(
+            (directive_id, successor_run_id, fencing_token)
+        )
+        now = datetime.now(UTC)
+        return RunDirectiveRead(
+            id=directive_id,
+            conversation_id=uuid.uuid4(),
+            target_run_id=uuid.uuid4(),
+            successor_run_id=successor_run_id,
+            sequence=1,
+            mode=RunDirectiveMode.INTERRUPT_AND_STEER,
+            status=RunDirectiveStatus.APPLIED,
+            instruction="请按新要求继续。",
+            idempotency_key="directive-successor-input-1",
+            claimed_by_fencing_token=fencing_token,
+            claim_boundary_id="successor.input.v1",
+            revision=2,
+            created_at=now,
+            claimed_at=now,
+            applied_at=now,
+        )
 
     async def list_recent_applied_directives(
         self,
@@ -790,13 +824,12 @@ def test_runtime_principal_keeps_account_role_and_never_invents_doctor_patient_a
         assert principal.patient_id is None
 
 
-@pytest.mark.parametrize("created", [False, True])
 @pytest.mark.asyncio
-async def test_busy_retry_only_finishes_trace_created_by_this_request(
-    unit_settings: Settings, created: bool
+async def test_busy_new_trace_is_durably_failed_by_its_creator(
+    unit_settings: Settings,
 ) -> None:
     session_id = uuid.uuid4()
-    traces = _TraceFacade(created=created, session_id=session_id)
+    traces = _TraceFacade(created=True, session_id=session_id)
     service = ChatService(
         settings=unit_settings,
         conversation=cast(Any, _ConversationFacade(session_id)),
@@ -823,14 +856,9 @@ async def test_busy_retry_only_finishes_trace_created_by_this_request(
             callback=cast(Any, callback),
         )
 
-    if created:
-        assert len(traces.events) == 1
-        assert len(traces.finishes) == 1
-        assert traces.trace.status == "failed"
-    else:
-        assert traces.events == []
-        assert traces.finishes == []
-        assert traces.trace.status == "running"
+    assert len(traces.events) == 1
+    assert len(traces.finishes) == 1
+    assert traces.trace.status == "failed"
 
 
 @pytest.mark.asyncio
@@ -1612,6 +1640,116 @@ async def test_resume_uses_frozen_context_without_reloading_mutable_memory_or_in
     assert resumed.plan == original.plan
     assert mutable_memory.short_term_sessions == []
     assert resumed_conversation.user_text is None
+
+
+@pytest.mark.asyncio
+async def test_controlled_successor_reuses_frozen_assets_but_replans_new_instruction(
+    unit_settings: Settings,
+) -> None:
+    session_id = uuid.uuid4()
+    source_payload = ChatRequest(
+        session_id=session_id,
+        message="请帮我整理一份详细的日常安排建议，" * 12,
+    )
+    identity = AuthContext(
+        actor_id="usr_patient_unit0001",
+        tenant_id="tenant_public0001",
+        scopes=frozenset({"chat:write"}),
+    )
+    source_journal = _RunJournal()
+    source_service = ChatService(
+        settings=unit_settings,
+        conversation=cast(Any, _ConversationFacade(session_id)),
+        traces=cast(Any, _TraceFacade(created=True, session_id=session_id)),
+        lease=cast(Any, _OwnedLease()),
+        model=cast(Any, _TextModel()),
+        rag_module=cast(Any, _NoopRAG()),
+        memory_factory=_memory_factory(),
+        run_journal=source_journal,
+    )
+
+    async def ignore_event(_event: object) -> None:
+        return None
+
+    await source_service.process(
+        source_payload,
+        identity=identity,
+        request_id="request_successor_source_0001",
+        trace_id="trace_successor_source_0001",
+        callback=cast(Any, ignore_event),
+    )
+    source_request = source_journal.start_requests[0]
+    frozen = FrozenRunState(
+        snapshot=PersistedContextSnapshot.model_validate(
+            source_request.context_snapshot
+        ),
+        plan=PersistedRunPlan.model_validate(source_request.plan),
+    )
+    new_instruction = "请改为只给我三条最重要的安排。"
+    successor_payload = source_payload.model_copy(
+        update={"message": new_instruction}
+    )
+    mutable_memory = _MemoryFacade()
+    successor_conversation = _ConversationFacade(session_id)
+    successor_journal = _RunJournal()
+    directive_journal = _DirectiveJournal()
+    successor_model = _TextModel()
+    successor_service = ChatService(
+        settings=unit_settings,
+        conversation=cast(Any, successor_conversation),
+        traces=cast(Any, _TraceFacade(created=True, session_id=session_id)),
+        lease=cast(Any, _OwnedLease()),
+        model=cast(Any, successor_model),
+        rag_module=cast(Any, _NoopRAG()),
+        memory_factory=_memory_factory(mutable_memory),
+        run_journal=successor_journal,
+        directive_journal=directive_journal,
+    )
+    public_events: list[object] = []
+
+    async def collect_event(event: object) -> None:
+        public_events.append(event)
+
+    with pytest.raises(ValueError, match="source Trace does not match snapshot"):
+        ControlledSuccessorState(
+            source_run_id=source_journal.run_id,
+            source_trace_id="trace_wrong_successor_source_0001",
+            directive_id=directive_journal.directive_id,
+            source=frozen,
+        )
+
+    await successor_service.process(
+        successor_payload,
+        identity=identity,
+        request_id="request_successor_new_0001",
+        trace_id="trace_successor_new_0001",
+        callback=cast(Any, collect_event),
+        successor_state=ControlledSuccessorState(
+            source_run_id=source_journal.run_id,
+            source_trace_id=frozen.snapshot.agent_context.execution.trace_id,
+            directive_id=directive_journal.directive_id,
+            source=frozen,
+        ),
+    )
+
+    successor_request = successor_journal.start_requests[0]
+    successor_snapshot = PersistedContextSnapshot.model_validate(
+        successor_request.context_snapshot
+    )
+    successor_plan = PersistedRunPlan.model_validate(successor_request.plan)
+    assert successor_conversation.user_text == new_instruction
+    assert mutable_memory.short_term_sessions == []
+    assert successor_snapshot.skill_definitions == frozen.snapshot.skill_definitions
+    assert successor_snapshot.uploaded_documents == frozen.snapshot.uploaded_documents
+    assert successor_snapshot.agent_context.execution.trace_id == "trace_successor_new_0001"
+    assert successor_plan.route_decision != frozen.plan.route_decision
+    assert directive_journal.successor_bindings == [
+        (directive_journal.directive_id, successor_journal.run_id, 17)
+    ]
+    first = cast(Any, public_events[0])
+    assert first.event_type == "reasoning_summary"
+    assert first.data["content"] == "已按新要求调整执行"
+    assert str(successor_model.last_messages).count(new_instruction) == 1
 
 
 @pytest.mark.asyncio

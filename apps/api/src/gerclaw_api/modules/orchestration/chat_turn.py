@@ -18,11 +18,16 @@ from gerclaw_api.modules.orchestration.errors import (
     ChatSteeredInterruption,
 )
 from gerclaw_api.services.conversation_service import ConversationService
-from gerclaw_api.services.session_lease import SessionLease, SessionLeaseGuard
+from gerclaw_api.services.session_lease import (
+    SessionBusyError,
+    SessionLease,
+    SessionLeaseGuard,
+)
 from gerclaw_api.services.trace_service import TraceService
 
 ReplayReader = Callable[[], Awaitable[AgentResponse | None]]
 ReplayEmitter = Callable[[AgentResponse], Awaitable[None]]
+ReplayWaiter = Callable[[], Awaitable[AgentResponse]]
 OwnedTurnRunner = Callable[[SessionLeaseGuard], Awaitable[AgentResponse]]
 FailureFinalizer = Callable[
     [TraceStatus, str, int | None, SessionLeaseGuard | None], Awaitable[bool]
@@ -62,6 +67,7 @@ class ChatTurnCoordinator:
         private_input_artifacts: dict[str, Any] | None,
         read_replay: ReplayReader,
         emit_replay: ReplayEmitter,
+        wait_for_replay: ReplayWaiter | None,
         run_owned_turn: OwnedTurnRunner,
         finalize_failure: FailureFinalizer,
         error_code: ErrorCodeMapper,
@@ -150,6 +156,25 @@ class ChatTurnCoordinator:
                 CHAT_TURNS.labels(outcome="completed").inc()
                 CHAT_TURN_LATENCY.observe(time.monotonic() - started)
                 return response
+        except SessionBusyError as error:
+            if trace_start.created:
+                await finalize_failure(
+                    TraceStatus.FAILED,
+                    error_code(error),
+                    fencing_token,
+                    lease_guard,
+                )
+                failure_handled = True
+                CHAT_TURNS.labels(outcome="failed").inc()
+                CHAT_TURN_LATENCY.observe(time.monotonic() - started)
+                raise
+            if wait_for_replay is None:
+                raise
+            response = await wait_for_replay()
+            await emit_replay(response)
+            CHAT_TURNS.labels(outcome="replayed").inc()
+            CHAT_TURN_LATENCY.observe(time.monotonic() - started)
+            return response
         except asyncio.CancelledError as cancellation_error:
             if owns_trace_execution and not failure_handled:
                 steered = (

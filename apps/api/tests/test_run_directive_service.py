@@ -16,6 +16,7 @@ from gerclaw_api.domain.run_schemas import (
     RunDirectiveMode,
     RunDirectiveStatus,
     RunQueuedDirectiveCreate,
+    RunSteerDirectiveCreate,
 )
 from gerclaw_api.services.run_directive_service import (
     RunDirectiveConflictError,
@@ -106,6 +107,31 @@ class _Repository:
             None,
         )
 
+    async def get_bound_steer_for_source(
+        self,
+        run_id: uuid.UUID,
+        *,
+        tenant_id: str,
+        actor_id: str,
+    ) -> RunDirective | None:
+        return next(
+            (
+                item
+                for item in sorted(
+                    self.directives.values(),
+                    key=lambda directive: directive.sequence,
+                    reverse=True,
+                )
+                if item.tenant_id == tenant_id
+                and item.actor_id == actor_id
+                and item.target_run_id == run_id
+                and item.mode == RunDirectiveMode.INTERRUPT_AND_STEER.value
+                and item.status == RunDirectiveStatus.APPLIED.value
+                and item.successor_run_id is not None
+            ),
+            None,
+        )
+
     async def lock_conversation(
         self,
         conversation_id: uuid.UUID,
@@ -145,6 +171,42 @@ class _Repository:
             )
         ]
         return sorted(candidates, key=lambda item: item.sequence)[:limit]
+
+    async def transfer_consumable(
+        self,
+        source_run_id: uuid.UUID,
+        successor_run_id: uuid.UUID,
+        *,
+        tenant_id: str,
+        actor_id: str,
+        updated_at: datetime,
+    ) -> None:
+        for item in self.directives.values():
+            if (
+                item.tenant_id == tenant_id
+                and item.actor_id == actor_id
+                and item.status
+                in {
+                    RunDirectiveStatus.PENDING.value,
+                    RunDirectiveStatus.CLAIMED.value,
+                }
+                and (
+                    item.successor_run_id == source_run_id
+                    or (
+                        item.successor_run_id is None
+                        and item.target_run_id == source_run_id
+                        and item.mode
+                        == RunDirectiveMode.QUEUE_FOR_NEXT_BOUNDARY.value
+                    )
+                )
+            ):
+                item.successor_run_id = successor_run_id
+                item.status = RunDirectiveStatus.PENDING.value
+                item.claimed_by_fencing_token = None
+                item.claim_boundary_id = None
+                item.claimed_at = None
+                item.revision += 1
+                item.updated_at = updated_at
 
     async def list_applied_for_execution(
         self,
@@ -231,6 +293,25 @@ class _Repository:
         if message.trace_id is None:
             raise AssertionError("directive projection requires a trace identity")
         self.messages[message.trace_id] = message
+
+    async def get_run_input_message(
+        self,
+        run_id: uuid.UUID,
+        *,
+        tenant_id: str,
+        actor_id: str,
+    ) -> Message | None:
+        run = await self.get_owned_run(
+            run_id,
+            tenant_id=tenant_id,
+            actor_id=actor_id,
+        )
+        if run is None:
+            return None
+        return next(
+            (message for message in self.messages.values() if message.id == run.input_message_id),
+            None,
+        )
 
     async def add(self, directive: RunDirective) -> None:
         self.directives[directive.id] = directive
@@ -359,6 +440,71 @@ async def test_trace_queue_waits_for_run_creation_without_losing_instruction() -
 
     assert created.target_run_id == run.id
     assert created.status is RunDirectiveStatus.PENDING
+
+
+@pytest.mark.asyncio
+async def test_trace_steer_waits_for_run_creation_without_losing_instruction() -> None:
+    repository, run = _setup()
+    repository.runs.clear()
+    service = RunDirectiveService(repository)
+
+    async def publish_run() -> None:
+        await asyncio.sleep(0.01)
+        repository.runs[run.id] = run
+
+    publisher = asyncio.create_task(publish_run())
+    created = await service.steer_for_trace(
+        run.trace_id,
+        request=RunSteerDirectiveCreate(
+            instruction="请立即改为先说明需要补充的信息。",
+            idempotency_key="directive-steer-before-run",
+        ),
+        tenant_id=TENANT,
+        actor_id=ACTOR,
+        wait_seconds=0.1,
+        poll_interval_seconds=0.005,
+    )
+    await publisher
+
+    assert created.target_run_id == run.id
+    assert created.mode is RunDirectiveMode.INTERRUPT_AND_STEER
+
+
+@pytest.mark.asyncio
+async def test_wait_for_interrupted_target_observes_durable_run_state() -> None:
+    repository, run = _setup()
+    service = RunDirectiveService(repository)
+
+    async def interrupt_run() -> None:
+        await asyncio.sleep(0.01)
+        run.status = AgentRunStatus.INTERRUPTED.value
+        run.interrupted_at = datetime.now(UTC)
+
+    interrupter = asyncio.create_task(interrupt_run())
+    await service.wait_for_interrupted_target(
+        run.id,
+        tenant_id=TENANT,
+        actor_id=ACTOR,
+        wait_seconds=0.1,
+        poll_interval_seconds=0.005,
+    )
+    await interrupter
+
+    assert repository.rollbacks > 0
+
+
+@pytest.mark.asyncio
+async def test_wait_for_interrupted_target_rejects_terminal_race() -> None:
+    repository, run = _setup(status=AgentRunStatus.COMPLETED)
+
+    with pytest.raises(RunDirectiveConflictError):
+        await RunDirectiveService(repository).wait_for_interrupted_target(
+            run.id,
+            tenant_id=TENANT,
+            actor_id=ACTOR,
+            wait_seconds=0.1,
+            poll_interval_seconds=0.005,
+        )
 
 
 @pytest.mark.asyncio
@@ -575,6 +721,40 @@ async def test_interrupt_directive_is_not_consumed_on_original_run() -> None:
 
 
 @pytest.mark.asyncio
+async def test_run_allows_only_one_active_immediate_steer() -> None:
+    repository, run = _setup()
+    service = RunDirectiveService(repository)
+    request = _create(mode=RunDirectiveMode.INTERRUPT_AND_STEER)
+    first = await service.create(
+        run.id,
+        request,
+        tenant_id=TENANT,
+        actor_id=ACTOR,
+    )
+    replay = await service.create(
+        run.id,
+        request.model_copy(update={"id": uuid.uuid4()}),
+        tenant_id=TENANT,
+        actor_id=ACTOR,
+    )
+
+    with pytest.raises(RunDirectiveConflictError):
+        await service.create(
+            run.id,
+            _create(
+                mode=RunDirectiveMode.INTERRUPT_AND_STEER,
+                key="directive-second-steer",
+                instruction="尝试从同一个旧 Run 再分叉一次。",
+            ),
+            tenant_id=TENANT,
+            actor_id=ACTOR,
+        )
+
+    assert replay.id == first.id
+    assert len(repository.directives) == 1
+
+
+@pytest.mark.asyncio
 async def test_bound_queue_directive_is_not_consumed_on_original_run() -> None:
     repository, run = _setup()
     service = RunDirectiveService(repository)
@@ -642,3 +822,134 @@ async def test_successor_binding_makes_steer_instruction_consumable() -> None:
 
     assert bound.successor_run_id == successor.id
     assert claimed is not None and claimed.id == created.id
+
+
+@pytest.mark.asyncio
+async def test_successor_input_atomically_applies_without_duplicate_message() -> None:
+    repository, original = _setup()
+    service = RunDirectiveService(repository)
+    queued = await service.create(
+        original.id,
+        _create(
+            key="directive-before-steer-queued",
+            instruction="还要保留已经排队的要求。",
+        ),
+        tenant_id=TENANT,
+        actor_id=ACTOR,
+    )
+    bulk_queued = [
+        await service.create(
+            original.id,
+            _create(
+                key=f"directive-bulk-transfer-{index}",
+                instruction=f"保留第 {index} 条排队要求。",
+            ),
+            tenant_id=TENANT,
+            actor_id=ACTOR,
+        )
+        for index in range(101)
+    ]
+    await service.claim_next(
+        original.id,
+        RunDirectiveClaim(fencing_token=7, boundary_id="before-steer-boundary"),
+        tenant_id=TENANT,
+        actor_id=ACTOR,
+    )
+    created = await service.create(
+        original.id,
+        _create(mode=RunDirectiveMode.INTERRUPT_AND_STEER),
+        tenant_id=TENANT,
+        actor_id=ACTOR,
+    )
+    original.status = AgentRunStatus.INTERRUPTED.value
+    original.interrupted_at = datetime.now(UTC)
+    now = datetime.now(UTC)
+    input_message = Message(
+        id=uuid.uuid4(),
+        tenant_id=TENANT,
+        session_id=original.conversation_id,
+        trace_id=f"trace_{uuid.uuid4().hex}",
+        role="user",
+        content=[{"type": "text", "text": created.instruction}],
+        message_metadata={"channel": "web"},
+        created_at=now,
+    )
+    repository.messages[input_message.trace_id or ""] = input_message
+    successor = AgentRun(
+        id=uuid.uuid4(),
+        tenant_id=TENANT,
+        actor_id=ACTOR,
+        conversation_id=original.conversation_id,
+        input_message_id=input_message.id,
+        trace_id=input_message.trace_id or "",
+        route="standard",
+        status=AgentRunStatus.RUNNING.value,
+        context_snapshot={},
+        plan={},
+        warnings=[],
+        current_answer_version_id=None,
+        current_valid_attempt_id=None,
+        fencing_token=8,
+        last_sequence=0,
+        revision=1,
+        started_at=now,
+        interrupted_at=None,
+        completed_at=None,
+        created_at=now,
+        updated_at=now,
+    )
+    repository.runs[successor.id] = successor
+    message_count = len(repository.messages)
+
+    applied = await service.bind_successor_input(
+        created.id,
+        successor.id,
+        tenant_id=TENANT,
+        actor_id=ACTOR,
+        fencing_token=8,
+    )
+    replay = await service.bind_successor_input(
+        created.id,
+        successor.id,
+        tenant_id=TENANT,
+        actor_id=ACTOR,
+        fencing_token=8,
+    )
+    late_queued = await service.create(
+        original.id,
+        _create(
+            key="directive-after-successor-bind",
+            instruction="绑定完成后到达的要求也要交给后继执行。",
+        ),
+        tenant_id=TENANT,
+        actor_id=ACTOR,
+    )
+    successor.status = AgentRunStatus.COMPLETED.value
+    after_terminal = await service.create(
+        original.id,
+        _create(
+            key="directive-after-successor-terminal",
+            instruction="后继终态后保留到下一轮。",
+        ),
+        tenant_id=TENANT,
+        actor_id=ACTOR,
+    )
+
+    assert applied.status is RunDirectiveStatus.APPLIED
+    assert applied.successor_run_id == successor.id
+    assert replay.revision == applied.revision
+    transferred = repository.directives[queued.id]
+    assert transferred.successor_run_id == successor.id
+    assert transferred.status == RunDirectiveStatus.PENDING.value
+    assert transferred.claimed_by_fencing_token is None
+    assert transferred.claim_boundary_id is None
+    assert all(
+        repository.directives[item.id].successor_run_id == successor.id
+        for item in bulk_queued
+    )
+    assert late_queued.successor_run_id == successor.id
+    assert late_queued.status is RunDirectiveStatus.PENDING
+    assert after_terminal.successor_run_id is None
+    assert after_terminal.status is RunDirectiveStatus.PENDING_NEXT_RUN
+    assert len(repository.messages) == message_count
+    assert f"directive_{created.id.hex}" not in repository.messages

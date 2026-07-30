@@ -1185,6 +1185,38 @@ Redis 使用身份绑定且区分 `cancel`/`steer` 的持久键与跨副本 fan-
 只有完成冻结 checkpoint 继承、successor fencing 与 directive 绑定后才允许开放公共入口，避免出现
 “已经打断但没有可靠后继”的半成品能力。
 
+受控 successor 后端现已完成并开放
+`POST /api/v1/chat/{trace_id}/directives/steer`：API 先持久化 actor-scoped
+`interrupt_and_steer` 指令，再跨副本通知旧 worker，且必须观察到旧 Run 的持久化
+`interrupted` 才开始新 SSE。pending steer 会预留旧 Run，阻止普通 resume 抢占窗口；绑定后旧 Run
+从 recoverable 查询消失。新 Run 的 Trace/Request ID 从 directive UUID 确定性生成，同一
+idempotency key 在完成后重试会重放同一答案，不创建第三个 Run。
+
+successor 只复用旧 Run 加密冻结的历史、Profile/Memory 低权限投影、Skill 定义、文档、配置和已完成
+能力结果；新的用户要求重新经过 Deterministic Routing、ClinicalState 用户事实投影、SAVI/C3、
+Context 容量预检和动态 DAG，不重新读取当前可变 Memory/Profile/Skill/文档。Memory 的核心在线 CRUD
+没有被冻结：successor 成功后仍按正常交互更新记忆。steer 指令使用 successor fencing 原子绑定并
+直接确认其已经落库的新用户 Message，因此 Conversation 和 Prompt 只出现一次；旧 Run 上 pending 或
+旧 fence 已 claimed 的 queue 指令会清除旧 claim 后迁移到 successor；转移不再有低于配置上限的
+100 条隐藏门槛。绑定提交后仍指向旧 Trace 到达的 queue 会在锁住 source Run 的同一事务内重定向到
+已绑定且仍为 `running` 的 successor；同时锁住 successor 与其终态迁移线性化，若后继已经或并发进入
+终态，则指令稳定落为 `pending_next_run` 且清除 successor，不产生悬空指令。同一 idempotency key 的并发 steer 若撞到 successor session
+lease，会等待该 Trace 完成并重放唯一答案，不向用户显示 `SessionBusy`；轮询强制刷新数据库 Trace
+事实，避免 ORM identity map 长期保留旧 `running`。`ControlledSuccessorState` 还显式交叉校验
+source Trace 与冻结快照，绑定阶段继续核对 Run/directive/fence。旧 attempt、校验修复和中间失败不
+进入新 SSE；第一条 successor 公开阶段固定为“已按新要求调整执行”。
+
+普通 resume 与 steer 预留的顺序保证来自状态机本身：普通 resume 只接受 `interrupted`，而 steer
+指令只能在 source 仍为 `running` 时先提交，旧 worker 随后才可转入 `interrupted`，因此一旦 resume
+可见，steer reservation 已经持久化并会被拒绝检查命中，而不是依赖非锁定读取碰运气。
+
+验证记录：聚焦 RunDirective/Resume/Chat/Route/Cancellation 单元测试 `75 passed`；扩大到
+Harness/Safety/AgentRun/Context/Directive 的组合回归 `157 passed`，Ruff 与 15 个当前受影响 source
+的 Mypy 通过，新增配置与 Trace 刷新边界回归 `36 passed`；真实 PostgreSQL/Redis/Qdrant 覆盖 steer → interrupted → successor、并发同键等待
+重放、101 条 queue 全量迁移、绑定后 queue 竞态重定向、queue 与 successor 终态竞态及旧 resume 拒绝，与既有 directive 十路幂等、
+终态/绑定/apply/withdraw 竞态合跑 `9 passed`（只有本地 Qdrant HTTP API-key warning）。Composer 和真实 Playwright 操作仍属于下一
+独立前端变更集；before-tool/PlanNode checkpoint 也未在此处伪装为完成。
+
 #### 6.7 安全校验的可用性、反馈修复与步骤级回退硬约束
 
 “安全”不能被实现成高误杀率的拒绝系统。每个校验器必须先声明保护的具体资产、精确失败条件、可修复性、

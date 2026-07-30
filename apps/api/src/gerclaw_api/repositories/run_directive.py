@@ -3,9 +3,10 @@
 from __future__ import annotations
 
 import uuid
+from datetime import datetime
 from typing import Protocol, cast
 
-from sqlalchemy import and_, or_, select
+from sqlalchemy import and_, or_, select, update
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -52,6 +53,14 @@ class RunDirectiveRepository(Protocol):
         actor_id: str,
     ) -> RunDirective | None: ...
 
+    async def get_bound_steer_for_source(
+        self,
+        run_id: uuid.UUID,
+        *,
+        tenant_id: str,
+        actor_id: str,
+    ) -> RunDirective | None: ...
+
     async def lock_conversation(
         self,
         conversation_id: uuid.UUID,
@@ -67,6 +76,16 @@ class RunDirectiveRepository(Protocol):
         actor_id: str,
         limit: int,
     ) -> list[RunDirective]: ...
+
+    async def transfer_consumable(
+        self,
+        source_run_id: uuid.UUID,
+        successor_run_id: uuid.UUID,
+        *,
+        tenant_id: str,
+        actor_id: str,
+        updated_at: datetime,
+    ) -> None: ...
 
     async def list_applied_for_execution(
         self,
@@ -101,6 +120,14 @@ class RunDirectiveRepository(Protocol):
         trace_id: str,
         *,
         tenant_id: str,
+    ) -> Message | None: ...
+
+    async def get_run_input_message(
+        self,
+        run_id: uuid.UUID,
+        *,
+        tenant_id: str,
+        actor_id: str,
     ) -> Message | None: ...
 
     async def add_projected_message(self, message: Message) -> None: ...
@@ -189,6 +216,30 @@ class SqlAlchemyRunDirectiveRepository:
             ),
         )
 
+    async def get_bound_steer_for_source(
+        self,
+        run_id: uuid.UUID,
+        *,
+        tenant_id: str,
+        actor_id: str,
+    ) -> RunDirective | None:
+        return cast(
+            RunDirective | None,
+            await self._session.scalar(
+                select(RunDirective)
+                .where(
+                    RunDirective.tenant_id == tenant_id,
+                    RunDirective.actor_id == actor_id,
+                    RunDirective.target_run_id == run_id,
+                    RunDirective.mode == "interrupt_and_steer",
+                    RunDirective.status == "applied",
+                    RunDirective.successor_run_id.is_not(None),
+                )
+                .order_by(RunDirective.sequence.desc())
+                .limit(1)
+            ),
+        )
+
     async def lock_conversation(
         self,
         conversation_id: uuid.UUID,
@@ -238,6 +289,43 @@ class SqlAlchemyRunDirectiveRepository:
             .execution_options(populate_existing=True)
         )
         return list((await self._session.scalars(statement)).all())
+
+    async def transfer_consumable(
+        self,
+        source_run_id: uuid.UUID,
+        successor_run_id: uuid.UUID,
+        *,
+        tenant_id: str,
+        actor_id: str,
+        updated_at: datetime,
+    ) -> None:
+        """Move every still-consumable queue item while the source Run is locked."""
+
+        await self._session.execute(
+            update(RunDirective)
+            .where(
+                RunDirective.tenant_id == tenant_id,
+                RunDirective.actor_id == actor_id,
+                RunDirective.status.in_(("pending", "claimed")),
+                or_(
+                    RunDirective.successor_run_id == source_run_id,
+                    and_(
+                        RunDirective.successor_run_id.is_(None),
+                        RunDirective.target_run_id == source_run_id,
+                        RunDirective.mode == "queue_for_next_boundary",
+                    ),
+                ),
+            )
+            .values(
+                successor_run_id=successor_run_id,
+                status="pending",
+                claimed_by_fencing_token=None,
+                claim_boundary_id=None,
+                claimed_at=None,
+                revision=RunDirective.revision + 1,
+                updated_at=updated_at,
+            )
+        )
 
     async def list_applied_for_execution(
         self,
@@ -327,6 +415,34 @@ class SqlAlchemyRunDirectiveRepository:
                 select(Message).where(
                     Message.tenant_id == tenant_id,
                     Message.trace_id == trace_id,
+                    Message.role == "user",
+                )
+            ),
+        )
+
+    async def get_run_input_message(
+        self,
+        run_id: uuid.UUID,
+        *,
+        tenant_id: str,
+        actor_id: str,
+    ) -> Message | None:
+        return cast(
+            Message | None,
+            await self._session.scalar(
+                select(Message)
+                .join(
+                    AgentRun,
+                    and_(
+                        AgentRun.input_message_id == Message.id,
+                        AgentRun.tenant_id == Message.tenant_id,
+                        AgentRun.conversation_id == Message.session_id,
+                    ),
+                )
+                .where(
+                    AgentRun.id == run_id,
+                    AgentRun.tenant_id == tenant_id,
+                    AgentRun.actor_id == actor_id,
                     Message.role == "user",
                 )
             ),

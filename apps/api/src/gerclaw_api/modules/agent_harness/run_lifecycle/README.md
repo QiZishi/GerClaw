@@ -72,12 +72,29 @@ SSE as a typed interruption instead of re-reading mutable Redis state during cle
 cancel takes precedence when both durable signals exist before that outcome is frozen, and
 the local merge is monotonic so a stale Redis steer read cannot downgrade a concurrent cancel.
 
-Controlled successor creation, before-tool and plan-node boundaries, Context compression after
-large tool results, and Composer status projection remain the next change sets. No public API
-can request immediate steering until the successor can inherit the last committed checkpoint
-without re-reading mutable Memory or Skill state. A model-only stream that receives a queued
-directive after its initial boundary therefore defers it to the next Run instead of mutating
-an in-flight model call.
+The immediate-steer API now waits for the old Run's durable `interrupted` state before opening
+a deterministic successor Trace. A pending steer reserves the source against ordinary resume;
+after binding, the source disappears from recoverable-run lookup. The successor reuses the
+encrypted frozen history, Profile/Memory projection, Skill definitions, documents, resolved
+configuration, and completed capability results, while recomputing route, ClinicalState,
+clinical action, Context budget, and DAG for the new instruction. It does not re-read mutable
+Memory or Skill state. Binding and applying the steer uses the successor fence and its already
+stored input message, so Conversation history contains the instruction exactly once. Pending
+or stale-claimed queue directives move to the successor and lose the old claim. A stable
+directive-derived Trace makes completed retries replay the same answer without creating a
+third Run. Concurrent retries of the same directive wait for that Trace to become replayable
+instead of surfacing a session-busy error; Trace reads refresh the database fact instead of
+reusing an identity-map copy of `running`. Queue instructions that race after binding are
+atomically redirected to the bound successor while it is running; creation locks that
+successor against its terminal deferral, so a concurrent or already-finished successor leaves
+the instruction as `pending_next_run` instead of stranding it. Binding transfers the full
+consumable set without a smaller hard-coded batch ceiling. The old worker's private attempt remains
+invisible, and the successor's first public stage is `已按新要求调整执行`.
+
+Before-tool and plan-node boundaries, Context compression after large tool results, and
+Composer status projection remain the next change sets. A model-only stream that receives a
+queued directive after its initial boundary therefore defers it to the next Run instead of
+mutating an in-flight model call.
 
 Measure improvement with one terminal event, no failed-attempt bytes in SSE/replay, atomic
 AnswerVersion/current-attempt selection, stale-fence/CAS rejection, cancellation tests, and

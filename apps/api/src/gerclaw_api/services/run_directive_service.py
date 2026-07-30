@@ -17,6 +17,7 @@ from gerclaw_api.domain.run_schemas import (
     RunDirectiveRead,
     RunDirectiveStatus,
     RunQueuedDirectiveCreate,
+    RunSteerDirectiveCreate,
 )
 from gerclaw_api.repositories.run_directive import (
     DuplicateRunDirectiveError,
@@ -61,6 +62,52 @@ class RunDirectiveService:
             actor_id=actor_id,
             for_update=True,
         )
+        run_status = AgentRunStatus(run.status)
+        bound_successor_id: uuid.UUID | None = None
+        defer_to_next_run = run_status in TERMINAL_RUN_STATUSES
+        if request.mode is RunDirectiveMode.INTERRUPT_AND_STEER:
+            existing_directives = await self._repository.list_for_run(
+                run.id,
+                tenant_id=tenant_id,
+                actor_id=actor_id,
+                limit=200,
+            )
+            if run_status is not AgentRunStatus.RUNNING or any(
+                item.mode == RunDirectiveMode.INTERRUPT_AND_STEER.value
+                and item.status != RunDirectiveStatus.CANCELLED.value
+                for item in existing_directives
+            ):
+                await self._repository.rollback()
+                raise RunDirectiveConflictError(
+                    "run already has an immediate steer or is no longer running"
+                )
+        elif request.mode is RunDirectiveMode.QUEUE_FOR_NEXT_BOUNDARY:
+            bound_steer = await self._repository.get_bound_steer_for_source(
+                run.id,
+                tenant_id=tenant_id,
+                actor_id=actor_id,
+            )
+            candidate_successor_id = (
+                bound_steer.successor_run_id
+                if bound_steer is not None
+                else None
+            )
+            if candidate_successor_id is not None:
+                successor = await self._owned_run(
+                    candidate_successor_id,
+                    tenant_id=tenant_id,
+                    actor_id=actor_id,
+                    for_update=True,
+                )
+                if successor.conversation_id != run.conversation_id:
+                    await self._repository.rollback()
+                    raise RunDirectiveConflictError(
+                        "bound successor belongs to another conversation"
+                    )
+                if AgentRunStatus(successor.status) is AgentRunStatus.RUNNING:
+                    bound_successor_id = successor.id
+                else:
+                    defer_to_next_run = True
         conversation = await self._repository.lock_conversation(
             run.conversation_id,
             tenant_id=tenant_id,
@@ -70,19 +117,18 @@ class RunDirectiveService:
             raise RunDirectiveNotFoundError(str(run.conversation_id))
         conversation.last_directive_sequence += 1
         now = datetime.now(UTC)
-        run_status = AgentRunStatus(run.status)
         directive = RunDirective(
             id=request.id,
             tenant_id=tenant_id,
             actor_id=actor_id,
             conversation_id=run.conversation_id,
             target_run_id=run.id,
-            successor_run_id=None,
+            successor_run_id=bound_successor_id,
             sequence=conversation.last_directive_sequence,
             mode=request.mode.value,
             status=(
                 RunDirectiveStatus.PENDING_NEXT_RUN.value
-                if run_status in TERMINAL_RUN_STATUSES
+                if defer_to_next_run and bound_successor_id is None
                 else RunDirectiveStatus.PENDING.value
             ),
             instruction=request.instruction,
@@ -150,6 +196,80 @@ class RunDirectiveService:
             tenant_id=tenant_id,
             actor_id=actor_id,
         )
+
+    async def steer_for_trace(
+        self,
+        trace_id: str,
+        request: RunSteerDirectiveCreate,
+        *,
+        tenant_id: str,
+        actor_id: str,
+        wait_seconds: float,
+        poll_interval_seconds: float,
+    ) -> RunDirectiveRead:
+        """Persist an immediate directive before any worker interruption."""
+
+        if wait_seconds < 0 or poll_interval_seconds <= 0:
+            raise ValueError("directive trace wait values are invalid")
+        deadline = time.monotonic() + wait_seconds
+        while True:
+            run = await self._repository.get_owned_run_by_trace(
+                trace_id,
+                tenant_id=tenant_id,
+                actor_id=actor_id,
+            )
+            if run is not None:
+                break
+            await self._repository.rollback()
+            remaining = deadline - time.monotonic()
+            if remaining <= 0:
+                raise RunDirectiveNotFoundError(trace_id)
+            await asyncio.sleep(min(poll_interval_seconds, remaining))
+        return await self.create(
+            run.id,
+            RunDirectiveCreate(
+                mode=RunDirectiveMode.INTERRUPT_AND_STEER,
+                instruction=request.instruction,
+                idempotency_key=request.idempotency_key,
+            ),
+            tenant_id=tenant_id,
+            actor_id=actor_id,
+        )
+
+    async def wait_for_interrupted_target(
+        self,
+        run_id: uuid.UUID,
+        *,
+        tenant_id: str,
+        actor_id: str,
+        wait_seconds: float,
+        poll_interval_seconds: float,
+    ) -> None:
+        """Wait only for the durable Run state; never infer from task delivery."""
+
+        if wait_seconds <= 0 or poll_interval_seconds <= 0:
+            raise ValueError("directive interruption wait values are invalid")
+        deadline = time.monotonic() + wait_seconds
+        while True:
+            run = await self._owned_run(
+                run_id,
+                tenant_id=tenant_id,
+                actor_id=actor_id,
+            )
+            run_status = AgentRunStatus(run.status)
+            await self._repository.rollback()
+            if run_status is AgentRunStatus.INTERRUPTED:
+                return
+            if run_status in TERMINAL_RUN_STATUSES or run_status is AgentRunStatus.WAITING_FOR_USER:
+                raise RunDirectiveConflictError(
+                    "target run cannot start a controlled successor"
+                )
+            remaining = deadline - time.monotonic()
+            if remaining <= 0:
+                raise RunDirectiveConflictError(
+                    "target run did not reach an interruption checkpoint"
+                )
+            await asyncio.sleep(min(poll_interval_seconds, remaining))
 
     async def list_for_trace(
         self,
@@ -337,6 +457,90 @@ class RunDirectiveService:
         await self._commit()
         return self.to_public(directive)
 
+    async def bind_successor_input(
+        self,
+        directive_id: uuid.UUID,
+        successor_run_id: uuid.UUID,
+        *,
+        tenant_id: str,
+        actor_id: str,
+        fencing_token: int,
+    ) -> RunDirectiveRead:
+        """Atomically bind and consume steer text already stored as successor input."""
+
+        if fencing_token < 1:
+            raise ValueError("fencing_token must be positive")
+        probe = await self._owned_directive(
+            directive_id,
+            tenant_id=tenant_id,
+            actor_id=actor_id,
+        )
+        run_ids = {probe.target_run_id, successor_run_id}
+        locked_runs: dict[uuid.UUID, AgentRun] = {}
+        for run_id in sorted(run_ids, key=str):
+            locked_runs[run_id] = await self._owned_run(
+                run_id,
+                tenant_id=tenant_id,
+                actor_id=actor_id,
+                for_update=True,
+            )
+        directive = await self._owned_directive(
+            directive_id,
+            tenant_id=tenant_id,
+            actor_id=actor_id,
+            for_update=True,
+        )
+        source = locked_runs[directive.target_run_id]
+        successor = locked_runs[successor_run_id]
+        if (
+            directive.mode != RunDirectiveMode.INTERRUPT_AND_STEER.value
+            or source.status != AgentRunStatus.INTERRUPTED.value
+            or successor.status != AgentRunStatus.RUNNING.value
+            or successor.fencing_token != fencing_token
+            or successor.conversation_id != directive.conversation_id
+        ):
+            await self._repository.rollback()
+            raise RunDirectiveConflictError("controlled successor identity changed")
+        if directive.successor_run_id is not None:
+            if (
+                directive.successor_run_id == successor_run_id
+                and directive.status == RunDirectiveStatus.APPLIED.value
+            ):
+                result = self.to_public(directive)
+                await self._repository.rollback()
+                return result
+            if directive.successor_run_id != successor_run_id:
+                await self._repository.rollback()
+                raise RunDirectiveConflictError(
+                    "directive already has a different successor"
+                )
+        if RunDirectiveStatus(directive.status) not in {
+            RunDirectiveStatus.PENDING,
+            RunDirectiveStatus.PENDING_NEXT_RUN,
+        }:
+            await self._repository.rollback()
+            raise RunDirectiveConflictError(
+                "controlled successor directive is no longer pending"
+            )
+        now = datetime.now(UTC)
+        await self._repository.transfer_consumable(
+            source.id,
+            successor_run_id,
+            tenant_id=tenant_id,
+            actor_id=actor_id,
+            updated_at=now,
+        )
+        directive.successor_run_id = successor_run_id
+        directive.status = RunDirectiveStatus.APPLIED.value
+        directive.claimed_by_fencing_token = fencing_token
+        directive.claim_boundary_id = "successor.input.v1"
+        directive.claimed_at = now
+        directive.applied_at = now
+        directive.revision += 1
+        await self._ensure_message_projection(directive)
+        await self._commit()
+        return self.to_public(directive)
+
     async def claim_next(
         self,
         run_id: uuid.UUID,
@@ -501,12 +705,30 @@ class RunDirectiveService:
         return tuple(self.to_public(item) for item in directives)
 
     async def _ensure_message_projection(self, directive: RunDirective) -> bool:
+        expected_content = [{"type": "text", "text": directive.instruction}]
+        if (
+            directive.mode == RunDirectiveMode.INTERRUPT_AND_STEER.value
+            and directive.successor_run_id is not None
+        ):
+            successor_input = await self._repository.get_run_input_message(
+                directive.successor_run_id,
+                tenant_id=directive.tenant_id,
+                actor_id=directive.actor_id,
+            )
+            if (
+                successor_input is None
+                or successor_input.session_id != directive.conversation_id
+                or successor_input.content != expected_content
+            ):
+                raise RunDirectiveConflictError(
+                    "controlled successor input does not match its directive"
+                )
+            return False
         trace_id = f"directive_{directive.id.hex}"
         existing = await self._repository.get_projected_message(
             trace_id,
             tenant_id=directive.tenant_id,
         )
-        expected_content = [{"type": "text", "text": directive.instruction}]
         if existing is not None:
             if (
                 existing.session_id != directive.conversation_id

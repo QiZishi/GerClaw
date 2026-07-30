@@ -152,6 +152,7 @@ class Settings(BaseSettings):
     # target: the clinical workflow rejects material that does not fit.
     document_context_max_characters: int = Field(default=273_000, ge=1_000, le=273_000)
     chat_session_lease_ttl_seconds: int = Field(default=300, ge=60, le=900)
+    chat_idempotent_replay_wait_seconds: float = Field(default=900.0, gt=0, le=1_800)
     agent_run_recovery_batch_size: int = Field(default=500, ge=1, le=5_000)
     agent_run_recovery_guard_ttl_seconds: int = Field(default=30, ge=5, le=60)
     agent_run_stream_poll_interval_seconds: float = Field(default=0.25, ge=0.05, le=2)

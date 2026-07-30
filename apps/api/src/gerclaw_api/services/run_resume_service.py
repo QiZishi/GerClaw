@@ -86,6 +86,7 @@ class RunResumeService:
         *,
         tenant_id: str,
         actor_id: str,
+        controlled_directive_id: uuid.UUID | None = None,
     ) -> RunResumeCommand:
         record = await self._repository.get_owned_context(
             run_id,
@@ -108,6 +109,32 @@ class RunResumeService:
         ):
             await self._repository.rollback()
             raise RunResumeConflictError("run is not safely resumable")
+        controlled_successor_id = await self._repository.get_controlled_successor_id(
+            run_id,
+            tenant_id=tenant_id,
+            actor_id=actor_id,
+        )
+        if controlled_successor_id is not None and controlled_directive_id is None:
+            await self._repository.rollback()
+            raise RunResumeConflictError(
+                "run was replaced by a controlled successor"
+            )
+        active_steer_id = await self._repository.get_active_steer_directive_id(
+            run_id,
+            tenant_id=tenant_id,
+            actor_id=actor_id,
+        )
+        if (
+            active_steer_id is not None
+            and active_steer_id != controlled_directive_id
+        ) or (
+            controlled_directive_id is not None
+            and active_steer_id != controlled_directive_id
+        ):
+            await self._repository.rollback()
+            raise RunResumeConflictError(
+                "run is reserved for a controlled successor"
+            )
         if record.input_message.role != "user":
             await self._repository.rollback()
             raise RunResumeDataError("stored Run identity is invalid")
@@ -132,6 +159,8 @@ class RunResumeService:
                 actor_id=actor_id,
             )
             plan = state.plan
+            if plan.channel != "web":
+                raise ValueError("stored Run channel is not supported by chat resume")
             images = self._restore_images(
                 record.trace.private_input_artifacts,
                 plan=plan,
@@ -143,7 +172,7 @@ class RunResumeService:
                 requested_capabilities=list(plan.requested_capability_ids),
                 uploaded_files=list(plan.uploaded_document_ids),
                 images=images,
-                channel=plan.channel,
+                channel="web",
                 workflow=plan.workflow,
                 regenerate_from_run_id=plan.regenerate_from_run_id,
                 expected_current_answer_version_id=(

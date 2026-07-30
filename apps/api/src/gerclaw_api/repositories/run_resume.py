@@ -6,10 +6,10 @@ import uuid
 from dataclasses import dataclass
 from typing import Protocol, cast
 
-from sqlalchemy import and_, select
+from sqlalchemy import and_, exists, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from gerclaw_api.database.models import AgentRun, ExecutionTrace, Message
+from gerclaw_api.database.models import AgentRun, ExecutionTrace, Message, RunDirective
 
 
 @dataclass(frozen=True, slots=True)
@@ -39,6 +39,24 @@ class RunResumeRepository(Protocol):
         actor_id: str,
     ) -> AgentRun | None:
         """Return the newest running or resumable Run in one owned conversation."""
+
+    async def get_controlled_successor_id(
+        self,
+        run_id: uuid.UUID,
+        *,
+        tenant_id: str,
+        actor_id: str,
+    ) -> uuid.UUID | None:
+        """Return a bound successor without exposing another owner's directive."""
+
+    async def get_active_steer_directive_id(
+        self,
+        run_id: uuid.UUID,
+        *,
+        tenant_id: str,
+        actor_id: str,
+    ) -> uuid.UUID | None:
+        """Return the active steer reservation for an interrupted source Run."""
 
     async def rollback(self) -> None:
         """End the read transaction without retaining a snapshot."""
@@ -104,11 +122,67 @@ class SqlAlchemyRunResumeRepository:
                 AgentRun.tenant_id == tenant_id,
                 AgentRun.actor_id == actor_id,
                 AgentRun.status.in_(("running", "interrupted")),
+                ~exists(
+                    select(RunDirective.id).where(
+                        RunDirective.target_run_id == AgentRun.id,
+                        RunDirective.tenant_id == tenant_id,
+                        RunDirective.actor_id == actor_id,
+                        RunDirective.mode == "interrupt_and_steer",
+                        RunDirective.status == "applied",
+                        RunDirective.successor_run_id.is_not(None),
+                    )
+                ),
             )
             .order_by(AgentRun.updated_at.desc(), AgentRun.id.desc())
             .limit(1)
         )
         return cast(AgentRun | None, await self._session.scalar(statement))
+
+    async def get_controlled_successor_id(
+        self,
+        run_id: uuid.UUID,
+        *,
+        tenant_id: str,
+        actor_id: str,
+    ) -> uuid.UUID | None:
+        return cast(
+            uuid.UUID | None,
+            await self._session.scalar(
+                select(RunDirective.successor_run_id).where(
+                    RunDirective.target_run_id == run_id,
+                    RunDirective.tenant_id == tenant_id,
+                    RunDirective.actor_id == actor_id,
+                    RunDirective.mode == "interrupt_and_steer",
+                    RunDirective.status == "applied",
+                    RunDirective.successor_run_id.is_not(None),
+                )
+            ),
+        )
+
+    async def get_active_steer_directive_id(
+        self,
+        run_id: uuid.UUID,
+        *,
+        tenant_id: str,
+        actor_id: str,
+    ) -> uuid.UUID | None:
+        return cast(
+            uuid.UUID | None,
+            await self._session.scalar(
+                select(RunDirective.id)
+                .where(
+                    RunDirective.target_run_id == run_id,
+                    RunDirective.tenant_id == tenant_id,
+                    RunDirective.actor_id == actor_id,
+                    RunDirective.mode == "interrupt_and_steer",
+                    RunDirective.status.in_(
+                        ("pending", "pending_next_run", "claimed", "applied")
+                    ),
+                )
+                .order_by(RunDirective.sequence.desc())
+                .limit(1)
+            ),
+        )
 
     async def rollback(self) -> None:
         await self._session.rollback()

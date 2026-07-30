@@ -12,6 +12,7 @@ from gerclaw_api.modules.agent_harness.context_snapshot.models import (
     ContextProjectionManifestV2,
     ContextSnapshotError,
     ContextSourceBudget,
+    ContextSourceName,
     ConversationHistoryMessage,
 )
 
@@ -63,7 +64,7 @@ class ContextWindowManager:
         *,
         history: tuple[ConversationHistoryMessage, ...],
         session_summary: str,
-        fixed_sections: tuple[tuple[str, tuple[str, ...]], ...],
+        fixed_sections: tuple[tuple[ContextSourceName, tuple[str, ...]], ...],
         model_context_tokens: int,
         trigger_ratio: float,
         hard_stop_ratio: float,

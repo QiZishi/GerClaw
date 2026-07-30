@@ -15,6 +15,7 @@ from gerclaw_api.modules.orchestration import (
     ChatSteeredInterruption,
     ChatTurnCoordinator,
 )
+from gerclaw_api.services.session_lease import SessionBusyError
 
 
 class _Conversation:
@@ -39,6 +40,10 @@ class _Traces:
     ) -> None:
         self.private_artifacts.append((tenant_id, trace_id, artifacts))
 
+    async def get_trace(self, tenant_id: str, trace_id: str) -> SimpleNamespace:
+        del tenant_id, trace_id
+        return self.result.trace
+
 
 class _Lease:
     def __init__(self) -> None:
@@ -48,6 +53,13 @@ class _Lease:
     async def acquire(self, *, tenant_id: str, session_id: uuid.UUID, fencing_token: int):
         self.calls.append((tenant_id, session_id, fencing_token))
         yield SimpleNamespace(fencing_token=fencing_token)
+
+class _BusyLease(_Lease):
+    @asynccontextmanager
+    async def acquire(self, *, tenant_id: str, session_id: uuid.UUID, fencing_token: int):
+        self.calls.append((tenant_id, session_id, fencing_token))
+        raise SessionBusyError("same trace is already running")
+        yield  # pragma: no cover
 
 
 def _start_request(session_id: uuid.UUID) -> TraceStartRequest:
@@ -73,6 +85,7 @@ async def test_completed_trace_replays_without_a_new_lease_or_private_artifact()
         private_input_artifacts={"images": [{"evidence_id": "ev_img"}]},
         read_replay=lambda: _return(response),  # type: ignore[arg-type]
         emit_replay=lambda item: _append(emitted, item),
+        wait_for_replay=None,
         run_owned_turn=lambda guard: _unexpected("owned turn must not run"),
         finalize_failure=lambda *args: _return(True),
         error_code=lambda error: "CHAT_EXECUTION_FAILED",
@@ -109,6 +122,7 @@ async def test_running_trace_uses_lease_and_preserves_private_artifacts_outside_
         private_input_artifacts={"images": [{"evidence_id": "ev_img"}]},
         read_replay=lambda: _unexpected("replay must not run"),
         emit_replay=lambda item: _unexpected("replay must not emit"),
+        wait_for_replay=None,
         run_owned_turn=run_owned_turn,  # type: ignore[arg-type]
         finalize_failure=lambda *args: _return(True),
         error_code=lambda error: "CHAT_EXECUTION_FAILED",
@@ -150,6 +164,7 @@ async def test_cancelled_owned_turn_requires_a_durable_cancelled_finalization() 
             private_input_artifacts=None,
             read_replay=lambda: _unexpected("replay must not run"),
             emit_replay=lambda item: _unexpected("replay must not emit"),
+            wait_for_replay=None,
             run_owned_turn=cancelled_turn,  # type: ignore[arg-type]
             finalize_failure=finalize,
             error_code=lambda error: "CHAT_EXECUTION_FAILED",
@@ -190,6 +205,7 @@ async def test_steered_turn_uses_distinct_interruption_code() -> None:
             private_input_artifacts=None,
             read_replay=lambda: _unexpected("replay must not run"),
             emit_replay=lambda item: _unexpected("replay must not emit"),
+            wait_for_replay=None,
             run_owned_turn=interrupted_turn,  # type: ignore[arg-type]
             finalize_failure=finalize,
             error_code=lambda error: "CHAT_EXECUTION_FAILED",
@@ -197,6 +213,48 @@ async def test_steered_turn_uses_distinct_interruption_code() -> None:
         )
 
     assert statuses == [(TraceStatus.CANCELLED, "CHAT_STEERED", 7)]
+
+
+@pytest.mark.asyncio
+async def test_concurrent_same_trace_waits_for_owner_and_replays() -> None:
+    conversation = _Conversation()
+    traces = _Traces(status="running", created=False)
+    lease = _BusyLease()
+    coordinator = ChatTurnCoordinator(
+        conversation=conversation,
+        traces=traces,
+        lease=lease,
+    )  # type: ignore[arg-type]
+    response = SimpleNamespace(marker="waited-replay")
+    emitted: list[object] = []
+    owned_turn_calls = 0
+
+    async def run_owned_turn(_guard: object) -> object:
+        nonlocal owned_turn_calls
+        owned_turn_calls += 1
+        return response
+
+    result = await coordinator.execute(
+        start_request=_start_request(uuid.uuid4()),
+        request_id="req_waited_replay",
+        trace_id="trace_waited_replay_1234",
+        tenant_id="tenant_test",
+        actor_id="actor_test",
+        session_id=uuid.uuid4(),
+        private_input_artifacts=None,
+        read_replay=lambda: _unexpected("initial trace is still running"),
+        emit_replay=lambda item: _append(emitted, item),
+        wait_for_replay=lambda: _return(response),  # type: ignore[arg-type]
+        run_owned_turn=run_owned_turn,  # type: ignore[arg-type]
+        finalize_failure=lambda *args: _return(True),
+        error_code=lambda error: "CHAT_EXECUTION_FAILED",
+    )
+
+    assert result is response
+    assert emitted == [response]
+    assert owned_turn_calls == 0
+    assert conversation.next_calls == 1
+    assert lease.calls
 
 
 async def _return(value: object) -> object:

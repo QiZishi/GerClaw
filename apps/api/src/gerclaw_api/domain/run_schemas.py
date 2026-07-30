@@ -128,6 +128,15 @@ class RunQueuedDirectiveCreate(BaseModel):
     idempotency_key: BoundedIdentifier
 
 
+class RunSteerDirectiveCreate(BaseModel):
+    """Public instruction that replaces an active execution with a successor."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    instruction: BoundedDirectiveText
+    idempotency_key: BoundedIdentifier
+
+
 class RunDirectiveClaim(BaseModel):
     """Internal claim identity for exactly-once boundary consumption."""
 

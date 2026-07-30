@@ -19,6 +19,7 @@ from gerclaw_api.database.models import (
     BadCase,
     EvolutionSignalRecord,
     Message,
+    RunDirective,
     RunEvent,
 )
 from gerclaw_api.domain.enums import TraceStatus
@@ -143,6 +144,9 @@ class _BlockingSkillHarness:
 class _GateFirstHarness(_SafeHarness):
     entered = asyncio.Event()
     release = asyncio.Event()
+    successor_entered = asyncio.Event()
+    successor_release = asyncio.Event()
+    gate_successor = False
     calls = 0
 
     async def process_message(self, *_args: object, **_kwargs: object) -> AgentResponse:
@@ -150,6 +154,9 @@ class _GateFirstHarness(_SafeHarness):
         if type(self).calls == 1:
             type(self).entered.set()
             await type(self).release.wait()
+        elif type(self).calls == 2 and type(self).gate_successor:
+            type(self).successor_entered.set()
+            await type(self).successor_release.wait()
         return _safe_response()
 
 
@@ -1055,6 +1062,7 @@ async def test_slow_regeneration_cannot_replace_a_newer_current_version(
 
     _GateFirstHarness.entered = asyncio.Event()
     _GateFirstHarness.release = asyncio.Event()
+    _GateFirstHarness.gate_successor = False
     _GateFirstHarness.calls = 0
     monkeypatch.setattr(chat_service_module, "ProductionAgentHarness", _GateFirstHarness)
     stale_task = asyncio.create_task(
@@ -1155,3 +1163,141 @@ async def test_run_cancel_endpoint_fences_and_notifies_active_worker(
         event for event in replay.json()["events"] if event["event_type"] == "run.status"
     ]
     assert [event["status"] for event in terminal_events] == ["cancelled"]
+
+
+@pytest.mark.integration
+@pytest.mark.asyncio
+async def test_immediate_steer_replaces_worker_with_frozen_context_successor(
+    integration_client: tuple[AsyncClient, object],
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    client, app = integration_client
+    session_id = uuid.uuid4()
+    source_trace_id = "trace_immediate_steer_source_0001"
+    assert (
+        await client.post("/api/v1/sessions", json={"session_id": str(session_id)})
+    ).status_code == 201
+    _GateFirstHarness.entered = asyncio.Event()
+    _GateFirstHarness.release = asyncio.Event()
+    _GateFirstHarness.successor_entered = asyncio.Event()
+    _GateFirstHarness.successor_release = asyncio.Event()
+    _GateFirstHarness.gate_successor = True
+    _GateFirstHarness.calls = 0
+    monkeypatch.setattr(chat_service_module, "ProductionAgentHarness", _GateFirstHarness)
+    source_task = asyncio.create_task(
+        client.post(
+            "/api/v1/chat",
+            headers={"X-Trace-ID": source_trace_id},
+            json={
+                "session_id": str(session_id),
+                "message": "请详细整理一份日常健康安排，并说明每一步理由。" * 6,
+                "channel": "web",
+            },
+            timeout=15,
+        )
+    )
+    await asyncio.wait_for(_GateFirstHarness.entered.wait(), timeout=3)
+
+    steer_request = {
+        "instruction": "请改为只给出三条最重要的安排。",
+        "idempotency_key": "directive-immediate-steer-integration",
+    }
+    steered_task = asyncio.create_task(
+        client.post(
+            f"/api/v1/chat/{source_trace_id}/directives/steer",
+            json=steer_request,
+            timeout=15,
+        )
+    )
+    await asyncio.wait_for(_GateFirstHarness.successor_entered.wait(), timeout=5)
+    concurrent_replay_task = asyncio.create_task(
+        client.post(
+            f"/api/v1/chat/{source_trace_id}/directives/steer",
+            json=steer_request,
+            timeout=15,
+        )
+    )
+    await asyncio.sleep(0.1)
+    assert not concurrent_replay_task.done()
+    _GateFirstHarness.successor_release.set()
+    steered, concurrent_replay = await asyncio.gather(
+        steered_task,
+        concurrent_replay_task,
+    )
+    _GateFirstHarness.gate_successor = False
+    source = await asyncio.wait_for(source_task, timeout=10)
+
+    assert source.status_code == 200
+    assert "event: interrupted" in source.text
+    assert "event: cancelled" not in source.text
+    assert "event: done" not in source.text
+    assert steered.status_code == 200, steered.text
+    assert "已按新要求调整执行" in steered.text
+    assert "event: done" in steered.text
+    assert "event: error" not in steered.text
+    assert concurrent_replay.status_code == 200, concurrent_replay.text
+    assert "event: done" in concurrent_replay.text
+    assert "event: error" not in concurrent_replay.text
+    replayed = await client.post(
+        f"/api/v1/chat/{source_trace_id}/directives/steer",
+        json=steer_request,
+        timeout=15,
+    )
+    assert replayed.status_code == 200, replayed.text
+    assert "event: done" in replayed.text
+    assert "event: error" not in replayed.text
+
+    async with app.state.database.session() as session:
+        source_run = await session.scalar(
+            select(AgentRun).where(AgentRun.trace_id == source_trace_id)
+        )
+        directive = await session.scalar(
+            select(RunDirective).where(
+                RunDirective.idempotency_key
+                == "directive-immediate-steer-integration"
+            )
+        )
+        assert source_run is not None
+        assert directive is not None
+        successor_run = await session.get(AgentRun, directive.successor_run_id)
+        user_messages = list(
+            (
+                await session.scalars(
+                    select(Message)
+                    .where(
+                        Message.session_id == session_id,
+                        Message.role == "user",
+                    )
+                    .order_by(Message.created_at)
+                )
+            ).all()
+        )
+        duplicate_projection = await session.scalar(
+            select(func.count())
+            .select_from(Message)
+            .where(Message.trace_id == f"directive_{directive.id.hex}")
+        )
+        run_count = await session.scalar(
+            select(func.count())
+            .select_from(AgentRun)
+            .where(AgentRun.conversation_id == session_id)
+        )
+
+    assert source_run.status == AgentRunStatus.INTERRUPTED.value
+    assert successor_run is not None
+    assert successor_run.status == AgentRunStatus.COMPLETED.value
+    assert directive.status == "applied"
+    assert directive.successor_run_id == successor_run.id
+    assert [item.content[0]["text"] for item in user_messages].count(
+        "请改为只给出三条最重要的安排。"
+    ) == 1
+    assert duplicate_projection == 0
+    assert run_count == 2
+    stale_resume = await client.post(f"/api/v1/runs/{source_run.id}/resume")
+    assert stale_resume.status_code == 409
+    assert stale_resume.json()["error"]["code"] == "RUN_RESOURCE_CONFLICT"
+    recoverable = await client.get(
+        f"/api/v1/conversations/{session_id}/recoverable-run"
+    )
+    assert recoverable.status_code == 200
+    assert recoverable.json()["run"] is None

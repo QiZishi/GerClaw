@@ -176,6 +176,16 @@ class RunDirectiveJournal(Protocol):
         limit: int,
     ) -> tuple[RunDirectiveRead, ...]: ...
 
+    async def bind_successor_input(
+        self,
+        directive_id: uuid.UUID,
+        successor_run_id: uuid.UUID,
+        *,
+        tenant_id: str,
+        actor_id: str,
+        fencing_token: int,
+    ) -> RunDirectiveRead: ...
+
     async def claim_directives(
         self,
         run_id: uuid.UUID,
@@ -263,6 +273,26 @@ class DatabaseChatRunJournal:
                 tenant_id=tenant_id,
                 actor_id=actor_id,
                 limit=limit,
+            )
+
+    async def bind_successor_input(
+        self,
+        directive_id: uuid.UUID,
+        successor_run_id: uuid.UUID,
+        *,
+        tenant_id: str,
+        actor_id: str,
+        fencing_token: int,
+    ) -> RunDirectiveRead:
+        async with self._database.session() as session:
+            return await RunDirectiveService(
+                SqlAlchemyRunDirectiveRepository(session)
+            ).bind_successor_input(
+                directive_id,
+                successor_run_id,
+                tenant_id=tenant_id,
+                actor_id=actor_id,
+                fencing_token=fencing_token,
             )
 
     async def claim_directives(

@@ -15,6 +15,21 @@ BoundedStableId = Annotated[
     str,
     StringConstraints(pattern=r"^[a-zA-Z0-9][a-zA-Z0-9_.:-]{0,127}$"),
 ]
+ContextSourceName = Literal[
+    "system_tools",
+    "current_input",
+    "profile",
+    "clinical_state",
+    "skills",
+    "documents",
+    "capability_results",
+    "plan",
+    "runtime_directives",
+    "history",
+    "history_summary",
+    "images",
+    "evidence_reserve",
+]
 
 
 class ConversationHistoryMessage(BaseModel):
@@ -32,21 +47,7 @@ class ContextSourceBudget(BaseModel):
 
     model_config = ConfigDict(extra="forbid", frozen=True)
 
-    source: Literal[
-        "system_tools",
-        "current_input",
-        "profile",
-        "clinical_state",
-        "skills",
-        "documents",
-        "capability_results",
-        "plan",
-        "runtime_directives",
-        "history",
-        "history_summary",
-        "images",
-        "evidence_reserve",
-    ]
+    source: ContextSourceName
     policy: Literal["required", "compressible", "bounded_reserve"]
     estimated_tokens: int = Field(ge=0, le=1_000_000)
 

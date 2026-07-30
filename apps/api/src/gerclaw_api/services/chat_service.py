@@ -50,6 +50,7 @@ from gerclaw_api.modules.agent_harness.config import ResolvedHarnessConfig
 from gerclaw_api.modules.agent_harness.context_snapshot import (
     ContextSnapshotError,
     ContextWindowManager,
+    ControlledSuccessorState,
     FrozenRunState,
     FrozenToolContract,
     PersistedContextSnapshot,
@@ -243,8 +244,18 @@ class ChatService:
         cancellation_requested: CancellationProbe | None = None,
         steering_requested: CancellationProbe | None = None,
         resume_state: FrozenRunState | None = None,
+        successor_state: ControlledSuccessorState | None = None,
     ) -> AgentResponse:
-        if resume_state is None:
+        if resume_state is not None and successor_state is not None:
+            raise UnsupportedAgentContextError(
+                "resume and controlled successor state are mutually exclusive"
+            )
+        frozen_source = (
+            resume_state if resume_state is not None else successor_state.source
+            if successor_state is not None
+            else None
+        )
+        if frozen_source is None:
             workflow = get_default_workflow_registry().validate_context(
                 payload.workflow,
                 loaded_skill_count=len(payload.loaded_skills),
@@ -252,12 +263,12 @@ class ChatService:
                 uploaded_image_count=len(payload.images),
             )
         else:
-            workflow = resume_state.plan.workflow_definition
+            workflow = frozen_source.plan.workflow_definition
             if (
-                payload.workflow is not resume_state.plan.workflow
-                or tuple(payload.loaded_skills) != resume_state.plan.loaded_skill_ids
-                or tuple(payload.uploaded_files) != resume_state.plan.uploaded_document_ids
-                or len(payload.images) != resume_state.plan.uploaded_image_count
+                payload.workflow is not frozen_source.plan.workflow
+                or tuple(payload.loaded_skills) != frozen_source.plan.loaded_skill_ids
+                or tuple(payload.uploaded_files) != frozen_source.plan.uploaded_document_ids
+                or len(payload.images) != frozen_source.plan.uploaded_image_count
             ):
                 raise UnsupportedAgentContextError(
                     "resume request does not match its frozen Run state"
@@ -298,6 +309,36 @@ class ChatService:
                 callback=callback,
             )
 
+        async def wait_for_replay() -> AgentResponse:
+            deadline = (
+                time.monotonic()
+                + self._settings.chat_idempotent_replay_wait_seconds
+            )
+            while True:
+                trace = await self._traces.get_trace(identity.tenant_id, trace_id)
+                if trace.status == TraceStatus.COMPLETED.value:
+                    response = await read_replay()
+                    if response is None:
+                        raise ChatReplayUnavailableError(
+                            "completed chat trace has no stored response"
+                        )
+                    return response
+                if trace.status != TraceStatus.RUNNING.value:
+                    raise ChatReplayUnavailableError(
+                        "failed or cancelled chat traces cannot be replayed"
+                    )
+                remaining = deadline - time.monotonic()
+                if remaining <= 0:
+                    raise ChatReplayUnavailableError(
+                        "running chat trace did not become replayable"
+                    )
+                await asyncio.sleep(
+                    min(
+                        self._settings.agent_run_stream_poll_interval_seconds,
+                        remaining,
+                    )
+                )
+
         async def run_owned_turn(lease_guard: SessionLeaseGuard) -> AgentResponse:
             return await self._process_owned_turn(
                 payload,
@@ -312,6 +353,7 @@ class ChatService:
                 active_skill_calls=active_skill_calls,
                 skill_audit_events=skill_audit_events,
                 resume_state=resume_state,
+                successor_state=successor_state,
             )
 
         async def finalize_failure(
@@ -372,6 +414,7 @@ class ChatService:
             ),
             read_replay=read_replay,
             emit_replay=emit_replay,
+            wait_for_replay=wait_for_replay,
             run_owned_turn=run_owned_turn,
             finalize_failure=finalize_failure,
             error_code=self.error_code,
@@ -394,6 +437,7 @@ class ChatService:
         active_skill_calls: dict[str, ActiveSkillCall],
         skill_audit_events: list[TraceEventCreate],
         resume_state: FrozenRunState | None,
+        successor_state: ControlledSuccessorState | None,
     ) -> AgentResponse:
         if resume_state is not None:
             frozen_execution = resume_state.snapshot.agent_context.execution
@@ -407,6 +451,23 @@ class ChatService:
                 raise UnsupportedAgentContextError(
                     "resume state identity does not match the active request"
                 )
+        if successor_state is not None:
+            source_execution = successor_state.source.snapshot.agent_context.execution
+            if (
+                source_execution.tenant_id != identity.tenant_id
+                or source_execution.actor_id != identity.actor_id
+                or source_execution.session_id != payload.session_id
+                or source_execution.trace_id == trace_id
+                or source_execution.request_id == request_id
+            ):
+                raise UnsupportedAgentContextError(
+                    "controlled successor identity does not match its frozen source"
+                )
+        frozen_source = (
+            resume_state if resume_state is not None else successor_state.source
+            if successor_state is not None
+            else None
+        )
 
         async def interruption_requested() -> bool:
             return bool(
@@ -444,8 +505,8 @@ class ChatService:
         if conversation.user_id is None:
             raise RuntimeError("conversation has no active user principal")
         workflow = (
-            resume_state.plan.workflow_definition
-            if resume_state is not None
+            frozen_source.plan.workflow_definition
+            if frozen_source is not None
             else get_default_workflow_registry().validate_context(
                 payload.workflow,
                 loaded_skill_count=len(payload.loaded_skills),
@@ -472,8 +533,8 @@ class ChatService:
             ]
         )
         resolved_harness_config = (
-            resume_state.plan.resolved_config
-            if resume_state is not None
+            frozen_source.plan.resolved_config
+            if frozen_source is not None
             else ResolvedHarnessConfig.from_settings(self._settings)
         )
         route_decision = (
@@ -507,8 +568,8 @@ class ChatService:
             and not emergency_route
         ):
             raise UnsupportedAgentContextError("Skill module is unavailable")
-        if resume_state is not None:
-            skill_definitions = list(resume_state.snapshot.skill_definitions)
+        if frozen_source is not None:
+            skill_definitions = list(frozen_source.snapshot.skill_definitions)
             agent_skills = [to_agentscope_skill(item) for item in skill_definitions]
         elif self._skill_module is not None and not emergency_route:
             loaded_skills = [
@@ -530,7 +591,7 @@ class ChatService:
             payload.loaded_skills[0] if len(payload.loaded_skills) == 1 else "unknown_skill"
         )
         fallback_skill_version = skill_versions.get(fallback_skill_id)
-        if resume_state is None and self._skill_module is not None and not emergency_route:
+        if frozen_source is None and self._skill_module is not None and not emergency_route:
             await self._skill_module.replace_session_skills(
                 payload.session_id, payload.loaded_skills, commit=False
             )
@@ -550,8 +611,8 @@ class ChatService:
             RouteKind.EMERGENCY,
         }
         execution_budget = (
-            resume_state.plan.execution_budget
-            if resume_state is not None
+            frozen_source.plan.execution_budget
+            if frozen_source is not None
             else ExecutionBudget(
                 max_steps=resolved_harness_config.max_react_iterations,
                 max_output_bytes=resolved_harness_config.max_output_bytes,
@@ -559,8 +620,8 @@ class ChatService:
         )
         memory_refs: list[str]
         short_term: list[MemoryMessage] = []
-        if resume_state is not None:
-            frozen_context = resume_state.snapshot.agent_context
+        if frozen_source is not None:
+            frozen_context = frozen_source.snapshot.agent_context
             history = list(frozen_context.conversation_history)
             session_summary = frozen_context.session_summary
             profile_context = frozen_context.profile_context
@@ -630,8 +691,8 @@ class ChatService:
             ).id
         )
         clinical_state = (
-            resume_state.snapshot.agent_context.clinical_state
-            if resume_state is not None
+            frozen_source.snapshot.agent_context.clinical_state
+            if frozen_source is not None
             else (
                 await self._run_journal.read_clinical_state(
                     payload.session_id,
@@ -642,7 +703,7 @@ class ChatService:
                 else ClinicalState()
             )
         )
-        if resume_state is None and self._directive_journal is not None:
+        if frozen_source is None and self._directive_journal is not None:
             recent_directives = await self._directive_journal.list_recent_applied_directives(
                 payload.session_id,
                 tenant_id=identity.tenant_id,
@@ -716,13 +777,27 @@ class ChatService:
             )
         )
         capability_results = (
-            list(resume_state.plan.capability_results) if resume_state is not None else []
+            [
+                item
+                for item in frozen_source.plan.capability_results
+                if item.capability_id in capability_selection.ids
+            ]
+            if frozen_source is not None
+            else []
         )
         planned_capabilities = {node.capability for node in dynamic_plan.nodes}
         selected_owner_capabilities = [
             item
             for item in capability_selection.selected
             if item.capability_id in planned_capabilities
+        ]
+        completed_capability_ids = {
+            item.capability_id for item in capability_results
+        }
+        selected_owner_capabilities = [
+            item
+            for item in selected_owner_capabilities
+            if item.capability_id not in completed_capability_ids
         ]
         if resume_state is None and selected_owner_capabilities and not emergency_route:
             if self._capability_runtime is None:
@@ -740,15 +815,15 @@ class ChatService:
                     )
                 )
         if (
-            resume_state is None
+            frozen_source is None
             and payload.uploaded_files
             and self._document_service is None
             and not emergency_route
         ):
             raise UnsupportedAgentContextError("uploaded document storage is unavailable")
         uploaded_documents = (
-            list(resume_state.snapshot.uploaded_documents)
-            if resume_state is not None
+            list(frozen_source.snapshot.uploaded_documents)
+            if frozen_source is not None
             else (
                 await self._document_service.resolve_context(
                     payload.uploaded_files,
@@ -823,6 +898,7 @@ class ChatService:
                 and memory_enabled
                 and memory is not None
                 and regeneration is None
+                and frozen_source is None
                 and (short_term or session_summary)
             ):
                 try:
@@ -928,7 +1004,12 @@ class ChatService:
                 after_sequence = page[-1].sequence
             if len(restored) > maximum:
                 raise ContextSnapshotError("restored directive count exceeds the frozen budget")
-            return tuple(restored)
+            return tuple(
+                item
+                for item in restored
+                if successor_state is None
+                or item.id != successor_state.directive_id
+            )
 
         async def claim_runtime_directives(
             boundary_id: str,
@@ -1081,6 +1162,18 @@ class ChatService:
                 actor_id=identity.actor_id,
             )
             self._active_run_id = run.id
+            if successor_state is not None:
+                if self._directive_journal is None:
+                    raise UnsupportedAgentContextError(
+                        "controlled successor directive storage is unavailable"
+                    )
+                await self._directive_journal.bind_successor_input(
+                    successor_state.directive_id,
+                    run.id,
+                    tenant_id=identity.tenant_id,
+                    actor_id=identity.actor_id,
+                    fencing_token=lease_guard.fencing_token,
+                )
             self._active_attempt = await self._run_journal.begin_attempt(
                 run.id,
                 RunAttemptCreate(
@@ -1111,6 +1204,18 @@ class ChatService:
         )
 
         buffered_events: list[StreamEvent] = []
+        successor_started_event = (
+            StreamEvent(
+                event_type="reasoning_summary",
+                data={
+                    "content": "已按新要求调整执行",
+                    "status": "running",
+                },
+                timestamp=datetime.now(UTC),
+            )
+            if successor_state is not None
+            else None
+        )
 
         async def projected(event: StreamEvent) -> None:
             if event.event_type == "done":
@@ -1263,6 +1368,8 @@ class ChatService:
 
         promoted_events: tuple[RunEventRead, ...] = ()
         try:
+            if successor_started_event is not None:
+                await projected(successor_started_event)
             response = await harness.process_message(
                 payload.message,
                 str(payload.session_id),

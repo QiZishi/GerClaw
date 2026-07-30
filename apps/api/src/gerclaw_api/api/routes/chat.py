@@ -33,10 +33,14 @@ from gerclaw_api.domain.chat_schemas import (
     SessionMessagesRead,
     SessionRead,
 )
+from gerclaw_api.domain.run_schemas import RunSteerDirectiveCreate
 from gerclaw_api.domain.trace_schemas import TRACE_ID_PATTERN
 from gerclaw_api.middleware import set_active_trace
 from gerclaw_api.modules.agent_harness import StreamEvent
-from gerclaw_api.modules.agent_harness.context_snapshot import FrozenRunState
+from gerclaw_api.modules.agent_harness.context_snapshot import (
+    ControlledSuccessorState,
+    FrozenRunState,
+)
 from gerclaw_api.modules.agent_harness.plugin_runtime import (
     CapabilityCatalogRead,
     CapabilityEntrypoint,
@@ -67,6 +71,7 @@ from gerclaw_api.repositories.memory import SqlAlchemyMemoryRepository
 from gerclaw_api.repositories.prescription_draft import SqlAlchemyPrescriptionDraftRepository
 from gerclaw_api.repositories.risk_alert import SqlAlchemyRiskAlertRepository
 from gerclaw_api.repositories.run_artifact import SqlAlchemyRunArtifactRepository
+from gerclaw_api.repositories.run_directive import SqlAlchemyRunDirectiveRepository
 from gerclaw_api.repositories.run_resume import SqlAlchemyRunResumeRepository
 from gerclaw_api.repositories.skill import SqlAlchemySkillRepository
 from gerclaw_api.repositories.trace import SqlAlchemyTraceRepository
@@ -91,6 +96,7 @@ from gerclaw_api.services.model_egress_audit import SqlAlchemyModelPromptEgressA
 from gerclaw_api.services.model_router import FailoverChatModel, bind_model_prompt_egress_audit
 from gerclaw_api.services.rate_limit import RateLimiter
 from gerclaw_api.services.run_artifact_service import RunArtifactService
+from gerclaw_api.services.run_directive_service import RunDirectiveService
 from gerclaw_api.services.run_resume_service import RunResumeService
 from gerclaw_api.services.session_lease import SessionLease
 from gerclaw_api.services.trace_service import TraceService
@@ -174,6 +180,80 @@ async def cancel_chat(
             },
         ) from error
     return ChatCancelRead(trace_id=trace_id)
+
+
+@router.post("/chat/{trace_id}/directives/steer")
+async def steer_chat(
+    trace_id: TraceIdPath,
+    payload: RunSteerDirectiveCreate,
+    request: Request,
+    session: SessionDependency,
+    identity: ChatWriteIdentity,
+) -> StreamingResponse:
+    """Interrupt one owned Run and stream its frozen-context successor."""
+
+    await _enforce_rate_limit(request, identity)
+    settings = request.app.state.settings
+    directive_service = RunDirectiveService(
+        SqlAlchemyRunDirectiveRepository(session)
+    )
+    directive = await directive_service.steer_for_trace(
+        trace_id,
+        payload,
+        tenant_id=identity.tenant_id,
+        actor_id=identity.actor_id,
+        wait_seconds=settings.agent_directive_trace_wait_seconds,
+        poll_interval_seconds=settings.agent_run_stream_poll_interval_seconds,
+    )
+    registry: ChatCancellationRegistry = request.app.state.chat_cancellations
+    try:
+        await registry.request_steer(
+            tenant_id=identity.tenant_id,
+            actor_id=identity.actor_id,
+            trace_id=trace_id,
+        )
+    except ChatCancellationUnavailable as error:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail={
+                "code": "CHAT_STEER_UNAVAILABLE",
+                "message": "暂时无法调整当前执行，请稍后重试。",
+            },
+        ) from error
+    await directive_service.wait_for_interrupted_target(
+        directive.target_run_id,
+        tenant_id=identity.tenant_id,
+        actor_id=identity.actor_id,
+        wait_seconds=settings.agent_directive_trace_wait_seconds,
+        poll_interval_seconds=settings.agent_run_stream_poll_interval_seconds,
+    )
+    source = await RunResumeService(
+        SqlAlchemyRunResumeRepository(session)
+    ).prepare(
+        directive.target_run_id,
+        tenant_id=identity.tenant_id,
+        actor_id=identity.actor_id,
+        controlled_directive_id=directive.id,
+    )
+    successor_request = source.request.model_copy(
+        update={"message": directive.instruction}
+    )
+    if successor_request.loaded_skills:
+        authorize_scope(identity, "skill:execute")
+    stable_suffix = directive.id.hex
+    return await _stream_chat(
+        successor_request,
+        request=request,
+        identity=identity,
+        trace_id=f"trace_steer_{stable_suffix}",
+        request_id=f"req_steer_{stable_suffix}",
+        successor_state=ControlledSuccessorState(
+            source_run_id=directive.target_run_id,
+            source_trace_id=source.trace_id,
+            directive_id=directive.id,
+            source=source.state,
+        ),
+    )
 
 
 @router.post("/sessions", response_model=SessionRead, status_code=status.HTTP_201_CREATED)
@@ -352,6 +432,7 @@ async def _stream_chat(
     trace_id: str,
     request_id: str,
     resume_state: FrozenRunState | None = None,
+    successor_state: ControlledSuccessorState | None = None,
 ) -> StreamingResponse:
     """Run the shared SSE transport for a new or explicitly resumed turn."""
 
@@ -585,6 +666,7 @@ async def _stream_chat(
                                 trace_id=trace_id,
                             ),
                             resume_state=resume_state,
+                            successor_state=successor_state,
                         )
                     finally:
                         if request_owned_search is not None:

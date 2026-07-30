@@ -168,3 +168,22 @@ class FrozenRunState(BaseModel):
         if tuple(context.uploaded_files) != effective_documents:
             raise ValueError("snapshot and plan document identities do not match")
         return self
+
+
+class ControlledSuccessorState(BaseModel):
+    """Frozen source inputs plus the directive that creates a new fenced Run."""
+
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    source_run_id: uuid.UUID
+    source_trace_id: str = Field(
+        pattern=r"^trace_[A-Za-z0-9][A-Za-z0-9_.:-]{7,57}$"
+    )
+    directive_id: uuid.UUID
+    source: FrozenRunState
+
+    @model_validator(mode="after")
+    def validate_source_trace_identity(self) -> ControlledSuccessorState:
+        if self.source.snapshot.agent_context.execution.trace_id != self.source_trace_id:
+            raise ValueError("controlled successor source Trace does not match snapshot")
+        return self

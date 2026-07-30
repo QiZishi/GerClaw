@@ -22,6 +22,7 @@ from gerclaw_api.modules.agent_harness.context_snapshot.models import (
     ProductionContextSnapshotAssembler,
 )
 from gerclaw_api.modules.agent_harness.context_snapshot.persisted import (
+    ControlledSuccessorState,
     FrozenRunState,
     FrozenToolContract,
     PersistedContextSnapshot,
@@ -40,6 +41,7 @@ __all__ = [
     "ContextSnapshotInputs",
     "ContextSourceBudget",
     "ContextWindowManager",
+    "ControlledSuccessorState",
     "ConversationHistoryMessage",
     "FrozenRunState",
     "FrozenToolContract",

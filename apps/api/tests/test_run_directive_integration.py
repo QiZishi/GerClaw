@@ -19,6 +19,7 @@ from gerclaw_api.domain.run_schemas import (
     RunDirectiveClaim,
     RunDirectiveCreate,
     RunDirectiveMode,
+    RunDirectiveRead,
     RunDirectiveStatus,
 )
 from gerclaw_api.modules.agent_harness.routing import RouteKind
@@ -607,3 +608,178 @@ async def test_terminal_and_withdraw_race_never_revives_cancelled_directive(
         directive = await session.get(RunDirective, directive_id)
         assert directive is not None
         assert directive.status == RunDirectiveStatus.CANCELLED.value
+
+
+@pytest.mark.integration
+@pytest.mark.asyncio
+async def test_successor_binding_transfers_full_queue_and_redirects_late_race(
+    integration_client: tuple[AsyncClient, object],
+) -> None:
+    client, app = integration_client
+    source_run_id, source_fence, _trace_id = await _create_run(client, app)
+    queued_ids: list[uuid.UUID] = []
+    async with app.state.database.session() as session:
+        directives = RunDirectiveService(SqlAlchemyRunDirectiveRepository(session))
+        for index in range(101):
+            queued = await directives.create(
+                source_run_id,
+                RunDirectiveCreate(
+                    mode=RunDirectiveMode.QUEUE_FOR_NEXT_BOUNDARY,
+                    instruction=f"保留第 {index} 条排队要求。",
+                    idempotency_key=f"directive-successor-bulk-{index}",
+                ),
+                tenant_id=TENANT,
+                actor_id=ACTOR,
+            )
+            queued_ids.append(queued.id)
+        steer = await directives.create(
+            source_run_id,
+            RunDirectiveCreate(
+                mode=RunDirectiveMode.INTERRUPT_AND_STEER,
+                instruction="改用新的重点继续。",
+                idempotency_key="directive-successor-bind-race",
+            ),
+            tenant_id=TENANT,
+            actor_id=ACTOR,
+        )
+
+    async with app.state.database.session() as session:
+        run_service = AgentRunService(SqlAlchemyAgentRunRepository(session))
+        source = await run_service.get_run(
+            source_run_id,
+            tenant_id=TENANT,
+            actor_id=ACTOR,
+        )
+        await run_service.transition(
+            source_run_id,
+            AgentRunStatus.INTERRUPTED,
+            tenant_id=TENANT,
+            actor_id=ACTOR,
+            expected_revision=source.revision,
+            fencing_token=source_fence,
+        )
+
+    successor_trace_id = "trace_directive_successor_race_0001"
+    async with app.state.database.session() as session:
+        conversations = ConversationService(SqlAlchemyConversationRepository(session))
+        source = await AgentRunService(
+            SqlAlchemyAgentRunRepository(session)
+        ).get_run(
+            source_run_id,
+            tenant_id=TENANT,
+            actor_id=ACTOR,
+        )
+        conversation = await conversations.require_session(
+            source.conversation_id,
+            tenant_id=TENANT,
+            actor_id=ACTOR,
+        )
+        message = await conversations.store_user_message(
+            tenant_id=TENANT,
+            conversation=conversation,
+            session_id=source.conversation_id,
+            trace_id=successor_trace_id,
+            text=steer.instruction,
+            channel="web",
+        )
+        successor = await AgentRunService(
+            SqlAlchemyAgentRunRepository(session)
+        ).create_run(
+            AgentRunCreate(
+                conversation_id=source.conversation_id,
+                input_message_id=message.id,
+                trace_id=successor_trace_id,
+                route=RouteKind.STANDARD,
+                fencing_token=source_fence + 1,
+            ),
+            tenant_id=TENANT,
+            actor_id=ACTOR,
+        )
+
+    async def bind() -> RunDirectiveRead:
+        async with app.state.database.session() as session:
+            return await RunDirectiveService(
+                SqlAlchemyRunDirectiveRepository(session)
+            ).bind_successor_input(
+                steer.id,
+                successor.id,
+                tenant_id=TENANT,
+                actor_id=ACTOR,
+                fencing_token=source_fence + 1,
+            )
+
+    async def queue_late() -> RunDirectiveRead:
+        async with app.state.database.session() as session:
+            return await RunDirectiveService(
+                SqlAlchemyRunDirectiveRepository(session)
+            ).create(
+                source_run_id,
+                RunDirectiveCreate(
+                    mode=RunDirectiveMode.QUEUE_FOR_NEXT_BOUNDARY,
+                    instruction="绑定竞态中到达的要求。",
+                    idempotency_key="directive-successor-late-race",
+                ),
+                tenant_id=TENANT,
+                actor_id=ACTOR,
+            )
+
+    bound, late = await asyncio.gather(bind(), queue_late())
+    assert bound.successor_run_id == successor.id
+    assert late.successor_run_id == successor.id
+
+    async def complete_successor() -> object:
+        async with app.state.database.session() as session:
+            service = AgentRunService(SqlAlchemyAgentRunRepository(session))
+            current = await service.get_run(
+                successor.id,
+                tenant_id=TENANT,
+                actor_id=ACTOR,
+            )
+            return await service.transition(
+                successor.id,
+                AgentRunStatus.COMPLETED,
+                tenant_id=TENANT,
+                actor_id=ACTOR,
+                expected_revision=current.revision,
+                fencing_token=source_fence + 1,
+            )
+
+    async def queue_during_terminal() -> RunDirectiveRead:
+        async with app.state.database.session() as session:
+            return await RunDirectiveService(
+                SqlAlchemyRunDirectiveRepository(session)
+            ).create(
+                source_run_id,
+                RunDirectiveCreate(
+                    mode=RunDirectiveMode.QUEUE_FOR_NEXT_BOUNDARY,
+                    instruction="后继终态竞态中到达的要求。",
+                    idempotency_key="directive-successor-terminal-race",
+                ),
+                tenant_id=TENANT,
+                actor_id=ACTOR,
+            )
+
+    await asyncio.gather(complete_successor(), queue_during_terminal())
+    async with app.state.database.session() as session:
+        transferred = list(
+            (
+                await session.scalars(
+                    select(RunDirective).where(RunDirective.id.in_(queued_ids))
+                )
+            ).all()
+        )
+        terminal_race = await session.scalar(
+            select(RunDirective).where(
+                RunDirective.idempotency_key
+                == "directive-successor-terminal-race"
+            )
+        )
+    assert len(transferred) == 101
+    assert all(item.successor_run_id is None for item in transferred)
+    assert all(
+        item.status == RunDirectiveStatus.PENDING_NEXT_RUN.value
+        for item in transferred
+    )
+    assert terminal_race is not None
+    assert terminal_race.successor_run_id is None
+    assert terminal_race.status == RunDirectiveStatus.PENDING_NEXT_RUN.value

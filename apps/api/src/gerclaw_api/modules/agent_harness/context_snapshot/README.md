@@ -41,6 +41,7 @@ Failure semantics:
 | 工具节点 | 当前 Run identity、严格 input schema、该节点依赖结果和最小所需上下文 | 整个会话、其他节点私有结果 |
 | 终态 | 当前答案版本、逐主张 Evidence、公开 warning、Artifact/Trace 引用和 content-free 投影清单 | 原始工具/Provider 载荷 |
 | Resume | 同一 v2 Snapshot、Run Plan、原 Trace/输入、已冻结版本和已完成结果；另行重验当前授权 | 当前可变历史、Memory、Skill、Profile 或文档替换值 |
+| Controlled successor | 原 Run 已冻结的历史、Profile/Memory 投影、Skill 定义、文档、配置和已完成能力结果；新指令重新计算 Routing、ClinicalState、SAVI/C3 与 DAG，并使用新 execution identity | 原 Run 未提交 attempt、当前可变 Memory/Skill、旧 route/plan、旧输入正文 |
 
 ## 容量预判与压缩实现
 
@@ -84,8 +85,13 @@ Known limit: the snapshot freezes inputs and completed owner-capability results,
 current executor does not yet persist every AgentScope tool-call checkpoint. A resumed
 unfinished model/tool node may execute again behind existing idempotency and fencing
 boundaries. Node-level checkpoint continuation remains a Run Lifecycle responsibility.
-运行中用户指令的 `runtime_directives` reserve 和 exactly-once steer/queue 领取也将在下一个
-独立变更集接入；v2 已预留该 source kind，但当前不会伪造为已实现。
+运行中 `queue_for_next_boundary` 使用独立 reserve 和 exactly-once 领取；立即 steer 先让旧
+Run 到达持久化 `interrupted`，再以 `ControlledSuccessorState` 建立新 Run。successor 复用上述
+冻结高价值输入但重新执行当前指令的容量预检和确定性规划，不重新读取可变 Memory、Profile、Skill 或
+文档；`ControlledSuccessorState` 会把 source Trace 与冻结快照显式交叉校验，数据库绑定阶段再核对
+source Run、directive target 与 successor fence。成功后仍允许 Memory 按正常在线 CRUD 语义吸收
+这次新交互。节点级 checkpoint 尚未完成前，
+最小恢复单元仍是整个回答 attempt，不伪装成已支持工具节点内续跑。
 
 Measure improvement with byte-stable serialized snapshots across resume, zero mutable
 context fetches on the resume path, bounded input, no cross-actor references, uninterrupted

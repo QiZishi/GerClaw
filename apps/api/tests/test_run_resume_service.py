@@ -44,6 +44,8 @@ class _Repository:
     def __init__(self, record: RunResumeRecord | None) -> None:
         self.record = record
         self.rollbacks = 0
+        self.controlled_successor_id: uuid.UUID | None = None
+        self.active_steer_directive_id: uuid.UUID | None = None
 
     async def get_owned_context(
         self,
@@ -66,6 +68,26 @@ class _Repository:
         if self.record is None or self.record.run.conversation_id != conversation_id:
             return None
         return self.record.run
+
+    async def get_controlled_successor_id(
+        self,
+        _run_id: uuid.UUID,
+        *,
+        tenant_id: str,
+        actor_id: str,
+    ) -> uuid.UUID | None:
+        assert (tenant_id, actor_id) == (TENANT, ACTOR)
+        return self.controlled_successor_id
+
+    async def get_active_steer_directive_id(
+        self,
+        _run_id: uuid.UUID,
+        *,
+        tenant_id: str,
+        actor_id: str,
+    ) -> uuid.UUID | None:
+        assert (tenant_id, actor_id) == (TENANT, ACTOR)
+        return self.active_steer_directive_id
 
     async def rollback(self) -> None:
         self.rollbacks += 1
@@ -248,6 +270,55 @@ async def test_prepare_preserves_server_validated_regeneration_identity() -> Non
 
     assert command.request.regenerate_from_run_id == source_run_id
     assert command.request.expected_current_answer_version_id == current_version_id
+
+
+@pytest.mark.asyncio
+async def test_prepare_rejects_run_replaced_by_controlled_successor() -> None:
+    record = _record()
+    repository = _Repository(record)
+    directive_id = uuid.uuid4()
+    repository.active_steer_directive_id = directive_id
+    repository.controlled_successor_id = uuid.uuid4()
+
+    with pytest.raises(
+        RunResumeConflictError,
+        match="replaced by a controlled successor",
+    ):
+        await RunResumeService(repository).prepare(
+            record.run.id,
+            tenant_id=TENANT,
+            actor_id=ACTOR,
+        )
+    command = await RunResumeService(repository).prepare(
+        record.run.id,
+        tenant_id=TENANT,
+        actor_id=ACTOR,
+        controlled_directive_id=directive_id,
+    )
+    assert command.run_id == record.run.id
+
+
+@pytest.mark.asyncio
+async def test_pending_steer_reserves_source_from_public_resume() -> None:
+    record = _record()
+    repository = _Repository(record)
+    directive_id = uuid.uuid4()
+    repository.active_steer_directive_id = directive_id
+
+    with pytest.raises(RunResumeConflictError, match="reserved"):
+        await RunResumeService(repository).prepare(
+            record.run.id,
+            tenant_id=TENANT,
+            actor_id=ACTOR,
+        )
+
+    command = await RunResumeService(repository).prepare(
+        record.run.id,
+        tenant_id=TENANT,
+        actor_id=ACTOR,
+        controlled_directive_id=directive_id,
+    )
+    assert command.run_id == record.run.id
 
 
 @pytest.mark.asyncio
