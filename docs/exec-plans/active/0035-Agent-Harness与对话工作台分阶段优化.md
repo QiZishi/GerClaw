@@ -1123,6 +1123,13 @@ unknown/conflict 不透明 ID。固定输入在 soft 与 hard 之间时保留完
 相关 Context/Harness/Chat/Conversation/Resume/Config 测试 127/127 通过，4 项显式 integration
 环境测试按标记跳过；Ruff 与 11 个相关 source 的 Mypy 通过。
 
+独立子智能体已完成用户要求的联网 Harness 定义/偏离审计，结论为 P0=0：没有组件因安全改造丧失核心
+机制；Memory 在线 CRUD、Skill 在线可变性、RAG/Evidence、ClinicalState 和 Routing 均保持定义。
+P1 为节点 checkpoint/resume、steer/queue、逐 ReAct/大型工具边界 Context preflight、PlanNode
+repair/fallback 与 `completed_with_warnings` 生产路径尚未完整实现。审计来源、逐组件证据、反退化门禁和
+319 passed/2 skipped 的只读验证记录见
+`docs/exec-plans/evidence/0035-harness-definition-audit-2026-07-30.md`。
+
 #### 6.7 安全校验的可用性、反馈修复与步骤级回退硬约束
 
 “安全”不能被实现成高误杀率的拒绝系统。每个校验器必须先声明保护的具体资产、精确失败条件、可修复性、
