@@ -16,6 +16,7 @@ from agentscope.state import AgentState
 from pydantic import BaseModel, ConfigDict, Field
 
 from gerclaw_api.modules.memory.protocols import MemoryMessage
+from gerclaw_api.token_estimation import estimate_text_tokens
 
 _COMPRESSION_INSTRUCTIONS = HintBlock(
     hint=(
@@ -30,10 +31,6 @@ _FALLBACK_CRITICAL = re.compile(
     r"过敏|药|剂量|停用|血压|血糖|心率|胸痛|呼吸困难|意识|偏瘫|"
     r"出血|自伤|跌倒|检查|化验|手术|住院|急诊|否认|没有|不"
 )
-
-
-def _estimate_tokens(*values: str) -> int:
-    return sum(max(1, (len(value.encode("utf-8")) + 2) // 3) for value in values if value)
 
 
 class MedicalContextSummary(BaseModel):
@@ -221,7 +218,7 @@ class AgentScopeContextCompressor:
             text = message.text()
             if len(retained) >= 6:
                 break
-            message_tokens = _estimate_tokens(text)
+            message_tokens = estimate_text_tokens((text,))
             if retained_tokens + message_tokens > retained_budget:
                 break
             retained.append(message)
@@ -249,7 +246,7 @@ class AgentScopeContextCompressor:
         selected: list[tuple[int, str]] = []
         used = 0
         for _priority, order, excerpt in sorted(candidates, key=lambda item: (item[0], -item[1])):
-            excerpt_tokens = _estimate_tokens(excerpt)
+            excerpt_tokens = estimate_text_tokens((excerpt,))
             if used + excerpt_tokens > remaining:
                 continue
             selected.append((order, excerpt))

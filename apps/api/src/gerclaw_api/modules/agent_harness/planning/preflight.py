@@ -8,9 +8,9 @@ from gerclaw_api.modules.agent_harness.planning.contracts import (
     BudgetPreflightDecision,
     ModelCallEstimate,
 )
-from gerclaw_api.modules.agent_harness.token_estimation import estimate_text_tokens
 from gerclaw_api.modules.runtime.budget import ExecutionUsage
 from gerclaw_api.modules.runtime.models import ExecutionBudget
+from gerclaw_api.token_estimation import estimate_text_tokens
 
 
 def approximate_input_tokens(values: Iterable[str]) -> int:

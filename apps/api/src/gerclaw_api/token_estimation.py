@@ -1,4 +1,4 @@
-"""Shared dependency-free token estimation for Harness capacity decisions."""
+"""Shared dependency-free token estimation for model context capacity."""
 
 from __future__ import annotations
 

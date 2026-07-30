@@ -15,7 +15,7 @@ from gerclaw_api.modules.agent_harness.context_snapshot.models import (
     ContextSourceName,
     ConversationHistoryMessage,
 )
-from gerclaw_api.modules.agent_harness.token_estimation import estimate_text_tokens
+from gerclaw_api.token_estimation import estimate_text_tokens
 
 _SEGMENT = re.compile(r"[^。！？!?\n]+(?:[。！？!?]+|\n+|$)")  # noqa: RUF001
 _CLINICAL_CRITICAL = re.compile(
