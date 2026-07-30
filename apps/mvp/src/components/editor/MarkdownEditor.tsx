@@ -10,6 +10,7 @@ interface MarkdownEditorProps {
   className?: string;
   readOnly?: boolean;
   seniorMode?: boolean;
+  autoFocus?: boolean;
 }
 
 export function MarkdownEditor({
@@ -18,6 +19,7 @@ export function MarkdownEditor({
   className,
   readOnly = false,
   seniorMode = false,
+  autoFocus = true,
 }: MarkdownEditorProps) {
   const deferredValue = useDeferredValue(value);
 
@@ -64,7 +66,7 @@ export function MarkdownEditor({
             )}
             placeholder="开始输入 Markdown..."
             spellCheck={false}
-            autoFocus
+            autoFocus={autoFocus}
           />
         </section>
       )}

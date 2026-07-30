@@ -21,6 +21,21 @@ export function artifactMatchesDraft(
   return artifact.title === draft.title && artifact.markdown === draft.markdown;
 }
 
+export function latestArtifactForRun(
+  artifacts: Artifact[],
+  runId: string,
+): Artifact | null {
+  return (
+    artifacts
+      .filter((artifact) => artifact.run_id === runId)
+      .sort(
+        (left, right) =>
+          right.revision - left.revision ||
+          Date.parse(right.updated_at) - Date.parse(left.updated_at),
+      )[0] ?? null
+  );
+}
+
 export function artifactSaveFailure(error: unknown): {
   status: Extract<ArtifactSaveStatus, "error" | "conflict">;
   message: string;

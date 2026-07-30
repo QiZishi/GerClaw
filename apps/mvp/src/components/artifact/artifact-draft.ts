@@ -3,6 +3,7 @@ import type { Message, MessageBlock } from "@/types";
 export interface ArtifactDraftSource {
   requestId: string;
   messageId: string;
+  sessionId: string;
   runId: string | null;
   title: string;
   markdown: string;
@@ -35,6 +36,7 @@ export function artifactDraftFromMessage(
   return {
     requestId,
     messageId: message.id,
+    sessionId: message.sessionId,
     runId: message.executionRunId ?? null,
     title: artifactTitleFromMarkdown(markdown),
     markdown,

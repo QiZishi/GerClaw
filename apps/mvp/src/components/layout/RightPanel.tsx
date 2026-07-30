@@ -1,30 +1,13 @@
 "use client";
 
-import {
-  useCallback,
-  useEffect,
-  useRef,
-  useState,
-  type KeyboardEvent,
-  type MouseEvent,
-} from "react";
-import { X, Copy } from "lucide-react";
-import { Button } from "@/components/ui/button";
-import { Separator } from "@/components/ui/separator";
-import { useAppStore } from "@/stores/appStore";
-import { cn } from "@/lib/utils";
-import { MarkdownEditor } from "@/components/editor/MarkdownEditor";
-import { FileUpload } from "@/components/document/FileUpload";
-import { DocumentPreview } from "@/components/document/DocumentPreview";
-import { CitationList } from "@/components/search/CitationList";
-import { ExportButton } from "@/components/prescription/ExportButton";
-import { toast } from "@/components/ui/toast";
-import type { FileTag as FileTagData, RightPanelType, Role } from "@/types";
-import { useReducedMotion } from "@/hooks/useReducedMotion";
-import { SettingsPanel } from "@/components/settings/SettingsPanel";
-import { HelpPanel } from "@/components/help/HelpPanel";
-import { HealthProfilePanel } from "@/components/health/HealthProfilePanel";
+import { RightPanelContent } from "@/components/layout/right-panel/RightPanelContent";
+import { RightPanelHeader } from "@/components/layout/right-panel/RightPanelHeader";
+import { useRightPanelFrame } from "@/components/layout/right-panel/useRightPanelFrame";
 import { LAYOUT } from "@/lib/constants";
+import { cn } from "@/lib/utils";
+import { useAppStore } from "@/stores/appStore";
+import { useArtifactStore } from "@/stores/artifactStore";
+import type { RightPanelType } from "@/types";
 
 const PANEL_TITLES: Record<NonNullable<RightPanelType>, string> = {
   skills: "技能管理",
@@ -36,215 +19,91 @@ const PANEL_TITLES: Record<NonNullable<RightPanelType>, string> = {
   "drug-review": "用药审查报告",
   settings: "设置",
   help: "使用教程",
-  "doc-editor": "文档编辑",
+  "doc-editor": "文档产物",
 };
 
-const EXPORTABLE_PANELS: RightPanelType[] = ["prescription", "cga", "drug-review", "doc-editor"];
-
-/**
- * §3.5 右侧动态面板
- * 默认隐藏，展开时 384px，可拖拽 320-500px
- * 根据 rightPanelType 渲染对应功能组件
- */
 export function RightPanel() {
-  const rightPanelOpen = useAppStore((s) => s.rightPanelOpen);
-  const role = useAppStore((s) => s.role);
-  const seniorMode = useAppStore((s) => s.seniorMode);
-  const rightPanelType = useAppStore((s) => s.rightPanelType);
-  const rightPanelWidth = useAppStore((s) => s.rightPanelWidth);
-  const closeRightPanel = useAppStore((s) => s.closeRightPanel);
-  const setRightPanelWidth = useAppStore((s) => s.setRightPanelWidth);
-  const panelContent = useAppStore((s) => s.panelContent);
-  const setPanelContent = useAppStore((s) => s.setPanelContent);
-  const reducedMotion = useReducedMotion();
-  const isSeniorPatient = role === "patient" && seniorMode;
+  const open = useAppStore((state) => state.rightPanelOpen);
+  const type = useAppStore((state) => state.rightPanelType);
+  const role = useAppStore((state) => state.role);
+  const seniorMode = useAppStore((state) => state.seniorMode);
+  const panelContent = useAppStore((state) => state.panelContent);
+  const setPanelContent = useAppStore((state) => state.setPanelContent);
+  const closePanel = useAppStore((state) => state.closeRightPanel);
+  const frame = useRightPanelFrame(open, Boolean(type));
+  const senior = role === "patient" && seniorMode;
 
-  const [mounted, setMounted] = useState(false);
-  const [visible, setVisible] = useState(false);
-  const [isNarrowViewport, setIsNarrowViewport] = useState(true);
-
-  useEffect(() => {
-    const syncViewportMode = () => setIsNarrowViewport(window.innerWidth < 1280);
-    syncViewportMode();
-    window.addEventListener("resize", syncViewportMode);
-    return () => window.removeEventListener("resize", syncViewportMode);
-  }, []);
-
-  useEffect(() => {
-    if (rightPanelOpen && rightPanelType) {
-      const rafId = requestAnimationFrame(() => {
-        setMounted(true);
-        requestAnimationFrame(() => setVisible(true));
-      });
-      return () => cancelAnimationFrame(rafId);
-    } else if (mounted) {
-      const rafId = requestAnimationFrame(() => setVisible(false));
-      const timer = setTimeout(() => setMounted(false), reducedMotion ? 0 : 250);
-      return () => {
-        cancelAnimationFrame(rafId);
-        clearTimeout(timer);
-      };
+  const requestClose = () => {
+    if (
+      type === "doc-editor" &&
+      useArtifactStore.getState().dirty &&
+      !window.confirm("文档仍有未保存的修改。确定关闭并放弃这些修改吗？")
+    ) {
+      return;
     }
-  }, [rightPanelOpen, rightPanelType, mounted, reducedMotion]);
+    closePanel();
+    if (type === "doc-editor") useArtifactStore.getState().clear();
+  };
 
-  const draggingRef = useRef(false);
-
-  const handleMouseDown = useCallback((e: MouseEvent<HTMLDivElement>) => {
-    e.preventDefault();
-    draggingRef.current = true;
-    document.body.style.cursor = "col-resize";
-    document.body.style.userSelect = "none";
-  }, []);
-
-  const handleResizeKeyDown = useCallback(
-    (event: KeyboardEvent<HTMLDivElement>) => {
-      const step = event.shiftKey ? 48 : 16;
-      let nextWidth: number | null = null;
-      if (event.key === "ArrowLeft") nextWidth = rightPanelWidth + step;
-      if (event.key === "ArrowRight") nextWidth = rightPanelWidth - step;
-      if (event.key === "Home") nextWidth = LAYOUT.rightPanel.min;
-      if (event.key === "End") nextWidth = LAYOUT.rightPanel.max;
-      if (nextWidth === null) return;
-      event.preventDefault();
-      setRightPanelWidth(nextWidth);
-    },
-    [rightPanelWidth, setRightPanelWidth]
-  );
-
-  useEffect(() => {
-    const handleMouseMove = (e: globalThis.MouseEvent) => {
-      if (!draggingRef.current) return;
-      const newWidth = window.innerWidth - e.clientX;
-      setRightPanelWidth(newWidth);
-    };
-    const handleMouseUp = () => {
-      if (draggingRef.current) {
-        draggingRef.current = false;
-        document.body.style.cursor = "";
-        document.body.style.userSelect = "";
-      }
-    };
-    window.addEventListener("mousemove", handleMouseMove);
-    window.addEventListener("mouseup", handleMouseUp);
-    return () => {
-      window.removeEventListener("mousemove", handleMouseMove);
-      window.removeEventListener("mouseup", handleMouseUp);
-    };
-  }, [setRightPanelWidth]);
-
-  const handleCopy = useCallback(async () => {
-    if (!panelContent) return;
-    try {
-      await navigator.clipboard.writeText(panelContent);
-      toast.show("已复制");
-    } catch {
-      toast.show("复制失败");
-    }
-  }, [panelContent]);
-
-  if (!mounted || !rightPanelType) {
-    return null;
-  }
-
-  const title = PANEL_TITLES[rightPanelType] ?? "面板";
-  const isMobile = isNarrowViewport;
-  const mobileTransition = reducedMotion
-    ? "transition-opacity duration-200 ease"
-    : "transition-transform duration-[var(--motion-panel)] ease-[var(--motion-ease-drawer)]";
-  const desktopTransition = "transition-opacity duration-[var(--motion-popover)] ease-[var(--motion-ease-out)]";
-  const opacityTransitionClass = "transition-opacity duration-[var(--motion-popover)] ease-[var(--motion-ease-out)]";
+  if (!frame.mounted || !type) return null;
+  const transition = frame.isMobile
+    ? "transition-transform duration-[var(--motion-panel)] ease-[var(--motion-ease-drawer)]"
+    : "transition-opacity duration-[var(--motion-popover)] ease-[var(--motion-ease-out)]";
 
   return (
     <>
-      {/* 移动端遮罩 */}
       <div
         className={cn(
-          "fixed inset-0 z-30 bg-black/40 xl:hidden",
-          opacityTransitionClass,
-          visible ? "opacity-100" : "opacity-0 pointer-events-none"
+          "fixed inset-0 z-30 bg-black/40 transition-opacity xl:hidden",
+          frame.visible ? "opacity-100" : "pointer-events-none opacity-0",
         )}
-        onClick={closeRightPanel}
+        onClick={requestClose}
         aria-hidden
       />
       <aside
         className={cn(
-          "fixed right-0 top-0 z-40 h-full bg-background border-l border-border flex flex-col overflow-hidden",
-          "xl:relative xl:z-auto",
-          isMobile ? "w-full" : "shrink-0",
-          isMobile
-            ? cn(
-                mobileTransition,
-                visible ? "translate-x-0 opacity-100" : cn("opacity-0", !reducedMotion && "translate-x-full")
-              )
-            : cn(desktopTransition, visible ? "opacity-100" : "opacity-0")
+          "fixed right-0 top-0 z-40 flex h-full flex-col overflow-hidden border-l border-border bg-background xl:relative xl:z-auto",
+          frame.isMobile ? "w-full" : "shrink-0",
+          transition,
+          frame.visible
+            ? frame.isMobile
+              ? "translate-x-0 opacity-100"
+              : "opacity-100"
+            : frame.isMobile
+              ? "translate-x-full opacity-0"
+              : "opacity-0",
         )}
         style={{
-          width: isMobile
-            ? "100%"
-            : (visible ? rightPanelWidth : 0),
-          minWidth: isMobile ? "auto" : (visible ? rightPanelWidth : 0),
-          borderLeftWidth: isMobile ? "" : (visible ? "" : "0px"),
-          pointerEvents: visible ? "auto" : "none",
+          width: frame.isMobile ? "100%" : frame.visible ? frame.rightPanelWidth : 0,
+          minWidth: frame.isMobile ? "auto" : frame.visible ? frame.rightPanelWidth : 0,
+          pointerEvents: frame.visible ? "auto" : "none",
         }}
+        aria-label={PANEL_TITLES[type]}
       >
-        {/* 拖拽手柄 */}
         <div
-          onMouseDown={handleMouseDown}
-          onKeyDown={handleResizeKeyDown}
-          className="absolute left-0 top-0 bottom-0 hidden w-3 cursor-col-resize items-center justify-center transition-colors hover:bg-primary/20 active:bg-primary/30 xl:flex"
+          onMouseDown={frame.handleResizeStart}
+          onKeyDown={frame.handleResizeKeyDown}
+          className="absolute bottom-0 left-0 top-0 hidden w-3 cursor-col-resize items-center justify-center hover:bg-primary/10 xl:flex"
           role="separator"
           tabIndex={0}
           aria-orientation="vertical"
           aria-valuemin={LAYOUT.rightPanel.min}
           aria-valuemax={LAYOUT.rightPanel.max}
-          aria-valuenow={rightPanelWidth}
-          aria-label="拖拽调整宽度"
+          aria-valuenow={frame.rightPanelWidth}
+          aria-label="调整产物面板宽度"
         >
-          <div className="w-0.5 h-12 bg-border rounded-full group-hover:bg-primary/50" />
+          <div className="h-12 w-0.5 rounded-full bg-border" />
         </div>
-
-        {/* 头部 */}
-        <header className={cn("flex items-center justify-between gap-2 px-4 h-12 shrink-0 border-b border-border", isSeniorPatient && "h-16")}>
-          <span className={cn("font-medium text-sm", isSeniorPatient && "text-lg")}>{title}</span>
-          <div className="flex items-center gap-1">
-            {panelContent && (
-              <Button
-                variant="ghost"
-                size={isSeniorPatient ? "default" : "icon-sm"}
-                className={cn("btn-icon", isSeniorPatient && "min-h-12 gap-2 px-3 text-base")}
-                onClick={handleCopy}
-                aria-label="复制内容"
-                title="复制 Markdown 源码"
-              >
-                <Copy className="size-4" />
-                {isSeniorPatient && <span>复制</span>}
-              </Button>
-            )}
-            {EXPORTABLE_PANELS.includes(rightPanelType) && panelContent && (
-              <ExportButton
-                title={title}
-                content={panelContent}
-                variant="dropdown"
-              />
-            )}
-            <Button
-              variant="ghost"
-              size={isSeniorPatient ? "default" : "icon-sm"}
-              className={cn("btn-icon", isSeniorPatient && "min-h-12 gap-2 px-3 text-base")}
-              onClick={closeRightPanel}
-              aria-label="关闭"
-            >
-              <X className="size-4" />
-              {isSeniorPatient && <span>关闭</span>}
-            </Button>
-          </div>
-        </header>
-
-        <Separator />
-
-        <div className="flex-1 min-h-0 flex flex-col">
-          <PanelContent
-            type={rightPanelType}
+        <RightPanelHeader
+          title={PANEL_TITLES[type]}
+          type={type}
+          content={panelContent}
+          senior={senior}
+          onClose={requestClose}
+        />
+        <div className="flex min-h-0 flex-1 flex-col">
+          <RightPanelContent
+            type={type}
             panelContent={panelContent}
             onContentChange={setPanelContent}
             role={role}
@@ -252,161 +111,5 @@ export function RightPanel() {
         </div>
       </aside>
     </>
-  );
-}
-
-/** 根据 type 渲染对应面板内容 */
-function PanelContent({
-  type,
-  panelContent,
-  onContentChange,
-  role,
-}: {
-  type: NonNullable<RightPanelType>;
-  panelContent: string;
-  onContentChange: (content: string) => void;
-  role: Role;
-}) {
-  switch (type) {
-    case "skills":
-      return (
-        <div className="flex-1 min-h-0 overflow-y-auto p-4 flex flex-col items-center justify-center gap-2 text-center text-sm text-muted-foreground">
-          <p className="font-medium text-foreground">技能在对话区管理</p>
-          <p className="leading-6">关闭此面板后继续。</p>
-        </div>
-      );
-
-    case "prescription":
-      if (panelContent) {
-        return (
-          <MarkdownEditor
-            value={panelContent}
-            onChange={onContentChange}
-            className="flex-1 min-h-0"
-            readOnly={role !== "doctor"}
-          />
-        );
-      }
-      return (
-        <UnavailablePanel
-          title="还没有处方报告"
-          description="在对话中完成信息收集后生成草案。"
-        />
-      );
-
-    case "cga": {
-      if (!panelContent) {
-        return (
-          <UnavailablePanel
-            title="还没有 CGA 评估报告"
-            description="完成评估后可在这里查看报告。"
-          />
-        );
-      }
-      return (
-        <MarkdownEditor
-          value={panelContent}
-          onChange={onContentChange}
-          className="flex-1 min-h-0"
-          readOnly
-        />
-      );
-    }
-
-    case "file-preview":
-      return (
-        <div className="flex-1 min-h-0 flex flex-col">
-          <FilePreviewPanel />
-        </div>
-      );
-
-    case "citations":
-      return (
-        <div className="flex-1 min-h-0 flex flex-col">
-          <CitationList />
-        </div>
-      );
-
-    case "health-profile":
-      return (
-        <div className="flex-1 min-h-0 flex flex-col">
-          <HealthProfilePanel />
-        </div>
-      );
-
-    case "drug-review":
-      if (panelContent) {
-        return (
-          <MarkdownEditor
-            value={panelContent}
-            onChange={onContentChange}
-            className="flex-1 min-h-0"
-            readOnly={role !== "doctor"}
-          />
-        );
-      }
-      return (
-        <UnavailablePanel
-          title="还没有用药审查报告"
-          description={role === "doctor" ? "在对话中录入药物后开始审查。" : "在对话中录入药物后查看审查结果。"}
-        />
-      );
-
-    case "settings":
-      return <SettingsPanel />;
-
-    case "help":
-      return <HelpPanel role={role} />;
-
-    case "doc-editor":
-      return (
-        <MarkdownEditor
-          value={panelContent}
-          onChange={onContentChange}
-          className="flex-1 min-h-0"
-        />
-      );
-  }
-}
-
-/** 文件预览面板：上传 + 选中后切换到预览 */
-function FilePreviewPanel() {
-  const [selected, setSelected] = useState<FileTagData | null>(null);
-  const role = useAppStore((state) => state.role);
-  const seniorMode = useAppStore((state) => state.seniorMode);
-  const isSeniorPatient = role === "patient" && seniorMode;
-
-  if (selected) {
-    return (
-      <div className="flex flex-col h-full">
-        <div className="px-3 py-1.5 border-b border-border flex items-center justify-between">
-          <button
-            type="button"
-            onClick={() => setSelected(null)}
-            className={cn("text-xs text-primary hover:underline", isSeniorPatient && "min-h-12 text-base")}
-          >
-            ← 返回上传列表
-          </button>
-          <span className={cn("text-xs text-muted-foreground truncate max-w-[180px]", isSeniorPatient && "text-base")}>
-            {selected.fileName}
-          </span>
-        </div>
-        <div className="flex-1 min-h-0">
-          <DocumentPreview file={selected} />
-        </div>
-      </div>
-    );
-  }
-
-  return <FileUpload onFileParsed={(f) => setSelected(f)} />;
-}
-
-function UnavailablePanel({ title, description }: { title: string; description: string }) {
-  const seniorMode = useAppStore((state) => state.seniorMode);
-  return (
-    <div className="flex h-full flex-col items-center justify-center gap-2 p-6 text-center">
-      <div className={cn("font-medium", seniorMode && "text-xl")}>{title}</div>
-      <p className={cn("max-w-sm text-sm leading-relaxed text-muted-foreground", seniorMode && "text-base leading-8")}>{description}</p>
-    </div>
   );
 }

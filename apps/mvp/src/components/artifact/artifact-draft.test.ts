@@ -31,6 +31,7 @@ test("artifact draft preserves Markdown and binds the producing run", () => {
   assert.equal(draft.title, "跌倒预防建议");
   assert.equal(draft.markdown, "# 跌倒预防建议\n\n- 保持通道照明。");
   assert.equal(draft.runId, message.executionRunId);
+  assert.equal(draft.sessionId, message.sessionId);
   assert.equal(draft.requestId, "request-1");
 });
 

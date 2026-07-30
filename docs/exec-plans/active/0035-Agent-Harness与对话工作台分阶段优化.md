@@ -21,7 +21,7 @@ GerClaw 保持老年医学定位。眼科病灶定位不在本计划范围。在
 | 2 | Run 事实源、状态机和恢复 | 已完成：两轮 P1 修复、真实 GUI 对抗审计、最终独立复审 ACCEPT |
 | 3 | ClinicalState、动态规划与医疗门禁 | 已完成：四轮独立审阅修复、真实 GUI 与最终 ACCEPT |
 | 4 | 证据、Memory 与受治理能力组合 | 已完成：三项 P1 修复、真实 GUI/数据库复验、最终独立复审 ACCEPT |
-| 5 | 对话工作台 UI 与交互重构 | 未开始 |
+| 5 | 对话工作台 UI 与交互重构 | 进行中：五个拆分模块与 Artifact 工作台已完成，待阶段级响应式/axe/独立审阅 |
 | 6 | 受控离线自进化 | 未开始 |
 | 7 | 最终回归、真实 GUI 对抗审阅与发布 | 未开始 |
 
@@ -658,6 +658,26 @@ Playwright 和 axe，并交由独立审阅者判定。
 Run 反馈实测完成 `value=1/revision=0 → value=0/revision=1` reconciliation。回答 v2 生成后，访客选择 v1
 最初暴露账户历史接口 403；未把该结果判为成功，而是将 `AnswerVersion` 升至 v1.2，返回 owner-scoped、
 严格校验的 Markdown/Citation 投影。复测 `PUT current` 为 200、正文恢复为原 v1、无历史 GET、控制台 0 error。
+
+截至 Artifact 模块，`ChatArea`、`Sidebar`、`RightPanel` 和主要可见业务组件均已拆到约 250 行以内；Run/SSE、
+会话恢复、Skill、账号和侧栏状态机留在独立 hook/controller。消息“转为文档”不再写入临时 `panelContent`，
+而是携带生成回答的 `executionRunId` 和会话标识，先恢复同一 Run 最新 revision 的 Artifact，不存在时再创建。
+编辑器支持标题、Markdown、实时预览、800 ms 防抖保存、乐观 revision、冲突/网络受控错误、刷新和关闭前保护、
+键盘调宽，以及 MD/PDF/DOCX/JPG（另保留 PNG）导出。旧历史回答没有 Run 标识时明确显示“仅当前页面”降级，
+不会伪装成已保存。
+
+真实 Playwright CLI clean-room 审计使用全新游客、真实模型 Run、FastAPI、PostgreSQL、Redis 和 Qdrant，
+没有 route/mock。首次“转为文档”严格产生 1 次列表 GET 和 1 次创建 POST；修改标题后产生 1 次 PUT 200，
+状态从 revision 1 到 revision 2。关闭后重开只产生 1 次 GET、0 次 POST，并恢复 revision 2 的标题和 Markdown。
+未保存关闭会出现确认保护，已保存关闭不会误提示；右栏分隔条 `ArrowLeft` 实测增加 16 px。真实下载的 `.md`、
+`.pdf`、`.docx`、`.jpg` 均非空，文件签名分别由文本、PDF 1.3、Microsoft Word 2007+ 和 JPEG 识别，Markdown
+包含正文和统一医疗免责声明。clean-room console 为 0 error / 0 warning，网络均为 2xx。截图和导出证据位于
+gitignored 的 `apps/mvp/output/playwright/stage5-artifact/`，其中
+`artifact-editor-visible.png` 已目视确认编辑区和实时预览同时可见；此前自动聚焦导致内层滚动到预览的问题已修复。
+
+本模块相关回归实际结果：消息/Artifact 8/8、布局 2/2、导出 1/1、Run 契约 2/2，完整 ESLint 和 Next
+production build 均通过。Node 仍输出项目既有 `MODULE_TYPELESS_PACKAGE_JSON` warning；测试全部通过，
+没有把 warning 隐去或误报为零。
 
 ### 阶段 6
 

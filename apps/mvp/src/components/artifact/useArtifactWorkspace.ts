@@ -6,17 +6,42 @@ import type { ArtifactDraftSource } from "@/components/artifact/artifact-draft";
 import {
   artifactMatchesDraft,
   artifactSaveFailure,
+  latestArtifactForRun,
   type ArtifactDraftValue,
   type ArtifactSaveStatus,
 } from "@/components/artifact/artifact-save";
 import {
   createRunArtifact,
+  readConversationArtifacts,
   updateRunArtifact,
 } from "@/services/gerclaw/runs";
 import type { Artifact } from "@/services/gerclaw/run-contract";
+import { backendSessionId } from "@/services/gerclaw/skills";
 import { useArtifactStore } from "@/stores/artifactStore";
 
 const SAVE_DELAY_MS = 800;
+const pendingArtifactLoads = new Map<string, Promise<Artifact>>();
+
+function loadOrCreateArtifact(source: ArtifactDraftSource): Promise<Artifact> {
+  if (!source.runId) throw new Error("run id is required");
+  const runId = source.runId;
+  const requestKey = `${source.runId}:${source.requestId}`;
+  const pending = pendingArtifactLoads.get(requestKey);
+  if (pending) return pending;
+  const request = readConversationArtifacts(backendSessionId(source.sessionId))
+    .then(({ artifacts }) => {
+      const existing = latestArtifactForRun(artifacts, runId);
+      if (existing) return existing;
+      return createRunArtifact(runId, {
+        title: source.title,
+        markdown: source.markdown,
+        kind: "markdown",
+      });
+    })
+    .finally(() => pendingArtifactLoads.delete(requestKey));
+  pendingArtifactLoads.set(requestKey, request);
+  return request;
+}
 
 export function useArtifactWorkspace(source: ArtifactDraftSource) {
   const setStoreDirty = useArtifactStore((state) => state.setDirty);
@@ -42,21 +67,16 @@ export function useArtifactWorkspace(source: ArtifactDraftSource) {
     }
     if (artifact) return;
     let cancelled = false;
-    void createRunArtifact(source.runId, {
-      title: source.title,
-      markdown: source.markdown,
-      kind: "markdown",
-    })
-      .then((created) => {
+    setStoreDirty(true);
+    void loadOrCreateArtifact(source)
+      .then((loaded) => {
         if (cancelled) return;
-        setArtifact(created);
-        if (artifactMatchesDraft(created, latestDraftRef.current)) {
-          setStatus("saved");
-          setStoreDirty(false);
-        } else {
-          setStatus("dirty");
-          setStoreDirty(true);
-        }
+        latestDraftRef.current = { title: loaded.title, markdown: loaded.markdown };
+        setTitleState(loaded.title);
+        setMarkdownState(loaded.markdown);
+        setArtifact(loaded);
+        setStatus("saved");
+        setStoreDirty(false);
       })
       .catch((error) => {
         if (cancelled) return;
@@ -72,12 +92,15 @@ export function useArtifactWorkspace(source: ArtifactDraftSource) {
     artifact,
     retryNonce,
     setStoreDirty,
+    source,
     source.markdown,
     source.runId,
+    source.sessionId,
     source.title,
   ]);
 
   useEffect(() => {
+    if (!title.trim()) return;
     if (!artifact || artifactMatchesDraft(artifact, { title, markdown })) return;
     const timer = setTimeout(() => {
       if (saveInFlightRef.current) return;
@@ -126,8 +149,11 @@ export function useArtifactWorkspace(source: ArtifactDraftSource) {
   }, []);
 
   useEffect(
-    () => () => {
-      mountedRef.current = false;
+    () => {
+      mountedRef.current = true;
+      return () => {
+        mountedRef.current = false;
+      };
     },
     [],
   );
@@ -137,7 +163,12 @@ export function useArtifactWorkspace(source: ArtifactDraftSource) {
     setTitleState(next.title);
     setMarkdownState(next.markdown);
     setStoreDirty(true);
-    setErrorMessage(null);
+    const titleValid = Boolean(next.title.trim());
+    setErrorMessage(titleValid ? null : "文档标题不能为空。");
+    if (!titleValid) {
+      setStatus("error");
+      return;
+    }
     if (artifact) setStatus("dirty");
   };
 
