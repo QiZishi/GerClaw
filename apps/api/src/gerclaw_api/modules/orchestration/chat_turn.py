@@ -34,6 +34,7 @@ FailureFinalizer = Callable[
 ]
 ErrorCodeMapper = Callable[[Exception], str]
 CancellationProbe = Callable[[], Awaitable[bool]]
+InterruptionAcknowledgement = Callable[[], None]
 
 
 class ChatTurnCoordinator:
@@ -73,6 +74,7 @@ class ChatTurnCoordinator:
         error_code: ErrorCodeMapper,
         cancellation_requested: CancellationProbe | None = None,
         steering_requested: CancellationProbe | None = None,
+        interruption_acknowledged: InterruptionAcknowledgement | None = None,
     ) -> AgentResponse:
         """Run or replay one turn without exposing partial success.
 
@@ -125,6 +127,8 @@ class ChatTurnCoordinator:
                 try:
                     response = await run_owned_turn(lease_guard)
                 except asyncio.CancelledError as cancellation_error:
+                    if interruption_acknowledged is not None:
+                        interruption_acknowledged()
                     steered = (
                         steering_requested is not None and await steering_requested()
                     )
@@ -159,6 +163,8 @@ class ChatTurnCoordinator:
                         and await steering_requested()
                     )
                     if cancelled or steered:
+                        if interruption_acknowledged is not None:
+                            interruption_acknowledged()
                         cancellation_persisted = await finalize_failure(
                             TraceStatus.CANCELLED,
                             "CHAT_STEERED" if steered else "CHAT_CANCELLED",
@@ -209,6 +215,8 @@ class ChatTurnCoordinator:
             return response
         except asyncio.CancelledError as cancellation_error:
             if owns_trace_execution and not failure_handled:
+                if interruption_acknowledged is not None:
+                    interruption_acknowledged()
                 steered = (
                     steering_requested is not None and await steering_requested()
                 )

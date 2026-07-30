@@ -16,6 +16,7 @@ logger = logging.getLogger(__name__)
 _CHANNEL = "gerclaw:chat:cancellations:v1"
 _SAFE_ID = re.compile(r"^[A-Za-z0-9_.:-]{3,128}$")
 _CANCEL_TTL_SECONDS = 120
+_REDELIVERY_DELAYS_SECONDS = (0.0, 0.25, 0.75, 1.5, 3.0, 5.0, 8.0, 13.0)
 TaskKey = tuple[str, str, str]
 
 
@@ -37,6 +38,8 @@ class ChatCancellationRegistry:
         self._redis = redis
         self._tasks: dict[TaskKey, asyncio.Task[None]] = {}
         self._requested: dict[TaskKey, ChatControlIntent] = {}
+        self._acknowledged: dict[TaskKey, ChatControlIntent] = {}
+        self._redelivery: dict[TaskKey, asyncio.Task[None]] = {}
         self._lock = asyncio.Lock()
         self._listener: asyncio.Task[None] | None = None
         self._pubsub: object | None = None
@@ -57,6 +60,12 @@ class ChatCancellationRegistry:
     async def aclose(self) -> None:
         """Release the dedicated Pub/Sub connection without cancelling chat turns."""
 
+        redelivery = tuple(self._redelivery.values())
+        self._redelivery.clear()
+        for task in redelivery:
+            task.cancel()
+        if redelivery:
+            await asyncio.gather(*redelivery, return_exceptions=True)
         listener = self._listener
         self._listener = None
         if listener is not None:
@@ -83,7 +92,11 @@ class ChatCancellationRegistry:
 
         key = (tenant_id, actor_id, trace_id)
         async with self._lock:
+            stale_redelivery = self._redelivery.pop(key, None)
             self._tasks[key] = task
+            self._acknowledged.pop(key, None)
+        if stale_redelivery is not None:
+            stale_redelivery.cancel()
         try:
             intent = await self._read_intent(key)
         except Exception as error:
@@ -107,10 +120,33 @@ class ChatCancellationRegistry:
         """Remove only the task that still owns the local registry entry."""
 
         key = (tenant_id, actor_id, trace_id)
+        redelivery: asyncio.Task[None] | None = None
         async with self._lock:
             if self._tasks.get(key) is task:
                 self._tasks.pop(key, None)
                 self._requested.pop(key, None)
+                self._acknowledged.pop(key, None)
+                redelivery = self._redelivery.pop(key, None)
+        if redelivery is not None:
+            redelivery.cancel()
+
+    def acknowledge_control(
+        self,
+        *,
+        tenant_id: str,
+        actor_id: str,
+        trace_id: str,
+    ) -> None:
+        """Stop redelivery before the owner starts durable terminal cleanup."""
+
+        key = (tenant_id, actor_id, trace_id)
+        intent = self._requested.get(key)
+        if intent is None:
+            return
+        self._acknowledged[key] = intent
+        redelivery = self._redelivery.pop(key, None)
+        if redelivery is not None and redelivery is not asyncio.current_task():
+            redelivery.cancel()
 
     async def request_cancel(self, *, tenant_id: str, actor_id: str, trace_id: str) -> None:
         """Persist and publish an identity-scoped cancellation request."""
@@ -280,16 +316,48 @@ class ChatCancellationRegistry:
         async with self._lock:
             task = self._tasks.get(key)
             if task is not None and not task.done():
-                self._requested[key] = self._merge_intent(
+                effective = self._merge_intent(
                     self._requested.get(key),
                     intent,
                 )
-        if task is not None and not task.done() and task.cancelling() == 0:
-            task.cancel(
-                "explicit chat cancellation requested"
-                if intent is ChatControlIntent.CANCEL
-                else "immediate chat steer requested"
-            )
+                self._requested[key] = effective
+                acknowledged = self._acknowledged.get(key)
+                if acknowledged is not effective:
+                    self._acknowledged.pop(key, None)
+                    if key not in self._redelivery:
+                        self._redelivery[key] = asyncio.create_task(
+                            self._redeliver(key, task),
+                            name="gerclaw-chat-control-redelivery",
+                        )
+
+    async def _redeliver(
+        self,
+        key: TaskKey,
+        task: asyncio.Task[None],
+    ) -> None:
+        """Repeat a swallowed task cancellation until the owner acknowledges it."""
+
+        try:
+            for delay in _REDELIVERY_DELAYS_SECONDS:
+                if delay:
+                    await asyncio.sleep(delay)
+                async with self._lock:
+                    if self._tasks.get(key) is not task or task.done():
+                        return
+                    intent = self._requested.get(key)
+                    if intent is None or self._acknowledged.get(key) is intent:
+                        return
+                task.cancel(
+                    "explicit chat cancellation requested"
+                    if intent is ChatControlIntent.CANCEL
+                    else "immediate chat steer requested"
+                )
+        except asyncio.CancelledError:
+            return
+        finally:
+            async with self._lock:
+                if self._redelivery.get(key) is asyncio.current_task():
+                    self._redelivery.pop(key, None)
 
     @staticmethod
     def _merge_intent(

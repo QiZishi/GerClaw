@@ -243,6 +243,7 @@ class ChatService:
         callback: StreamCallback,
         cancellation_requested: CancellationProbe | None = None,
         steering_requested: CancellationProbe | None = None,
+        interruption_acknowledged: Callable[[], None] | None = None,
         resume_state: FrozenRunState | None = None,
         successor_state: ControlledSuccessorState | None = None,
     ) -> AgentResponse:
@@ -420,6 +421,7 @@ class ChatService:
             error_code=self.error_code,
             cancellation_requested=cancellation_requested,
             steering_requested=steering_requested,
+            interruption_acknowledged=interruption_acknowledged,
         )
 
     async def _process_owned_turn(

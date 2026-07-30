@@ -181,6 +181,7 @@ async def test_steered_turn_uses_distinct_interruption_code() -> None:
         lease=_Lease(),
     )  # type: ignore[arg-type]
     statuses: list[tuple[TraceStatus, str, int | None]] = []
+    acknowledgements: list[str] = []
 
     async def interrupted_turn(_guard: SimpleNamespace) -> object:
         raise asyncio.CancelledError("steer")
@@ -210,9 +211,11 @@ async def test_steered_turn_uses_distinct_interruption_code() -> None:
             finalize_failure=finalize,
             error_code=lambda error: "CHAT_EXECUTION_FAILED",
             steering_requested=lambda: _return(True),  # type: ignore[arg-type]
+            interruption_acknowledged=lambda: acknowledgements.append("ack"),
         )
 
     assert statuses == [(TraceStatus.CANCELLED, "CHAT_STEERED", 7)]
+    assert acknowledgements == ["ack"]
 
 
 @pytest.mark.asyncio
@@ -223,6 +226,7 @@ async def test_provider_converted_cancel_error_still_uses_steer_interruption() -
         lease=_Lease(),
     )  # type: ignore[arg-type]
     statuses: list[tuple[TraceStatus, str, int | None]] = []
+    acknowledgements: list[str] = []
 
     async def converted_cancellation(_guard: SimpleNamespace) -> object:
         raise RuntimeError("provider converted task cancellation into stream failure")
@@ -253,9 +257,11 @@ async def test_provider_converted_cancel_error_still_uses_steer_interruption() -
             error_code=lambda error: "CHAT_EXECUTION_FAILED",
             cancellation_requested=lambda: _return(False),  # type: ignore[arg-type]
             steering_requested=lambda: _return(True),  # type: ignore[arg-type]
+            interruption_acknowledged=lambda: acknowledgements.append("ack"),
         )
 
     assert statuses == [(TraceStatus.CANCELLED, "CHAT_STEERED", 7)]
+    assert acknowledgements == ["ack"]
 
 
 @pytest.mark.asyncio

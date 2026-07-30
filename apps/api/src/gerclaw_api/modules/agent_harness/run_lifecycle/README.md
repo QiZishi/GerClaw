@@ -73,9 +73,12 @@ cancel takes precedence when both durable signals exist before that outcome is f
 the local merge is monotonic so a stale Redis steer read cannot downgrade a concurrent cancel.
 If a provider wrapper converts the injected cancellation into a stream error, the coordinator
 reconciles that error with the durable identity-scoped intent before assigning a terminal
-outcome. The separately configured `agent_steer_interruption_wait_seconds` gives provider
-cleanup enough bounded time to persist `interrupted`; it does not enlarge the short
-Trace-to-Run discovery wait.
+outcome. Because a provider cleanup layer may swallow one Python task cancellation while
+leaving the task's cancelling counter set, the registry redelivers the same intent on a bounded
+schedule. The coordinator synchronously acknowledges the first observed cancellation before
+starting database cleanup, which stops redelivery from interrupting the durable terminal
+transition. The separately configured `agent_steer_interruption_wait_seconds` remains a bounded
+coordination fallback; it does not enlarge the short Trace-to-Run discovery wait.
 
 Answer text is also checked for provider/tool protocol markup before its private attempt can be
 promoted. A matching attempt is rejected with content-free `ValidationFeedback`, the stable

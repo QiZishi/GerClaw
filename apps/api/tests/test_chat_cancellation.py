@@ -94,6 +94,71 @@ async def _never() -> None:
 
 
 @pytest.mark.asyncio
+async def test_control_redelivery_interrupts_a_task_that_swallows_the_first_signal() -> None:
+    redis = _FakeRedis()
+    registry = ChatCancellationRegistry(cast(Redis, redis))
+    first_signal = asyncio.Event()
+
+    async def cancellation_resistant() -> None:
+        try:
+            await asyncio.Event().wait()
+        except asyncio.CancelledError:
+            first_signal.set()
+        await asyncio.Event().wait()
+
+    task = asyncio.create_task(cancellation_resistant())
+    key = {
+        "tenant_id": "tenant_public0001",
+        "actor_id": "usr_patient00000001",
+        "trace_id": "trace_redelivery_0001",
+    }
+    await registry.register(task=task, **key)
+    await registry.request_steer(**key)
+    await asyncio.wait_for(first_signal.wait(), timeout=1)
+    result = (await asyncio.wait_for(
+        asyncio.gather(task, return_exceptions=True),
+        timeout=2,
+    ))[0]
+
+    assert isinstance(result, asyncio.CancelledError)
+    await registry.unregister(task=task, **key)
+    await registry.aclose()
+
+
+@pytest.mark.asyncio
+async def test_acknowledgement_stops_redelivery_during_terminal_cleanup() -> None:
+    redis = _FakeRedis()
+    registry = ChatCancellationRegistry(cast(Redis, redis))
+    cleanup_started = asyncio.Event()
+    cleanup_release = asyncio.Event()
+    key = {
+        "tenant_id": "tenant_public0001",
+        "actor_id": "usr_patient00000001",
+        "trace_id": "trace_acknowledge_0001",
+    }
+
+    async def acknowledged_cleanup() -> None:
+        try:
+            await asyncio.Event().wait()
+        except asyncio.CancelledError:
+            registry.acknowledge_control(**key)
+            cleanup_started.set()
+        await cleanup_release.wait()
+
+    task = asyncio.create_task(acknowledged_cleanup())
+    await registry.register(task=task, **key)
+    await registry.request_cancel(**key)
+    await asyncio.wait_for(cleanup_started.wait(), timeout=1)
+    await asyncio.sleep(0.4)
+    assert not task.done()
+    cleanup_release.set()
+    await task
+
+    await registry.unregister(task=task, **key)
+    await registry.aclose()
+
+
+@pytest.mark.asyncio
 async def test_cancellation_fans_out_to_the_task_on_another_replica() -> None:
     redis = _FakeRedis()
     first = ChatCancellationRegistry(cast(Redis, redis))

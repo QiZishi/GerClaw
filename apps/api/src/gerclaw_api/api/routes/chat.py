@@ -665,6 +665,13 @@ async def _stream_chat(
                                 actor_id=identity.actor_id,
                                 trace_id=trace_id,
                             ),
+                            interruption_acknowledged=lambda: (
+                                registry.acknowledge_control(
+                                    tenant_id=identity.tenant_id,
+                                    actor_id=identity.actor_id,
+                                    trace_id=trace_id,
+                                )
+                            ),
                             resume_state=resume_state,
                             successor_state=successor_state,
                         )
