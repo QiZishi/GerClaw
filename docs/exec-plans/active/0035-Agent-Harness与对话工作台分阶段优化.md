@@ -1109,9 +1109,10 @@ checkpoint persisted
   `completed_with_warnings`。工具失败使用节点 fallback；不能让一个 optional 能力拖垮完整回答。
 - 流式输出在公开前使用有界缓冲验证最小安全单元；已公开且已验证的单元不得因后续步骤失败被删除。尚未完成、
   未验证的片段不能与 fallback 输出拼接。最终事件明确区分成功、带警告完成、失败、取消和中断。
-- 前端不得把稳定错误码、Zod/Pydantic 堆栈或 Provider 原文直接展示给用户。恢复中显示“正在修复本步骤”及
-  可取消状态；最终只解释受影响的局部能力、已保留内容和可执行的下一步。正常输出在通过精确校验后必须展示，
-  不能被装饰性或重复校验再次拦截。
+- 前端不得把稳定错误码、Zod/Pydantic 堆栈或 Provider 原文直接展示给用户。修复期间继续显示原本的通用
+  执行阶段和可取消状态，不新增“出错/正在修复”提示；成功后只投影替换后的有效结果。只有所有修复与 fallback
+  均耗尽时，才解释受影响的局部能力、已保留内容和可执行下一步。正常输出通过精确校验后必须展示，不能被
+  装饰性或重复校验再次拦截。
 - `ValidationFeedback` 必须版本化并至少含 `step_id/attempt/error_code/field_paths/contract_version/
   repair_action/checkpoint_id`；不保存用户正文副本。相同反馈在 resume/replay 中 exactly-once，旧 worker
   不能在回滚后提交原失败结果。
@@ -1121,7 +1122,8 @@ checkpoint persisted
 - 测试至少覆盖：正常输出不被误杀；schema/Citation/工具输出第一次失败后从原 checkpoint 修复成功；
   连续相同错误切 deterministic fallback；optional 后处理失败保留正文；不可恢复身份/权限错误不重试；
   回滚后旧 worker 禁写；修复反馈无正文/密钥/阈值；流式已验证段落保留；错误重放 exactly-once。真实
-  Playwright CLI 要观察一次“正在修复 → 正常完成”和一次“局部降级但正文保留”，不得用 route mock。
+  Playwright CLI 要在后台日志确认发生一次“校验失败 → 回滚 → 修复成功”，同时断言用户页面全程没有失败/
+  修复提示且只出现替换后的有效结果；另覆盖一次“重试耗尽后局部降级但正文保留”，不得用 route mock。
 
 该约束写入组件宪章和 sealed gate：安全评测不能只统计拦截率，还必须对普通、复杂、老年交互和低风险内容
 执行可用性非退化门禁。平均安全分提升不能抵消任何核心正常路径从成功变失败，也不能抵消单病例输出质量下降。
@@ -1137,9 +1139,10 @@ checkpoint persisted
 - 每段重复的免责声明、风险提示、引用说明或“请咨询医生”套话；
 - 已经修复成功的中间错误、候选草稿、被替代正文和后台降级过程。
 
-公开阶段事件可以短暂显示“正在核对来源”“正在修复格式”“某项能力暂不可用”等用户能理解且可操作的状态，
-但 Run 完成后默认折叠，不插入回答 Markdown，也不进入复制、朗读、Artifact 或导出正文。内部
-`ValidationFeedback`、Trace 和日志继续保留可审计事实，但前端不得把它们渲染成正文。
+公开阶段事件只显示与正常执行一致的“正在核对来源”“正在整理结果”等通用进度；成功修复的失败 attempt、
+“正在修复格式”和内部降级路径完全不进入公开事件。Run 完成后阶段状态默认折叠，不插入回答 Markdown，也不
+进入复制、朗读、Artifact 或导出正文。内部 `ValidationFeedback`、Trace 和日志继续保留可审计事实，但前端
+不得把它们渲染成正文。
 
 医疗安全在台前只保留与当前内容直接相关的最小表达：
 
@@ -1164,8 +1167,8 @@ checkpoint persisted
   模板化 AI 自述；非医疗回答不应被强行追加医疗提醒。
 - 同一回答的可见免责声明计数符合角色/场景合同；正常医学回答一次，高风险回答使用一次行动型提示且不重复，
   医生端按服务端治理的专业粒度展示。
-- 修复重试成功后，最终正文与复制/TTS/Artifact/导出均不含“正在修复”或失败细节；公开阶段历史仍可按需
-  展开审计，但默认折叠。
+- 修复重试成功后，页面、公开阶段历史、最终正文与复制/TTS/Artifact/导出均不含失败 attempt、“正在修复”
+  或错误细节；只有受权后台审计视图可查看私有 attempt 谱系。
 - 采用真实用户任务做阅读测试：答案首屏应先出现直接结论或行动，核心回答长度占可见正文的主体；安全模板文本
   不得超过配置的极小比例。该指标必须与医学红旗召回率同时通过，不能通过删除必要红旗提示刷可读性。
 - 真实 Playwright CLI 分别检查患者、老年模式和医生端的回答、复制、朗读及导出内容；console/network/log
@@ -1173,6 +1176,30 @@ checkpoint persisted
 
 该约束同样进入离线演化门禁：候选若增加重复提醒、内部术语或无关安全文字，使任何普通/老年切片阅读质量下降，
 即使安全拦截分上升也必须拒绝；候选若删除真实红旗行动建议或唯一医疗免责声明，同样拒绝。
+
+#### 6.9 失败 attempt 无感替换与 current-attempt 投影
+
+一个执行步骤可以有多个内部 attempt，但公开层永远只有一个稳定的 `public_operation_id`。每个 attempt 在
+独立暂存区产生模型增量、工具结果、Citation、Artifact patch 和后处理结果；只有完整通过 owning boundary
+校验后，才以 compare-and-swap 将该 attempt 设为 `current_valid_attempt` 并一次性更新公开操作。失败 attempt
+直接回滚到步骤前 checkpoint，后继 attempt 的有效输出覆盖同一公开槽位，不新增一条“重试/修复”消息。
+
+- PostgreSQL 保留 append-only 私有 attempt 审计和 current pointer；“覆盖”仅指用户投影替换，禁止物理删除
+  Trace、错误码、checkpoint 或版本谱系。审计数据仍遵循加密、最小化和访问控制。
+- SSE 对外不发送未验证的 attempt delta、工具原始结果或失败事件。文本按最小可安全单元缓冲；工具卡和阶段卡
+  使用稳定公开 ID，只在有效 attempt 提交后产生/更新。`after_sequence` replay 只返回 current public
+  projection，不能把已被替代 attempt 重新播放给用户。
+- AnswerVersion、Artifact revision、Citation 和能力结果只有在 attempt 验证成功后才能成为 current；失败
+  attempt 不得短暂进入会话历史、Memory 提取、TTS、复制、导出或 Context Snapshot。后继模型只能收到内部
+  `ValidationFeedback` 和步骤前冻结上下文，不能把坏输出当成事实继续推理。
+- 修复延迟期间 UI 保持正常阶段动画和停止能力，不出现错误色、失败气泡、重试计数或“正在修复”。若修复成功，
+  用户只看到最终有效操作；若全部预算耗尽，则如实显示一次局部、自然语言的不可用说明，不能伪造完整成功。
+- worker fencing 和 attempt CAS 必须防止旧 attempt 在新 attempt 成功后覆盖 current pointer。取消、立即
+  steer 或进程中断会使所有未提交 attempt 失效；恢复从最后已提交 checkpoint 开新 attempt，不重放半截正文。
+- 测试至少覆盖：首次坏 JSON/错误 Citation/越界工具输出从未出现在 SSE 或 DOM；第二 attempt 以同一
+  `public_operation_id` 成功；刷新/replay 只见有效结果；失败 attempt 未进入 Memory/Context/TTS/Artifact；
+  十路并发只有一个 current；旧 worker 迟到提交失败；重试耗尽时只显示一次局部降级。Playwright 通过后台
+  Trace 证明修复真实发生，同时录制的页面和网络公开载荷中没有失败 attempt 痕迹。
 
 ### 阶段 7
 
