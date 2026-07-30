@@ -143,7 +143,8 @@ async def test_recovery_interrupts_only_runs_without_cross_replica_lease(
         )
     assert interrupted_count == 1
     assert orphan is not None and orphan.status == "interrupted"
-    assert orphan.completed_at is not None
+    assert orphan.completed_at is None
+    assert orphan.interrupted_at is not None
     assert active is not None and active.status == "running"
     assert [event.status for event in orphan_events] == ["interrupted"]
     active_recoverable = await client.get(

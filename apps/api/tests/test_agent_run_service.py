@@ -201,7 +201,13 @@ async def test_event_sequence_and_after_sequence_replay_are_monotonic() -> None:
 
 
 @pytest.mark.asyncio
-async def test_event_append_rejects_stale_worker_and_terminal_run() -> None:
+@pytest.mark.parametrize(
+    "closed_status",
+    [AgentRunStatus.COMPLETED, AgentRunStatus.INTERRUPTED],
+)
+async def test_event_append_rejects_stale_worker_and_closed_run(
+    closed_status: AgentRunStatus,
+) -> None:
     repository = _Repository()
     service = AgentRunService(repository)
     created = await service.create_run(_request(), tenant_id=TENANT, actor_id=ACTOR)
@@ -215,17 +221,17 @@ async def test_event_append_rejects_stale_worker_and_terminal_run() -> None:
             actor_id=ACTOR,
             fencing_token=6,
         )
-    completed = await service.transition(
+    closed = await service.transition(
         created.id,
-        AgentRunStatus.COMPLETED,
+        closed_status,
         tenant_id=TENANT,
         actor_id=ACTOR,
         expected_revision=1,
         fencing_token=7,
     )
-    with pytest.raises(RunTerminalConflictError, match="terminal agent run"):
+    with pytest.raises(RunTerminalConflictError, match="closed agent run"):
         await service.append_event(
-            completed.id,
+            closed.id,
             event,
             tenant_id=TENANT,
             actor_id=ACTOR,
@@ -379,7 +385,8 @@ async def test_lease_orphan_can_be_marked_interrupted(
     )
 
     assert interrupted.status is AgentRunStatus.INTERRUPTED
-    assert interrupted.completed_at is not None
+    assert interrupted.completed_at is None
+    assert interrupted.interrupted_at is not None
     assert repository.events[-1].status == "interrupted"
 
 
@@ -404,6 +411,7 @@ async def test_new_worker_adopts_interrupted_run_and_fences_old_worker() -> None
     assert resumed.id == interrupted.id
     assert resumed.status is AgentRunStatus.RUNNING
     assert resumed.completed_at is None
+    assert resumed.interrupted_at == interrupted.interrupted_at
     assert repository.runs[resumed.id].fencing_token == 8
     assert repository.events[-1].event_type == "run.resumed"
     with pytest.raises(RunFenceConflictError):

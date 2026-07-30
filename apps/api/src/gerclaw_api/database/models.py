@@ -287,6 +287,17 @@ class AgentRun(TimestampMixin, Base):
         CheckConstraint("revision > 0", name="positive_agent_run_revision"),
         CheckConstraint("last_sequence >= 0", name="nonnegative_agent_run_sequence"),
         CheckConstraint("fencing_token > 0", name="positive_agent_run_fence"),
+        CheckConstraint(
+            "((status IN ('completed','completed_with_warnings','failed','cancelled') "
+            "AND completed_at IS NOT NULL) OR "
+            "(status IN ('running','waiting_for_user','interrupted') "
+            "AND completed_at IS NULL))",
+            name="valid_agent_run_terminal_time",
+        ),
+        CheckConstraint(
+            "status != 'interrupted' OR interrupted_at IS NOT NULL",
+            name="valid_agent_run_interruption_time",
+        ),
         UniqueConstraint("tenant_id", "trace_id", name="uq_agent_runs_tenant_trace"),
         Index(
             "ix_agent_runs_owner_conversation_created",
@@ -328,6 +339,7 @@ class AgentRun(TimestampMixin, Base):
     started_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now(), nullable=False
     )
+    interrupted_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     completed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
 
 

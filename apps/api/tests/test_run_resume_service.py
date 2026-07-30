@@ -81,7 +81,8 @@ def _record() -> RunResumeRecord:
         last_sequence=2,
         revision=2,
         started_at=now,
-        completed_at=now,
+        interrupted_at=now,
+        completed_at=None,
         created_at=now,
         updated_at=now,
     )

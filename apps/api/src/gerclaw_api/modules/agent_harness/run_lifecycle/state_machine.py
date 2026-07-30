@@ -70,6 +70,7 @@ class RunLifecycleState(BaseModel):
     revision: int = Field(ge=1)
     fencing_token: int = Field(ge=1)
     warnings: tuple[BoundedIdentifier, ...] = Field(default=(), max_length=50)
+    interrupted_at: datetime | None = None
     completed_at: datetime | None = None
 
     @model_validator(mode="after")
@@ -78,6 +79,8 @@ class RunLifecycleState(BaseModel):
             raise ValueError("terminal run state requires completed_at")
         if self.status not in TERMINAL_RUN_STATUSES and self.completed_at is not None:
             raise ValueError("non-terminal run state cannot have completed_at")
+        if self.status is AgentRunStatus.INTERRUPTED and self.interrupted_at is None:
+            raise ValueError("interrupted run state requires interrupted_at")
         return self
 
 
@@ -116,6 +119,11 @@ class AgentRunStateMachine:
                 "status": target,
                 "revision": current.revision + 1,
                 "warnings": warnings,
+                "interrupted_at": (
+                    occurred_at or datetime.now(UTC)
+                    if target is AgentRunStatus.INTERRUPTED
+                    else current.interrupted_at
+                ),
                 "completed_at": (
                     (occurred_at or datetime.now(UTC))
                     if target in TERMINAL_RUN_STATUSES

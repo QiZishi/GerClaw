@@ -5,7 +5,7 @@ import { planConversationRecovery } from "./conversation-recovery.ts";
 import type { AgentRun, RunEventPage } from "./run-contract.ts";
 
 const run = (status: AgentRun["status"]): AgentRun => ({
-  schema_version: "1.0",
+  schema_version: "1.1",
   id: "79d0809f-874a-4f1e-b2ab-02ec641a20ed",
   conversation_id: "db52e2be-b9a0-46af-9ed7-3d70a28e3dc0",
   input_message_id: "b0a9f396-e9f8-46fd-8529-f956dfd265bf",
@@ -18,6 +18,8 @@ const run = (status: AgentRun["status"]): AgentRun => ({
   last_sequence: status === "completed" ? 5 : 2,
   revision: status === "completed" ? 2 : 1,
   started_at: "2026-07-29T17:06:51.182497Z",
+  interrupted_at:
+    status === "interrupted" ? "2026-07-29T17:07:01.556369Z" : null,
   completed_at:
     status === "completed" ? "2026-07-29T17:07:04.556369Z" : null,
 });

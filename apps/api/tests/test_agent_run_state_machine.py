@@ -22,6 +22,11 @@ def _state(status: AgentRunStatus = AgentRunStatus.RUNNING) -> RunLifecycleState
         status=status,
         revision=3,
         fencing_token=17,
+        interrupted_at=(
+            datetime.now(UTC)
+            if status is AgentRunStatus.INTERRUPTED
+            else None
+        ),
         completed_at=(
             datetime.now(UTC)
             if status
@@ -30,7 +35,6 @@ def _state(status: AgentRunStatus = AgentRunStatus.RUNNING) -> RunLifecycleState
                 AgentRunStatus.COMPLETED_WITH_WARNINGS,
                 AgentRunStatus.FAILED,
                 AgentRunStatus.CANCELLED,
-                AgentRunStatus.INTERRUPTED,
             }
             else None
         ),
@@ -94,6 +98,7 @@ def test_interrupted_run_can_resume_but_completed_run_cannot() -> None:
     )
     assert resumed.status is AgentRunStatus.RUNNING
     assert resumed.completed_at is None
+    assert resumed.interrupted_at is not None
 
     with pytest.raises(RunTerminalConflictError):
         machine.transition(

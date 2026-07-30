@@ -533,6 +533,11 @@ class _RunJournal:
             last_sequence=len(self.events),
             revision=revision,
             started_at=datetime.now(UTC),
+            interrupted_at=(
+                datetime.now(UTC)
+                if status is AgentRunStatus.INTERRUPTED
+                else None
+            ),
             completed_at=(
                 datetime.now(UTC) if status in TERMINAL_RUN_STATUSES else None
             ),

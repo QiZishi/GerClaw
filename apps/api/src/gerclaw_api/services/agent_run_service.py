@@ -8,7 +8,7 @@ from datetime import UTC, datetime
 
 from gerclaw_api.database.models import AgentRun, RunEvent
 from gerclaw_api.domain.run_schemas import (
-    TERMINAL_RUN_STATUSES,
+    RUN_EVENT_CLOSED_STATUSES,
     AgentRunCreate,
     AgentRunRead,
     AgentRunStatus,
@@ -81,6 +81,7 @@ class AgentRunService:
             last_sequence=0,
             revision=1,
             started_at=now,
+            interrupted_at=None,
             completed_at=None,
             created_at=now,
             updated_at=now,
@@ -159,6 +160,7 @@ class AgentRunService:
                     fencing_token=current.fencing_token,
                 )
                 existing.status = updated.status.value
+                existing.interrupted_at = updated.interrupted_at
                 existing.completed_at = updated.completed_at
             existing.fencing_token = request.fencing_token
             existing.revision += 1
@@ -207,9 +209,9 @@ class AgentRunService:
         if run.fencing_token != fencing_token:
             await self._repository.rollback()
             raise RunFenceConflictError("agent run fencing token is stale")
-        if AgentRunStatus(run.status) in TERMINAL_RUN_STATUSES:
+        if AgentRunStatus(run.status) in RUN_EVENT_CLOSED_STATUSES:
             await self._repository.rollback()
-            raise RunTerminalConflictError("terminal agent run cannot accept events")
+            raise RunTerminalConflictError("closed agent run cannot accept events")
         event = await self._stage_event(run, request)
         try:
             await self._repository.flush()
@@ -283,6 +285,7 @@ class AgentRunService:
             run.status = updated.status.value
             run.revision = updated.revision
             run.warnings = list(updated.warnings)
+            run.interrupted_at = updated.interrupted_at
             run.completed_at = updated.completed_at
             event_request = terminal_event or RunEventWrite(
                 event_type="run.status",
@@ -325,6 +328,7 @@ class AgentRunService:
             run.status = updated.status.value
             run.revision = updated.revision
             run.warnings = list(updated.warnings)
+            run.interrupted_at = updated.interrupted_at
             run.completed_at = updated.completed_at
             await self._stage_event(
                 run,
@@ -366,6 +370,7 @@ class AgentRunService:
             run.status = updated.status.value
             run.revision = updated.revision
             run.warnings = list(updated.warnings)
+            run.interrupted_at = updated.interrupted_at
             run.completed_at = updated.completed_at
             await self._stage_event(
                 run,
@@ -430,6 +435,7 @@ class AgentRunService:
             revision=run.revision,
             fencing_token=run.fencing_token,
             warnings=tuple(run.warnings),
+            interrupted_at=run.interrupted_at,
             completed_at=run.completed_at,
         )
 
@@ -480,6 +486,7 @@ class AgentRunService:
             last_sequence=run.last_sequence,
             revision=run.revision,
             started_at=run.started_at,
+            interrupted_at=run.interrupted_at,
             completed_at=run.completed_at,
         )
 

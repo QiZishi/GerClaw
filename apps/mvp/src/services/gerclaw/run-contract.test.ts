@@ -17,7 +17,7 @@ const now = "2026-07-29T12:00:00Z";
 
 test("Run contracts accept the versioned strict backend shape", () => {
   const run = agentRunSchema.parse({
-    schema_version: "1.0",
+    schema_version: "1.1",
     id: runId,
     conversation_id: conversationId,
     input_message_id: messageId,
@@ -29,6 +29,7 @@ test("Run contracts accept the versioned strict backend shape", () => {
     last_sequence: 2,
     revision: 2,
     started_at: now,
+    interrupted_at: null,
     completed_at: now,
   });
   const page = runEventPageSchema.parse({
@@ -53,7 +54,12 @@ test("Run contracts accept the versioned strict backend shape", () => {
   assert.equal(
     recoverableRunSchema.parse({
       conversation_id: conversationId,
-      run: { ...run, status: "interrupted" },
+      run: {
+        ...run,
+        status: "interrupted",
+        interrupted_at: now,
+        completed_at: null,
+      },
     }).run?.id,
     runId
   );
@@ -112,6 +118,28 @@ test("Run contracts reject extra fields, oversized payloads and invalid feedback
       title: "文档",
       markdown: "",
       unexpected: true,
+    }).success,
+    false
+  );
+  assert.equal(
+    agentRunSchema.safeParse({
+      ...agentRunSchema.parse({
+        schema_version: "1.1",
+        id: runId,
+        conversation_id: conversationId,
+        input_message_id: messageId,
+        trace_id: "trace_contract_0002",
+        route: "standard",
+        status: "running",
+        current_answer_version_id: null,
+        warnings: [],
+        last_sequence: 0,
+        revision: 1,
+        started_at: now,
+        interrupted_at: null,
+        completed_at: null,
+      }),
+      status: "interrupted",
     }).success,
     false
   );

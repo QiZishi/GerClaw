@@ -43,6 +43,11 @@ TERMINAL_RUN_STATUSES = frozenset(
         AgentRunStatus.COMPLETED_WITH_WARNINGS,
         AgentRunStatus.FAILED,
         AgentRunStatus.CANCELLED,
+    }
+)
+RUN_EVENT_CLOSED_STATUSES = frozenset(
+    {
+        *TERMINAL_RUN_STATUSES,
         AgentRunStatus.INTERRUPTED,
     }
 )
@@ -100,7 +105,7 @@ class AgentRunCreate(BaseModel):
 class AgentRunRead(BaseModel):
     model_config = ConfigDict(extra="forbid", frozen=True)
 
-    schema_version: Literal["1.0"] = "1.0"
+    schema_version: Literal["1.1"] = "1.1"
     id: uuid.UUID
     conversation_id: uuid.UUID
     input_message_id: uuid.UUID
@@ -112,6 +117,7 @@ class AgentRunRead(BaseModel):
     last_sequence: int = Field(default=0, ge=0)
     revision: int = Field(ge=1)
     started_at: datetime
+    interrupted_at: datetime | None = None
     completed_at: datetime | None = None
 
     @model_validator(mode="after")
@@ -120,6 +126,8 @@ class AgentRunRead(BaseModel):
             raise ValueError("terminal run requires completed_at")
         if self.status not in TERMINAL_RUN_STATUSES and self.completed_at is not None:
             raise ValueError("non-terminal run cannot have completed_at")
+        if self.status is AgentRunStatus.INTERRUPTED and self.interrupted_at is None:
+            raise ValueError("interrupted run requires interrupted_at")
         return self
 
 

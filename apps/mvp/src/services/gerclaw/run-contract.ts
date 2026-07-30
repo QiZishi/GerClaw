@@ -18,7 +18,7 @@ const boundedPayloadSchema = z
 
 export const agentRunSchema = z
   .object({
-    schema_version: z.literal("1.0"),
+    schema_version: z.literal("1.1"),
     id: z.string().uuid(),
     conversation_id: z.string().uuid(),
     input_message_id: z.string().uuid(),
@@ -30,9 +30,32 @@ export const agentRunSchema = z
     last_sequence: z.number().int().nonnegative(),
     revision: z.number().int().positive(),
     started_at: z.string().datetime(),
+    interrupted_at: z.string().datetime().nullable(),
     completed_at: z.string().datetime().nullable(),
   })
-  .strict();
+  .strict()
+  .superRefine((run, context) => {
+    const terminal = [
+      "completed",
+      "completed_with_warnings",
+      "failed",
+      "cancelled",
+    ].includes(run.status);
+    if (terminal !== (run.completed_at !== null)) {
+      context.addIssue({
+        code: "custom",
+        message: "completed_at must match a true terminal status",
+        path: ["completed_at"],
+      });
+    }
+    if (run.status === "interrupted" && run.interrupted_at === null) {
+      context.addIssue({
+        code: "custom",
+        message: "interrupted_at is required for an interrupted Run",
+        path: ["interrupted_at"],
+      });
+    }
+  });
 
 export const runEventSchema = z
   .object({

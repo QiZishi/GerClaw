@@ -46,6 +46,22 @@ def test_terminal_run_requires_exact_terminal_timestamp_semantics() -> None:
     )
     assert completed.status is AgentRunStatus.COMPLETED_WITH_WARNINGS
 
+    interrupted_at = datetime.now(UTC)
+    interrupted = _run(
+        status=AgentRunStatus.INTERRUPTED,
+        interrupted_at=interrupted_at,
+    )
+    assert interrupted.completed_at is None
+    assert interrupted.interrupted_at == interrupted_at
+    with pytest.raises(ValidationError, match="interrupted_at"):
+        _run(status=AgentRunStatus.INTERRUPTED)
+    with pytest.raises(ValidationError, match="non-terminal"):
+        _run(
+            status=AgentRunStatus.INTERRUPTED,
+            interrupted_at=interrupted_at,
+            completed_at=interrupted_at,
+        )
+
 
 def test_run_event_payload_and_public_summary_are_bounded() -> None:
     with pytest.raises(ValidationError):

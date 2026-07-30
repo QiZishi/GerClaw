@@ -22,7 +22,7 @@ from gerclaw_api.auth import (
 from gerclaw_api.dependencies import get_database_session
 from gerclaw_api.domain.chat_schemas import ChatCancelledData, ChatErrorData
 from gerclaw_api.domain.run_schemas import (
-    TERMINAL_RUN_STATUSES,
+    RUN_EVENT_CLOSED_STATUSES,
     AgentRunRead,
     AnswerVersionListRead,
     AnswerVersionRead,
@@ -192,7 +192,10 @@ async def stream_run_events(
                 cursor = event.sequence
                 yield _encode_run_event(event, trace_id=current.trace_id)
                 last_heartbeat = time.monotonic()
-            if current.status in TERMINAL_RUN_STATUSES and cursor >= current.last_sequence:
+            if (
+                current.status in RUN_EVENT_CLOSED_STATUSES
+                and cursor >= current.last_sequence
+            ):
                 return
             now = time.monotonic()
             if now - last_heartbeat >= heartbeat_interval:
