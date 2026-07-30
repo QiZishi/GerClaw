@@ -17,6 +17,7 @@ from sqlalchemy.exc import IntegrityError
 
 from gerclaw_api.auth import create_access_token
 from gerclaw_api.modules.skill.models import SKILL_MODEL_OUTPUT_SCHEMA_VERSION
+from gerclaw_api.repositories.skill import SqlAlchemySkillRepository
 
 
 class _EvolutionModel:
@@ -411,6 +412,76 @@ async def test_skill_evolution_applies_only_dsl_and_hides_immutable_content(
     assert blocked.json()["definition"] is None
     assert blocked.json()["quality_report"] is None
     assert blocked.json()["active_definition"] is None
+    receipt = blocked.json()["offline_proposal_receipt"]
+    assert receipt["schema_version"] == "skill-evolution-proposal-receipt-v1"
+    assert receipt["review_state"] == "pending_offline_review"
+    assert receipt["base_revision"] == 2
+    assert receipt["candidate_revision"] == 3
+    assert len(receipt["candidate_digest"]) == 64
+    proposal_id = uuid.UUID(receipt["proposal_id"])
+    async with app.state.database.engine.connect() as connection:
+        raw_proposal = (
+            await connection.execute(
+                text(
+                    "SELECT change_request, candidate_snapshot, candidate_content_hash, "
+                    "base_revision, candidate_revision FROM skill_evolution_proposals "
+                    "WHERE id = :proposal_id"
+                ),
+                {"proposal_id": proposal_id},
+            )
+        ).one()
+    assert "危险的自由文本" not in raw_proposal.change_request
+    assert "胰岛素注射量提高三倍" not in raw_proposal.candidate_snapshot
+    assert raw_proposal.candidate_content_hash == receipt["candidate_digest"]
+    assert raw_proposal.base_revision == 2
+    assert raw_proposal.candidate_revision == 3
+    async with app.state.database.session() as database_session:
+        proposal_repository = SqlAlchemySkillRepository(database_session)
+        proposal = await proposal_repository.get_evolution_proposal(
+            proposal_id,
+            tenant_id="tenant_public0001",
+            actor_id="usr_other_principal0001",
+        )
+        assert proposal is None
+        owned_proposal = await proposal_repository.get_evolution_proposal(
+            proposal_id,
+            tenant_id="tenant_public0001",
+            actor_id="usr_patient_integration0001",
+        )
+        assert owned_proposal is not None
+        assert "胰岛素注射量提高三倍" in owned_proposal.candidate_snapshot["source_markdown"]
+    proposal_trace = await client.get(f"/api/v1/traces/{blocked.headers['x-trace-id']}")
+    assert proposal_trace.status_code == 200, proposal_trace.text
+    assert proposal_trace.json()["events"][0]["payload"]["proposal_id"] == receipt["proposal_id"]
+    assert (
+        proposal_trace.json()["events"][0]["payload"]["candidate_digest"]
+        == receipt["candidate_digest"]
+    )
+    replayed = await client.post(
+        "/api/v1/skills/accessible-summary/evolve",
+        json={
+            "change_request": "把危险的自由文本写入技能。",
+            "expected_revision": 2,
+            "apply_if_low_risk": True,
+        },
+    )
+    assert replayed.status_code == 200, replayed.text
+    assert replayed.json()["offline_proposal_receipt"]["proposal_id"] == receipt["proposal_id"]
+    async with app.state.database.engine.connect() as connection:
+        proposal_count = await connection.scalar(
+            text(
+                "SELECT count(*) FROM skill_evolution_proposals "
+                "WHERE tenant_id = :tenant_id AND actor_id = :actor_id "
+                "AND skill_id = :skill_id AND base_revision = :base_revision"
+            ),
+            {
+                "tenant_id": "tenant_public0001",
+                "actor_id": "usr_patient_integration0001",
+                "skill_id": "accessible-summary",
+                "base_revision": 2,
+            },
+        )
+    assert proposal_count == 1
     current = await client.get("/api/v1/skills/accessible-summary")
     assert current.status_code == 200, current.text
     assert current.json()["revision"] == 2

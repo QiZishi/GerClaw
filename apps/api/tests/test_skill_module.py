@@ -2,8 +2,10 @@
 
 from __future__ import annotations
 
+import hashlib
 import io
 import stat
+import uuid
 import zipfile
 from datetime import UTC, datetime
 from pathlib import Path
@@ -578,6 +580,7 @@ class _SkillRepository:
     def __init__(self) -> None:
         self.records: dict[str, SimpleNamespace] = {}
         self.selections: dict[str, list[str]] = {}
+        self.proposals: list[SimpleNamespace] = []
         self.commits = 0
 
     @staticmethod
@@ -628,6 +631,39 @@ class _SkillRepository:
         record.revision += 1
         record.updated_at = datetime.now(UTC)
         return record
+
+    async def create_evolution_proposal(
+        self,
+        skill_id: str,
+        *,
+        expected_revision: int,
+        current: Any,
+        candidate: Any,
+        decision: Any,
+        change_request: str,
+        trace_id: str,
+        request_fingerprint: str,
+        **_kwargs: Any,
+    ) -> SimpleNamespace:
+        record = self.records.get(skill_id)
+        if record is None or record.revision != expected_revision:
+            raise SkillRepositoryConflictError("stale")
+        proposal = SimpleNamespace(
+            id=uuid.uuid4(),
+            skill_id=skill_id,
+            base_revision=expected_revision,
+            candidate_revision=candidate.revision,
+            candidate_content_hash=hashlib.sha256(candidate.source_markdown.encode()).hexdigest(),
+            created_at=datetime.now(UTC),
+            current=current,
+            candidate=candidate,
+            decision=decision,
+            change_request=change_request,
+            trace_id=trace_id,
+            request_fingerprint=request_fingerprint,
+        )
+        self.proposals.append(proposal)
+        return proposal
 
     async def delete_custom(self, skill_id: str, *, expected_revision: int, **_kwargs: Any) -> bool:
         record = self.records.get(skill_id)
@@ -843,6 +879,13 @@ async def test_production_module_clinical_evolution_is_offline_only_and_revision
     assert outcome.decision.object_kind == "skill.clinical"
     assert outcome.decision.disposition == "offline_review_required"
     assert outcome.active_definition is None
+    assert outcome.offline_proposal_receipt is not None
+    assert outcome.offline_proposal_receipt.proposal_id == repository.proposals[0].id
+    assert outcome.offline_proposal_receipt.base_revision == 1
+    assert outcome.offline_proposal_receipt.candidate_revision == 2
+    assert repository.proposals[0].candidate.source_markdown == outcome.candidate.source_markdown
+    assert repository.proposals[0].current.version == "1.0.0"
+    assert repository.commits == 2
     assert (await module.load_skill("safe-followup")).definition.version == "1.0.0"
 
     with pytest.raises(SkillConflictError, match="stale"):

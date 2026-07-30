@@ -1361,6 +1361,69 @@ class SkillDefinitionRevision(Base):
     )
 
 
+class SkillEvolutionProposal(Base):
+    """Append-only encrypted immutable-track Skill candidate for offline review."""
+
+    __tablename__ = "skill_evolution_proposals"
+    __table_args__ = (
+        CheckConstraint("base_revision > 0", name="positive_skill_proposal_base_revision"),
+        CheckConstraint(
+            "candidate_revision = base_revision + 1",
+            name="next_skill_proposal_candidate_revision",
+        ),
+        CheckConstraint("track = 'immutable'", name="immutable_skill_proposal_track"),
+        CheckConstraint(
+            "review_state = 'pending_offline_review'",
+            name="pending_skill_proposal_review_state",
+        ),
+        UniqueConstraint(
+            "tenant_id",
+            "actor_id",
+            "skill_id",
+            "base_revision",
+            "candidate_content_hash",
+            name="uq_skill_proposals_owner_base_candidate",
+        ),
+        Index(
+            "ix_skill_proposals_owner_state_created",
+            "tenant_id",
+            "actor_id",
+            "review_state",
+            "created_at",
+        ),
+    )
+
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    schema_version: Mapped[str] = mapped_column(
+        String(40), default="skill-evolution-proposal-v1", nullable=False
+    )
+    tenant_id: Mapped[str] = mapped_column(String(64), nullable=False, index=True)
+    actor_id: Mapped[str] = mapped_column(String(128), nullable=False, index=True)
+    trace_id: Mapped[str] = mapped_column(String(128), nullable=False)
+    request_fingerprint: Mapped[str] = mapped_column(String(64), nullable=False)
+    skill_record_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), nullable=False)
+    skill_id: Mapped[str] = mapped_column(String(64), nullable=False)
+    base_revision: Mapped[int] = mapped_column(Integer, nullable=False)
+    candidate_revision: Mapped[int] = mapped_column(Integer, nullable=False)
+    base_version: Mapped[str] = mapped_column(String(32), nullable=False)
+    candidate_version: Mapped[str] = mapped_column(String(32), nullable=False)
+    track: Mapped[str] = mapped_column(String(16), nullable=False, default="immutable")
+    object_kind: Mapped[str] = mapped_column(String(32), nullable=False)
+    authority: Mapped[str] = mapped_column(String(32), nullable=False)
+    review_state: Mapped[str] = mapped_column(
+        String(32), nullable=False, default="pending_offline_review"
+    )
+    reason_codes: Mapped[list[str]] = mapped_column(JSONB, nullable=False)
+    change_request: Mapped[str] = mapped_column(EncryptedText(), nullable=False)
+    base_snapshot: Mapped[dict[str, Any]] = mapped_column(EncryptedJSON(), nullable=False)
+    candidate_snapshot: Mapped[dict[str, Any]] = mapped_column(EncryptedJSON(), nullable=False)
+    base_content_hash: Mapped[str] = mapped_column(String(64), nullable=False)
+    candidate_content_hash: Mapped[str] = mapped_column(String(64), nullable=False)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), nullable=False
+    )
+
+
 class SessionSkill(Base):
     """Ordered Skill selection for one caller-owned durable conversation."""
 

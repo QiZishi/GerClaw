@@ -15,9 +15,13 @@ from gerclaw_api.database.models import (
     SessionSkill,
     SkillDefinitionRecord,
     SkillDefinitionRevision,
+    SkillEvolutionProposal,
     User,
 )
-from gerclaw_api.modules.skill.models import SkillDefinition
+from gerclaw_api.modules.skill.models import (
+    SkillDefinition,
+    SkillEvolutionDecision,
+)
 
 
 class SkillRepositoryConflictError(RuntimeError):
@@ -167,6 +171,95 @@ class SqlAlchemySkillRepository:
         # cannot trigger implicit synchronous I/O after commit.
         await self._session.refresh(record)
         return record
+
+    async def create_evolution_proposal(
+        self,
+        skill_id: str,
+        *,
+        tenant_id: str,
+        actor_id: str,
+        expected_revision: int,
+        current: SkillDefinition,
+        candidate: SkillDefinition,
+        decision: SkillEvolutionDecision,
+        change_request: str,
+        trace_id: str,
+        request_fingerprint: str,
+    ) -> SkillEvolutionProposal:
+        """Persist one encrypted immutable candidate without activating it."""
+
+        record = await self.get_custom(
+            skill_id,
+            tenant_id=tenant_id,
+            actor_id=actor_id,
+            for_update=True,
+        )
+        if record is None:
+            raise SkillRepositoryConflictError("Skill not found")
+        if (
+            record.revision != expected_revision
+            or current.revision != expected_revision
+            or candidate.revision != expected_revision + 1
+            or record.content_hash != _content_hash(current.source_markdown)
+        ):
+            raise SkillRepositoryConflictError("Skill revision is stale")
+        candidate_content_hash = _content_hash(candidate.source_markdown)
+        existing = await self._session.scalar(
+            select(SkillEvolutionProposal).where(
+                SkillEvolutionProposal.tenant_id == tenant_id,
+                SkillEvolutionProposal.actor_id == actor_id,
+                SkillEvolutionProposal.skill_id == skill_id,
+                SkillEvolutionProposal.base_revision == expected_revision,
+                SkillEvolutionProposal.candidate_content_hash == candidate_content_hash,
+            )
+        )
+        if existing is not None:
+            return existing
+        proposal = SkillEvolutionProposal(
+            tenant_id=tenant_id,
+            actor_id=actor_id,
+            trace_id=trace_id,
+            request_fingerprint=request_fingerprint,
+            skill_record_id=record.id,
+            skill_id=skill_id,
+            base_revision=expected_revision,
+            candidate_revision=candidate.revision,
+            base_version=current.version,
+            candidate_version=candidate.version,
+            track=decision.track,
+            object_kind=decision.object_kind,
+            authority=decision.authority,
+            review_state="pending_offline_review",
+            reason_codes=list(decision.reason_codes),
+            change_request=change_request,
+            base_snapshot=current.model_dump(mode="json"),
+            candidate_snapshot=candidate.model_dump(mode="json"),
+            base_content_hash=record.content_hash,
+            candidate_content_hash=candidate_content_hash,
+        )
+        self._session.add(proposal)
+        await self._flush_unique_conflict()
+        return proposal
+
+    async def get_evolution_proposal(
+        self,
+        proposal_id: uuid.UUID,
+        *,
+        tenant_id: str,
+        actor_id: str,
+    ) -> SkillEvolutionProposal | None:
+        """Read a proposal only inside its exact owner scope."""
+
+        return cast(
+            SkillEvolutionProposal | None,
+            await self._session.scalar(
+                select(SkillEvolutionProposal).where(
+                    SkillEvolutionProposal.id == proposal_id,
+                    SkillEvolutionProposal.tenant_id == tenant_id,
+                    SkillEvolutionProposal.actor_id == actor_id,
+                )
+            ),
+        )
 
     async def delete_custom(
         self,

@@ -126,10 +126,15 @@ EVENT_AUDIT_KEYS: dict[TraceEventType, frozenset[str]] = {
     ),
     TraceEventType.SKILL_EXECUTE: frozenset(
         {
+            "base_revision",
+            "candidate_digest",
+            "candidate_revision",
             "duration_ms",
             "error_code",
             "operation",
             "outcome",
+            "proposal_id",
+            "proposal_state",
             "skill",
             "success",
             "version",

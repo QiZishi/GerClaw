@@ -10,8 +10,11 @@ tool allowlist 和实际内容差异：
   且 name、category、工具、参数 schema 与自由文本完全不变时，才可通过
   `skill-evolution-decision-v1` 在线形成下一 revision；它只允许增删固定指令并保留原 enabled 状态。
 - 临床规则、工具列表、参数 schema、权限/控制面内容和无法可靠分类的变更进入
-  immutable track。在线响应只返回 `offline_review_required` 判定，不回传候选 Markdown，不写数据库，
-  也不改变当前对话冻结的 Skill revision；候选内容必须由后续隔离离线控制器重新生成和冻结。
+  immutable track。服务端把候选、基线、请求、Trace 绑定和内容摘要写入 owner-scoped、
+  AES-GCM 加密的 append-only `skill_evolution_proposals`，在线响应只返回
+  `skill-evolution-proposal-receipt-v1` 去内容化回执，不回传候选 Markdown，也不改变生产 Skill
+  或当前对话冻结的 revision。相同 owner、Skill、基线 revision 和候选内容只形成一条提案。
+  后续隔离离线控制器必须从该提案冻结候选并完成 paired/sealed evaluation，在线路径没有批准或激活接口。
 - `category`、风险等级、ownership 与 governance authority 均不能由浏览器、模型或
   Markdown 自报获得；分类使用服务端实际定义，未知情况 fail closed。
 
@@ -41,10 +44,12 @@ guidance 同时注入 generate/evolve 模型 Prompt，避免“只有测试夹�
 
 **不可破坏的契约。** 低风险在线演化不能改变 name、category、自由文本、工具、参数 schema、enabled
 状态或权限；危险和未知变更不能通过在线响应取得候选内容，也不能自动写库、启用、执行或改变正在使用的 revision。
+这里的“不能自动写库”指不能写入生产 Skill 定义；危险候选必须写入独立加密提案账本，不能被丢弃或要求
+离线阶段重新生成。提案账本不提供 update/delete/activate mutator，状态推进应写入独立审核事件。
 相同 ID 的行为替换必须递增 SemVer，加载前必须重新通过服务端 profile。无证据的
 诊断/调药事实不得进入自动激活路径，有证据的临床建议仍进入离线审核而非在线执行。
 
 **性能与回归验收。** 覆盖 generate→审阅保存→会话加载→低风险 evolve 在线
-revision→临床/工具 evolve 离线候选→revision 冲突→删除，以及 provider 结构输出
+revision→临床/工具 evolve 加密提案及去内容化回执→幂等重放→revision 冲突→删除，以及 provider 结构输出
 失败；运行 `skill-draft-case-v1`。真实模型回归要单列耗时、成功率、schema 拒绝率
 与 fail-closed 分类率；10 并发 evolve 同一 Skill 只能产生一个可接受的下一 revision。

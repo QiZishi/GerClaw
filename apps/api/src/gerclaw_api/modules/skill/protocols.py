@@ -39,6 +39,8 @@ class SkillModule(Protocol):
         change_request: str,
         expected_revision: int,
         apply_if_low_risk: bool = True,
+        proposal_trace_id: str | None = None,
+        request_fingerprint: str | None = None,
     ) -> SkillEvolutionOutcome:
         """Apply a low-risk revision or return an immutable-track review candidate."""
 

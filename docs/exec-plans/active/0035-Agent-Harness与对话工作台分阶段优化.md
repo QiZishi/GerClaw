@@ -902,6 +902,18 @@ Agents SDK、HL7 FHIR、Mem0、Agent Skills、A-Evolve、GEPA 和 Adaptive Auto-
   关键词分类可绕过、异常事务可能提交和离线候选可直接保存三项 P1，已按上述固定 DSL、rollback 和
   在线隐藏候选内容修复。最终复审 `ACCEPT（P0=0，P1=0，P2=1）`；唯一 P2 是尚未用真实外部模型
   统计 exact DSL 生成成功率，不合规输出会安全降为 immutable，只影响在线成功率而不扩大权限。
+- Skill immutable 提案账本：危险或未知候选不再在线丢弃后由离线阶段重新生成。服务端在不修改当前
+  Skill revision 的同一事务内，持久化 owner、Trace、request fingerprint、基线/候选 revision 与
+  SemVer、分类理由、SHA-256 摘要，以及 AES-GCM 加密的 change request 和精确 base/candidate
+  snapshot；同 owner、Skill、基线和候选摘要幂等合并。在线 Pydantic/Zod 只返回
+  `skill-evolution-proposal-receipt-v1` 去内容化回执，候选正文、quality report 和 active definition
+  继续严格为空；Trace 只记录白名单内的 proposal ID、状态、revision 和摘要。账本无 update/delete/
+  activate mutator，离线审核状态后续只能以独立 append-only 事件推进，避免既覆盖提案又把危险候选
+  误激活。迁移 `b13c814f2057 → c13c814f2058 → b13c814f2057 → c13c814f2058` 和
+  `alembic check` 已在测试数据库通过；真实 PostgreSQL/Redis/Qdrant 集成验证密文存储、actor 隔离、
+  Trace 绑定、重复请求只保留一条提案且生产 Skill 保持原 revision。Skill/Security/Trace 单元回归
+  `96 passed`，真实集成 `6 passed`，BFF/Zod 合同 `30 passed`，Ruff、Mypy、ESLint 和 Next
+  production build 通过。
 
 四项前置 P1 已全部关闭，组件宪章、双轨分类事实源、Memory/Skill 生产写边界已经落地；任何
 immutable 候选执行或晋升前仍必须完成 sealed evaluator 和离线控制器接入。

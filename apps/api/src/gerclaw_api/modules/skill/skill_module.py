@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import hashlib
+import json
 import uuid
 from typing import TYPE_CHECKING, cast
 
@@ -16,6 +18,7 @@ from gerclaw_api.modules.skill.models import (
     Skill,
     SkillDefinition,
     SkillEvolutionOutcome,
+    SkillEvolutionProposalReceipt,
     SkillInfo,
     SkillResult,
 )
@@ -225,6 +228,8 @@ class ProductionSkillModule:
         expected_revision: int,
         apply_if_low_risk: bool = True,
         commit: bool = True,
+        proposal_trace_id: str | None = None,
+        request_fingerprint: str | None = None,
     ) -> SkillEvolutionOutcome:
         """Apply only low-authority revisions; return dangerous changes as offline proposals."""
 
@@ -256,7 +261,50 @@ class ProductionSkillModule:
             apply_if_low_risk=apply_if_low_risk,
         )
         if decision.disposition != "online_applied":
-            return SkillEvolutionOutcome(candidate=candidate, decision=decision)
+            proposal_receipt = None
+            if decision.disposition == "offline_review_required":
+                effective_trace_id = proposal_trace_id or f"module_{uuid.uuid4().hex}"
+                effective_fingerprint = (
+                    request_fingerprint
+                    or hashlib.sha256(
+                        json.dumps(
+                            {
+                                "skill_id": skill_id,
+                                "expected_revision": expected_revision,
+                                "change_request": change_request,
+                            },
+                            ensure_ascii=False,
+                            sort_keys=True,
+                            separators=(",", ":"),
+                        ).encode()
+                    ).hexdigest()
+                )
+                proposal = await self._repository.create_evolution_proposal(
+                    skill_id,
+                    tenant_id=self._tenant_id,
+                    actor_id=self._actor_id,
+                    expected_revision=expected_revision,
+                    current=current,
+                    candidate=candidate,
+                    decision=decision,
+                    change_request=change_request,
+                    trace_id=effective_trace_id,
+                    request_fingerprint=effective_fingerprint,
+                )
+                proposal_receipt = SkillEvolutionProposalReceipt(
+                    proposal_id=proposal.id,
+                    base_revision=proposal.base_revision,
+                    candidate_revision=proposal.candidate_revision,
+                    candidate_digest=proposal.candidate_content_hash,
+                    created_at=proposal.created_at,
+                )
+                if commit:
+                    await self._repository.commit()
+            return SkillEvolutionOutcome(
+                candidate=candidate,
+                decision=decision,
+                offline_proposal_receipt=proposal_receipt,
+            )
 
         existing = await self.list_skills()
         if any(

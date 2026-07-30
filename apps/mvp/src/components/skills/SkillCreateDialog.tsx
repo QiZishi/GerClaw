@@ -164,7 +164,7 @@ export function SkillEditorDialog({
       if (draft.decision.disposition === "offline_review_required") {
         setOfflineCandidate(true);
         setDraftQuality(null);
-        toast.show("该变更涉及临床或权限边界，已阻断在线内容回传，未修改当前技能");
+        toast.show("该修订已进入离线复核队列，当前技能保持不变");
       } else {
         if (!draft.definition || !draft.quality_report) {
           throw new Error("技能演化响应缺少可审阅候选");

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import re
+import uuid
 from datetime import datetime
 from typing import Annotated, Final, Literal
 
@@ -194,6 +195,28 @@ class SkillEvolutionDecision(BaseModel):
         return self
 
 
+class SkillEvolutionProposalReceipt(BaseModel):
+    """Content-free receipt for one encrypted immutable-track candidate."""
+
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    schema_version: Literal["skill-evolution-proposal-receipt-v1"] = (
+        "skill-evolution-proposal-receipt-v1"
+    )
+    proposal_id: uuid.UUID
+    review_state: Literal["pending_offline_review"] = "pending_offline_review"
+    base_revision: int = Field(ge=1)
+    candidate_revision: int = Field(ge=2)
+    candidate_digest: str = Field(pattern=r"^[a-f0-9]{64}$")
+    created_at: datetime
+
+    @model_validator(mode="after")
+    def candidate_advances_one_revision(self) -> SkillEvolutionProposalReceipt:
+        if self.candidate_revision != self.base_revision + 1:
+            raise ValueError("offline proposal must advance exactly one candidate revision")
+        return self
+
+
 class SkillEvolutionOutcome(BaseModel):
     """Candidate plus the active definition only when online admission succeeded."""
 
@@ -202,14 +225,18 @@ class SkillEvolutionOutcome(BaseModel):
     candidate: SkillDefinition
     decision: SkillEvolutionDecision
     active_definition: SkillDefinition | None = None
+    offline_proposal_receipt: SkillEvolutionProposalReceipt | None = None
 
     @model_validator(mode="after")
     def active_definition_matches_disposition(self) -> SkillEvolutionOutcome:
         if self.candidate.revision != self.decision.expected_revision + 1:
             raise ValueError("candidate must bind the next owner storage revision")
         applied = self.decision.disposition == "online_applied"
+        offline = self.decision.disposition == "offline_review_required"
         if applied != (self.active_definition is not None):
             raise ValueError("active definition must exist exactly for an online-applied revision")
+        if offline != (self.offline_proposal_receipt is not None):
+            raise ValueError("proposal receipt must exist exactly for immutable offline review")
         if self.active_definition is not None:
             if self.active_definition.skill_id != self.candidate.skill_id:
                 raise ValueError("candidate and active Skill ids must match")

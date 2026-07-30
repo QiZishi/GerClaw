@@ -45,6 +45,7 @@ test("Skill evolution contract binds online activation to the resulting revision
       resulting_revision: 2,
     },
     active_definition: definition,
+    offline_proposal_receipt: null,
   });
 
   assert.equal(parsed.active_definition?.revision, 2);
@@ -66,9 +67,25 @@ test("Skill evolution contract rejects authority claims and inconsistent activat
       resulting_revision: null,
     },
     active_definition: null,
+    offline_proposal_receipt: {
+      schema_version: "skill-evolution-proposal-receipt-v1",
+      proposal_id: "108815d7-05bf-4c2a-a977-cd034f390fab",
+      review_state: "pending_offline_review",
+      base_revision: 1,
+      candidate_revision: 2,
+      candidate_digest: "a".repeat(64),
+      created_at: "2026-07-30T08:02:00Z",
+    },
   };
 
   assert.equal(skillEvolutionSchema.safeParse(base).success, true);
+  assert.equal(
+    skillEvolutionSchema.safeParse({
+      ...base,
+      offline_proposal_receipt: null,
+    }).success,
+    false
+  );
   assert.equal(
     skillEvolutionSchema.safeParse({
       ...base,

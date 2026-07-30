@@ -31,6 +31,7 @@ from gerclaw_api.modules.skill import (
     SkillDraftQualityReport,
     SkillDraftRequest,
     SkillEvolutionDecision,
+    SkillEvolutionProposalReceipt,
     SkillEvolutionRequest,
     SkillExecuteRequest,
     SkillId,
@@ -71,6 +72,7 @@ class SkillEvolutionRead(BaseModel):
     quality_report: SkillDraftQualityReport | None
     decision: SkillEvolutionDecision
     active_definition: SkillDefinition | None
+    offline_proposal_receipt: SkillEvolutionProposalReceipt | None = None
 
     @model_validator(mode="after")
     def hide_immutable_candidate_content(self) -> SkillEvolutionRead:
@@ -81,6 +83,8 @@ class SkillEvolutionRead(BaseModel):
             raise ValueError(
                 "immutable candidate content must not cross the online response boundary"
             )
+        if offline != (self.offline_proposal_receipt is not None):
+            raise ValueError("proposal receipt must exist exactly for immutable offline review")
         return self
 
 
@@ -172,6 +176,7 @@ async def _finish_trace(
     error_code: str | None = None,
     version: str | None = None,
     cancelled: bool = False,
+    proposal_receipt: SkillEvolutionProposalReceipt | None = None,
 ) -> None:
     normalized_error_code = error_code.casefold() if error_code else None
     outcome = "cancelled" if cancelled else "success" if success else "failed"
@@ -203,6 +208,17 @@ async def _finish_trace(
                 "success": success,
                 **({"error_code": normalized_error_code} if normalized_error_code else {}),
                 **({"version": version} if version else {}),
+                **(
+                    {
+                        "base_revision": proposal_receipt.base_revision,
+                        "candidate_digest": proposal_receipt.candidate_digest,
+                        "candidate_revision": proposal_receipt.candidate_revision,
+                        "proposal_id": str(proposal_receipt.proposal_id),
+                        "proposal_state": proposal_receipt.review_state,
+                    }
+                    if proposal_receipt
+                    else {}
+                ),
             },
         ),
         commit=False,
@@ -221,6 +237,17 @@ async def _finish_trace(
                 "skill": skill_id,
                 "success": success,
                 **({"version": version} if version else {}),
+                **(
+                    {
+                        "base_revision": proposal_receipt.base_revision,
+                        "candidate_digest": proposal_receipt.candidate_digest,
+                        "candidate_revision": proposal_receipt.candidate_revision,
+                        "proposal_id": str(proposal_receipt.proposal_id),
+                        "proposal_state": proposal_receipt.review_state,
+                    }
+                    if proposal_receipt
+                    else {}
+                ),
             },
         ),
     )
@@ -494,12 +521,13 @@ async def evolve_skill(
     service = get_trace_service(
         session, max_events_per_trace=request.app.state.settings.max_events_per_trace
     )
+    request_fingerprint = _fingerprint(request, payload, resource_id=skill_id)
     trace_id = await _start_trace(
         request,
         service,
         identity,
         operation="evolve",
-        request_fingerprint=_fingerprint(request, payload, resource_id=skill_id),
+        request_fingerprint=request_fingerprint,
     )
     try:
         outcome = await _module(request, session, identity).evolve_skill_from_nl(
@@ -508,6 +536,8 @@ async def evolve_skill(
             expected_revision=payload.expected_revision,
             apply_if_low_risk=payload.apply_if_low_risk,
             commit=False,
+            proposal_trace_id=trace_id,
+            request_fingerprint=request_fingerprint,
         )
         await _finish_trace(
             service,
@@ -517,6 +547,7 @@ async def evolve_skill(
             skill_id=skill_id,
             success=True,
             version=outcome.candidate.version,
+            proposal_receipt=outcome.offline_proposal_receipt,
         )
         offline = outcome.decision.disposition == "offline_review_required"
         return SkillEvolutionRead(
@@ -525,6 +556,7 @@ async def evolve_skill(
             quality_report=None if offline else evaluate_skill_draft(outcome.candidate),
             decision=outcome.decision,
             active_definition=outcome.active_definition,
+            offline_proposal_receipt=outcome.offline_proposal_receipt,
         )
     except asyncio.CancelledError:
         await session.rollback()

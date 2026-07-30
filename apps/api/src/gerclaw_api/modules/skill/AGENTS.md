@@ -23,6 +23,11 @@ This module owns the lifecycle of declarative GerClaw Skills: validation, regist
   server-owned directive DSL; every free-text instruction, name/category/tool/
   parameter change remains immutable. Clinical, permission and unknown changes
   remain immutable-track proposals whose content cannot cross the online API.
+- An immutable candidate is not discarded or regenerated later. Persist it once
+  with its exact encrypted base/candidate snapshots, owner, trace, request
+  fingerprint, revisions and digest in the append-only proposal ledger. The
+  online API may expose only the content-free receipt; it cannot approve,
+  activate, edit or execute that proposal.
 
 ## Change and test rules
 
@@ -32,6 +37,8 @@ This module owns the lifecycle of declarative GerClaw Skills: validation, regist
   preserve the existing tool list, parameter schema and enabled state, pass the
   central governance manifest, use only fixed directives, and use optimistic
   revision control. Immutable candidate content must not change the production
-  record, current conversation, online editor or response payload.
+  record, current conversation, online editor or response payload. Do not add
+  update/delete methods to the proposal repository; later review-state changes
+  belong in a separate append-only review event model.
 - Run `tests/test_skill_contract.py`, `tests/test_skill_module.py`, `tests/test_skill_api.py` and integration coverage as applicable.
 - Update the specific built-in Skill folder's `AGENTS.md` and `SKILL.md` together when its intended workflow changes.

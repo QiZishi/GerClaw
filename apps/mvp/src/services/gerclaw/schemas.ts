@@ -77,6 +77,25 @@ export const skillEvolutionDecisionSchema = z
     resulting_revision: z.number().int().min(2).nullable(),
   })
   .strict();
+export const skillEvolutionProposalReceiptSchema = z
+  .object({
+    schema_version: z.literal("skill-evolution-proposal-receipt-v1"),
+    proposal_id: z.string().uuid(),
+    review_state: z.literal("pending_offline_review"),
+    base_revision: z.number().int().positive(),
+    candidate_revision: z.number().int().min(2),
+    candidate_digest: z.string().regex(/^[a-f0-9]{64}$/),
+    created_at: z.string().datetime({ offset: true }),
+  })
+  .strict()
+  .superRefine((value, context) => {
+    if (value.candidate_revision !== value.base_revision + 1) {
+      context.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: "offline proposal must advance exactly one candidate revision",
+      });
+    }
+  });
 export const skillEvolutionSchema = z
   .object({
     trace_id: z.string(),
@@ -84,6 +103,7 @@ export const skillEvolutionSchema = z
     quality_report: skillDraftQualitySchema.nullable(),
     decision: skillEvolutionDecisionSchema,
     active_definition: skillDefinitionSchema.nullable(),
+    offline_proposal_receipt: skillEvolutionProposalReceiptSchema.nullable(),
   })
   .strict()
   .superRefine((value, context) => {
@@ -111,6 +131,12 @@ export const skillEvolutionSchema = z
       context.addIssue({
         code: z.ZodIssueCode.custom,
         message: "immutable candidate content must not cross the online response boundary",
+      });
+    }
+    if (offline !== (value.offline_proposal_receipt !== null)) {
+      context.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: "proposal receipt must exist exactly for immutable offline review",
       });
     }
     if (
