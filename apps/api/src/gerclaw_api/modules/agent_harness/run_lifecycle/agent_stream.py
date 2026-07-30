@@ -44,7 +44,6 @@ ApprovalParker = Callable[[list[ToolCallBlock]], Awaitable[tuple[str, ...]]]
 EvidenceAvailable = Callable[[str], bool]
 ToolResultObserver = Callable[[str, str, dict[str, JsonValue]], Awaitable[None]]
 SafeBoundaryObserver = Callable[[], Awaitable[int]]
-ToolBoundaryObserver = Callable[[str], Awaitable[None]]
 
 
 class StreamBudget(Protocol):
@@ -96,6 +95,15 @@ def _event_value(value: object) -> str:
     return str(getattr(value, "value", value))
 
 
+def _public_tool_result_status(value: object) -> str:
+    """Normalize AgentScope-private result states to the stable public contract."""
+
+    status = _event_value(value)
+    if status in {"error", "failure"}:
+        return "failed"
+    return status
+
+
 def _skill_result_identity(
     argument_text: str,
     skill_metadata: dict[str, tuple[str, str]],
@@ -131,7 +139,6 @@ async def project_agent_stream(
     timeout_error_factory: Callable[[], Exception],
     tool_result_observer: ToolResultObserver | None = None,
     model_boundary_observer: SafeBoundaryObserver | None = None,
-    tool_boundary_observer: ToolBoundaryObserver | None = None,
     safe_boundary_observer: SafeBoundaryObserver | None = None,
 ) -> AgentStreamResult:
     """Execute one agent stream while enforcing safety, budgets, and terminal integrity."""
@@ -209,8 +216,6 @@ async def project_agent_stream(
             )
         elif isinstance(event, ToolCallStartEvent):
             budget.check_wall_clock()
-            if tool_boundary_observer is not None:
-                await tool_boundary_observer(event.tool_call_name)
             budget.add_tool_call()
             tool_names[event.tool_call_id] = event.tool_call_name
             tool_arguments[event.tool_call_id] = ""
@@ -234,7 +239,7 @@ async def project_agent_stream(
             result_data: dict[str, JsonValue] = {
                 "tool_call_id": event.tool_call_id,
                 "tool_name": tool_name,
-                "status": _event_value(event.state),
+                "status": _public_tool_result_status(event.state),
                 "duration_ms": max(0, int((time.monotonic() - started) * 1_000)),
             }
             if tool_name == "Skill":

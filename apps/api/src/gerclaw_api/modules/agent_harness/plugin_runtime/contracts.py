@@ -2,15 +2,20 @@
 
 from __future__ import annotations
 
-from collections.abc import Sequence
+from collections.abc import Awaitable, Callable, Sequence
 from enum import StrEnum
-from typing import Literal, Protocol, cast
+from typing import Any, Literal, Protocol, cast
 
 from agentscope.tool import ToolBase
 from pydantic import BaseModel, ConfigDict, Field
 
 from gerclaw_api.modules.runtime.models import RuntimePrincipal, ToolCapability
 from gerclaw_api.security import JsonValue
+
+ToolExecutionPreflight = Callable[
+    [ToolCapability, dict[str, Any]],
+    Awaitable[None],
+]
 
 
 class PluginRuntimeError(RuntimeError):
@@ -147,6 +152,7 @@ class ToolRegistryPort(Protocol):
         *,
         principal: RuntimePrincipal,
         outbound_redacted_tools: frozenset[str],
+        execution_preflight: ToolExecutionPreflight | None = None,
     ) -> Sequence[ToolBase]:
         """Build permission-enforcing AgentScope tool proxies."""
 

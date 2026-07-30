@@ -45,6 +45,7 @@ from gerclaw_api.modules.agent_harness.plugin_runtime import (
     SharedResultScope,
     ToolRegistryFactory,
     TurnResultReuse,
+    bind_allowed_tool_preflight,
     build_turn_toolkit,
 )
 from gerclaw_api.modules.agent_harness.plugin_runtime.production import (
@@ -252,10 +253,6 @@ class ProductionAgentHarness(OrchestrationSupportMixin):
             tool_preflight=self._turn_planning.check_tool,
             error_factory=RuntimeBudgetExceededError,
             image_count=len(self._uploaded_images),
-            tool_result_reserve_tokens=max(
-                self._config.context_evidence_reserve_tokens,
-                self._config.model_output_reserve_tokens,
-            ),
         )
         self._agent_factory = agent_factory or ProductionAgentFactory(
             model=model,
@@ -564,6 +561,12 @@ class ProductionAgentHarness(OrchestrationSupportMixin):
             raise UnsupportedAgentContextError(
                 "memory module is unavailable for a non-emergency route"
             )
+        agent_session: RepairableAgentSession
+        react_boundaries = self._react_boundaries.bind(
+            agent_provider=lambda: agent_session.agent,
+            budget=budget,
+        )
+
         turn_toolkit = await build_turn_toolkit(
             config=self._config,
             rag_module=self._rag_module,
@@ -577,6 +580,10 @@ class ProductionAgentHarness(OrchestrationSupportMixin):
             registry_factory=self._tool_registry_factory,
             tools_disabled=(
                 document_focused or companion or route_decision.route is RouteKind.QUICK
+            ),
+            tool_execution_preflight=bind_allowed_tool_preflight(
+                boundary=react_boundaries,
+                result_limit_tokens=self._config.tool_result_reserve_tokens,
             ),
         )
         agent_session = RepairableAgentSession.from_factory(
@@ -629,11 +636,6 @@ class ProductionAgentHarness(OrchestrationSupportMixin):
                 agent=agent_session.agent,
                 budget=budget,
             )
-            react_boundaries = self._react_boundaries.bind(
-                agent_provider=lambda: agent_session.agent,
-                budget=budget,
-            )
-
             try:
                 stream_result, output_contract_retries = (
                     await project_with_output_protocol_repair(
@@ -656,7 +658,6 @@ class ProductionAgentHarness(OrchestrationSupportMixin):
                         ),
                         tool_result_observer=observe_tool_result,
                         model_boundary_observer=react_boundaries.before_model,
-                        tool_boundary_observer=react_boundaries.before_tool,
                         safe_boundary_observer=apply_directives_after_tool,
                     )
                 )

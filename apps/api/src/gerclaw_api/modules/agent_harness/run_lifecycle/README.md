@@ -107,12 +107,17 @@ the instruction as `pending_next_run` instead of stranding it. Binding transfers
 consumable set without a smaller hard-coded batch ceiling. The old worker's private attempt remains
 invisible, and the successor's first public stage is `已按新要求调整执行`.
 
-Every ReAct model call and tool call now has a pre-side-effect capacity boundary. A queued
+Every ReAct model call, including the first, and every permitted tool execution now has a
+pre-side-effect capacity boundary. A queued
 directive that arrives after the previous tool-result boundary is claimed again immediately
 before the next model call, while a model call already in flight remains immutable. Tool
-execution is refused before owner invocation when the remaining tool/model/Token budget cannot
-hold both its bounded result and the required follow-up model call. Persistent plan-node
-checkpoints and node-local Context recompression remain the next change set.
+execution is checked after Runtime returns `ALLOW` but before owner invocation, using complete
+validated arguments and the effective result ceiling. If remaining model/Token capacity cannot
+hold both the bounded result and required follow-up model call, the owner remains untouched and
+AgentScope receives bounded private failure feedback so it can answer from already available
+context. `DENY` and `ASK` retain their Runtime semantics and are not preempted by this capacity
+gate. Persistent plan-node checkpoints and node-local Context recompression remain the next
+change set.
 
 Measure improvement with one terminal event, no failed-attempt bytes in SSE/replay, atomic
 AnswerVersion/current-attempt selection, stale-fence/CAS rejection, cancellation tests, and

@@ -5,6 +5,7 @@ from agentscope.tool import ToolBase, Toolkit
 from pydantic import BaseModel
 
 from gerclaw_api.modules.agent_harness.plugin_runtime.contracts import (
+    ToolExecutionPreflight,
     ToolRegistryFactory,
     ToolRegistryPort,
 )
@@ -46,6 +47,7 @@ def build_chat_toolkit(
     principal: RuntimePrincipal,
     skills: list[AgentScopeSkill],
     registry_factory: ToolRegistryFactory,
+    execution_preflight: ToolExecutionPreflight | None = None,
 ) -> tuple[
     Toolkit,
     dict[str, ToolCapability],
@@ -107,6 +109,7 @@ def build_chat_toolkit(
         registry.build_tools(
             principal=principal,
             outbound_redacted_tools=frozenset({"web_search"}),
+            execution_preflight=execution_preflight,
         )
     )
     toolkit = Toolkit(

@@ -6,7 +6,7 @@ import asyncio
 import hashlib
 import json
 import uuid
-from collections.abc import AsyncGenerator
+from collections.abc import AsyncGenerator, Awaitable, Callable
 from typing import Any
 
 from agentscope.permission import PermissionBehavior as AgentScopeBehavior
@@ -48,6 +48,12 @@ class ToolSecurityProfileError(ToolRegistryError):
     """A tool cannot be enabled without a compatible security-risk profile."""
 
 
+ToolExecutionPreflight = Callable[
+    [ToolCapability, dict[str, Any]],
+    Awaitable[None],
+]
+
+
 def _json_bytes(value: object) -> int:
     try:
         return len(json.dumps(value, ensure_ascii=False, separators=(",", ":")).encode("utf-8"))
@@ -67,6 +73,7 @@ class GovernedTool(ToolBase):
         engine: RuntimePermissionEngine,
         principal: RuntimePrincipal,
         outbound_data_redacted: bool,
+        execution_preflight: ToolExecutionPreflight | None,
     ) -> None:
         super().__init__()
         if delegate.name != capability.name:
@@ -77,6 +84,7 @@ class GovernedTool(ToolBase):
         self._engine = engine
         self._principal = principal
         self._outbound_data_redacted = outbound_data_redacted
+        self._execution_preflight = execution_preflight
         self._permission_permits: dict[str, int] = {}
         self.name = delegate.name
         self.description = delegate.description
@@ -159,6 +167,8 @@ class GovernedTool(ToolBase):
             self._permission_permits.pop(key)
         else:
             self._permission_permits[key] = permits - 1
+        if self._execution_preflight is not None:
+            await self._execution_preflight(self._capability, validated)
         try:
             async with asyncio.timeout(self._capability.timeout_seconds):
                 result = await self._delegate(**validated)
@@ -230,6 +240,7 @@ class GovernedToolRegistry:
         *,
         principal: RuntimePrincipal,
         outbound_redacted_tools: frozenset[str] = frozenset(),
+        execution_preflight: ToolExecutionPreflight | None = None,
     ) -> list[GovernedTool]:
         if self._security_profiles is not None:
             for name, (_, capability, _) in self._registrations.items():
@@ -249,6 +260,7 @@ class GovernedToolRegistry:
                 engine=engine,
                 principal=principal,
                 outbound_data_redacted=name in outbound_redacted_tools,
+                execution_preflight=execution_preflight,
             )
             for name, (delegate, capability, input_model) in self._registrations.items()
         ]

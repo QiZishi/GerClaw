@@ -1403,13 +1403,19 @@ intent 做有界重复投递，Coordinator 一捕获取消就同步 acknowledge�
 
 逐 ReAct/大型工具容量预检随后作为独立变更集落地：AgentScope 的每个
 `ModelCallStartEvent` 都在 Provider iterator 继续前重新盘点当前 Agent Context、已应用 directive、
-图片、累计预算和回答预留；第一轮继续复用已有冻结 Context 预检，后续轮次还能在
+图片、累计预算和回答预留；首次 `ModelCallStartEvent` 也再次领取竞态到达的 queue 并预检，后续轮次还能在
 `before-react-model` 边界领取上一边界后刚到达的 queue。每个工具执行前同时预留工具调用、按配置
-evidence/output reserve 取较大值的结果容量，以及消费结果所必需的下一次模型调用；预算不足时工具 owner
-尚未被调用。容量治理由 Planning callback 所有，Run Lifecycle 仅组合 Protocol-safe boundary，
-`orchestrator.py` 仍为 781 行并通过 800 行结构门禁。Harness/Directive/Planning/Component 聚焦测试
-`75 passed`，Ruff、Mypy 通过。PlanNode 持久 checkpoint/resume 和节点级局部 fallback 仍是下一独立
-变更集，没有借本次边界预检虚报完成。
+已登记的结果上限和 AgentScope 配置上限中的较小值，以及消费结果所必需的下一次模型调用。该回调只在
+Runtime 完整 schema 校验并给出 fresh `ALLOW` 后、真实 owner delegate 前运行；`DENY`/`ASK` 不被容量门禁
+抢先改写。当前工具提案已由 stream budget 计数，预检不重复累计。预算不足时 owner 尚未被调用，具体稳定
+错误作为私有工具结果反馈给 Agent，允许其用已有上下文继续；AgentScope 私有 `error` 状态仅在 attempt
+最终晋升时规范化为公开 `failed`。容量治理由 Planning callback 所有，Run Lifecycle 仅组合
+Protocol-safe boundary。首版独立审阅指出首轮竞态和过早 ToolCallStart 预检两项 P1，现已按上述 Runtime
+执行点修正并新增拒绝权限不运行预检、完整参数、owner 零调用和上下文降级回归。PlanNode 持久
+checkpoint/resume 和节点级局部 fallback 仍是下一独立变更集，没有借本次边界预检虚报完成。
+修正版 Harness/Directive/Planning/Plugin Runtime/Runtime/Config 聚焦回归 `122 passed`，Ruff 通过，
+本次直接触达的 11 个源文件 Mypy 通过；扩大到整个 Harness 包仍有两项既存类型债务
+（`evolution_signals` Literal 收窄、`approval` 可空 session），未混入本 Runtime 回滚点。
 
 ### 阶段 7
 

@@ -100,6 +100,55 @@ async def test_registry_validates_then_allows_and_executes() -> None:
 
 
 @pytest.mark.asyncio
+async def test_execution_preflight_runs_after_allow_and_before_delegate() -> None:
+    events: list[tuple[str, object]] = []
+
+    async def echo_tool(text: str) -> str:
+        events.append(("delegate", text))
+        return text
+
+    async def preflight(capability: ToolCapability, arguments: dict[str, Any]) -> None:
+        events.append(("preflight", (capability.name, arguments)))
+        raise RuntimeError("bounded preflight stopped execution")
+
+    tool = build_registry(echo_tool).build_tools(
+        principal=caller(),
+        execution_preflight=preflight,
+    )[0]
+    decision = await tool.check_permissions({"text": "safe"}, PermissionContext())
+    assert decision.behavior is AgentScopeBehavior.ALLOW
+
+    with pytest.raises(RuntimeError, match="bounded preflight"):
+        await tool(text="safe")
+
+    assert events == [("preflight", ("echo_tool", {"text": "safe"}))]
+
+
+@pytest.mark.asyncio
+async def test_denied_tool_does_not_run_execution_preflight() -> None:
+    preflight_calls = 0
+
+    async def echo_tool(text: str) -> str:
+        return text
+
+    async def preflight(_capability: ToolCapability, _arguments: dict[str, Any]) -> None:
+        nonlocal preflight_calls
+        preflight_calls += 1
+
+    tool = build_registry(echo_tool).build_tools(
+        principal=caller(scopes=frozenset()),
+        execution_preflight=preflight,
+    )[0]
+    decision = await tool.check_permissions({"text": "safe"}, PermissionContext())
+    assert decision.behavior is AgentScopeBehavior.DENY
+
+    with pytest.raises(ToolRegistryError, match="fresh Runtime permission"):
+        await tool(text="safe")
+
+    assert preflight_calls == 0
+
+
+@pytest.mark.asyncio
 async def test_unknown_fields_and_oversize_input_fail_before_delegate() -> None:
     calls = 0
 

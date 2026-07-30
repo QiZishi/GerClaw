@@ -14,6 +14,12 @@ and web search tools. `TurnToolkit` composes the owner-provided AgentScope adapt
 AgentScope Skill results now complete the matching optional DynamicPlan checkpoint; an unknown,
 failed, or repeated Skill result cannot do so.
 
+Tool capacity admission is injected as a Protocol callback but executed by the Runtime-owned
+proxy only after schema validation and a fresh `ALLOW` permit, immediately before the real
+delegate. `DENY`/`ASK` paths never run this callback. The callback receives the validated full
+arguments and immutable capability ceiling; Plugin Runtime does not guess from partial stream
+deltas or duplicate Runtime authorization.
+
 `GovernedCapabilityRuntime` validates a content-free owner scope and dispatches every selected
 manifest to its exact injected owner entrypoint. Production connects CGA to its resumable
 assessment workspace, medication review and five-prescription to their idempotent typed

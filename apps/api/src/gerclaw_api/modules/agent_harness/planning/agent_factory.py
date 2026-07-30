@@ -116,6 +116,7 @@ class ProductionAgentFactory:
             context_config=ContextConfig(
                 trigger_ratio=self._config.context_trigger_ratio,
                 reserve_ratio=self._config.context_reserve_ratio,
+                tool_result_limit=self._config.tool_result_reserve_tokens,
             ),
             react_config=ReActConfig(
                 max_iters=self._config.max_react_iterations,

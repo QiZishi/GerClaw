@@ -2,8 +2,9 @@
 
 from __future__ import annotations
 
+import json
 from dataclasses import dataclass
-from typing import Any, cast
+from typing import Any, Protocol, cast
 
 from agentscope.middleware import Mem0Middleware, RAGMiddleware
 from agentscope.skill import Skill as AgentScopeSkill
@@ -11,7 +12,10 @@ from agentscope.tool import Toolkit
 from pydantic import BaseModel
 
 from gerclaw_api.modules.agent_harness.config import ResolvedHarnessConfig
-from gerclaw_api.modules.agent_harness.plugin_runtime.contracts import ToolRegistryFactory
+from gerclaw_api.modules.agent_harness.plugin_runtime.contracts import (
+    ToolExecutionPreflight,
+    ToolRegistryFactory,
+)
 from gerclaw_api.modules.agent_harness.plugin_runtime.production import build_chat_toolkit
 from gerclaw_api.modules.memory.agentscope_adapter import GerClawMem0Client
 from gerclaw_api.modules.memory.protocols import MemoryModule
@@ -34,6 +38,41 @@ class TurnToolkit:
     input_models: dict[str, type[BaseModel]]
 
 
+class AllowedToolBoundary(Protocol):
+    async def before_tool(
+        self,
+        *,
+        tool_name: str,
+        tool_arguments: str,
+        result_reserve_tokens: int,
+    ) -> None: ...
+
+
+def bind_allowed_tool_preflight(
+    *,
+    boundary: AllowedToolBoundary,
+    result_limit_tokens: int,
+) -> ToolExecutionPreflight:
+    """Adapt a Runtime-approved tool execution to the Harness capacity boundary."""
+
+    async def preflight(
+        capability: ToolCapability,
+        arguments: dict[str, Any],
+    ) -> None:
+        await boundary.before_tool(
+            tool_name=capability.name,
+            tool_arguments=json.dumps(
+                arguments,
+                ensure_ascii=False,
+                sort_keys=True,
+                separators=(",", ":"),
+            ),
+            result_reserve_tokens=min(result_limit_tokens, capability.max_output_bytes),
+        )
+
+    return preflight
+
+
 async def build_turn_toolkit(
     *,
     config: ResolvedHarnessConfig,
@@ -47,6 +86,7 @@ async def build_turn_toolkit(
     skills: list[AgentScopeSkill],
     registry_factory: ToolRegistryFactory,
     tools_disabled: bool,
+    tool_execution_preflight: ToolExecutionPreflight | None = None,
 ) -> TurnToolkit:
     """Compose owner-provided adapters without duplicating their capabilities."""
 
@@ -94,6 +134,7 @@ async def build_turn_toolkit(
         principal=principal,
         skills=skills,
         registry_factory=registry_factory,
+        execution_preflight=tool_execution_preflight,
     )
     return TurnToolkit(
         toolkit=toolkit,

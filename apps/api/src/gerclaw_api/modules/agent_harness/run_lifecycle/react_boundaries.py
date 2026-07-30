@@ -37,14 +37,12 @@ class ReActBoundaryCoordinator:
         tool_preflight: BoundaryPreflight,
         error_factory: BoundaryErrorFactory,
         image_count: int,
-        tool_result_reserve_tokens: int,
     ) -> None:
         self._directives = directives
         self._model_preflight = model_preflight
         self._tool_preflight = tool_preflight
         self._error_factory = error_factory
         self._image_count = image_count
-        self._tool_result_reserve_tokens = tool_result_reserve_tokens
 
     def bind(
         self,
@@ -73,12 +71,10 @@ class BoundReActBoundaries:
     async def before_model(self) -> int:
         agent = self.agent_provider()
         self.model_call_count += 1
-        applied_count = 0
-        if self.model_call_count > 1:
-            applied_count = await self.coordinator._directives.apply_before_model(
-                agent=agent,
-                budget=self.budget,
-            )
+        applied_count = await self.coordinator._directives.apply_before_model(
+            agent=agent,
+            budget=self.budget,
+        )
         decision = self.coordinator._model_preflight(
             usage=self.budget.snapshot(),
             text_values=agent_text_values(agent),
@@ -88,13 +84,19 @@ class BoundReActBoundaries:
             raise self.coordinator._error_factory(decision.reason_code)
         return applied_count
 
-    async def before_tool(self, tool_name: str) -> None:
+    async def before_tool(
+        self,
+        *,
+        tool_name: str,
+        tool_arguments: str,
+        result_reserve_tokens: int,
+    ) -> None:
         agent = self.agent_provider()
         decision = self.coordinator._tool_preflight(
             usage=self.budget.snapshot(),
-            text_values=(*agent_text_values(agent), tool_name),
+            text_values=(*agent_text_values(agent), tool_name, tool_arguments),
             image_count=self.coordinator._image_count,
-            result_reserve_tokens=self.coordinator._tool_result_reserve_tokens,
+            result_reserve_tokens=result_reserve_tokens,
         )
         if not decision.allowed:
             raise self.coordinator._error_factory(decision.reason_code)

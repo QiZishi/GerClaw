@@ -136,6 +136,7 @@ class Settings(BaseSettings):
         ge=256,
         le=32_768,
     )
+    agent_tool_result_reserve_tokens: int = Field(default=4_096, ge=256, le=16_384)
     agent_max_directives_per_boundary: int = Field(default=20, ge=1, le=100)
     agent_max_directives_per_run: int = Field(default=200, ge=1, le=1000)
     agent_quick_route_max_characters: int = Field(default=160, ge=1, le=1_000)

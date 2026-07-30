@@ -22,9 +22,14 @@ produces a deterministic `clinical.ask` node and returns before retrieval or mod
 Every AgentScope `ModelCallStartEvent` is now a real pre-side-effect boundary: the coordinator
 recounts the current Agent state, applied runtime directives, images, consumed Runtime budget,
 and output reserve before allowing the provider iterator to advance. Before a tool executes,
-the same policy reserves one tool call, a bounded result sized from injected evidence/output
-reserves, and the follow-up model call needed to consume that result. These checks run for each
-ReAct iteration rather than only once at turn construction.
+Runtime first validates its complete arguments and grants a fresh `ALLOW` permit; only then
+does the same policy reserve the result and follow-up model call immediately before the owner
+delegate. The result reserve is the smaller of the configured AgentScope result-token limit and
+the capability's registered byte ceiling. The current tool proposal has already been charged
+by the stream budget, so it is not double-counted. These checks run for each ReAct iteration
+rather than only once at turn construction. A capacity rejection becomes private tool feedback
+that lets the Agent continue without calling the owner; equivalent AgentScope `error` states
+are normalized to public `failed` only if the enclosing attempt is later promoted.
 
 The coordinator derives missing age, allergy status, complete medication list, and
 comorbidity/organ-function questions from the actual source-linked state, so this path is

@@ -170,7 +170,11 @@ class TurnPlanningCoordinator:
         image_count: int,
         result_reserve_tokens: int,
     ) -> BudgetPreflightDecision:
-        """Reserve one tool result and the model call needed to consume it."""
+        """Reserve one tool result and the model call needed to consume it.
+
+        The current tool proposal is already charged by the AgentScope stream
+        before Runtime grants its one-shot execution permit.
+        """
 
         estimated_input_tokens = (
             self._input_overhead_tokens
@@ -184,6 +188,6 @@ class TurnPlanningCoordinator:
                 estimated_input_tokens=estimated_input_tokens,
                 output_reserve_tokens=self._output_reserve_tokens,
                 additional_model_calls=1,
-                additional_tool_calls=1,
+                additional_tool_calls=0,
             ),
         )
