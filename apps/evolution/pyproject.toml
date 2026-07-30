@@ -40,4 +40,5 @@ select = ["ASYNC", "B", "E", "F", "I", "RUF", "SIM", "UP"]
 python_version = "3.12"
 strict = true
 packages = ["gerclaw_evolution"]
+mypy_path = ["../api/src"]
 warn_unused_configs = true
