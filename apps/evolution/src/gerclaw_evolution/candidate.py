@@ -8,13 +8,11 @@ from datetime import UTC, datetime
 from types import MappingProxyType
 
 from gerclaw_api.modules.agent_harness.evolution_governance import (
-    COMPONENT_CHARTERS,
-    OBJECT_RULES,
-    REQUIRED_CHARTERS_BY_OBJECT_KIND,
     CandidateChange,
     CandidateProposal,
     EvolutionGovernanceError,
     EvolutionGovernancePolicy,
+    governance_manifest_digest,
 )
 
 from gerclaw_evolution.contracts import (
@@ -124,7 +122,7 @@ class CandidateFreezer:
             raise CandidateControlError(error.code) from error
 
         governance_digest = self.governance_digest()
-        frozen_digest = self._frozen_digest(
+        frozen_digest = self.frozen_digest(
             proposal,
             frozen_changes,
             governance_digest,
@@ -170,7 +168,7 @@ class CandidateFreezer:
             raise CandidateControlError(error.code) from error
         if self.governance_digest() != frozen.governance_manifest_sha256:
             raise CandidateControlError("EVOLUTION_GOVERNANCE_CHANGED_AFTER_FREEZE")
-        expected_manifest_digest = self._frozen_digest(
+        expected_manifest_digest = self.frozen_digest(
             frozen.proposal,
             frozen.repository_changes,
             frozen.governance_manifest_sha256,
@@ -179,23 +177,7 @@ class CandidateFreezer:
             raise CandidateControlError("EVOLUTION_FROZEN_MANIFEST_INVALID")
 
     def governance_digest(self) -> str:
-        payload = {
-            "object_rules": [
-                rule.model_dump(mode="json")
-                for rule in sorted(OBJECT_RULES, key=lambda item: item.object_kind)
-            ],
-            "component_charters": [
-                charter.model_dump(mode="json")
-                for charter in sorted(COMPONENT_CHARTERS, key=lambda item: item.component)
-            ],
-            "required_charters_by_object_kind": {
-                object_kind: list(required)
-                for object_kind, required in sorted(
-                    REQUIRED_CHARTERS_BY_OBJECT_KIND.items()
-                )
-            },
-        }
-        return self._digest(payload)
+        return governance_manifest_digest()
 
     def _inspect_changes(
         self,
@@ -291,7 +273,7 @@ class CandidateFreezer:
         return hashlib.sha256(encoded).hexdigest()
 
     @classmethod
-    def _frozen_digest(
+    def frozen_digest(
         cls,
         proposal: CandidateProposal,
         changes: tuple[FrozenRepositoryChange, ...],
@@ -300,9 +282,7 @@ class CandidateFreezer:
         return cls._digest(
             {
                 "proposal": proposal.model_dump(mode="json"),
-                "repository_changes": [
-                    item.model_dump(mode="json") for item in changes
-                ],
+                "repository_changes": [item.model_dump(mode="json") for item in changes],
                 "governance_manifest_sha256": governance_digest,
             }
         )

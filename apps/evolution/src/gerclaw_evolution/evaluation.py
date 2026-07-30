@@ -16,7 +16,7 @@ from pydantic import BaseModel, ConfigDict, Field, field_validator, model_valida
 from gerclaw_evolution.contracts import CandidateControlError, FrozenCandidate
 
 _STRICT = ConfigDict(extra="forbid", frozen=True)
-_GIT_SHA = r"^[a-f0-9]{40}$"
+_CANDIDATE_IDENTITY = r"^(?:[a-f0-9]{40}|[a-f0-9]{64})$"
 _ID = r"^[a-z][a-z0-9_.-]{2,99}$"
 _CASE_ID = r"^case_[a-f0-9]{32}$"
 EvaluationSlice = Literal["normal", "complex", "high_risk", "elderly"]
@@ -54,7 +54,7 @@ class EvaluationRun(BaseModel):
 
     schema_version: Literal["evaluation-run-v1"] = "evaluation-run-v1"
     role: EvaluationRole
-    commit: str = Field(pattern=_GIT_SHA)
+    commit: str = Field(pattern=_CANDIDATE_IDENTITY)
     runner_id: str = Field(pattern=_ID)
     runner_version: str = Field(pattern=r"^[a-z0-9][a-z0-9_.-]{2,63}$")
     evaluation_profile_sha256: str = Field(pattern=r"^[a-f0-9]{64}$")
@@ -89,10 +89,7 @@ class EvaluationRun(BaseModel):
             for charter in COMPONENT_CHARTERS
             for evaluator_id in charter.sealed_evaluator_ids
         }
-        if (
-            len(charter_ids) != len(set(charter_ids))
-            or not set(charter_ids).issubset(known)
-        ):
+        if len(charter_ids) != len(set(charter_ids)) or not set(charter_ids).issubset(known):
             raise ValueError("evaluation charters must be unique known controller charters")
         return self
 
@@ -134,8 +131,8 @@ class PairedEvaluationReport(BaseModel):
 
     schema_version: Literal["paired-evaluation-report-v1"] = "paired-evaluation-report-v1"
     proposal_id: str = Field(pattern=_ID)
-    base_commit: str = Field(pattern=_GIT_SHA)
-    candidate_commit: str = Field(pattern=_GIT_SHA)
+    base_commit: str = Field(pattern=_CANDIDATE_IDENTITY)
+    candidate_commit: str = Field(pattern=_CANDIDATE_IDENTITY)
     frozen_manifest_sha256: str = Field(pattern=r"^[a-f0-9]{64}$")
     baseline: EvaluationRun
     candidate: EvaluationRun
@@ -188,14 +185,13 @@ class PairedEvaluationGate:
         baseline_charters = {item.evaluator_id for item in baseline.charters}
         candidate_charters = {item.evaluator_id for item in candidate.charters}
         required_charters: set[str] = set()
-        for change in frozen.repository_changes:
+        for change in frozen.proposal.changes:
             expected = REQUIRED_CHARTERS_BY_OBJECT_KIND.get(change.object_kind)
             if expected is None:
                 raise CandidateControlError("EVOLUTION_CHARTER_SCOPE_UNKNOWN")
             required_charters.update(expected)
-        if (
-            baseline_charters != candidate_charters
-            or not required_charters.issubset(candidate_charters)
+        if baseline_charters != candidate_charters or not required_charters.issubset(
+            candidate_charters
         ):
             raise CandidateControlError("EVOLUTION_CHARTER_SCOPE_MISMATCH")
 

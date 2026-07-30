@@ -35,7 +35,7 @@ class HumanApprovalPayload(BaseModel):
     schema_version: Literal["human-approval-payload-v1"] = "human-approval-payload-v1"
     proposal_id: str = Field(pattern=_ID)
     track: Literal["mutable", "immutable"]
-    candidate_commit: str = Field(pattern=r"^[a-f0-9]{40}$")
+    candidate_commit: str = Field(pattern=r"^(?:[a-f0-9]{40}|[a-f0-9]{64})$")
     frozen_manifest_sha256: str = Field(pattern=_SHA256)
     paired_report_sha256: str = Field(pattern=_SHA256)
     sealed_attestation_sha256: str = Field(pattern=_SHA256)

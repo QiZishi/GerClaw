@@ -4,6 +4,8 @@
 
 from __future__ import annotations
 
+import hashlib
+import json
 from types import MappingProxyType
 
 from gerclaw_api.modules.agent_harness.evolution_governance.contracts import (
@@ -277,3 +279,29 @@ REQUIRED_CHARTERS_BY_OBJECT_KIND = MappingProxyType(
         "skill.tooling": ("charter.plugin_runtime.v1", "charter.skill.v1"),
     }
 )
+
+
+def governance_manifest_digest() -> str:
+    """Return the canonical digest shared by API and offline controllers."""
+
+    payload = {
+        "object_rules": [
+            rule.model_dump(mode="json")
+            for rule in sorted(OBJECT_RULES, key=lambda item: item.object_kind)
+        ],
+        "component_charters": [
+            charter.model_dump(mode="json")
+            for charter in sorted(COMPONENT_CHARTERS, key=lambda item: item.component)
+        ],
+        "required_charters_by_object_kind": {
+            object_kind: list(required)
+            for object_kind, required in sorted(REQUIRED_CHARTERS_BY_OBJECT_KIND.items())
+        },
+    }
+    canonical = json.dumps(
+        payload,
+        ensure_ascii=False,
+        sort_keys=True,
+        separators=(",", ":"),
+    )
+    return hashlib.sha256(canonical.encode()).hexdigest()

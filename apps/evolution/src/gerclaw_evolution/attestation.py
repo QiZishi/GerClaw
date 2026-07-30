@@ -30,8 +30,8 @@ class SealedGatePayload(BaseModel):
 
     schema_version: Literal["sealed-gate-payload-v1"] = "sealed-gate-payload-v1"
     proposal_id: str = Field(pattern=_ID)
-    base_commit: str = Field(pattern=r"^[a-f0-9]{40}$")
-    candidate_commit: str = Field(pattern=r"^[a-f0-9]{40}$")
+    base_commit: str = Field(pattern=r"^(?:[a-f0-9]{40}|[a-f0-9]{64})$")
+    candidate_commit: str = Field(pattern=r"^(?:[a-f0-9]{40}|[a-f0-9]{64})$")
     frozen_manifest_sha256: str = Field(pattern=_SHA256)
     paired_report_sha256: str = Field(pattern=_SHA256)
     sealed_case_set_sha256: str = Field(pattern=_SHA256)

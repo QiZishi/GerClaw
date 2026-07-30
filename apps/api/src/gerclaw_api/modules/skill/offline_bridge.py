@@ -25,8 +25,7 @@ from gerclaw_api.database.models import (
     SkillEvolutionProposal,
 )
 from gerclaw_api.modules.agent_harness.evolution_governance.manifest import (
-    COMPONENT_CHARTERS,
-    OBJECT_RULES,
+    governance_manifest_digest,
 )
 from gerclaw_api.modules.skill.evolution_policy import SkillEvolutionPolicy
 from gerclaw_api.modules.skill.models import SkillDefinition
@@ -108,7 +107,7 @@ class SkillProposalExporter:
             candidate_content_sha256=proposal.candidate_content_hash,
             base_snapshot=base,
             candidate_snapshot=candidate,
-            governance_manifest_sha256=_governance_manifest_digest(),
+            governance_manifest_sha256=governance_manifest_digest(),
             exported_at=datetime.now(UTC),
             nonce=os.urandom(16).hex(),
         )
@@ -228,14 +227,6 @@ def _content_hash(definition: SkillDefinition) -> str:
 
 def _semver(value: str) -> tuple[int, int, int]:
     return tuple(int(part) for part in value.split("."))  # type: ignore[return-value]
-
-
-def _governance_manifest_digest() -> str:
-    payload = {
-        "rules": [item.model_dump(mode="json") for item in OBJECT_RULES],
-        "charters": [item.model_dump(mode="json") for item in COMPONENT_CHARTERS],
-    }
-    return hashlib.sha256(_canonical_json(payload).encode()).hexdigest()
 
 
 def _canonical_json(value: object) -> str:
