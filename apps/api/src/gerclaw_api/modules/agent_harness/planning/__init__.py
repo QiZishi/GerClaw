@@ -29,8 +29,10 @@ from gerclaw_api.modules.agent_harness.planning.contracts import (
 from gerclaw_api.modules.agent_harness.planning.execution import (
     DynamicPlanExecutor,
     PlanExecutionSnapshot,
+    PlanExecutionTransition,
     PlanNodeStatus,
     TurnExecutionGovernance,
+    validate_plan_execution_transition,
 )
 from gerclaw_api.modules.agent_harness.planning.planner import (
     DeterministicPlanner,
@@ -58,6 +60,7 @@ __all__ = [
     "ModelBudgetPreflight",
     "ModelCallEstimate",
     "PlanExecutionSnapshot",
+    "PlanExecutionTransition",
     "PlanNode",
     "PlanNodeBudget",
     "PlanNodeStatus",
@@ -74,4 +77,5 @@ __all__ = [
     "approximate_input_tokens",
     "emit_deterministic_clarification",
     "requests_report",
+    "validate_plan_execution_transition",
 ]

@@ -1448,6 +1448,13 @@ Planning/Harness 聚焦测试 `55 passed`，Ruff/Mypy 通过。本提交只建�
 Run 数据库；Run Lifecycle 逐转换持久化、owner capability 移到 Run 建立后执行、恢复只跑
 pending/failed 和 optional failure → `completed_with_warnings` 仍在下一变更集。
 
+该 Planning 核心首次独立复审判定 `REJECT（P0=0，P1=3，P2=1）`：快照只绑定 node ID 可在
+capability/required 漂移后复用；多 fallback 会重复第一失败项；attempt=50 仍可先进入第 51 次；
+failed 快照可缺错误码。修复后快照加入完整 canonical `DynamicPlan` 指纹，多 fallback 保存去重有序
+历史并继续下一项，attempt 上限在状态变为 running 前检查，failed/error_code 改为双向一致；同时新增
+只允许一个 node delta 的持久化 transition 校验。四个审阅反例均已加入回归，扩大后
+Planning/Harness `59 passed`，Ruff 和 Planning 全包 Mypy 通过，等待同一审阅者复审。
+
 ### 阶段 7
 
 执行完整后端、前端、迁移、Compose、Playwright 和 axe 回归，覆盖患者、医生、访客和响应式关键路径；更新架构、Harness、前端、设计和产品规格，经独立审阅后归档本计划。

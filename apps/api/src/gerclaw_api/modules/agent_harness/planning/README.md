@@ -49,7 +49,10 @@ facts.
 `plan-execution-v1` 是可序列化的无正文 checkpoint：为每个精确 node ID 保存
 `pending/running/completed/failed/skipped`、有界单调 attempt、稳定错误码和实际采用的已声明 fallback。
 失败节点可从同一步骤重试；required 节点只有自身完成，或其声明 fallback 完成后才算满足。依赖与 fallback
-共同构成无环恢复图，快照节点集合或 fallback 关系与冻结 `DynamicPlan` 不一致时拒绝恢复。Planning
+共同构成无环恢复图。快照用完整 `DynamicPlan` 的 canonical SHA-256 绑定 route、capability、required、
+dependency、fallback、budget 和 output schema；只复用 node ID 也不能跨计划恢复。多 fallback 按声明
+顺序各尝试一次，不会反复执行已失败的第一项；attempt=50 会在下一次副作用前拒绝。快照节点集合、
+错误码或 fallback 历史与冻结计划不一致时拒绝恢复。Planning
 只拥有状态转换和校验合同，数据库持久化仍由 Run Lifecycle 负责。
 
 Consumers: Chat persists plans and the Harness enforces plan/budget decisions. Configuration:

@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import hashlib
 import json
 import re
 from enum import StrEnum
@@ -35,10 +36,11 @@ class PlanExecutionSnapshot(BaseModel):
     model_config = ConfigDict(extra="forbid", frozen=True)
 
     schema_version: Literal["plan-execution-v1"] = "plan-execution-v1"
+    plan_fingerprint: str = Field(pattern=r"^[a-f0-9]{64}$")
     statuses: dict[str, PlanNodeStatus]
     attempts: dict[str, int] = Field(default_factory=dict)
     error_codes: dict[str, str] = Field(default_factory=dict)
-    fallbacks_used: dict[str, str] = Field(default_factory=dict)
+    fallbacks_used: dict[str, tuple[str, ...]] = Field(default_factory=dict)
 
     @model_validator(mode="after")
     def validate_state(self) -> PlanExecutionSnapshot:
@@ -49,7 +51,12 @@ class PlanExecutionSnapshot(BaseModel):
             not set(self.attempts) <= known
             or not set(self.error_codes) <= known
             or not set(self.fallbacks_used) <= known
-            or not set(self.fallbacks_used.values()) <= known
+            or not {
+                fallback_id
+                for fallback_ids in self.fallbacks_used.values()
+                for fallback_id in fallback_ids
+            }
+            <= known
         ):
             raise ValueError("plan execution references an unknown node")
         if any(attempt < 0 or attempt > 50 for attempt in self.attempts.values()):
@@ -65,11 +72,13 @@ class PlanExecutionSnapshot(BaseModel):
             if status in attempted
         ):
             raise ValueError("active plan execution state requires an attempt")
-        if any(
-            self.statuses[node_id] is not PlanNodeStatus.FAILED
-            for node_id in self.error_codes
-        ):
-            raise ValueError("only a failed plan node may retain an error code")
+        failed = {
+            node_id
+            for node_id, status in self.statuses.items()
+            if status is PlanNodeStatus.FAILED
+        }
+        if set(self.error_codes) != failed:
+            raise ValueError("every failed plan node requires exactly one error code")
         if any(
             re.fullmatch(r"[A-Z][A-Z0-9_]{2,127}", code) is None
             for code in self.error_codes.values()
@@ -80,18 +89,28 @@ class PlanExecutionSnapshot(BaseModel):
             for source in self.fallbacks_used
         ):
             raise ValueError("only a failed plan node may use a fallback")
+        if any(
+            not fallback_ids or len(set(fallback_ids)) != len(fallback_ids)
+            for fallback_ids in self.fallbacks_used.values()
+        ):
+            raise ValueError("plan fallback history must be non-empty and unique")
         return self
 
     @classmethod
     def initial(cls, plan: DynamicPlan) -> PlanExecutionSnapshot:
         return cls(
+            plan_fingerprint=_plan_fingerprint(plan),
             statuses={node.node_id: PlanNodeStatus.PENDING for node in plan.nodes},
             attempts={node.node_id: 0 for node in plan.nodes},
         )
 
     def validate_for(self, plan: DynamicPlan) -> PlanExecutionSnapshot:
         expected = {node.node_id for node in plan.nodes}
-        if set(self.statuses) != expected or set(self.attempts) != expected:
+        if (
+            self.plan_fingerprint != _plan_fingerprint(plan)
+            or set(self.statuses) != expected
+            or set(self.attempts) != expected
+        ):
             raise PlanningError("PLAN_EXECUTION_SNAPSHOT_MISMATCH")
         declared_fallbacks = {
             node.node_id: set(node.fallback)
@@ -99,10 +118,116 @@ class PlanExecutionSnapshot(BaseModel):
         }
         if any(
             fallback_id not in declared_fallbacks[source_id]
-            for source_id, fallback_id in self.fallbacks_used.items()
+            for source_id, fallback_ids in self.fallbacks_used.items()
+            for fallback_id in fallback_ids
         ):
             raise PlanningError("PLAN_EXECUTION_FALLBACK_MISMATCH")
         return self
+
+
+class PlanExecutionTransition(BaseModel):
+    """One validated content-free delta ready for Run Lifecycle persistence."""
+
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    node_id: str
+    previous_status: PlanNodeStatus
+    status: PlanNodeStatus
+    attempt: int = Field(ge=0, le=50)
+    error_code: str | None = None
+    fallback_for_node_id: str | None = None
+
+
+def validate_plan_execution_transition(
+    plan: DynamicPlan,
+    current: PlanExecutionSnapshot,
+    updated: PlanExecutionSnapshot,
+) -> PlanExecutionTransition:
+    """Accept exactly one legal node transition and no unrelated snapshot drift."""
+
+    current.validate_for(plan)
+    updated.validate_for(plan)
+    changed_nodes = [
+        node_id
+        for node_id in current.statuses
+        if current.statuses[node_id] is not updated.statuses[node_id]
+    ]
+    if len(changed_nodes) != 1:
+        raise PlanningError("PLAN_EXECUTION_TRANSITION_NOT_ATOMIC")
+    node_id = changed_nodes[0]
+    previous_status = current.statuses[node_id]
+    status = updated.statuses[node_id]
+    current_attempt = current.attempts[node_id]
+    attempt = updated.attempts[node_id]
+    changed_attempts = {
+        item for item in current.attempts if current.attempts[item] != updated.attempts[item]
+    }
+    changed_errors = {
+        item
+        for item in set(current.error_codes) | set(updated.error_codes)
+        if current.error_codes.get(item) != updated.error_codes.get(item)
+    }
+    if not changed_attempts <= {node_id} or not changed_errors <= {node_id}:
+        raise PlanningError("PLAN_EXECUTION_TRANSITION_DRIFT")
+
+    changed_fallbacks = {
+        source
+        for source in set(current.fallbacks_used) | set(updated.fallbacks_used)
+        if current.fallbacks_used.get(source) != updated.fallbacks_used.get(source)
+    }
+    fallback_for_node_id: str | None = None
+    if len(changed_fallbacks) > 1:
+        raise PlanningError("PLAN_EXECUTION_TRANSITION_DRIFT")
+    if changed_fallbacks:
+        source = next(iter(changed_fallbacks))
+        before = current.fallbacks_used.get(source, ())
+        after = updated.fallbacks_used.get(source, ())
+        if not after and source == node_id:
+            pass
+        elif (
+            len(after) == len(before) + 1
+            and after[:-1] == before
+            and after[-1] == node_id
+            and current.statuses[source] is PlanNodeStatus.FAILED
+        ):
+            fallback_for_node_id = source
+        else:
+            raise PlanningError("PLAN_EXECUTION_FALLBACK_MISMATCH")
+
+    allowed = False
+    if (
+        previous_status in {PlanNodeStatus.PENDING, PlanNodeStatus.FAILED}
+        and status is PlanNodeStatus.RUNNING
+    ):
+        allowed = (
+            attempt == current_attempt + 1
+            and node_id not in updated.error_codes
+        )
+    elif previous_status is PlanNodeStatus.RUNNING and status in {
+        PlanNodeStatus.COMPLETED,
+        PlanNodeStatus.FAILED,
+    }:
+        allowed = attempt == current_attempt
+        if status is PlanNodeStatus.FAILED:
+            allowed = allowed and node_id in updated.error_codes
+        else:
+            allowed = allowed and node_id not in updated.error_codes
+    elif previous_status is PlanNodeStatus.PENDING and status is PlanNodeStatus.COMPLETED:
+        allowed = attempt == current_attempt + 1 and node_id not in updated.error_codes
+    elif previous_status is PlanNodeStatus.PENDING and status is PlanNodeStatus.SKIPPED:
+        allowed = attempt == current_attempt and node_id not in updated.error_codes
+    if not allowed:
+        raise PlanningError(
+            f"PLAN_EXECUTION_TRANSITION_INVALID:{node_id}:{previous_status}:{status}"
+        )
+    return PlanExecutionTransition(
+        node_id=node_id,
+        previous_status=previous_status,
+        status=status,
+        attempt=attempt,
+        error_code=updated.error_codes.get(node_id),
+        fallback_for_node_id=fallback_for_node_id,
+    )
 
 
 class DynamicPlanExecutor:
@@ -116,6 +241,7 @@ class DynamicPlanExecutor:
     ) -> None:
         self._plan = plan
         restored = (snapshot or PlanExecutionSnapshot.initial(plan)).validate_for(plan)
+        self._plan_fingerprint = restored.plan_fingerprint
         self._statuses = dict(restored.statuses)
         self._attempts = dict(restored.attempts)
         self._error_codes = dict(restored.error_codes)
@@ -141,6 +267,7 @@ class DynamicPlanExecutor:
         ]
         if incomplete:
             raise PlanningError(f"PLAN_DEPENDENCY_INCOMPLETE:{node.node_id}:{','.join(incomplete)}")
+        self._require_attempt_capacity(node.node_id)
         self._statuses[node.node_id] = PlanNodeStatus.RUNNING
         self._attempts[node.node_id] += 1
         self._error_codes.pop(node.node_id, None)
@@ -160,14 +287,7 @@ class DynamicPlanExecutor:
             raise PlanningError("PLAN_NODE_ERROR_CODE_INVALID")
         self._statuses[node_id] = PlanNodeStatus.FAILED
         self._error_codes[node_id] = error_code
-        node = self._node(node_id)
-        return tuple(
-            fallback_id
-            for fallback_id in node.fallback
-            if self._statuses[fallback_id]
-            in {PlanNodeStatus.PENDING, PlanNodeStatus.FAILED}
-            and all(self._satisfied(item) for item in self._node(fallback_id).dependencies)
-        )
+        return self.failover_candidates(node_id)
 
     def start_fallback(self, failed_node_id: str) -> str:
         if self._statuses.get(failed_node_id) is not PlanNodeStatus.FAILED:
@@ -176,19 +296,25 @@ class DynamicPlanExecutor:
         if not available:
             raise PlanningError(f"PLAN_FALLBACK_UNAVAILABLE:{failed_node_id}")
         fallback_id = available[0]
+        self._require_attempt_capacity(fallback_id)
         self._statuses[fallback_id] = PlanNodeStatus.RUNNING
         self._attempts[fallback_id] += 1
         self._error_codes.pop(fallback_id, None)
-        self._fallbacks_used[failed_node_id] = fallback_id
+        self._fallbacks_used[failed_node_id] = (
+            *self._fallbacks_used.get(failed_node_id, ()),
+            fallback_id,
+        )
         return fallback_id
 
     def failover_candidates(self, failed_node_id: str) -> tuple[str, ...]:
         if self._statuses.get(failed_node_id) is not PlanNodeStatus.FAILED:
             return ()
         node = self._node(failed_node_id)
+        already_used = set(self._fallbacks_used.get(failed_node_id, ()))
         return tuple(
             fallback_id
             for fallback_id in node.fallback
+            if fallback_id not in already_used
             if self._statuses[fallback_id]
             in {PlanNodeStatus.PENDING, PlanNodeStatus.FAILED}
             and all(self._satisfied(item) for item in self._node(fallback_id).dependencies)
@@ -216,6 +342,7 @@ class DynamicPlanExecutor:
         ]
         if incomplete:
             raise PlanningError(f"PLAN_DEPENDENCY_INCOMPLETE:{node.node_id}:{','.join(incomplete)}")
+        self._require_attempt_capacity(node.node_id)
         self._attempts[node.node_id] += 1
         self._statuses[node.node_id] = PlanNodeStatus.COMPLETED
         return True
@@ -238,6 +365,7 @@ class DynamicPlanExecutor:
 
     def snapshot(self) -> PlanExecutionSnapshot:
         return PlanExecutionSnapshot(
+            plan_fingerprint=self._plan_fingerprint,
             statuses=dict(self._statuses),
             attempts=dict(self._attempts),
             error_codes=dict(self._error_codes),
@@ -252,12 +380,30 @@ class DynamicPlanExecutor:
             return False
         if self._statuses[node_id] is PlanNodeStatus.COMPLETED:
             return True
-        fallback_id = self._fallbacks_used.get(node_id)
+        fallback_ids = self._fallbacks_used.get(node_id, ())
         return (
             self._statuses[node_id] is PlanNodeStatus.FAILED
-            and fallback_id is not None
-            and self._satisfied(fallback_id, visited=visited | {node_id})
+            and bool(fallback_ids)
+            and any(
+                self._satisfied(fallback_id, visited=visited | {node_id})
+                for fallback_id in fallback_ids
+            )
         )
+
+    def _require_attempt_capacity(self, node_id: str) -> None:
+        if self._attempts[node_id] >= 50:
+            raise PlanningError(f"PLAN_NODE_ATTEMPT_BUDGET_EXCEEDED:{node_id}")
+
+
+def _plan_fingerprint(plan: DynamicPlan) -> str:
+    canonical = json.dumps(
+        plan.model_dump(mode="json"),
+        ensure_ascii=False,
+        allow_nan=False,
+        sort_keys=True,
+        separators=(",", ":"),
+    )
+    return hashlib.sha256(canonical.encode()).hexdigest()
 
 
 class TurnExecutionGovernance:

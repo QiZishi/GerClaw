@@ -29,6 +29,7 @@ from gerclaw_api.modules.agent_harness.planning import (
     PlanNodeStatus,
     PlanRequest,
     SAVIActionSelector,
+    validate_plan_execution_transition,
 )
 from gerclaw_api.modules.agent_harness.routing import RouteKind
 from gerclaw_api.modules.runtime.budget import RuntimeBudgetTracker
@@ -244,7 +245,7 @@ def test_dynamic_plan_executor_completes_required_node_through_declared_fallback
 
     assert snapshot.statuses["primary"] is PlanNodeStatus.FAILED
     assert snapshot.statuses["local_fallback"] is PlanNodeStatus.COMPLETED
-    assert snapshot.fallbacks_used == {"primary": "local_fallback"}
+    assert snapshot.fallbacks_used == {"primary": ("local_fallback",)}
 
 
 def test_dynamic_plan_rejects_fallback_cycle_and_snapshot_identity_drift() -> None:
@@ -267,13 +268,132 @@ def test_dynamic_plan_rejects_fallback_cycle_and_snapshot_identity_drift() -> No
         )
 
     plan = _planner().build(PlanRequest(route=RouteKind.QUICK))
+    other_plan = DynamicPlan(
+        route=RouteKind.QUICK,
+        nodes=(
+            PlanNode(
+                node_id="other",
+                capability="answer.quick",
+                public_summary="正在整理回答",
+            ),
+        ),
+    )
     with pytest.raises(PlanningError, match="PLAN_EXECUTION_SNAPSHOT_MISMATCH"):
         DynamicPlanExecutor(
             plan,
-            snapshot=PlanExecutionSnapshot(
-                statuses={"other": PlanNodeStatus.PENDING},
-                attempts={"other": 0},
+            snapshot=PlanExecutionSnapshot.initial(other_plan),
+        )
+
+
+def test_plan_execution_transition_accepts_one_node_and_rejects_snapshot_drift() -> None:
+    plan = _planner().build(PlanRequest(route=RouteKind.QUICK))
+    executor = DynamicPlanExecutor(plan)
+    initial = executor.snapshot()
+    executor.start_capability("answer.quick")
+    running = executor.snapshot()
+
+    transition = validate_plan_execution_transition(plan, initial, running)
+    assert transition.node_id == "quick_answer"
+    assert transition.previous_status is PlanNodeStatus.PENDING
+    assert transition.status is PlanNodeStatus.RUNNING
+    assert transition.attempt == 1
+
+    drifted = running.model_copy(update={"attempts": {"quick_answer": 2}})
+    with pytest.raises(PlanningError, match="TRANSITION_INVALID"):
+        validate_plan_execution_transition(plan, initial, drifted)
+
+
+def test_plan_execution_snapshot_binds_full_plan_identity() -> None:
+    original = DynamicPlan(
+        route=RouteKind.QUICK,
+        nodes=(
+            PlanNode(
+                node_id="answer",
+                capability="answer.quick",
+                public_summary="正在整理简短回答",
             ),
+        ),
+    )
+    executor = DynamicPlanExecutor(original)
+    node_id = executor.start_capability("answer.quick")
+    executor.complete(node_id)
+    completed = executor.finalize()
+    changed_capability = DynamicPlan(
+        route=RouteKind.QUICK,
+        nodes=(
+            PlanNode(
+                node_id="answer",
+                capability="clinical.required.action",
+                public_summary="正在执行临床必要动作",
+            ),
+        ),
+    )
+
+    with pytest.raises(PlanningError, match="PLAN_EXECUTION_SNAPSHOT_MISMATCH"):
+        DynamicPlanExecutor(changed_capability, snapshot=completed)
+
+
+def test_plan_execution_uses_next_fallback_after_previous_fallback_fails() -> None:
+    plan = DynamicPlan(
+        nodes=(
+            PlanNode(
+                node_id="primary",
+                capability="primary.run",
+                public_summary="正在执行主要路径",
+                fallback=("fallback_one", "fallback_two"),
+            ),
+            PlanNode(
+                node_id="fallback_one",
+                required=False,
+                capability="fallback.one",
+                public_summary="正在执行第一备用路径",
+            ),
+            PlanNode(
+                node_id="fallback_two",
+                required=False,
+                capability="fallback.two",
+                public_summary="正在执行第二备用路径",
+            ),
+        )
+    )
+    executor = DynamicPlanExecutor(plan)
+    primary = executor.start_capability("primary.run")
+    executor.fail(primary, "PRIMARY_UNAVAILABLE")
+    first = executor.start_fallback(primary)
+    assert first == "fallback_one"
+    executor.fail(first, "FIRST_FALLBACK_UNAVAILABLE")
+
+    assert executor.failover_candidates(primary) == ("fallback_two",)
+    second = executor.start_fallback(primary)
+    executor.complete(second)
+    snapshot = executor.finalize()
+    assert snapshot.fallbacks_used["primary"] == (
+        "fallback_one",
+        "fallback_two",
+    )
+
+
+def test_plan_execution_attempt_limit_stops_before_running_and_failed_needs_error() -> None:
+    plan = _planner().build(PlanRequest(route=RouteKind.QUICK))
+    initial = PlanExecutionSnapshot.initial(plan)
+    exhausted = initial.model_copy(
+        update={
+            "statuses": {"quick_answer": PlanNodeStatus.FAILED},
+            "attempts": {"quick_answer": 50},
+            "error_codes": {"quick_answer": "MODEL_RETRY_EXHAUSTED"},
+        }
+    )
+    executor = DynamicPlanExecutor(plan, snapshot=exhausted)
+
+    with pytest.raises(PlanningError, match="PLAN_NODE_ATTEMPT_BUDGET_EXCEEDED"):
+        executor.start_capability("answer.quick")
+    assert executor.snapshot() == exhausted
+
+    with pytest.raises(ValidationError, match="requires exactly one error code"):
+        PlanExecutionSnapshot(
+            plan_fingerprint=initial.plan_fingerprint,
+            statuses={"quick_answer": PlanNodeStatus.FAILED},
+            attempts={"quick_answer": 1},
         )
 
 
