@@ -19,10 +19,13 @@ from gerclaw_api.modules.agent_harness.planning import (
     ActionKind,
     ClinicalDecisionCoordinator,
     DeterministicPlanner,
+    DynamicPlan,
     DynamicPlanExecutor,
     ModelBudgetPreflight,
     ModelCallEstimate,
+    PlanExecutionSnapshot,
     PlanningError,
+    PlanNode,
     PlanNodeStatus,
     PlanRequest,
     SAVIActionSelector,
@@ -187,6 +190,91 @@ def test_dynamic_plan_executor_completes_only_observed_optional_capability() -> 
     executor.complete(answer_node)
 
     assert executor.finalize().statuses["capability_1"] is PlanNodeStatus.COMPLETED
+
+
+def test_dynamic_plan_executor_retries_failed_node_from_serialized_checkpoint() -> None:
+    plan = _planner().build(PlanRequest(route=RouteKind.QUICK))
+    executor = DynamicPlanExecutor(plan)
+
+    node_id = executor.start_capability("answer.quick")
+    executor.fail(node_id, "MODEL_OUTPUT_SCHEMA_INVALID")
+    failed = PlanExecutionSnapshot.model_validate(
+        executor.snapshot().model_dump(mode="json")
+    )
+
+    restored = DynamicPlanExecutor(plan, snapshot=failed)
+    assert restored.start_capability("answer.quick") == node_id
+    restored.complete(node_id)
+    completed = restored.finalize()
+
+    assert completed.statuses[node_id] is PlanNodeStatus.COMPLETED
+    assert completed.attempts[node_id] == 2
+    assert node_id not in completed.error_codes
+
+
+def test_dynamic_plan_executor_completes_required_node_through_declared_fallback() -> None:
+    plan = DynamicPlan(
+        route=RouteKind.STANDARD,
+        nodes=(
+            PlanNode(
+                node_id="primary",
+                capability="evidence.retrieve",
+                public_summary="正在检索医学证据",
+                fallback=("local_fallback",),
+                checkpoint=True,
+            ),
+            PlanNode(
+                node_id="local_fallback",
+                required=False,
+                capability="answer.compose",
+                public_summary="正在使用已有资料整理回答",
+                checkpoint=True,
+            ),
+        ),
+    )
+    executor = DynamicPlanExecutor(plan)
+
+    primary = executor.start_capability("evidence.retrieve")
+    assert executor.fail(primary, "EVIDENCE_PROVIDER_UNAVAILABLE") == (
+        "local_fallback",
+    )
+    fallback = executor.start_fallback(primary)
+    executor.complete(fallback)
+    snapshot = executor.finalize()
+
+    assert snapshot.statuses["primary"] is PlanNodeStatus.FAILED
+    assert snapshot.statuses["local_fallback"] is PlanNodeStatus.COMPLETED
+    assert snapshot.fallbacks_used == {"primary": "local_fallback"}
+
+
+def test_dynamic_plan_rejects_fallback_cycle_and_snapshot_identity_drift() -> None:
+    with pytest.raises(ValidationError, match="acyclic"):
+        DynamicPlan(
+            nodes=(
+                PlanNode(
+                    node_id="first",
+                    capability="first.run",
+                    public_summary="正在执行第一步",
+                    fallback=("second",),
+                ),
+                PlanNode(
+                    node_id="second",
+                    capability="second.run",
+                    public_summary="正在执行第二步",
+                    fallback=("first",),
+                ),
+            )
+        )
+
+    plan = _planner().build(PlanRequest(route=RouteKind.QUICK))
+    with pytest.raises(PlanningError, match="PLAN_EXECUTION_SNAPSHOT_MISMATCH"):
+        DynamicPlanExecutor(
+            plan,
+            snapshot=PlanExecutionSnapshot(
+                statuses={"other": PlanNodeStatus.PENDING},
+                attempts={"other": 0},
+            ),
+        )
 
 
 def test_dynamic_plan_rejects_unavailable_capability_and_aggregate_budget() -> None:

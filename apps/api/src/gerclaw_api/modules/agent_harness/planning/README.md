@@ -46,6 +46,12 @@ constructed only from sourced, non-conflicted `ClinicalState` facts, explicitly 
 non-diagnostic, and passed to the model as code-owned constraints rather than model-created
 facts.
 
+`plan-execution-v1` 是可序列化的无正文 checkpoint：为每个精确 node ID 保存
+`pending/running/completed/failed/skipped`、有界单调 attempt、稳定错误码和实际采用的已声明 fallback。
+失败节点可从同一步骤重试；required 节点只有自身完成，或其声明 fallback 完成后才算满足。依赖与 fallback
+共同构成无环恢复图，快照节点集合或 fallback 关系与冻结 `DynamicPlan` 不一致时拒绝恢复。Planning
+只拥有状态转换和校验合同，数据库持久化仍由 Run Lifecycle 负责。
+
 Consumers: Chat persists plans and the Harness enforces plan/budget decisions. Configuration:
 all thresholds and reserves arrive through `ResolvedHarnessConfig`. Failure semantics:
 unavailable capability, invalid DAG, aggregate plan overflow, or model preflight failure stops

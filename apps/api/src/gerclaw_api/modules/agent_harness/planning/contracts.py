@@ -66,7 +66,9 @@ class DynamicPlan(BaseModel):
         }
         if unknown := referenced - known:
             raise ValueError(f"plan references unknown nodes: {sorted(unknown)}")
-        dependencies = {node.node_id: set(node.dependencies) for node in self.nodes}
+        references = {
+            node.node_id: set((*node.dependencies, *node.fallback)) for node in self.nodes
+        }
         visiting: set[str] = set()
         visited: set[str] = set()
 
@@ -76,8 +78,8 @@ class DynamicPlan(BaseModel):
             if node_id in visited:
                 return
             visiting.add(node_id)
-            for dependency in dependencies[node_id]:
-                visit(dependency)
+            for reference in references[node_id]:
+                visit(reference)
             visiting.remove(node_id)
             visited.add(node_id)
 

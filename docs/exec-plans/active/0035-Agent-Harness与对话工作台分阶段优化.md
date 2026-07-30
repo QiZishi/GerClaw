@@ -1440,6 +1440,14 @@ checkpoint/resume 和节点级局部 fallback 仍是下一独立变更集，没�
 本次直接触达的 11 个源文件 Mypy 通过；扩大到整个 Harness 包仍有两项既存类型债务
 （`evolution_signals` Literal 收窄、`approval` 可空 session），未混入本 Runtime 回滚点。
 
+PlanNode 收口的第一小步已完成 Planning 核心状态合同：`plan-execution-v1` 对每个冻结 node 保存
+`pending/running/completed/failed/skipped`、有界单调 attempt、稳定错误码和实际采用的声明 fallback；
+失败节点可从同一 checkpoint 重试，required 节点只有自身完成或其 fallback 完成后才满足。dependency
+与 fallback 引用现在共同接受无环校验，恢复快照的 node 集合或 fallback 关系漂移会 fail closed。
+Planning/Harness 聚焦测试 `55 passed`，Ruff/Mypy 通过。本提交只建立可持久化状态机，不虚报已接入
+Run 数据库；Run Lifecycle 逐转换持久化、owner capability 移到 Run 建立后执行、恢复只跑
+pending/failed 和 optional failure → `completed_with_warnings` 仍在下一变更集。
+
 ### 阶段 7
 
 执行完整后端、前端、迁移、Compose、Playwright 和 axe 回归，覆盖患者、医生、访客和响应式关键路径；更新架构、Harness、前端、设计和产品规格，经独立审阅后归档本计划。
