@@ -4,14 +4,12 @@
 from __future__ import annotations
 
 import inspect
-from collections.abc import AsyncIterator, Awaitable, Callable
+from collections.abc import Awaitable, Callable
 from datetime import UTC, datetime
-from typing import Any
 
 from agentscope.message import AssistantMsg, SystemMsg, ToolCallBlock, UserMsg
 from agentscope.model import ChatModelBase
 from agentscope.skill import Skill as AgentScopeSkill
-from pydantic import BaseModel
 
 from gerclaw_api.config import Settings
 from gerclaw_api.modules.agent_harness.clinical_state import ClinicalState
@@ -29,6 +27,9 @@ from gerclaw_api.modules.agent_harness.evidence import (
     ModelCitationBindingScope,
     bind_turn_evidence,
 )
+from gerclaw_api.modules.agent_harness.orchestration_support import (
+    OrchestrationSupportMixin,
+)
 from gerclaw_api.modules.agent_harness.planning import (
     AgentFactory,
     ClinicalDecisionCoordinator,
@@ -41,7 +42,6 @@ from gerclaw_api.modules.agent_harness.planning import (
 )
 from gerclaw_api.modules.agent_harness.plugin_runtime import (
     ApprovalCallback,
-    ApprovalCoordinator,
     CapabilityResult,
     SharedResultScope,
     ToolRegistryFactory,
@@ -63,10 +63,16 @@ from gerclaw_api.modules.agent_harness.run_lifecycle import (
     ProductionRunLifecycle,
     SafeSentenceBuffer,
     UnsupportedAgentContextError,
-    bounded_events,
     project_agent_stream,
 )
 from gerclaw_api.modules.agent_harness.run_lifecycle.agent_stream import final_agent_text
+from gerclaw_api.modules.agent_harness.run_lifecycle.directive_runtime import (
+    DirectiveApplier,
+    DirectiveClaimer,
+    DirectiveLoader,
+    RuntimeDirectiveCoordinator,
+    RuntimeDirectiveEmergency,
+)
 from gerclaw_api.modules.agent_harness.safety import (
     HIGH_RISK_NOTICE,
     MEDICAL_DISCLAIMER,
@@ -96,7 +102,6 @@ from gerclaw_api.modules.runtime.models import (
     NetworkAccess,
     RiskLevel,
     RuntimePrincipal,
-    ToolCapability,
 )
 from gerclaw_api.modules.search import (
     capture_agent_search_results,
@@ -122,9 +127,7 @@ _EVIDENCE_UNAVAILABLE_CLARIFICATION = (
 _SafeSentenceBuffer = SafeSentenceBuffer
 _CanonicalTextStream = CanonicalTextStream
 _final_agent_text = final_agent_text
-
-
-class ProductionAgentHarness:
+class ProductionAgentHarness(OrchestrationSupportMixin):
     """One-turn isolated harness over shared model and retrieval clients."""
 
     def __init__(
@@ -162,6 +165,9 @@ class ProductionAgentHarness:
         dynamic_plan: DynamicPlan | None = None,
         clinical_decision: TurnClinicalDecision | None = None,
         preassembled_context: AgentContext | None = None,
+        directive_loader: DirectiveLoader | None = None,
+        directive_claimer: DirectiveClaimer | None = None,
+        directive_applier: DirectiveApplier | None = None,
     ) -> None:
         companion = is_companion_workflow(workflow)
         build_core_runtime_asset_security_registry().assess_agent(
@@ -226,6 +232,17 @@ class ProductionAgentHarness:
         self._approval_callback = approval_callback
         self._clinical_decision = clinical_decision
         self._preassembled_context = preassembled_context
+        self._runtime_directives = RuntimeDirectiveCoordinator(
+            loader=directive_loader,
+            claimer=directive_claimer,
+            applier=directive_applier,
+            preflight=self._turn_planning.check_model,
+            error_factory=RuntimeBudgetExceededError,
+            risk_classifier=lambda instructions: detect_high_risk("\n".join(instructions)),
+            max_per_boundary=self._config.max_directives_per_boundary,
+            max_per_run=self._config.max_directives_per_run,
+            image_count=len(self._uploaded_images),
+        )
         self._agent_factory = agent_factory or ProductionAgentFactory(
             model=model,
             config=self._config,
@@ -558,6 +575,16 @@ class ProductionAgentHarness:
             document_focused=document_focused,
             retrieval_disabled=route_decision.route is RouteKind.QUICK,
         )
+        effective_user_message, directive_response = (
+            await self._prepare_initial_runtime_directives(
+                agent=agent,
+                budget=budget,
+                user_message=user_message,
+                stream_callback=stream_callback,
+            )
+        )
+        if directive_response is not None:
+            return directive_response
         answer_node = governance.checkpoint(governance.answer_capability())
 
         skill_metadata: dict[str, tuple[str, str]] = {}
@@ -600,25 +627,39 @@ class ProductionAgentHarness:
                 if isinstance(skill_id, str):
                     governance.complete_optional_capability(skill_id)
 
-            stream_result = await project_agent_stream(
-                agent=agent,
-                user_message=attachment_projector.user_message(user_message),
-                budget=budget,
-                wall_clock_seconds=self._execution_budget.wall_clock_seconds,
-                max_output_characters=self._config.max_output_characters,
-                emit=emit,
-                park_approvals=park_approvals,
-                evidence_available=citation_scope.segment_has_evidence,
-                public_text_transform=citation_scope.normalize_public_text,
-                memory_guard=turn_toolkit.memory_guard,
-                skill_metadata=skill_metadata,
-                search_results=search_results,
-                lifecycle=self._run_lifecycle,
-                timeout_error_factory=lambda: RuntimeBudgetExceededError(
-                    "RUNTIME_WALL_CLOCK_EXCEEDED"
-                ),
-                tool_result_observer=observe_tool_result,
-            )
+            async def apply_directives_after_tool() -> int:
+                return await self._runtime_directives.apply_after_tool(
+                    agent=agent,
+                    budget=budget,
+                )
+
+            try:
+                stream_result = await project_agent_stream(
+                    agent=agent,
+                    user_message=attachment_projector.user_message(effective_user_message),
+                    budget=budget,
+                    wall_clock_seconds=self._execution_budget.wall_clock_seconds,
+                    max_output_characters=self._config.max_output_characters,
+                    emit=emit,
+                    park_approvals=park_approvals,
+                    evidence_available=citation_scope.segment_has_evidence,
+                    public_text_transform=citation_scope.normalize_public_text,
+                    memory_guard=turn_toolkit.memory_guard,
+                    skill_metadata=skill_metadata,
+                    search_results=search_results,
+                    lifecycle=self._run_lifecycle,
+                    timeout_error_factory=lambda: RuntimeBudgetExceededError(
+                        "RUNTIME_WALL_CLOCK_EXCEEDED"
+                    ),
+                    tool_result_observer=observe_tool_result,
+                    safe_boundary_observer=apply_directives_after_tool,
+                )
+            except RuntimeDirectiveEmergency as emergency:
+                return await self._emit_runtime_directive_emergency(
+                    emergency.risk_codes,
+                    budget=budget,
+                    stream_callback=stream_callback,
+                )
             selected_model_preference = next(
                 (
                     attempt.preference
@@ -730,45 +771,6 @@ class ProductionAgentHarness:
             },
         )
         return response
-
-    async def _bounded_agent_events(
-        self,
-        events: AsyncIterator[Any],
-    ) -> AsyncIterator[Any]:
-        """Compatibility delegate to the run-lifecycle timeout guard."""
-
-        async for event in bounded_events(
-            events,
-            wall_clock_seconds=self._execution_budget.wall_clock_seconds,
-            timeout_error_factory=lambda: RuntimeBudgetExceededError("RUNTIME_WALL_CLOCK_EXCEEDED"),
-        ):
-            yield event
-
-    async def _persist_approval_requests(
-        self,
-        tool_calls: list[ToolCallBlock],
-        *,
-        capabilities: dict[str, ToolCapability],
-        input_models: dict[str, type[BaseModel]],
-        stream_callback: StreamCallback,
-    ) -> tuple[str, ...]:
-        """Compatibility delegate to the governed approval coordinator."""
-
-        async def emit(event_type: str, data: dict[str, JsonValue]) -> None:
-            await self._emit(stream_callback, event_type, data)
-
-        coordinator = ApprovalCoordinator(
-            callback=self._approval_callback,
-            principal=self._runtime_principal,
-            execution=self._execution,
-            ttl_seconds=self._config.approval_ttl_seconds,
-        )
-        return await coordinator.persist(
-            tool_calls,
-            capabilities=capabilities,
-            input_models=input_models,
-            emit=emit,
-        )
 
     def _render_uploaded_documents(self) -> str:
         """Compatibility shim for existing tests and consumers."""

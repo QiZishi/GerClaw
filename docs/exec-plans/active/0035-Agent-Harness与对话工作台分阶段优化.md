@@ -1142,6 +1142,36 @@ Ruff/Mypy 通过；真实 `gerclaw_test` PostgreSQL 迁移首次因宿主机误�
 未连接，改用 `127.0.0.1` 后实际完成 upgrade → downgrade → upgrade 与 `alembic check`，未把首次
 环境失败冒充产品成功。
 
+随后独立接通 `queue_for_next_boundary` 后端消费链路：调用方在成功前只有 Trace ID，因此
+`POST /chat/{trace_id}/directives/queue` 在 actor 范围内解析活动 Run；Run API 提供有序状态查询和未
+领取撤销；Trace 尚未持久化时使用配置注入的短暂有界等待覆盖 SSE 启动竞态，超时仍返回同一不可枚举 404。
+生产 Harness 在首次模型调用前及每个工具结果完成后的安全边界，按 sequence 批量领取要求，使用当前
+fencing token + boundary ID 对整批完成 Context 预算预检，再作为新的用户要求注入并在同一 Run 锁事务
+中整批标记 applied；第 N 条失败时前 N-1 条也不能提前 applied。每个边界有独立 burst 上限，整个 Run
+另有显式总上限，恢复按该事实源分页读取，不再用 ReAct 次数猜测合法数量。模型/工具当前操作不被半途
+篡改；若没有后续安全边界，Run 的 completed/failed/cancelled
+终态事务会把 pending/claimed 原子转成 `pending_next_run` 并清除旧 claim，终态 worker 不能迟到 apply。
+下一非 resume Run 在提交前会把同 Conversation、tenant、actor 的 deferred 指令原子绑定为自己的
+pending；终态 defer 与 successor create 都先锁各自 Run、再串行化同一 Conversation、最后锁
+Directive。若 successor 先提交，终态侧识别当前 active Trace 并直接绑定；若 terminal 先提交，
+successor 侧领取 `pending_next_run`，因此两种提交顺序都不会留下永久停车状态。
+恢复时重新投影同 Run 已 applied 指令；旧 fence 的 claimed 指令由新 fence exactly-once 接管。applied
+与幂等加密 Conversation user message 在同一事务提交，缺失投影可自愈；下一非 resume Run 还会把近期
+医疗指令经代码拥有的 `UserMessageClinicalProjector` 以 `reported` 和
+`message:<directive-id>` provenance 合入 ClinicalState，普通执行约束只留在 Conversation，禁止被
+伪装成临床事实。queued red flag 在下一模型调用前确定性短路；公开 DTO 不返回 idempotency key、worker
+fence 或 boundary ID。该变更没有复用“停止”语义冒充 steer，`interrupt_and_steer` 的后继 Run/fan-out
+仍作为下一独立模块；尚未增加 before-tool/PlanNode 边界，无工具模型流初始边界后到达的要求会诚实转为
+下一 Run，而不是篡改进行中的 Provider 调用。
+
+最终验证：相关 Run/Harness/Chat/Config/Resume 组合测试 `154 passed`；真实 PostgreSQL API、十路
+idempotency、terminal ↔ successor create、terminal ↔ batch apply、terminal ↔ cancel 竞态、终态后
+排队到下一 Run 的完整 claim/apply/Message 投影，以及跨 tenant/actor Trace/Run/cancel 隔离
+`7 passed`（仅本地 Qdrant HTTP API-key warning）；Ruff 和 16 个相关 source 的 Mypy 通过；
+`orchestrator.py` 797 行，继续满足 800 行结构门禁。第一次组合命令误写了不存在的
+`test_run_recovery_service.py`，pytest 在收集前退出且未运行用例；修正为仓库真实文件清单后得到上述
+154/154，未把误命令记录成产品通过。
+
 #### 6.7 安全校验的可用性、反馈修复与步骤级回退硬约束
 
 “安全”不能被实现成高误杀率的拒绝系统。每个校验器必须先声明保护的具体资产、精确失败条件、可修复性、

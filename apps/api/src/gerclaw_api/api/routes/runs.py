@@ -8,7 +8,7 @@ import uuid
 from collections.abc import AsyncIterator
 from typing import Annotated
 
-from fastapi import APIRouter, Depends, HTTPException, Query, Request, status
+from fastapi import APIRouter, Depends, HTTPException, Path, Query, Request, status
 from fastapi.responses import StreamingResponse
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -34,12 +34,17 @@ from gerclaw_api.domain.run_schemas import (
     FeedbackReconcileRequest,
     FeedbackStateRead,
     RecoverableRunRead,
+    RunDirectiveListRead,
+    RunDirectivePublicRead,
     RunEventPage,
     RunEventRead,
+    RunQueuedDirectiveCreate,
 )
+from gerclaw_api.domain.trace_schemas import TRACE_ID_PATTERN
 from gerclaw_api.repositories.agent_run import SqlAlchemyAgentRunRepository
 from gerclaw_api.repositories.answer_version import SqlAlchemyAnswerVersionRepository
 from gerclaw_api.repositories.run_artifact import SqlAlchemyRunArtifactRepository
+from gerclaw_api.repositories.run_directive import SqlAlchemyRunDirectiveRepository
 from gerclaw_api.repositories.run_feedback import SqlAlchemyRunFeedbackRepository
 from gerclaw_api.repositories.run_resume import SqlAlchemyRunResumeRepository
 from gerclaw_api.services.agent_run_service import AgentRunService
@@ -50,6 +55,7 @@ from gerclaw_api.services.chat_cancellation import (
 )
 from gerclaw_api.services.rate_limit import RateLimiter
 from gerclaw_api.services.run_artifact_service import RunArtifactService
+from gerclaw_api.services.run_directive_service import RunDirectiveService
 from gerclaw_api.services.run_feedback_service import RunFeedbackService
 from gerclaw_api.services.run_resume_service import RunResumeService
 
@@ -58,6 +64,7 @@ SessionDependency = Annotated[AsyncSession, Depends(get_database_session)]
 ReadIdentity = Annotated[AuthContext, Depends(require_chat_read)]
 WriteIdentity = Annotated[AuthContext, Depends(require_chat_write)]
 FeedbackIdentity = Annotated[AuthContext, Depends(require_feedback_write)]
+TraceIdPath = Annotated[str, Path(pattern=TRACE_ID_PATTERN)]
 
 
 async def _enforce_rate_limit(request: Request, identity: AuthContext) -> None:
@@ -79,6 +86,10 @@ def _artifact_service(session: AsyncSession) -> RunArtifactService:
 
 def _feedback_service(session: AsyncSession) -> RunFeedbackService:
     return RunFeedbackService(SqlAlchemyRunFeedbackRepository(session))
+
+
+def _directive_service(session: AsyncSession) -> RunDirectiveService:
+    return RunDirectiveService(SqlAlchemyRunDirectiveRepository(session))
 
 
 def _resume_service(session: AsyncSession) -> RunResumeService:
@@ -312,6 +323,81 @@ async def cancel_run(
             },
         ) from error
     return run
+
+
+@router.post(
+    "/chat/{trace_id}/directives/queue",
+    response_model=RunDirectivePublicRead,
+    status_code=status.HTTP_201_CREATED,
+)
+async def queue_run_directive(
+    trace_id: TraceIdPath,
+    payload: RunQueuedDirectiveCreate,
+    request: Request,
+    session: SessionDependency,
+    identity: WriteIdentity,
+) -> RunDirectivePublicRead:
+    """Persist a requirement for the next fenced model/tool boundary."""
+
+    await _enforce_rate_limit(request, identity)
+    directive = await _directive_service(session).queue_for_trace(
+        trace_id,
+        payload,
+        tenant_id=identity.tenant_id,
+        actor_id=identity.actor_id,
+        wait_seconds=request.app.state.settings.agent_directive_trace_wait_seconds,
+        poll_interval_seconds=(
+            request.app.state.settings.agent_run_stream_poll_interval_seconds
+        ),
+    )
+    return RunDirectivePublicRead.from_internal(directive)
+
+
+@router.get(
+    "/runs/{run_id}/directives",
+    response_model=RunDirectiveListRead,
+)
+async def list_run_directives(
+    run_id: uuid.UUID,
+    request: Request,
+    session: SessionDependency,
+    identity: ReadIdentity,
+    limit: Annotated[int, Query(ge=1, le=200)] = 100,
+) -> RunDirectiveListRead:
+    """Return ordered owner-visible steer/queue status for one Run."""
+
+    await _enforce_rate_limit(request, identity)
+    directives = await _directive_service(session).list_for_run(
+        run_id,
+        tenant_id=identity.tenant_id,
+        actor_id=identity.actor_id,
+        limit=limit,
+    )
+    return RunDirectiveListRead(
+        run_id=run_id,
+        directives=tuple(RunDirectivePublicRead.from_internal(item) for item in directives),
+    )
+
+
+@router.delete(
+    "/run-directives/{directive_id}",
+    response_model=RunDirectivePublicRead,
+)
+async def cancel_unclaimed_run_directive(
+    directive_id: uuid.UUID,
+    request: Request,
+    session: SessionDependency,
+    identity: WriteIdentity,
+) -> RunDirectivePublicRead:
+    """Withdraw an instruction only while no worker boundary owns it."""
+
+    await _enforce_rate_limit(request, identity)
+    directive = await _directive_service(session).cancel_unclaimed(
+        directive_id,
+        tenant_id=identity.tenant_id,
+        actor_id=identity.actor_id,
+    )
+    return RunDirectivePublicRead.from_internal(directive)
 
 
 @router.get(

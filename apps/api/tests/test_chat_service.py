@@ -32,6 +32,10 @@ from gerclaw_api.domain.run_schemas import (
     RunAttemptCreate,
     RunAttemptRead,
     RunAttemptStatus,
+    RunDirectiveClaim,
+    RunDirectiveMode,
+    RunDirectiveRead,
+    RunDirectiveStatus,
     RunEventRead,
     RunEventWrite,
     RunRegenerationContext,
@@ -72,6 +76,7 @@ class _TextModel(ChatModelBase):
         pass
 
     def __init__(self) -> None:
+        self.last_messages: list[Msg] = []
         super().__init__(
             credential=CredentialBase(name="test"),
             model="chat-service-test",
@@ -89,7 +94,8 @@ class _TextModel(ChatModelBase):
         tool_choice: ToolChoice | None = None,
         **kwargs: Any,
     ) -> ChatResponse | AsyncGenerator[ChatResponse, None]:
-        del model_name, messages, tools, tool_choice, kwargs
+        del model_name, tools, tool_choice, kwargs
+        self.last_messages = messages
 
         async def stream() -> AsyncGenerator[ChatResponse, None]:
             text = "您好, 很高兴为您服务。"
@@ -657,6 +663,101 @@ class _RunJournal:
         )
 
 
+class _DirectiveJournal:
+    def __init__(self) -> None:
+        self.claimed = False
+        self.applied: list[tuple[uuid.UUID, RunDirectiveClaim]] = []
+        self.directive_id = uuid.uuid4()
+        self.recent: tuple[RunDirectiveRead, ...] = ()
+
+    async def list_recent_applied_directives(
+        self,
+        conversation_id: uuid.UUID,
+        *,
+        tenant_id: str,
+        actor_id: str,
+        limit: int,
+    ) -> tuple[RunDirectiveRead, ...]:
+        del conversation_id, tenant_id, actor_id
+        return self.recent[-limit:]
+
+    async def list_applied_directives(
+        self,
+        run_id: uuid.UUID,
+        *,
+        tenant_id: str,
+        actor_id: str,
+        after_sequence: int,
+        limit: int,
+    ) -> tuple[RunDirectiveRead, ...]:
+        del run_id, tenant_id, actor_id, after_sequence, limit
+        return ()
+
+    async def claim_directives(
+        self,
+        run_id: uuid.UUID,
+        claim: RunDirectiveClaim,
+        *,
+        tenant_id: str,
+        actor_id: str,
+        limit: int,
+    ) -> tuple[RunDirectiveRead, ...]:
+        del run_id, tenant_id, actor_id, limit
+        if self.claimed:
+            return ()
+        self.claimed = True
+        now = datetime.now(UTC)
+        return (
+            RunDirectiveRead(
+                id=self.directive_id,
+                conversation_id=uuid.uuid4(),
+                target_run_id=uuid.uuid4(),
+                sequence=1,
+                mode=RunDirectiveMode.QUEUE_FOR_NEXT_BOUNDARY,
+                status=RunDirectiveStatus.CLAIMED,
+                instruction="请把回答控制在两句话以内。",
+                idempotency_key="directive-chat-service-1",
+                claimed_by_fencing_token=claim.fencing_token,
+                claim_boundary_id=claim.boundary_id,
+                revision=2,
+                created_at=now,
+                claimed_at=now,
+            ),
+        )
+
+    async def mark_directives_applied(
+        self,
+        run_id: uuid.UUID,
+        directive_ids: tuple[uuid.UUID, ...],
+        claim: RunDirectiveClaim,
+        *,
+        tenant_id: str,
+        actor_id: str,
+    ) -> tuple[RunDirectiveRead, ...]:
+        del run_id, tenant_id, actor_id
+        self.applied.extend((directive_id, claim) for directive_id in directive_ids)
+        now = datetime.now(UTC)
+        return tuple(
+            RunDirectiveRead(
+                id=directive_id,
+                conversation_id=uuid.uuid4(),
+                target_run_id=uuid.uuid4(),
+                sequence=1,
+                mode=RunDirectiveMode.QUEUE_FOR_NEXT_BOUNDARY,
+                status=RunDirectiveStatus.APPLIED,
+                instruction="请把回答控制在两句话以内。",
+                idempotency_key="directive-chat-service-1",
+                claimed_by_fencing_token=claim.fencing_token,
+                claim_boundary_id=claim.boundary_id,
+                revision=3,
+                created_at=now,
+                claimed_at=now,
+                applied_at=now,
+            )
+            for directive_id in directive_ids
+        )
+
+
 @pytest.mark.parametrize(
     ("role", "expected_role", "has_patient_proof"),
     [
@@ -872,6 +973,121 @@ async def test_owned_turn_streams_only_after_durable_success(unit_settings: Sett
     replay_done = cast(Any, replay_events[-1])
     assert replay_done.event_type == "done"
     assert replay_done.data["replayed"] is True
+
+
+@pytest.mark.asyncio
+async def test_chat_service_connects_directive_journal_after_run_start(
+    unit_settings: Settings,
+) -> None:
+    session_id = uuid.uuid4()
+    traces = _TraceFacade(created=True, session_id=session_id)
+    run_journal = _RunJournal()
+    directives = _DirectiveJournal()
+    model = _TextModel()
+    service = ChatService(
+        settings=unit_settings,
+        conversation=cast(Any, _ConversationFacade(session_id)),
+        traces=cast(Any, traces),
+        lease=cast(Any, _OwnedLease()),
+        model=cast(Any, model),
+        rag_module=cast(Any, _NoopRAG()),
+        memory_factory=_memory_factory(),
+        run_journal=run_journal,
+        directive_journal=directives,
+    )
+
+    async def callback(_event: object) -> None:
+        return None
+
+    await service.process(
+        ChatRequest(session_id=session_id, message="请帮我整理安排"),
+        identity=AuthContext(
+            actor_id="usr_patient_unit0001",
+            tenant_id="tenant_public0001",
+            scopes=frozenset({"chat:write"}),
+        ),
+        request_id="request_chat_directive_0001",
+        trace_id="trace_chat_directive_0001",
+        callback=cast(Any, callback),
+    )
+
+    assert directives.applied
+    assert directives.applied[0][1].fencing_token == 17
+    assert directives.applied[0][1].boundary_id == "before-model-1"
+    assert "请把回答控制在两句话以内" in model.last_messages[-1].get_text_content()
+
+
+@pytest.mark.asyncio
+async def test_applied_medical_directive_is_projected_into_next_clinical_state(
+    unit_settings: Settings,
+) -> None:
+    session_id = uuid.uuid4()
+    run_journal = _RunJournal()
+    directives = _DirectiveJournal()
+    directive_id = uuid.uuid4()
+    observed_at = datetime(2026, 7, 29, tzinfo=UTC)
+    directives.recent = (
+        RunDirectiveRead(
+            id=directive_id,
+            conversation_id=session_id,
+            target_run_id=uuid.uuid4(),
+            sequence=1,
+            mode=RunDirectiveMode.QUEUE_FOR_NEXT_BOUNDARY,
+            status=RunDirectiveStatus.APPLIED,
+            instruction="补充：老人最近三天持续头晕。",
+            idempotency_key="directive-clinical-projection-1",
+            claimed_by_fencing_token=16,
+            claim_boundary_id="after-tool-result-1",
+            revision=3,
+            created_at=observed_at,
+            claimed_at=observed_at,
+            applied_at=observed_at,
+        ),
+    )
+    service = ChatService(
+        settings=unit_settings,
+        conversation=cast(Any, _ConversationFacade(session_id)),
+        traces=cast(Any, _TraceFacade(created=True, session_id=session_id)),
+        lease=cast(Any, _OwnedLease()),
+        model=cast(Any, _TextModel()),
+        rag_module=cast(Any, _NoopRAG()),
+        memory_factory=_memory_factory(),
+        run_journal=run_journal,
+        directive_journal=directives,
+    )
+
+    async def callback(_event: object) -> None:
+        return None
+
+    await service.process(
+        ChatRequest(session_id=session_id, message="请继续"),
+        identity=AuthContext(
+            actor_id="usr_patient_unit0001",
+            tenant_id="tenant_public0001",
+            scopes=frozenset({"chat:write"}),
+        ),
+        request_id="request_chat_directive_clinical_0001",
+        trace_id="trace_chat_directive_clinical_0001",
+        callback=cast(Any, callback),
+    )
+
+    persisted = ClinicalState.model_validate(
+        cast(
+            dict[str, Any],
+            run_journal.start_requests[0].context_snapshot["agent_context"],
+        )["clinical_state"]
+    )
+    directive_facts = [
+        fact
+        for fact in persisted.facts
+        if any(
+            item.source_id == f"message:{directive_id}"
+            for item in fact.provenance
+        )
+    ]
+    assert directive_facts
+    assert any(fact.category == "symptom" for fact in directive_facts)
+    assert all(fact.status == "reported" for fact in directive_facts)
 
 
 @pytest.mark.asyncio

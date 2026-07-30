@@ -18,6 +18,8 @@ from gerclaw_api.domain.run_schemas import (
     RunAnswerContext,
     RunAttemptCreate,
     RunAttemptRead,
+    RunDirectiveClaim,
+    RunDirectiveRead,
     RunEventRead,
     RunEventWrite,
     RunRegenerationContext,
@@ -30,12 +32,14 @@ from gerclaw_api.modules.agent_harness.clinical_state import (
 from gerclaw_api.modules.agent_harness.evolution_signals import EvolutionSignalCollector
 from gerclaw_api.repositories.agent_run import SqlAlchemyAgentRunRepository
 from gerclaw_api.repositories.answer_version import SqlAlchemyAnswerVersionRepository
+from gerclaw_api.repositories.run_directive import SqlAlchemyRunDirectiveRepository
 from gerclaw_api.repositories.run_regeneration import (
     SqlAlchemyRunRegenerationRepository,
 )
 from gerclaw_api.security import JsonValue
 from gerclaw_api.services.agent_run_service import AgentRunService
 from gerclaw_api.services.answer_version_service import AnswerVersionService
+from gerclaw_api.services.run_directive_service import RunDirectiveService
 from gerclaw_api.services.run_regeneration_service import RunRegenerationService
 
 
@@ -150,6 +154,48 @@ class ChatRunJournal(Protocol):
     ) -> AgentRunRead:
         """Apply a fenced transition against the latest durable revision."""
 
+class RunDirectiveJournal(Protocol):
+    """Optional execution-time directive boundary kept separate from base Run journaling."""
+
+    async def list_applied_directives(
+        self,
+        run_id: uuid.UUID,
+        *,
+        tenant_id: str,
+        actor_id: str,
+        after_sequence: int,
+        limit: int,
+    ) -> tuple[RunDirectiveRead, ...]: ...
+
+    async def list_recent_applied_directives(
+        self,
+        conversation_id: uuid.UUID,
+        *,
+        tenant_id: str,
+        actor_id: str,
+        limit: int,
+    ) -> tuple[RunDirectiveRead, ...]: ...
+
+    async def claim_directives(
+        self,
+        run_id: uuid.UUID,
+        claim: RunDirectiveClaim,
+        *,
+        tenant_id: str,
+        actor_id: str,
+        limit: int,
+    ) -> tuple[RunDirectiveRead, ...]: ...
+
+    async def mark_directives_applied(
+        self,
+        run_id: uuid.UUID,
+        directive_ids: tuple[uuid.UUID, ...],
+        claim: RunDirectiveClaim,
+        *,
+        tenant_id: str,
+        actor_id: str,
+    ) -> tuple[RunDirectiveRead, ...]: ...
+
 
 class DatabaseChatRunJournal:
     """Open a short PostgreSQL transaction for each replayable Run fact."""
@@ -177,6 +223,84 @@ class DatabaseChatRunJournal:
                 SqlAlchemyRunRegenerationRepository(session)
             ).resolve(
                 request,
+                tenant_id=tenant_id,
+                actor_id=actor_id,
+            )
+
+    async def list_applied_directives(
+        self,
+        run_id: uuid.UUID,
+        *,
+        tenant_id: str,
+        actor_id: str,
+        after_sequence: int,
+        limit: int,
+    ) -> tuple[RunDirectiveRead, ...]:
+        async with self._database.session() as session:
+            return await RunDirectiveService(
+                SqlAlchemyRunDirectiveRepository(session)
+            ).list_applied_for_execution(
+                run_id,
+                tenant_id=tenant_id,
+                actor_id=actor_id,
+                after_sequence=after_sequence,
+                limit=limit,
+            )
+
+    async def list_recent_applied_directives(
+        self,
+        conversation_id: uuid.UUID,
+        *,
+        tenant_id: str,
+        actor_id: str,
+        limit: int,
+    ) -> tuple[RunDirectiveRead, ...]:
+        async with self._database.session() as session:
+            return await RunDirectiveService(
+                SqlAlchemyRunDirectiveRepository(session)
+            ).list_recent_applied_for_conversation(
+                conversation_id,
+                tenant_id=tenant_id,
+                actor_id=actor_id,
+                limit=limit,
+            )
+
+    async def claim_directives(
+        self,
+        run_id: uuid.UUID,
+        claim: RunDirectiveClaim,
+        *,
+        tenant_id: str,
+        actor_id: str,
+        limit: int,
+    ) -> tuple[RunDirectiveRead, ...]:
+        async with self._database.session() as session:
+            return await RunDirectiveService(
+                SqlAlchemyRunDirectiveRepository(session)
+            ).claim_batch(
+                run_id,
+                claim,
+                tenant_id=tenant_id,
+                actor_id=actor_id,
+                limit=limit,
+            )
+
+    async def mark_directives_applied(
+        self,
+        run_id: uuid.UUID,
+        directive_ids: tuple[uuid.UUID, ...],
+        claim: RunDirectiveClaim,
+        *,
+        tenant_id: str,
+        actor_id: str,
+    ) -> tuple[RunDirectiveRead, ...]:
+        async with self._database.session() as session:
+            return await RunDirectiveService(
+                SqlAlchemyRunDirectiveRepository(session)
+            ).mark_many_applied(
+                run_id,
+                directive_ids,
+                claim,
                 tenant_id=tenant_id,
                 actor_id=actor_id,
             )

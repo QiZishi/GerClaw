@@ -14,6 +14,7 @@ from gerclaw_api.database.models import (
 )
 from gerclaw_api.domain.run_schemas import (
     RUN_EVENT_CLOSED_STATUSES,
+    TERMINAL_RUN_STATUSES,
     AgentRunCreate,
     AgentRunRead,
     AgentRunStatus,
@@ -101,6 +102,13 @@ class AgentRunService:
         )
         await self._repository.add_run(run)
         try:
+            await self._repository.flush()
+            await self._repository.bind_deferred_directives(
+                run.id,
+                run.conversation_id,
+                tenant_id=tenant_id,
+                actor_id=actor_id,
+            )
             await self._repository.flush()
             await self._repository.commit()
         except DuplicateAgentRunError:
@@ -426,6 +434,13 @@ class AgentRunService:
         run.current_valid_attempt_id = attempt.id
         attempt.status = RunAttemptStatus.VALIDATED.value
         attempt.completed_at = datetime.now(UTC)
+        if target in TERMINAL_RUN_STATUSES:
+            await self._repository.defer_unconsumed_directives(
+                run.id,
+                run.conversation_id,
+                tenant_id=tenant_id,
+                actor_id=actor_id,
+            )
         try:
             await self._repository.flush()
             if commit:
@@ -513,6 +528,13 @@ class AgentRunService:
                     run.id,
                     completed_at=occurred_at or datetime.now(UTC),
                 )
+            if target in TERMINAL_RUN_STATUSES:
+                await self._repository.defer_unconsumed_directives(
+                    run.id,
+                    run.conversation_id,
+                    tenant_id=tenant_id,
+                    actor_id=actor_id,
+                )
             event_request = terminal_event or RunEventWrite(
                 event_type="run.status",
                 status=updated.status.value,
@@ -559,6 +581,12 @@ class AgentRunService:
             await self._repository.invalidate_staging_attempts(
                 run.id,
                 completed_at=occurred_at or datetime.now(UTC),
+            )
+            await self._repository.defer_unconsumed_directives(
+                run.id,
+                run.conversation_id,
+                tenant_id=tenant_id,
+                actor_id=actor_id,
             )
             await self._stage_event(
                 run,

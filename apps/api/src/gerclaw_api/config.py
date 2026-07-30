@@ -136,6 +136,8 @@ class Settings(BaseSettings):
         ge=256,
         le=32_768,
     )
+    agent_max_directives_per_boundary: int = Field(default=20, ge=1, le=100)
+    agent_max_directives_per_run: int = Field(default=200, ge=1, le=1000)
     agent_quick_route_max_characters: int = Field(default=160, ge=1, le=1_000)
     agent_deep_route_min_characters: int = Field(default=1_200, ge=100, le=4_000)
     agent_deep_route_attachment_count: int = Field(default=2, ge=1, le=20)
@@ -154,6 +156,7 @@ class Settings(BaseSettings):
     agent_run_recovery_guard_ttl_seconds: int = Field(default=30, ge=5, le=60)
     agent_run_stream_poll_interval_seconds: float = Field(default=0.25, ge=0.05, le=2)
     agent_run_stream_heartbeat_seconds: float = Field(default=10.0, ge=1, le=30)
+    agent_directive_trace_wait_seconds: float = Field(default=5.0, ge=0, le=30)
     evolution_signal_collection_timeout_seconds: float = Field(
         default=1.0,
         ge=0.05,

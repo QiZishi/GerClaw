@@ -37,10 +37,36 @@ resume, and may transition to `running` or `cancelled`. Only `completed`,
 states have no outgoing transitions. A resumed Run retains its last interruption timestamp for
 audit while a new fencing token prevents the old worker from writing.
 
-The directive ledger is currently an internal persistence boundary. Public API fan-out,
-successor creation, per-model/tool boundary polling, Context reserve injection, and Composer
-status projection are the next change set; no UI or API claims immediate steering works before
-those consumers are connected.
+Queued requirements are available through the owner-scoped Trace create API and Run list/delete
+APIs. The Trace lookup closes the period before a successful stream reveals a Run ID. The
+production Harness checks before the initial model call and immediately after each completed
+tool result. Every boundary claims an ordered batch, preflights the complete batch, and only
+then marks the whole batch applied in one Run-locked transaction. A configurable per-boundary
+limit controls burst size and an independent per-Run limit is the restoration fact source;
+the latter does not guess from ReAct iteration counts. A completed, failed, or cancelled Run
+moves both pending and in-flight claimed instructions to `pending_next_run` in the same
+terminal transaction; a terminal Run cannot accept a late apply.
+`pending_next_run` is not a parking-only status: creation of the next non-resume Run binds all
+actor-owned deferred directives for that Conversation before the Run commit. Terminal
+deferral and successor creation serialize on the Conversation row. If successor creation wins,
+the terminal side binds to the active successor; if terminal deferral wins, the successor side
+binds the deferred rows. This closes the two-transaction race without polling or duplicate
+application.
+
+Applying a directive also creates an idempotent encrypted Conversation user-message projection
+in the same transaction. The next non-resume Run projects recent medical directives through
+the same deterministic `UserMessageClinicalProjector`, retaining `message:<directive-id>`
+provenance and `reported` status; non-medical execution constraints remain Conversation
+context rather than clinical facts. A queued deterministic red flag short-circuits before the
+next model call. Public directive responses omit idempotency keys, worker fencing tokens, and
+private boundary identities. A short configured Trace lookup wait covers the race between SSE
+startup and durable Run creation without allowing cross-actor discovery.
+
+Immediate steering, controlled successor creation, cross-replica steer fan-out, before-tool
+and plan-node boundaries, Context compression after large tool results, and Composer status
+projection remain the next change sets. A model-only stream that receives a directive after
+its initial boundary therefore defers it to the next Run instead of mutating an in-flight
+model call. No UI or API claims immediate steering works before those consumers are connected.
 
 Measure improvement with one terminal event, no failed-attempt bytes in SSE/replay, atomic
 AnswerVersion/current-attempt selection, stale-fence/CAS rejection, cancellation tests, and

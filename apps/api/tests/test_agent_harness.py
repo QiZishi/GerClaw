@@ -16,6 +16,11 @@ from agentscope.skill import Skill as AgentScopeSkill
 from agentscope.tool import ToolChoice
 
 from gerclaw_api.config import Settings
+from gerclaw_api.domain.run_schemas import (
+    RunDirectiveMode,
+    RunDirectiveRead,
+    RunDirectiveStatus,
+)
 from gerclaw_api.modules.agent_harness.context_snapshot import ContextSnapshotError
 from gerclaw_api.modules.agent_harness.harness import (
     AgentApprovalRequiredError,
@@ -243,6 +248,9 @@ def _harness(
     loaded_skill_ids: list[str] | None = None,
     governed_capability_ids: tuple[str, ...] = (),
     completed_capability_ids: tuple[str, ...] = (),
+    directive_loader: Any = None,
+    directive_claimer: Any = None,
+    directive_applier: Any = None,
 ) -> ProductionAgentHarness:
     return ProductionAgentHarness(
         settings=settings,
@@ -276,6 +284,257 @@ def _harness(
             patient_id="108815d7-05bf-4c2a-a977-cd034f390fab",
             patient_access_verified=True,
         ),
+        directive_loader=directive_loader,
+        directive_claimer=directive_claimer,
+        directive_applier=directive_applier,
+    )
+
+
+def _directive(
+    *,
+    status: RunDirectiveStatus,
+    instruction: str,
+    sequence: int = 1,
+    boundary_id: str | None = None,
+) -> RunDirectiveRead:
+    now = datetime.now(UTC)
+    return RunDirectiveRead(
+        id=uuid4(),
+        conversation_id=uuid4(),
+        target_run_id=uuid4(),
+        sequence=sequence,
+        mode=RunDirectiveMode.QUEUE_FOR_NEXT_BOUNDARY,
+        status=status,
+        instruction=instruction,
+        idempotency_key=f"directive-harness-{sequence}",
+        claimed_by_fencing_token=7 if boundary_id is not None else None,
+        claim_boundary_id=boundary_id,
+        revision=2 if boundary_id is not None else 1,
+        created_at=now,
+        claimed_at=now if boundary_id is not None else None,
+        applied_at=now if status is RunDirectiveStatus.APPLIED else None,
+    )
+
+
+@pytest.mark.asyncio
+async def test_queued_directive_is_applied_before_initial_model_call(
+    unit_settings: Settings,
+) -> None:
+    applied: list[tuple[str, str]] = []
+    claimed_once = False
+
+    async def load() -> tuple[RunDirectiveRead, ...]:
+        return ()
+
+    async def claim(boundary_id: str, _limit: int) -> tuple[RunDirectiveRead, ...]:
+        nonlocal claimed_once
+        if claimed_once:
+            return ()
+        claimed_once = True
+        return (
+            _directive(
+                status=RunDirectiveStatus.CLAIMED,
+                instruction="先给出三条简短结论。",
+                boundary_id=boundary_id,
+            ),
+        )
+
+    async def apply(directive_ids: tuple[object, ...], boundary_id: str) -> None:
+        applied.extend((str(directive_id), boundary_id) for directive_id in directive_ids)
+
+    model = _HarnessModel(text="已按追加要求整理完成。")
+    harness = _harness(
+        unit_settings,
+        model=model,
+        rag=_HarnessRAG([]),
+        directive_loader=load,
+        directive_claimer=claim,
+        directive_applier=apply,
+    )
+    context = await harness.assemble_context(
+        "108815d7-05bf-4c2a-a977-cd034f390fab",
+        "usr_patient00000001",
+        [],
+        [],
+    )
+
+    await harness.process_message(
+        "请整理今天的安排",
+        "108815d7-05bf-4c2a-a977-cd034f390fab",
+        context,
+        lambda _event: None,
+    )
+
+    assert applied and applied[0][1] == "before-model-1"
+    assert "先给出三条简短结论" in model.last_messages[-1].get_text_content()
+
+
+@pytest.mark.asyncio
+async def test_applied_directive_is_restored_before_resumed_model_call(
+    unit_settings: Settings,
+) -> None:
+    restored = _directive(
+        status=RunDirectiveStatus.APPLIED,
+        instruction="恢复后继续遵循已经领取的补充要求。",
+        boundary_id="before-model-1",
+    )
+
+    async def load() -> tuple[RunDirectiveRead, ...]:
+        return (restored,)
+
+    async def claim(
+        _boundary_id: str,
+        _limit: int,
+    ) -> tuple[RunDirectiveRead, ...]:
+        return ()
+
+    async def apply(
+        _directive_ids: tuple[object, ...],
+        _boundary_id: str,
+    ) -> None:
+        raise AssertionError("an already applied directive must not be applied again")
+
+    model = _HarnessModel(text="已继续完成。")
+    harness = _harness(
+        unit_settings,
+        model=model,
+        rag=_HarnessRAG([]),
+        directive_loader=load,
+        directive_claimer=claim,
+        directive_applier=apply,
+    )
+    context = await harness.assemble_context(
+        "108815d7-05bf-4c2a-a977-cd034f390fab",
+        "usr_patient00000001",
+        [],
+        [],
+    )
+
+    await harness.process_message(
+        "继续原任务",
+        "108815d7-05bf-4c2a-a977-cd034f390fab",
+        context,
+        lambda _event: None,
+    )
+
+    assert "恢复后继续遵循已经领取的补充要求" in (
+        model.last_messages[-1].get_text_content()
+    )
+
+
+@pytest.mark.asyncio
+async def test_queued_red_flag_short_circuits_before_next_model_call(
+    unit_settings: Settings,
+) -> None:
+    applied: list[object] = []
+
+    async def load() -> tuple[RunDirectiveRead, ...]:
+        return ()
+
+    async def claim(
+        boundary_id: str,
+        _limit: int,
+    ) -> tuple[RunDirectiveRead, ...]:
+        return (
+            _directive(
+                status=RunDirectiveStatus.CLAIMED,
+                instruction="我现在胸痛、大汗、呼吸困难。",
+                boundary_id=boundary_id,
+            ),
+        )
+
+    async def apply(
+        directive_ids: tuple[object, ...],
+        _boundary_id: str,
+    ) -> None:
+        applied.extend(directive_ids)
+
+    model = _HarnessModel(text="这段普通模型输出不应产生。")
+    harness = _harness(
+        unit_settings,
+        model=model,
+        rag=_HarnessRAG([]),
+        directive_loader=load,
+        directive_claimer=claim,
+        directive_applier=apply,
+    )
+    context = await harness.assemble_context(
+        "108815d7-05bf-4c2a-a977-cd034f390fab",
+        "usr_patient00000001",
+        [],
+        [],
+    )
+
+    response = await harness.process_message(
+        "请继续整理今天的安排",
+        "108815d7-05bf-4c2a-a977-cd034f390fab",
+        context,
+        lambda _event: None,
+    )
+
+    assert applied
+    assert model.calls == 0
+    assert response.emergency_short_circuit is True
+    assert "120" in response.text
+
+
+@pytest.mark.asyncio
+async def test_queued_directive_after_tool_result_reaches_next_model_call(
+    unit_settings: Settings,
+) -> None:
+    applied_boundaries: list[str] = []
+    claimed_after_tool = False
+
+    async def load() -> tuple[RunDirectiveRead, ...]:
+        return ()
+
+    async def claim(boundary_id: str, _limit: int) -> tuple[RunDirectiveRead, ...]:
+        nonlocal claimed_after_tool
+        if not boundary_id.startswith("after-tool-result") or claimed_after_tool:
+            return ()
+        claimed_after_tool = True
+        return (
+            _directive(
+                status=RunDirectiveStatus.CLAIMED,
+                instruction="工具完成后改为用两句话概括。",
+                boundary_id=boundary_id,
+            ),
+        )
+
+    async def apply(_directive_ids: tuple[object, ...], boundary_id: str) -> None:
+        applied_boundaries.append(boundary_id)
+
+    model = _HarnessModel(
+        use_tool=True,
+        text="已根据检索结果完成概括。",
+    )
+    harness = _harness(
+        unit_settings,
+        model=model,
+        rag=_HarnessRAG([_evidence()]),
+        directive_loader=load,
+        directive_claimer=claim,
+        directive_applier=apply,
+    )
+    context = await harness.assemble_context(
+        "108815d7-05bf-4c2a-a977-cd034f390fab",
+        "usr_patient00000001",
+        [],
+        [],
+    )
+
+    await harness.process_message(
+        "请搜索老年跌倒预防资料",
+        "108815d7-05bf-4c2a-a977-cd034f390fab",
+        context,
+        lambda _event: None,
+    )
+
+    assert applied_boundaries == ["after-tool-result-2"]
+    assert any(
+        message.name == "runtime_user_directive"
+        and "工具完成后改为用两句话概括" in message.get_text_content()
+        for message in model.last_messages
     )
 
 

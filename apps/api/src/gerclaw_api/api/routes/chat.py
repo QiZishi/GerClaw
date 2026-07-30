@@ -518,6 +518,13 @@ async def _stream_chat(
                         CapabilityEntrypoint.RUN_ARTIFACT: invoke_artifact_workspace,
                     },
                 )
+                run_journal = DatabaseChatRunJournal(
+                    database,
+                    completion_session=database_session,
+                    evolution_signal_collector=(
+                        request.app.state.evolution_signal_collector
+                    ),
+                )
                 service = ChatService(
                     settings=effective_settings,
                     conversation=ConversationService(
@@ -547,13 +554,8 @@ async def _stream_chat(
                     risk_alert_service=RiskAlertService(
                         SqlAlchemyRiskAlertRepository(database_session)
                     ),
-                    run_journal=DatabaseChatRunJournal(
-                        database,
-                        completion_session=database_session,
-                        evolution_signal_collector=(
-                            request.app.state.evolution_signal_collector
-                        ),
-                    ),
+                    run_journal=run_journal,
+                    directive_journal=run_journal,
                     capability_catalog=capability_catalog,
                     capability_runtime=capability_runtime,
                     evolution_signal_collector=request.app.state.evolution_signal_collector,

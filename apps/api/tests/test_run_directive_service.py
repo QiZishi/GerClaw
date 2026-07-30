@@ -2,18 +2,20 @@
 
 from __future__ import annotations
 
+import asyncio
 import uuid
 from datetime import UTC, datetime
 
 import pytest
 
-from gerclaw_api.database.models import AgentRun, ConversationSession, RunDirective
+from gerclaw_api.database.models import AgentRun, ConversationSession, Message, RunDirective
 from gerclaw_api.domain.run_schemas import (
     AgentRunStatus,
     RunDirectiveClaim,
     RunDirectiveCreate,
     RunDirectiveMode,
     RunDirectiveStatus,
+    RunQueuedDirectiveCreate,
 )
 from gerclaw_api.services.run_directive_service import (
     RunDirectiveConflictError,
@@ -30,6 +32,7 @@ class _Repository:
         self.runs: dict[uuid.UUID, AgentRun] = {}
         self.conversations: dict[uuid.UUID, ConversationSession] = {}
         self.directives: dict[uuid.UUID, RunDirective] = {}
+        self.messages: dict[str, Message] = {}
         self.commits = 0
         self.rollbacks = 0
 
@@ -46,6 +49,26 @@ class _Repository:
         if run is None or run.tenant_id != tenant_id or run.actor_id != actor_id:
             return None
         return run
+
+    async def get_owned_run_by_trace(
+        self,
+        trace_id: str,
+        *,
+        tenant_id: str,
+        actor_id: str,
+        for_update: bool = False,
+    ) -> AgentRun | None:
+        del for_update
+        return next(
+            (
+                run
+                for run in self.runs.values()
+                if run.trace_id == trace_id
+                and run.tenant_id == tenant_id
+                and run.actor_id == actor_id
+            ),
+            None,
+        )
 
     async def get_owned(
         self,
@@ -94,13 +117,14 @@ class _Repository:
             return None
         return conversation
 
-    async def first_consumable(
+    async def list_consumable(
         self,
         run_id: uuid.UUID,
         *,
         tenant_id: str,
         actor_id: str,
-    ) -> RunDirective | None:
+        limit: int,
+    ) -> list[RunDirective]:
         candidates = [
             item
             for item in self.directives.values()
@@ -113,12 +137,65 @@ class _Repository:
             and (
                 item.successor_run_id == run_id
                 or (
+                    item.successor_run_id is None
+                    and
                     item.target_run_id == run_id
                     and item.mode == RunDirectiveMode.QUEUE_FOR_NEXT_BOUNDARY.value
                 )
             )
         ]
-        return min(candidates, key=lambda item: item.sequence, default=None)
+        return sorted(candidates, key=lambda item: item.sequence)[:limit]
+
+    async def list_applied_for_execution(
+        self,
+        run_id: uuid.UUID,
+        *,
+        tenant_id: str,
+        actor_id: str,
+        after_sequence: int,
+        limit: int,
+    ) -> list[RunDirective]:
+        return sorted(
+            (
+                item
+                for item in self.directives.values()
+                if item.tenant_id == tenant_id
+                and item.actor_id == actor_id
+                and item.status == RunDirectiveStatus.APPLIED.value
+                and item.sequence > after_sequence
+                and (
+                    item.successor_run_id == run_id
+                    or (
+                        item.successor_run_id is None
+                        and item.target_run_id == run_id
+                        and item.mode == RunDirectiveMode.QUEUE_FOR_NEXT_BOUNDARY.value
+                    )
+                )
+            ),
+            key=lambda item: item.sequence,
+        )[:limit]
+
+    async def list_recent_applied_for_conversation(
+        self,
+        conversation_id: uuid.UUID,
+        *,
+        tenant_id: str,
+        actor_id: str,
+        limit: int,
+    ) -> list[RunDirective]:
+        newest_first = sorted(
+            (
+                item
+                for item in self.directives.values()
+                if item.conversation_id == conversation_id
+                and item.tenant_id == tenant_id
+                and item.actor_id == actor_id
+                and item.status == RunDirectiveStatus.APPLIED.value
+            ),
+            key=lambda item: item.sequence,
+            reverse=True,
+        )[:limit]
+        return list(reversed(newest_first))
 
     async def list_for_run(
         self,
@@ -138,6 +215,22 @@ class _Repository:
             ),
             key=lambda item: item.sequence,
         )[:limit]
+
+    async def get_projected_message(
+        self,
+        trace_id: str,
+        *,
+        tenant_id: str,
+    ) -> Message | None:
+        message = self.messages.get(trace_id)
+        if message is None or message.tenant_id != tenant_id:
+            return None
+        return message
+
+    async def add_projected_message(self, message: Message) -> None:
+        if message.trace_id is None:
+            raise AssertionError("directive projection requires a trace identity")
+        self.messages[message.trace_id] = message
 
     async def add(self, directive: RunDirective) -> None:
         self.directives[directive.id] = directive
@@ -241,6 +334,34 @@ async def test_create_allocates_monotonic_conversation_sequence() -> None:
 
 
 @pytest.mark.asyncio
+async def test_trace_queue_waits_for_run_creation_without_losing_instruction() -> None:
+    repository, run = _setup()
+    repository.runs.clear()
+    service = RunDirectiveService(repository)
+
+    async def publish_run() -> None:
+        await asyncio.sleep(0.01)
+        repository.runs[run.id] = run
+
+    publisher = asyncio.create_task(publish_run())
+    created = await service.queue_for_trace(
+        run.trace_id,
+        request=RunQueuedDirectiveCreate(
+            instruction="Run 建立后继续处理这条要求。",
+            idempotency_key="directive-before-run-visible",
+        ),
+        tenant_id=TENANT,
+        actor_id=ACTOR,
+        wait_seconds=0.1,
+        poll_interval_seconds=0.005,
+    )
+    await publisher
+
+    assert created.target_run_id == run.id
+    assert created.status is RunDirectiveStatus.PENDING
+
+
+@pytest.mark.asyncio
 async def test_terminal_run_preserves_instruction_for_next_run() -> None:
     repository, run = _setup(status=AgentRunStatus.COMPLETED)
 
@@ -338,6 +459,37 @@ async def test_queue_claim_and_apply_are_idempotent() -> None:
     assert replayed_claim is not None and replayed_claim.id == claimed.id
     assert applied.status is RunDirectiveStatus.APPLIED
     assert replayed_apply.revision == applied.revision
+    projected = repository.messages[f"directive_{created.id.hex}"]
+    assert projected.content == [{"type": "text", "text": created.instruction}]
+    assert projected.message_metadata["directive_id"] == str(created.id)
+
+
+@pytest.mark.asyncio
+async def test_applied_replay_repairs_missing_conversation_projection() -> None:
+    repository, run = _setup()
+    service = RunDirectiveService(repository)
+    created = await service.create(run.id, _create(), tenant_id=TENANT, actor_id=ACTOR)
+    claim = RunDirectiveClaim(fencing_token=run.fencing_token, boundary_id="before-model-2")
+    await service.claim_next(run.id, claim, tenant_id=TENANT, actor_id=ACTOR)
+    await service.mark_applied(
+        created.id,
+        claim,
+        tenant_id=TENANT,
+        actor_id=ACTOR,
+    )
+    repository.messages.clear()
+    commits_before_repair = repository.commits
+
+    repaired = await service.mark_applied(
+        created.id,
+        claim,
+        tenant_id=TENANT,
+        actor_id=ACTOR,
+    )
+
+    assert repaired.status is RunDirectiveStatus.APPLIED
+    assert f"directive_{created.id.hex}" in repository.messages
+    assert repository.commits == commits_before_repair + 1
 
 
 @pytest.mark.asyncio
@@ -420,6 +572,23 @@ async def test_interrupt_directive_is_not_consumed_on_original_run() -> None:
 
     assert claim is None
     assert created.status is RunDirectiveStatus.PENDING
+
+
+@pytest.mark.asyncio
+async def test_bound_queue_directive_is_not_consumed_on_original_run() -> None:
+    repository, run = _setup()
+    service = RunDirectiveService(repository)
+    created = await service.create(run.id, _create(), tenant_id=TENANT, actor_id=ACTOR)
+    repository.directives[created.id].successor_run_id = uuid.uuid4()
+
+    claim = await service.claim_next(
+        run.id,
+        RunDirectiveClaim(fencing_token=7, boundary_id="before-model-2"),
+        tenant_id=TENANT,
+        actor_id=ACTOR,
+    )
+
+    assert claim is None
 
 
 @pytest.mark.asyncio

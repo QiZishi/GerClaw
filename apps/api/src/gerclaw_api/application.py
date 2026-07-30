@@ -89,6 +89,10 @@ from gerclaw_api.services.run_artifact_service import (
     RunArtifactConflictError,
     RunArtifactNotFoundError,
 )
+from gerclaw_api.services.run_directive_service import (
+    RunDirectiveConflictError,
+    RunDirectiveNotFoundError,
+)
 from gerclaw_api.services.run_feedback_service import (
     RunFeedbackConflictError,
     RunFeedbackNotFoundError,
@@ -245,6 +249,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     @app.exception_handler(RunResumeNotFoundError)
     @app.exception_handler(RunArtifactNotFoundError)
     @app.exception_handler(RunFeedbackNotFoundError)
+    @app.exception_handler(RunDirectiveNotFoundError)
     async def run_resource_not_found(_request: Request, _error: Exception) -> JSONResponse:
         return JSONResponse(
             {"error": {"code": "RUN_RESOURCE_NOT_FOUND", "message": "resource not found"}},
@@ -260,6 +265,21 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     async def run_resource_conflict(_request: Request, error: Exception) -> JSONResponse:
         return JSONResponse(
             {"error": {"code": "RUN_RESOURCE_CONFLICT", "message": str(error)}},
+            status_code=409,
+        )
+
+    @app.exception_handler(RunDirectiveConflictError)
+    async def run_directive_conflict(
+        _request: Request,
+        _error: RunDirectiveConflictError,
+    ) -> JSONResponse:
+        return JSONResponse(
+            {
+                "error": {
+                    "code": "RUN_DIRECTIVE_CONFLICT",
+                    "message": "追加要求的状态已变化。请刷新后重试",
+                }
+            },
             status_code=409,
         )
 

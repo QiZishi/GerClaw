@@ -9,7 +9,7 @@ from sqlalchemy import and_, or_, select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from gerclaw_api.database.models import AgentRun, ConversationSession, RunDirective
+from gerclaw_api.database.models import AgentRun, ConversationSession, Message, RunDirective
 
 
 class DuplicateRunDirectiveError(RuntimeError):
@@ -20,6 +20,15 @@ class RunDirectiveRepository(Protocol):
     async def get_owned_run(
         self,
         run_id: uuid.UUID,
+        *,
+        tenant_id: str,
+        actor_id: str,
+        for_update: bool = False,
+    ) -> AgentRun | None: ...
+
+    async def get_owned_run_by_trace(
+        self,
+        trace_id: str,
         *,
         tenant_id: str,
         actor_id: str,
@@ -50,13 +59,33 @@ class RunDirectiveRepository(Protocol):
         tenant_id: str,
     ) -> ConversationSession | None: ...
 
-    async def first_consumable(
+    async def list_consumable(
         self,
         run_id: uuid.UUID,
         *,
         tenant_id: str,
         actor_id: str,
-    ) -> RunDirective | None: ...
+        limit: int,
+    ) -> list[RunDirective]: ...
+
+    async def list_applied_for_execution(
+        self,
+        run_id: uuid.UUID,
+        *,
+        tenant_id: str,
+        actor_id: str,
+        after_sequence: int,
+        limit: int,
+    ) -> list[RunDirective]: ...
+
+    async def list_recent_applied_for_conversation(
+        self,
+        conversation_id: uuid.UUID,
+        *,
+        tenant_id: str,
+        actor_id: str,
+        limit: int,
+    ) -> list[RunDirective]: ...
 
     async def list_for_run(
         self,
@@ -66,6 +95,15 @@ class RunDirectiveRepository(Protocol):
         actor_id: str,
         limit: int,
     ) -> list[RunDirective]: ...
+
+    async def get_projected_message(
+        self,
+        trace_id: str,
+        *,
+        tenant_id: str,
+    ) -> Message | None: ...
+
+    async def add_projected_message(self, message: Message) -> None: ...
 
     async def add(self, directive: RunDirective) -> None: ...
 
@@ -92,6 +130,23 @@ class SqlAlchemyRunDirectiveRepository:
     ) -> AgentRun | None:
         statement = select(AgentRun).where(
             AgentRun.id == run_id,
+            AgentRun.tenant_id == tenant_id,
+            AgentRun.actor_id == actor_id,
+        )
+        if for_update:
+            statement = statement.with_for_update().execution_options(populate_existing=True)
+        return cast(AgentRun | None, await self._session.scalar(statement))
+
+    async def get_owned_run_by_trace(
+        self,
+        trace_id: str,
+        *,
+        tenant_id: str,
+        actor_id: str,
+        for_update: bool = False,
+    ) -> AgentRun | None:
+        statement = select(AgentRun).where(
+            AgentRun.trace_id == trace_id,
             AgentRun.tenant_id == tenant_id,
             AgentRun.actor_id == actor_id,
         )
@@ -153,16 +208,18 @@ class SqlAlchemyRunDirectiveRepository:
             ),
         )
 
-    async def first_consumable(
+    async def list_consumable(
         self,
         run_id: uuid.UUID,
         *,
         tenant_id: str,
         actor_id: str,
-    ) -> RunDirective | None:
+        limit: int,
+    ) -> list[RunDirective]:
         execution_target = or_(
             RunDirective.successor_run_id == run_id,
             and_(
+                RunDirective.successor_run_id.is_(None),
                 RunDirective.target_run_id == run_id,
                 RunDirective.mode == "queue_for_next_boundary",
             ),
@@ -176,11 +233,64 @@ class SqlAlchemyRunDirectiveRepository:
                 execution_target,
             )
             .order_by(RunDirective.sequence)
-            .limit(1)
-            .with_for_update(skip_locked=True)
+            .limit(limit)
+            .with_for_update()
             .execution_options(populate_existing=True)
         )
-        return cast(RunDirective | None, await self._session.scalar(statement))
+        return list((await self._session.scalars(statement)).all())
+
+    async def list_applied_for_execution(
+        self,
+        run_id: uuid.UUID,
+        *,
+        tenant_id: str,
+        actor_id: str,
+        after_sequence: int,
+        limit: int,
+    ) -> list[RunDirective]:
+        execution_target = or_(
+            RunDirective.successor_run_id == run_id,
+            and_(
+                RunDirective.successor_run_id.is_(None),
+                RunDirective.target_run_id == run_id,
+                RunDirective.mode == "queue_for_next_boundary",
+            ),
+        )
+        statement = (
+            select(RunDirective)
+            .where(
+                RunDirective.tenant_id == tenant_id,
+                RunDirective.actor_id == actor_id,
+                RunDirective.status == "applied",
+                RunDirective.sequence > after_sequence,
+                execution_target,
+            )
+            .order_by(RunDirective.sequence)
+            .limit(limit)
+        )
+        return list((await self._session.scalars(statement)).all())
+
+    async def list_recent_applied_for_conversation(
+        self,
+        conversation_id: uuid.UUID,
+        *,
+        tenant_id: str,
+        actor_id: str,
+        limit: int,
+    ) -> list[RunDirective]:
+        statement = (
+            select(RunDirective)
+            .where(
+                RunDirective.conversation_id == conversation_id,
+                RunDirective.tenant_id == tenant_id,
+                RunDirective.actor_id == actor_id,
+                RunDirective.status == "applied",
+            )
+            .order_by(RunDirective.sequence.desc())
+            .limit(limit)
+        )
+        newest_first = list((await self._session.scalars(statement)).all())
+        return list(reversed(newest_first))
 
     async def list_for_run(
         self,
@@ -204,6 +314,26 @@ class SqlAlchemyRunDirectiveRepository:
             .limit(limit)
         )
         return list((await self._session.scalars(statement)).all())
+
+    async def get_projected_message(
+        self,
+        trace_id: str,
+        *,
+        tenant_id: str,
+    ) -> Message | None:
+        return cast(
+            Message | None,
+            await self._session.scalar(
+                select(Message).where(
+                    Message.tenant_id == tenant_id,
+                    Message.trace_id == trace_id,
+                    Message.role == "user",
+                )
+            ),
+        )
+
+    async def add_projected_message(self, message: Message) -> None:
+        self._session.add(message)
 
     async def add(self, directive: RunDirective) -> None:
         self._session.add(directive)

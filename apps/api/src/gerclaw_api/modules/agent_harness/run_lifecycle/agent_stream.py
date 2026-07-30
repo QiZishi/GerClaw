@@ -43,6 +43,7 @@ EventEmitter = Callable[[str, dict[str, JsonValue]], Awaitable[None]]
 ApprovalParker = Callable[[list[ToolCallBlock]], Awaitable[tuple[str, ...]]]
 EvidenceAvailable = Callable[[str], bool]
 ToolResultObserver = Callable[[str, str, dict[str, JsonValue]], Awaitable[None]]
+SafeBoundaryObserver = Callable[[], Awaitable[int]]
 
 
 class StreamBudget(Protocol):
@@ -128,6 +129,7 @@ async def project_agent_stream(
     lifecycle: RunLifecycle,
     timeout_error_factory: Callable[[], Exception],
     tool_result_observer: ToolResultObserver | None = None,
+    safe_boundary_observer: SafeBoundaryObserver | None = None,
 ) -> AgentStreamResult:
     """Execute one agent stream while enforcing safety, budgets, and terminal integrity."""
 
@@ -233,6 +235,16 @@ async def project_agent_stream(
                     str(result_data["status"]),
                     result_data,
                 )
+            if safe_boundary_observer is not None:
+                applied_count = await safe_boundary_observer()
+                if applied_count:
+                    await emit(
+                        "reasoning_summary",
+                        {
+                            "content": "已接收追加要求并继续处理…",
+                            "status": "running",
+                        },
+                    )
         elif isinstance(event, TextBlockDeltaEvent):
             budget.check_wall_clock()
             raw_character_count += len(event.delta)

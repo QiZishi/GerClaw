@@ -22,6 +22,8 @@ from gerclaw_api.domain.run_schemas import (
     AgentRunStatus,
     RunAttemptCreate,
     RunAttemptRead,
+    RunDirectiveClaim,
+    RunDirectiveRead,
     RunEventRead,
     RunEventWrite,
     ValidationFeedback,
@@ -46,6 +48,7 @@ from gerclaw_api.modules.agent_harness.clinical_state import (
 )
 from gerclaw_api.modules.agent_harness.config import ResolvedHarnessConfig
 from gerclaw_api.modules.agent_harness.context_snapshot import (
+    ContextSnapshotError,
     ContextWindowManager,
     FrozenRunState,
     FrozenToolContract,
@@ -104,7 +107,7 @@ from gerclaw_api.modules.validation import validate_public_chat_stream_event
 from gerclaw_api.modules.workflows import get_default_workflow_registry
 from gerclaw_api.repositories.approval import SqlAlchemyApprovalRepository
 from gerclaw_api.security import JsonValue, audit_hmac_digest
-from gerclaw_api.services.chat_run_journal import ChatRunJournal
+from gerclaw_api.services.chat_run_journal import ChatRunJournal, RunDirectiveJournal
 from gerclaw_api.services.conversation_service import ConversationService
 from gerclaw_api.services.model_router import FailoverChatModel
 from gerclaw_api.services.run_regeneration_service import image_fingerprint
@@ -199,6 +202,7 @@ class ChatService:
         document_service: DocumentService | None = None,
         risk_alert_service: RiskAlertService | None = None,
         run_journal: ChatRunJournal | None = None,
+        directive_journal: RunDirectiveJournal | None = None,
         input_output: ProductionInputOutputModule | None = None,
         clinical_state_reducer: ClinicalStateReducer | None = None,
         capability_catalog: GovernedCapabilityCatalog | None = None,
@@ -218,6 +222,7 @@ class ChatService:
         self._document_service = document_service
         self._risk_alert_service = risk_alert_service
         self._run_journal = run_journal
+        self._directive_journal = directive_journal
         self._active_run_id: uuid.UUID | None = None
         self._active_attempt: RunAttemptRead | None = None
         self._answer_group_run_id: uuid.UUID | None = None
@@ -614,6 +619,27 @@ class ChatService:
                 else ClinicalState()
             )
         )
+        if resume_state is None and self._directive_journal is not None:
+            recent_directives = await self._directive_journal.list_recent_applied_directives(
+                payload.session_id,
+                tenant_id=identity.tenant_id,
+                actor_id=identity.actor_id,
+                limit=resolved_harness_config.max_directives_per_run,
+            )
+            projector = UserMessageClinicalProjector(self._clinical_state_reducer)
+            for directive in recent_directives:
+                directive_risk_codes = tuple(detect_high_risk(directive.instruction))
+                if not (
+                    directive_risk_codes or is_medical_message(directive.instruction)
+                ):
+                    continue
+                clinical_state = projector.project(
+                    clinical_state,
+                    message_id=directive.id,
+                    message=directive.instruction,
+                    observed_at=directive.applied_at or directive.created_at,
+                    red_flag_codes=directive_risk_codes,
+                )
         if medical_content and resume_state is None:
             clinical_state = UserMessageClinicalProjector(self._clinical_state_reducer).project(
                 clinical_state,
@@ -859,6 +885,66 @@ class ChatService:
             await self._approval_repository.commit()
             return approval
 
+        async def load_runtime_directives() -> tuple[RunDirectiveRead, ...]:
+            if self._directive_journal is None or self._active_run_id is None:
+                return ()
+            maximum = resolved_harness_config.max_directives_per_run
+            restored: list[RunDirectiveRead] = []
+            after_sequence = 0
+            while len(restored) <= maximum:
+                page = await self._directive_journal.list_applied_directives(
+                    self._active_run_id,
+                    tenant_id=identity.tenant_id,
+                    actor_id=identity.actor_id,
+                    after_sequence=after_sequence,
+                    limit=min(200, maximum + 1 - len(restored)),
+                )
+                if not page:
+                    break
+                restored.extend(page)
+                after_sequence = page[-1].sequence
+            if len(restored) > maximum:
+                raise ContextSnapshotError("restored directive count exceeds the frozen budget")
+            return tuple(restored)
+
+        async def claim_runtime_directives(
+            boundary_id: str,
+            limit: int,
+        ) -> tuple[RunDirectiveRead, ...]:
+            if self._directive_journal is None or self._active_run_id is None:
+                return ()
+            return await self._directive_journal.claim_directives(
+                self._active_run_id,
+                RunDirectiveClaim(
+                    fencing_token=lease_guard.fencing_token,
+                    boundary_id=boundary_id,
+                ),
+                tenant_id=identity.tenant_id,
+                actor_id=identity.actor_id,
+                limit=limit,
+            )
+
+        async def apply_runtime_directives(
+            directive_ids: tuple[uuid.UUID, ...],
+            boundary_id: str,
+        ) -> None:
+            if (
+                self._directive_journal is None
+                or self._active_run_id is None
+                or not directive_ids
+            ):
+                return
+            await self._directive_journal.mark_directives_applied(
+                self._active_run_id,
+                directive_ids,
+                RunDirectiveClaim(
+                    fencing_token=lease_guard.fencing_token,
+                    boundary_id=boundary_id,
+                ),
+                tenant_id=identity.tenant_id,
+                actor_id=identity.actor_id,
+            )
+
         harness = ProductionAgentHarness(
             settings=self._settings,
             model=self._model,
@@ -891,6 +977,9 @@ class ChatService:
             preassembled_context=(
                 resume_state.snapshot.agent_context if resume_state is not None else None
             ),
+            directive_loader=load_runtime_directives,
+            directive_claimer=claim_runtime_directives,
+            directive_applier=apply_runtime_directives,
         )
         context = await harness.assemble_context(
             str(payload.session_id),

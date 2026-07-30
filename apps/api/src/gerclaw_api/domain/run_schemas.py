@@ -119,6 +119,15 @@ class RunDirectiveCreate(BaseModel):
     idempotency_key: BoundedIdentifier
 
 
+class RunQueuedDirectiveCreate(BaseModel):
+    """Public request for a requirement applied at the next safe boundary."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    instruction: BoundedDirectiveText
+    idempotency_key: BoundedIdentifier
+
+
 class RunDirectiveClaim(BaseModel):
     """Internal claim identity for exactly-once boundary consumption."""
 
@@ -169,11 +178,44 @@ class RunDirectiveRead(BaseModel):
         return self
 
 
+class RunDirectivePublicRead(BaseModel):
+    """Owner-visible state without worker fencing or boundary identities."""
+
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    schema_version: Literal["1.0"] = "1.0"
+    id: uuid.UUID
+    conversation_id: uuid.UUID
+    target_run_id: uuid.UUID
+    successor_run_id: uuid.UUID | None = None
+    sequence: int = Field(ge=1)
+    mode: RunDirectiveMode
+    status: RunDirectiveStatus
+    instruction: BoundedDirectiveText
+    revision: int = Field(ge=1)
+    created_at: datetime
+    claimed_at: datetime | None = None
+    applied_at: datetime | None = None
+    cancelled_at: datetime | None = None
+
+    @classmethod
+    def from_internal(cls, directive: RunDirectiveRead) -> RunDirectivePublicRead:
+        return cls.model_validate(
+            directive.model_dump(
+                exclude={
+                    "idempotency_key",
+                    "claimed_by_fencing_token",
+                    "claim_boundary_id",
+                }
+            )
+        )
+
+
 class RunDirectiveListRead(BaseModel):
     model_config = ConfigDict(extra="forbid", frozen=True)
 
     run_id: uuid.UUID
-    directives: tuple[RunDirectiveRead, ...] = Field(default=(), max_length=200)
+    directives: tuple[RunDirectivePublicRead, ...] = Field(default=(), max_length=200)
 
 
 class RunAttemptStatus(StrEnum):

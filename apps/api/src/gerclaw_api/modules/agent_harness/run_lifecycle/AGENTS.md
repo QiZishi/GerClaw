@@ -24,6 +24,17 @@ applied only with the same fence and boundary identity. A newer fence may adopt 
 the old worker must then fail. `interrupt_and_steer` must never be consumed by the original
 Run and becomes claimable only after it is bound to a controlled successor. An instruction
 that races with a true terminal Run remains `pending_next_run`, never silently disappears.
+`pending_next_run` must be bound to the next non-resume actor-owned Run. Terminal deferral and
+successor creation must serialize on the Conversation row so either commit order produces one
+consumable successor binding; a parking state with no production consumer is forbidden.
+Claim a boundary batch before injection, preflight the complete batch, and apply it atomically;
+no prefix may become `applied` when a later item fails admission. Respect both the configured
+per-boundary burst limit and the independent per-Run restoration limit. An applied directive
+must have an idempotent Conversation user-message projection. Medical directive text enters
+the next mutable ClinicalState only through the deterministic user projector with directive
+provenance and `reported` status; it must never become a model-inferred confirmed fact.
+Queued red flags must short-circuit before the next model call. Never expose idempotency keys,
+worker fencing tokens, or private safe-boundary identifiers in public DTOs.
 
 Inputs are bounded text deltas and validated lifecycle commands; outputs are safe public
 text fragments or stable typed errors. Do not import concrete Runtime, Memory, RAG, Search,
@@ -32,5 +43,8 @@ Skill, Workflow, or persistence implementations.
 Run `tests/test_agent_harness.py`, `tests/test_agent_harness_safety.py`,
 `tests/test_agent_run_service.py`, `tests/test_chat_service.py`, and
 `tests/test_chat_cancellation.py` after changes. Directive changes also require
-`tests/test_run_directive_service.py`. When persistence changes, also run Alembic upgrade,
-downgrade, re-upgrade, and `alembic check` against PostgreSQL.
+`tests/test_run_directive_service.py`, `tests/test_runtime_directive_coordinator.py`, and
+`tests/test_run_directive_integration.py`; boundary injection changes require the
+queued-directive cases in `tests/test_agent_harness.py` and `tests/test_chat_service.py`.
+When persistence changes, also run Alembic upgrade, downgrade, re-upgrade, and `alembic check`
+against PostgreSQL.

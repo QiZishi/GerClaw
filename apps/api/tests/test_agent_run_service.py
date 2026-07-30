@@ -46,6 +46,7 @@ class _Repository:
         self.attempt_events: list[AgentRunAttemptEvent] = []
         self.commits = 0
         self.rollbacks = 0
+        self.deferred_binding_calls = 0
 
     async def get_owned_run(
         self,
@@ -141,6 +142,27 @@ class _Repository:
             if attempt.run_id == run_id and attempt.status == RunAttemptStatus.STAGING.value:
                 attempt.status = RunAttemptStatus.INVALIDATED.value
                 attempt.completed_at = completed_at
+
+    async def bind_deferred_directives(
+        self,
+        run_id: uuid.UUID,
+        conversation_id: uuid.UUID,
+        *,
+        tenant_id: str,
+        actor_id: str,
+    ) -> None:
+        del run_id, conversation_id, tenant_id, actor_id
+        self.deferred_binding_calls += 1
+
+    async def defer_unconsumed_directives(
+        self,
+        run_id: uuid.UUID,
+        conversation_id: uuid.UUID,
+        *,
+        tenant_id: str,
+        actor_id: str,
+    ) -> None:
+        del run_id, conversation_id, tenant_id, actor_id
 
     async def list_events(
         self,
@@ -666,6 +688,7 @@ async def test_new_worker_adopts_interrupted_run_and_fences_old_worker() -> None
     assert resumed.interrupted_at == interrupted.interrupted_at
     assert repository.runs[resumed.id].fencing_token == 8
     assert repository.events[-1].event_type == "run.resumed"
+    assert repository.deferred_binding_calls == 1
     with pytest.raises(RunFenceConflictError):
         await service.append_event(
             resumed.id,

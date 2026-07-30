@@ -14,6 +14,8 @@ from gerclaw_api.database.models import (
     AgentRun,
     AgentRunAttempt,
     AgentRunAttemptEvent,
+    ConversationSession,
+    RunDirective,
     RunEvent,
 )
 
@@ -94,6 +96,26 @@ class AgentRunRepository(Protocol):
         completed_at: datetime,
     ) -> None:
         """Invalidate every uncommitted attempt for a terminal/interrupted run."""
+
+    async def bind_deferred_directives(
+        self,
+        run_id: uuid.UUID,
+        conversation_id: uuid.UUID,
+        *,
+        tenant_id: str,
+        actor_id: str,
+    ) -> None:
+        """Bind actor-owned deferred requirements to a newly created Run."""
+
+    async def defer_unconsumed_directives(
+        self,
+        run_id: uuid.UUID,
+        conversation_id: uuid.UUID,
+        *,
+        tenant_id: str,
+        actor_id: str,
+    ) -> None:
+        """Defer requirements or bind them to an already active successor."""
 
     async def list_events(
         self,
@@ -241,6 +263,116 @@ class SqlAlchemyAgentRunRepository:
         for attempt in attempts:
             attempt.status = "invalidated"
             attempt.completed_at = completed_at
+
+    async def _lock_directive_conversation(
+        self,
+        conversation_id: uuid.UUID,
+        *,
+        tenant_id: str,
+    ) -> ConversationSession:
+        conversation = await self._session.scalar(
+            select(ConversationSession)
+            .where(
+                ConversationSession.id == conversation_id,
+                ConversationSession.tenant_id == tenant_id,
+            )
+            .with_for_update()
+            .execution_options(populate_existing=True)
+        )
+        if conversation is None:
+            raise RuntimeError("directive conversation disappeared")
+        return conversation
+
+    async def bind_deferred_directives(
+        self,
+        run_id: uuid.UUID,
+        conversation_id: uuid.UUID,
+        *,
+        tenant_id: str,
+        actor_id: str,
+    ) -> None:
+        await self._lock_directive_conversation(
+            conversation_id,
+            tenant_id=tenant_id,
+        )
+        directives = list(
+            (
+                await self._session.scalars(
+                    select(RunDirective)
+                    .where(
+                        RunDirective.conversation_id == conversation_id,
+                        RunDirective.tenant_id == tenant_id,
+                        RunDirective.actor_id == actor_id,
+                        RunDirective.status == "pending_next_run",
+                        RunDirective.successor_run_id.is_(None),
+                    )
+                    .order_by(RunDirective.sequence)
+                    .with_for_update()
+                    .execution_options(populate_existing=True)
+                )
+            ).all()
+        )
+        for directive in directives:
+            directive.status = "pending"
+            directive.successor_run_id = run_id
+            directive.revision += 1
+
+    async def defer_unconsumed_directives(
+        self,
+        run_id: uuid.UUID,
+        conversation_id: uuid.UUID,
+        *,
+        tenant_id: str,
+        actor_id: str,
+    ) -> None:
+        conversation = await self._lock_directive_conversation(
+            conversation_id,
+            tenant_id=tenant_id,
+        )
+        successor_run_id: uuid.UUID | None = None
+        if conversation.active_fencing_trace_id is not None:
+            successor_run_id = cast(
+                uuid.UUID | None,
+                await self._session.scalar(
+                    select(AgentRun.id)
+                    .where(
+                        AgentRun.conversation_id == conversation_id,
+                        AgentRun.tenant_id == tenant_id,
+                        AgentRun.actor_id == actor_id,
+                        AgentRun.id != run_id,
+                        AgentRun.trace_id == conversation.active_fencing_trace_id,
+                        AgentRun.status == "running",
+                    )
+                    .limit(1)
+                ),
+            )
+        statement = (
+            select(RunDirective)
+            .where(
+                RunDirective.tenant_id == tenant_id,
+                RunDirective.actor_id == actor_id,
+                RunDirective.status.in_(("pending", "claimed")),
+                (
+                    (RunDirective.successor_run_id == run_id)
+                    | (
+                        (RunDirective.successor_run_id.is_(None))
+                        & (RunDirective.target_run_id == run_id)
+                    )
+                ),
+            )
+            .with_for_update()
+            .execution_options(populate_existing=True)
+        )
+        directives = list(
+            (await self._session.scalars(statement)).all()
+        )
+        for directive in directives:
+            directive.status = "pending" if successor_run_id is not None else "pending_next_run"
+            directive.successor_run_id = successor_run_id
+            directive.claimed_by_fencing_token = None
+            directive.claim_boundary_id = None
+            directive.claimed_at = None
+            directive.revision += 1
 
     async def list_events(
         self,

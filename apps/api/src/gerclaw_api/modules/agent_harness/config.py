@@ -22,6 +22,8 @@ class ResolvedHarnessConfig(BaseModel):
     context_hard_stop_ratio: float = Field(default=0.95, gt=0, lt=1)
     context_reserve_ratio: float = Field(gt=0, lt=1)
     context_evidence_reserve_tokens: int = Field(default=4_096, ge=256, le=32_768)
+    max_directives_per_boundary: int = Field(default=20, ge=1, le=100)
+    max_directives_per_run: int = Field(default=200, ge=1, le=1000)
     quick_route_max_characters: int = Field(default=160, ge=1, le=1_000)
     deep_route_min_characters: int = Field(default=1_200, ge=100, le=4_000)
     deep_route_attachment_count: int = Field(default=2, ge=1, le=20)
@@ -60,6 +62,8 @@ class ResolvedHarnessConfig(BaseModel):
             context_hard_stop_ratio=settings.agent_context_hard_stop_ratio,
             context_reserve_ratio=settings.agent_context_reserve_ratio,
             context_evidence_reserve_tokens=(settings.agent_context_evidence_reserve_tokens),
+            max_directives_per_boundary=settings.agent_max_directives_per_boundary,
+            max_directives_per_run=settings.agent_max_directives_per_run,
             quick_route_max_characters=settings.agent_quick_route_max_characters,
             deep_route_min_characters=settings.agent_deep_route_min_characters,
             deep_route_attachment_count=settings.agent_deep_route_attachment_count,
