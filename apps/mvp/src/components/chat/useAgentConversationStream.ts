@@ -57,7 +57,7 @@ function getMessageText(message: Message): string {
  */
 export function useAgentConversationStream(): {
   sendTurn: SendAgentTurn;
-  stopTurn: () => void;
+  stopTurn: (sessionId: string) => void;
 } {
   const loadedSkillIds = useAppStore((state) => state.loadedSkillIds);
   const addMessage = useChatStore((state) => state.addMessage);
@@ -72,12 +72,12 @@ export function useAgentConversationStream(): {
   const updateSession = useChatStore((state) => state.updateSession);
   const setGenerating = useChatStore((state) => state.setGenerating);
 
-  const abortControllerRef = useRef<AbortController | null>(null);
-  const currentThinkingBlockIdRef = useRef<string | null>(null);
+  const abortControllersRef = useRef(new Map<string, AbortController>());
 
-  const stopTurn = () => {
-    if (!abortControllerRef.current) return;
-    abortControllerRef.current.abort();
+  const stopTurn = (sessionId: string) => {
+    const controller = abortControllersRef.current.get(sessionId);
+    if (!controller) return;
+    controller.abort();
     toast.show("正在安全停止，等待服务器确认执行终态");
   };
 
@@ -94,6 +94,10 @@ export function useAgentConversationStream(): {
     replacementSnapshot,
     resume,
   ) => {
+    if (abortControllersRef.current.has(sessionId)) {
+      toast.show("当前对话仍有回答正在生成");
+      return;
+    }
     const userBlocks: MessageBlock[] = [];
     for (const image of images ?? []) {
       userBlocks.push({
@@ -118,12 +122,12 @@ export function useAgentConversationStream(): {
         workflow,
       });
     }
-    setGenerating(true);
+    setGenerating(sessionId, true);
 
     const assistantMessageId = replaceMessageId ?? generateId("msg");
     const assistantBlockId = generateId("block");
     const initialThinkingBlockId = generateId("block");
-    currentThinkingBlockIdRef.current = initialThinkingBlockId;
+    const currentThinkingBlockId = initialThinkingBlockId;
     const assistantMessage: Message = {
       id: assistantMessageId,
       sessionId,
@@ -158,7 +162,13 @@ export function useAgentConversationStream(): {
     const toolCallBlockMap = new Map<string, string>();
     let thinkingFinished = false;
     let emergencyShortCircuit = false;
-    abortControllerRef.current = new AbortController();
+    const abortController = new AbortController();
+    abortControllersRef.current.set(sessionId, abortController);
+    const finishTurn = () => {
+      if (abortControllersRef.current.get(sessionId) !== abortController) return;
+      abortControllersRef.current.delete(sessionId);
+      setGenerating(sessionId, false);
+    };
     const streamTurn: typeof streamAgentChat = resume
       ? (_input, signal, callbacks) =>
           resume.mode === "attach"
@@ -184,11 +194,11 @@ export function useAgentConversationStream(): {
           workflow === "companion" ? [] : requestedCapabilities,
         regeneration,
       },
-      abortControllerRef.current.signal,
+      abortController.signal,
       {
         onThinking: (content) => {
           if (emergencyShortCircuit) return;
-          const currentId = currentThinkingBlockIdRef.current;
+          const currentId = currentThinkingBlockId;
           if (currentId && !thinkingFinished) {
             appendMessageThinking(
               assistantMessageId,
@@ -199,7 +209,7 @@ export function useAgentConversationStream(): {
         },
         onText: (delta) => {
           if (emergencyShortCircuit) return;
-          const currentId = currentThinkingBlockIdRef.current;
+          const currentId = currentThinkingBlockId;
           if (currentId && !thinkingFinished) {
             finalizeMessageThinking(assistantMessageId, currentId);
             thinkingFinished = true;
@@ -236,7 +246,7 @@ export function useAgentConversationStream(): {
         },
         onApprovalRequired: (approval) => {
           if (emergencyShortCircuit) return;
-          const currentId = currentThinkingBlockIdRef.current;
+          const currentId = currentThinkingBlockId;
           if (currentId && !thinkingFinished) {
             finalizeMessageThinking(assistantMessageId, currentId);
             thinkingFinished = true;
@@ -285,7 +295,7 @@ export function useAgentConversationStream(): {
           });
         },
         onSafetyNotice: ({ codes, content }) => {
-          const currentId = currentThinkingBlockIdRef.current;
+          const currentId = currentThinkingBlockId;
           if (currentId && !thinkingFinished) {
             finalizeMessageThinking(assistantMessageId, currentId);
             thinkingFinished = true;
@@ -304,8 +314,7 @@ export function useAgentConversationStream(): {
           });
         },
         onDone: (fullText, citations, traceId, answer) => {
-          abortControllerRef.current = null;
-          const currentId = currentThinkingBlockIdRef.current;
+          const currentId = currentThinkingBlockId;
           if (currentId && !thinkingFinished) {
             finalizeMessageThinking(assistantMessageId, currentId);
           }
@@ -346,7 +355,7 @@ export function useAgentConversationStream(): {
                 );
               })(),
           });
-          setGenerating(false);
+          finishTurn();
           if (!isRegenerate) {
             const firstUserMessage = (
               useChatStore.getState().messagesBySession[sessionId] ?? []
@@ -362,10 +371,9 @@ export function useAgentConversationStream(): {
           }
         },
         onCancelled: (_traceId, cancellationMessage) => {
-          abortControllerRef.current = null;
           if (replacementSnapshot) {
             updateMessage(assistantMessageId, replacementSnapshot);
-            setGenerating(false);
+            finishTurn();
             useAppStore.getState().setStreamingInterrupted(false);
             toast.show("已停止重新生成，保留原回答");
             return;
@@ -376,11 +384,11 @@ export function useAgentConversationStream(): {
               citations: undefined,
               hasDisclaimer: true,
             });
-            setGenerating(false);
+            finishTurn();
             useAppStore.getState().setStreamingInterrupted(false);
             return;
           }
-          const currentId = currentThinkingBlockIdRef.current;
+          const currentId = currentThinkingBlockId;
           if (currentId && !thinkingFinished) {
             finalizeMessageThinking(assistantMessageId, currentId);
             thinkingFinished = true;
@@ -444,14 +452,13 @@ export function useAgentConversationStream(): {
             blocks: updatedBlocks,
             hasDisclaimer: true,
           });
-          setGenerating(false);
+          finishTurn();
           useAppStore.getState().setStreamingInterrupted(false);
         },
         onError: (error) => {
-          abortControllerRef.current = null;
           if (replacementSnapshot) {
             updateMessage(assistantMessageId, replacementSnapshot);
-            setGenerating(false);
+            finishTurn();
             useAppStore.getState().setStreamingInterrupted(false);
             toast.show(error.message);
             return;
@@ -462,10 +469,10 @@ export function useAgentConversationStream(): {
               citations: undefined,
               hasDisclaimer: true,
             });
-            setGenerating(false);
+            finishTurn();
             return;
           }
-          const currentId = currentThinkingBlockIdRef.current;
+          const currentId = currentThinkingBlockId;
           if (currentId && !thinkingFinished) {
             finalizeMessageThinking(assistantMessageId, currentId);
           }
@@ -519,7 +526,7 @@ export function useAgentConversationStream(): {
             blocks: updatedBlocks,
             hasDisclaimer: true,
           });
-          setGenerating(false);
+          finishTurn();
           useAppStore.getState().setStreamingInterrupted(false);
         },
       },

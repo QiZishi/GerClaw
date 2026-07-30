@@ -121,8 +121,10 @@ interface ChatState {
   getMessages: (sessionId: string) => Message[];
 
   // === 流式生成状态 ===
-  isGenerating: boolean;
-  setGenerating: (generating: boolean) => void;
+  /** sessionId -> running. A Run in one conversation must not lock another Composer. */
+  generatingSessions: Record<string, true>;
+  setGenerating: (sessionId: string, generating: boolean) => void;
+  isSessionGenerating: (sessionId: string) => boolean;
 
   // === 便捷方法 ===
   createSession: (role?: Session["role"]) => string;
@@ -159,6 +161,8 @@ export const useChatStore = create<ChatState>()((set, get) => ({
     set((s) => {
       const nextMsgs = { ...s.messagesBySession };
       delete nextMsgs[id];
+      const generatingSessions = { ...s.generatingSessions };
+      delete generatingSessions[id];
       const truncated = truncateMessages(nextMsgs);
       saveToStorage(STORAGE_KEYS.messages, truncated);
       const nextSessions = sortSessions(s.sessions.filter((sess) => sess.id !== id));
@@ -166,6 +170,7 @@ export const useChatStore = create<ChatState>()((set, get) => ({
       return {
         sessions: nextSessions,
         messagesBySession: truncated,
+        generatingSessions,
       };
     }),
   renameSession: (id, title) =>
@@ -592,8 +597,18 @@ export const useChatStore = create<ChatState>()((set, get) => ({
   getMessages: (sessionId) => get().messagesBySession[sessionId] ?? [],
 
   // === 流式生成状态 ===
-  isGenerating: false,
-  setGenerating: (isGenerating) => set({ isGenerating }),
+  generatingSessions: {},
+  setGenerating: (sessionId, generating) =>
+    set((state) => {
+      const generatingSessions = { ...state.generatingSessions };
+      if (generating) {
+        generatingSessions[sessionId] = true;
+      } else {
+        delete generatingSessions[sessionId];
+      }
+      return { generatingSessions };
+    }),
+  isSessionGenerating: (sessionId) => Boolean(get().generatingSessions[sessionId]),
 
   // === 便捷方法 ===
   createSession: (role = "patient") => {
@@ -630,6 +645,6 @@ export const useChatStore = create<ChatState>()((set, get) => ({
         // ignore
       }
     }
-    set({ sessions: [], messagesBySession: {} });
+    set({ sessions: [], messagesBySession: {}, generatingSessions: {} });
   },
 }));

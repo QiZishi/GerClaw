@@ -66,7 +66,7 @@ export function useConversationHistoryRecovery({
           run.status === "interrupted" ? await readAgentRun(run.id) : run;
         if (
           useAppStore.getState().currentSessionId !== sessionId ||
-          useChatStore.getState().isGenerating
+          useChatStore.getState().isSessionGenerating(sessionId)
         ) {
           return;
         }
@@ -84,7 +84,7 @@ export function useConversationHistoryRecovery({
           );
           if (
             useAppStore.getState().currentSessionId === sessionId &&
-            !useChatStore.getState().isGenerating
+            !useChatStore.getState().isSessionGenerating(sessionId)
           ) {
             setMessages(sessionId, currentMessages);
           }

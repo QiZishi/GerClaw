@@ -31,7 +31,9 @@ export function ChatArea() {
   const setChatAction = useAppStore((s) => s.setChatAction);
   const sidebarCollapsed = useAppStore((s) => s.sidebarCollapsed);
   const seniorMode = useAppStore((s) => s.seniorMode);
-  const isGenerating = useChatStore((s) => s.isGenerating);
+  const isGenerating = useChatStore((s) =>
+    currentSessionId ? Boolean(s.generatingSessions[currentSessionId]) : false,
+  );
   const messagesBySession = useChatStore((s) => s.messagesBySession);
   const deleteMessage = useChatStore((s) => s.deleteMessage);
   const storeSessions = useChatStore((s) => s.sessions);
@@ -155,7 +157,9 @@ export function ChatArea() {
         onDelete={handleDeleteRequest}
         onAnswerVersionSelected={handleAnswerVersionSelected}
         onSend={handleSend}
-        onStop={handleStop}
+        onStop={() => {
+          if (currentSessionId) handleStop(currentSessionId);
+        }}
       />
       <ChatWorkspaceDialogs
         messages={messages}

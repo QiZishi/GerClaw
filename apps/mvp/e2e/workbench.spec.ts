@@ -140,3 +140,38 @@ test("mobile workbench uses an accessible session drawer", async ({ page }) => {
   await expect(drawer).toBeHidden();
   await expectNoPageOverflow(page, 390);
 });
+
+test("a Run in another conversation does not take over the current Composer", async ({
+  page,
+}) => {
+  await page.setViewportSize({ width: 1440, height: 1000 });
+  await enterGuestWorkspace(page);
+
+  const input = page.getByRole("textbox", {
+    name: "请描述您想咨询的健康问题…",
+  });
+  await input.fill("请用一句话介绍保持规律作息的好处");
+
+  await page.getByRole("button", { name: "发送" }).click();
+  await expect(page.getByRole("button", { name: "停止生成" })).toBeVisible();
+
+  await page.getByRole("button", { name: "开始咨询" }).click();
+  await expect(
+    page.getByRole("heading", {
+      name: "您好，我是 GerClaw 健康助手，有什么可以帮您？",
+    }),
+  ).toBeVisible();
+  await expect(page.getByRole("button", { name: "停止生成" })).toHaveCount(0);
+  await expect(page.getByRole("button", { name: "语音输入" })).toBeEnabled();
+
+  await page.getByRole("button", { name: "用户菜单" }).click();
+  await page.getByRole("menuitem", { name: "对话记录" }).click();
+  await page
+    .getByRole("button", { name: /请用一句话介绍保持规律作息的好处/ })
+    .click();
+  const stop = page.getByRole("button", { name: "停止生成" });
+  if (await stop.isVisible()) {
+    await stop.click();
+    await expect(stop).toHaveCount(0, { timeout: 15_000 });
+  }
+});
