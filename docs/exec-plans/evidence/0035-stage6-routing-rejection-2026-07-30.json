@@ -1,0 +1,191 @@
+{
+  "base_commit": "a845ca53297b63ec2ee3cf506a487df4cf3b84c4",
+  "baseline": {
+    "cases": [
+      {
+        "case_id": "case_747b186337c43dc13ca7afe3eb8b73ec",
+        "latency_ms": 1119,
+        "passed": true,
+        "quality_micros": 1000000,
+        "runtime_activated": true,
+        "schema_version": "evaluation-case-observation-v1",
+        "slice": "normal",
+        "token_count": 0
+      },
+      {
+        "case_id": "case_dee00314f5d1fef179c40e5ad6e263c3",
+        "latency_ms": 1119,
+        "passed": true,
+        "quality_micros": 1000000,
+        "runtime_activated": true,
+        "schema_version": "evaluation-case-observation-v1",
+        "slice": "complex",
+        "token_count": 0
+      },
+      {
+        "case_id": "case_8bebe5c7877dc27c881abe6505523514",
+        "latency_ms": 1119,
+        "passed": true,
+        "quality_micros": 1000000,
+        "runtime_activated": true,
+        "schema_version": "evaluation-case-observation-v1",
+        "slice": "high_risk",
+        "token_count": 0
+      },
+      {
+        "case_id": "case_e7e0f1e38609815e3dedee9f5adf5326",
+        "latency_ms": 1119,
+        "passed": true,
+        "quality_micros": 1000000,
+        "runtime_activated": true,
+        "schema_version": "evaluation-case-observation-v1",
+        "slice": "elderly",
+        "token_count": 0
+      }
+    ],
+    "charters": [
+      {
+        "evaluator_id": "charter.routing.v1",
+        "passed": true
+      }
+    ],
+    "commit": "a845ca53297b63ec2ee3cf506a487df4cf3b84c4",
+    "evaluated_at": "2026-07-30T12:11:07.944845+00:00",
+    "evaluation_profile_sha256": "ab150a0f2da12e1d9760040098d1d6ad96270307a9781b050e7c9e3d6d3a9ec6",
+    "execution_bundle_sha256": "1b1f081a0e99b5185674ecec3f82218174d4f9eeb5efc99c6336167425070cee",
+    "frozen_manifest_sha256": "853d873d2d698c9f58f17ca712ea04ff99d25648921b82c87e307e6de1ae8346",
+    "role": "baseline",
+    "runner_id": "runner.routing-charter",
+    "runner_version": "routing-charter-v1"
+  },
+  "candidate": {
+    "cases": [
+      {
+        "case_id": "case_747b186337c43dc13ca7afe3eb8b73ec",
+        "latency_ms": 937,
+        "passed": true,
+        "quality_micros": 1000000,
+        "runtime_activated": true,
+        "schema_version": "evaluation-case-observation-v1",
+        "slice": "normal",
+        "token_count": 0
+      },
+      {
+        "case_id": "case_dee00314f5d1fef179c40e5ad6e263c3",
+        "latency_ms": 937,
+        "passed": false,
+        "quality_micros": 0,
+        "runtime_activated": true,
+        "schema_version": "evaluation-case-observation-v1",
+        "slice": "complex",
+        "token_count": 0
+      },
+      {
+        "case_id": "case_8bebe5c7877dc27c881abe6505523514",
+        "latency_ms": 937,
+        "passed": true,
+        "quality_micros": 1000000,
+        "runtime_activated": true,
+        "schema_version": "evaluation-case-observation-v1",
+        "slice": "high_risk",
+        "token_count": 0
+      },
+      {
+        "case_id": "case_e7e0f1e38609815e3dedee9f5adf5326",
+        "latency_ms": 937,
+        "passed": true,
+        "quality_micros": 1000000,
+        "runtime_activated": true,
+        "schema_version": "evaluation-case-observation-v1",
+        "slice": "elderly",
+        "token_count": 0
+      }
+    ],
+    "charters": [
+      {
+        "evaluator_id": "charter.routing.v1",
+        "passed": false
+      }
+    ],
+    "commit": "aa1fe756c58d8de2230ee4e68167ee0256abfbd7",
+    "evaluated_at": "2026-07-30T12:11:11.755485+00:00",
+    "evaluation_profile_sha256": "ab150a0f2da12e1d9760040098d1d6ad96270307a9781b050e7c9e3d6d3a9ec6",
+    "execution_bundle_sha256": "069b9f8dfe4829d01152e7f1956e875f9b5aecbd64acf83f6cdcbca6e5fbc7cd",
+    "frozen_manifest_sha256": "853d873d2d698c9f58f17ca712ea04ff99d25648921b82c87e307e6de1ae8346",
+    "role": "candidate",
+    "runner_id": "runner.routing-charter",
+    "runner_version": "routing-charter-v1"
+  },
+  "candidate_commit": "aa1fe756c58d8de2230ee4e68167ee0256abfbd7",
+  "candidate_ref": "refs/gerclaw/candidates/rejected/stage6-routing-regression",
+  "content_policy": {
+    "case_ids_are_controller_hmac": true,
+    "contains_prompt_or_answer": false,
+    "contains_secret_or_provider_payload": false,
+    "contains_user_content": false
+  },
+  "controller_commit": "474645eff567a7cc56bdc0c422482807363c9154",
+  "decision": "rejected",
+  "declared_track": "immutable",
+  "frozen_manifest_sha256": "853d873d2d698c9f58f17ca712ea04ff99d25648921b82c87e307e6de1ae8346",
+  "governance_manifest_sha256": "7fde38b7d4c507b027e51a343c9de1b4bbc045556d8446b1e897a7f37c49e0aa",
+  "independent_review": {
+    "p0": 0,
+    "p1": 0,
+    "p2": 0,
+    "verdict": "ACCEPT"
+  },
+  "official_optimizer_availability": [
+    {
+      "name": "a-evolve",
+      "reason_code": "checkout_not_configured",
+      "schema_version": "optimizer-availability-v1",
+      "status": "unavailable",
+      "verified_commit": null
+    },
+    {
+      "name": "gepa",
+      "reason_code": "checkout_not_configured",
+      "schema_version": "optimizer-availability-v1",
+      "status": "unavailable",
+      "verified_commit": null
+    },
+    {
+      "name": "adaptive-auto-harness",
+      "reason_code": "checkout_not_configured",
+      "schema_version": "optimizer-availability-v1",
+      "status": "unavailable",
+      "verified_commit": null
+    }
+  ],
+  "paired_gate": {
+    "all_cases_non_degrading": false,
+    "all_component_charters_passed": false,
+    "all_runtime_paths_activated": true,
+    "all_slices_non_degrading": false,
+    "high_risk_cases_non_degrading": true,
+    "no_passed_case_regressed": false,
+    "passed": false
+  },
+  "paired_report_sha256": "c5ee4001d2aed02d7e28c681810eb37e201c3aa913dd1465903888995a5ef109",
+  "proposal_id": "candidate.stage6-routing-regression",
+  "reason_codes": [
+    "passed-case-regressed",
+    "case-quality-degraded",
+    "slice-quality-degraded",
+    "applicable-component-charter-failed"
+  ],
+  "record_sha256": "e1c7c603286eb61ca2a6c868b444732977b0f524aa713350bc513fc9ec9cf910",
+  "recorded_at": "2026-07-30T12:11:11.755749+00:00",
+  "repository_changes": [
+    {
+      "content_digest": "5d883c7ab5f045728029b7845c940e08528622965cf46fbbb575dda57406d823",
+      "object_kind": "routing.strategy",
+      "repository_path": "apps/api/src/gerclaw_api/modules/agent_harness/routing/router.py",
+      "target": "policy/routing/router.py"
+    }
+  ],
+  "runner_profile_sha256": "ab150a0f2da12e1d9760040098d1d6ad96270307a9781b050e7c9e3d6d3a9ec6",
+  "sandbox_image_id": "sha256:7d3da6a92589797a796a389c79cbbaa4622581ce397f0ee10d5c4741f21207f7",
+  "schema_version": "stage6-candidate-lifecycle-audit-v1"
+}

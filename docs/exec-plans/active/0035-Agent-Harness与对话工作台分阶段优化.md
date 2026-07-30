@@ -916,6 +916,47 @@ PostgreSQL/Redis/Qdrant 上验证 Emergency Run、反馈 reconciliation 和有�
 `risk_level` 只是 route-derived proxy、不得解释为临床风险评分；HMAC key rotation 尚无旧记录 rekey/
 epoch 迁移流程；legacy plan 安全降为空 IDs 时尚无 quality marker，离线暂时无法区分真实空计划与降级。
 
+**离线控制器与真实拒绝闭环（2026-07-30）：**
+
+- 官方来源固定与真实 unavailable：`912cca31` 固定 A-Evolve、GEPA、Adaptive Auto-Harness 的仓库、
+  commit、reference、MIT 许可证证据和摘要；本机未配置经核验 checkout，因此三者均返回
+  `checkout_not_configured`，没有下载或建立同名替代实现。
+- 候选冻结、评测、审批和发布控制面依次由 `88718279`、`9ae91b0a`、`4ea87809`、`a845ca53`
+  落地。候选只允许 controller-owned worktree 的已提交规则文件；paired gate 从逐病例、逐切片、
+  runtime activation 和适用组件 Charter 重新计算；sealed attestation 与人类 Ed25519 审批使用不同
+  权限域；release、ledger、不可变 record 和一次性 ticket 通过同一 Git ref transaction 原子移动。
+- `8e2773bc` 把 offline object kind → required Charter IDs 收回在线
+  `evolution_governance` 唯一事实源并纳入 governance digest，避免离线 evaluator 复制解释组件定义。
+- `474645ef` 增加真实 routing paired runner 与 Docker sandbox。执行字节从指定 commit 的 Git object
+  导出为 archive，记录 SHA-256，经 controller-owned Docker volume 投递并在容器内复核摘要；live
+  worktree、ignored/untracked 文件和 `.git` 均不挂载。运行源只读，容器无网络、capability、提权、
+  Docker socket、宿主环境或 Provider 凭据，并有 CPU/内存/PID/文件/输出/时间边界。成功、失败和超时
+  后都按 exact name 重试销毁并查询 container/staging/volume 是否消失；无法确认清理时进入
+  `EVOLUTION_SANDBOX_CLEANUP_FAILED` operator repair，不把残留资源伪装成普通 candidate 失败。
+  `EvaluationRun` 同时绑定 frozen manifest、runner/executor profile 和 execution bundle digest；
+  routing runner 只报告真实执行的 `charter.routing.v1`，不得替未执行组件伪造通过。
+- 真实实验以 `a845ca53297b63ec2ee3cf506a487df4cf3b84c4` 为 baseline，只在隔离 candidate
+  `aa1fe756c58d8de2230ee4e68167ee0256abfbd7` 中删除两个 complex routing 触发条件。相同
+  content-addressed sandbox 对四个切片配对执行：baseline 四项全部通过且 runtime path 全部激活；
+  candidate 只有 complex 失败，normal/high-risk/elderly 保持通过。硬门禁得到
+  `no_passed_case_regressed=false`、`all_cases_non_degrading=false`、
+  `all_slices_non_degrading=false`、`all_component_charters_passed=false`，最终真实
+  `rejected`；因为 public gate 已失败，未伪造后续 sealed approval 或 promotion。
+- 去内容化完整记录保存在
+  `docs/exec-plans/evidence/0035-stage6-routing-rejection-2026-07-30.json`，包含 controller/base/
+  candidate commit、freeze/governance/runner/bundle/report digest、HMAC opaque case ID、切片结果、
+  适用 Charter 和 official optimizer availability；明确不含用户内容、Prompt、答案、密钥或 Provider
+  payload。被拒 candidate 由
+  `refs/gerclaw/candidates/rejected/stage6-routing-regression` 保留，禁止误作 release ref；record digest 为
+  `e1c7c603286eb61ca2a6c868b444732977b0f524aa713350bc513fc9ec9cf910`。
+- 模块验收：evolution `51 passed`（含真实 Docker ignored-file、无 `.git`/host secret、stdin、无网络、
+  只读源、detached child 和 timeout cleanup），Ruff/Mypy 通过；governance `19 passed --no-cov`、
+  Ruff/Mypy 通过。单文件定向 pytest 首次因项目全局 `fail-under=80` 在 19 项均通过后仍以 coverage
+  36.69% 退出，改用该模块约定的 `--no-cov` 重跑 19/19；这不是产品测试失败，完整 coverage 留给阶段 7。
+  独立子智能体三轮审阅先后发现 live worktree ignored-file 执行、未执行 Charter 伪绿、freeze 未绑定、
+  executor 可旁路和 cleanup 静默失败，均已形成反例测试；最终
+  `ACCEPT（P0=0，P1=0，P2=0）`。
+
 #### 6.1 必须保留的语义
 
 - **Memory 内容在线持续 CRUD。** 用户事实、偏好、习惯和状态随使用被新增、查询、更新和删除。
