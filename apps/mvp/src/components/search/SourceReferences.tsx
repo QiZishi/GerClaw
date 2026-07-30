@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useId, useState } from "react";
 import Image from "next/image";
 import { BookOpen, ChevronDown, ExternalLink, Globe, List } from "lucide-react";
 import { useAppStore } from "@/stores/appStore";
@@ -32,6 +32,7 @@ function isExternalCitationUrl(url: string): boolean {
 
 export function SourceReferences({ citations, className }: SourceReferencesProps) {
   const [expanded, setExpanded] = useState(false);
+  const listId = useId();
   const seniorMode = useAppStore((s) => s.seniorMode);
   const setRightPanel = useAppStore((s) => s.setRightPanel);
   const setCurrentCitations = useAppStore((s) => s.setCurrentCitations);
@@ -47,55 +48,52 @@ export function SourceReferences({ citations, className }: SourceReferencesProps
     <div
       className={cn(
         "mt-2 rounded-lg border border-border/50 bg-muted/20",
-        seniorMode ? "text-base" : "text-xs",
+        seniorMode ? "text-lg" : "text-xs",
         className
       )}
     >
-      <div
-        role="button"
-        tabIndex={0}
-        onClick={() => setExpanded((v) => !v)}
-        onKeyDown={(e) => {
-          if (e.key === "Enter" || e.key === " ") {
-            e.preventDefault();
-            setExpanded((v) => !v);
-          }
-        }}
-        className="flex w-full items-center justify-between gap-2 px-3 py-2 hover:bg-muted/40 transition-colors cursor-pointer"
-        aria-expanded={expanded}
-      >
-        <span className="flex items-center gap-1.5 text-muted-foreground font-medium">
-          <BookOpen className={cn("shrink-0", seniorMode ? "size-4" : "size-3.5")} />
-          参考来源（{citations.length}）
-        </span>
-        <div className="flex items-center gap-1">
-          <button
-            type="button"
-            onClick={(e) => {
-              e.stopPropagation();
-              handleViewAll();
-            }}
-            className={cn(
-              "inline-flex items-center gap-1 text-muted-foreground hover:text-foreground transition-colors px-1.5 py-0.5 rounded hover:bg-muted/60",
-              seniorMode ? "text-sm" : "text-[11px]"
-            )}
-            aria-label="在右侧面板查看全部引用"
-          >
-            <List className={seniorMode ? "size-3.5" : "size-3"} />
-            查看全部
-          </button>
+      <div className="flex w-full items-stretch gap-1 px-1">
+        <button
+          type="button"
+          onClick={() => setExpanded((value) => !value)}
+          className={cn(
+            "flex min-w-0 flex-1 items-center justify-between gap-2 rounded px-2 py-2 text-left text-muted-foreground transition-colors hover:bg-muted/40",
+            seniorMode && "min-h-12 text-lg",
+          )}
+          aria-expanded={expanded}
+          aria-controls={listId}
+        >
+          <span className="flex items-center gap-1.5 font-medium">
+            <BookOpen className={cn("shrink-0", seniorMode ? "size-5" : "size-3.5")} />
+            参考来源（{citations.length}）
+          </span>
           <ChevronDown
             className={cn(
               "shrink-0 text-muted-foreground/60 transition-transform",
               expanded && "rotate-180",
-              seniorMode ? "size-4" : "size-3.5"
+              seniorMode ? "size-5" : "size-3.5"
             )}
           />
-        </div>
+        </button>
+        <button
+          type="button"
+          onClick={handleViewAll}
+          className={cn(
+            "inline-flex items-center gap-1 rounded px-2 text-muted-foreground transition-colors hover:bg-muted/60 hover:text-foreground",
+            seniorMode ? "min-h-12 text-lg" : "text-[11px]",
+          )}
+          aria-label="在右侧面板查看全部引用"
+        >
+          <List className={seniorMode ? "size-5" : "size-3"} />
+          查看全部
+        </button>
       </div>
 
       {expanded && (
-        <div className="border-t border-border/40 px-2 py-2">
+        <div
+          id={listId}
+          className="border-t border-border/40 px-2 py-2"
+        >
           <ul className="space-y-1.5">
             {citations.map((c) => {
               const faviconUrl = getFaviconUrl(c.url);
@@ -103,7 +101,7 @@ export function SourceReferences({ citations, className }: SourceReferencesProps
               const itemClassName = cn(
                 "flex items-start gap-2 rounded-md px-2 py-1.5",
                 externalUrl && "cursor-pointer transition-colors hover:bg-muted/60 group",
-                seniorMode ? "py-2" : "py-1.5"
+                seniorMode ? "min-h-12 py-2 text-lg" : "py-1.5"
               );
               const citationContent = (
                 <>
@@ -143,7 +141,7 @@ export function SourceReferences({ citations, className }: SourceReferencesProps
                         className={cn(
                           "font-medium leading-snug text-foreground line-clamp-1",
                           externalUrl && "group-hover:text-primary transition-colors",
-                          seniorMode ? "text-sm" : "text-xs"
+                          seniorMode ? "text-lg leading-8" : "text-xs"
                         )}
                       >
                         {c.title}
@@ -153,7 +151,7 @@ export function SourceReferences({ citations, className }: SourceReferencesProps
                     <div
                       className={cn(
                         "text-muted-foreground/70 mt-0.5 flex items-center gap-1 flex-wrap",
-                        seniorMode ? "text-xs" : "text-[11px]"
+                        seniorMode ? "text-lg" : "text-[11px]"
                       )}
                     >
                       <span className="truncate">{c.source}</span>

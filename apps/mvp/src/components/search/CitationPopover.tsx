@@ -59,7 +59,7 @@ export function CitationPopover({ citation, index, allCitations }: CitationPopov
               "text-blue-600 dark:text-blue-400 hover:text-blue-700 dark:hover:text-blue-300",
               "hover:bg-blue-50 dark:hover:bg-blue-950/40 rounded",
               seniorMode
-                ? "text-[0.75em] min-w-[1.5em] h-[1.5em] px-0.5 mx-0.5"
+                ? "-my-3 size-12 align-middle text-lg"
                 : "text-[0.7em] min-w-[1.25em] h-[1.25em] px-0.5 mx-0.5"
             )}
             aria-label={`查看引用 ${index}`}
@@ -68,40 +68,51 @@ export function CitationPopover({ citation, index, allCitations }: CitationPopov
           </button>
         }
       />
-      <DropdownMenuContent align="start" className="w-80 p-3">
+      <DropdownMenuContent
+        align="start"
+        className={cn("w-80 p-3", seniorMode && "w-96 max-w-[calc(100vw-2rem)] p-4")}
+      >
         <div className="space-y-2">
-          <div className="text-xs text-muted-foreground">
+          <div className={cn("text-xs text-muted-foreground", seniorMode && "text-lg")}>
             引用 #{index} · {citation.source}
           </div>
-          <div className="break-words font-medium text-sm leading-snug">
+          <div className={cn("break-words font-medium text-sm leading-snug", seniorMode && "text-lg leading-8")}>
             {citation.title}
           </div>
-          <div className="break-words text-xs text-muted-foreground leading-relaxed line-clamp-3">
+          <div className={cn("break-words text-xs text-muted-foreground leading-relaxed line-clamp-3", seniorMode && "text-lg leading-8")}>
             {citation.snippet}
           </div>
           {citation.publishedDate && (
-            <div className="text-xs text-muted-foreground">
+            <div className={cn("text-xs text-muted-foreground", seniorMode && "text-lg")}>
               发布时间：{citation.publishedDate}
             </div>
           )}
-          <div className="flex items-center gap-2 pt-1">
+          <div className={cn("flex items-center gap-2 pt-1", seniorMode && "flex-col items-stretch")}>
             {externalUrl ? (
               <a
                 href={citation.url}
                 target="_blank"
                 rel="noopener noreferrer"
-                className="inline-flex items-center gap-1 text-xs text-primary hover:underline"
+                className={cn(
+                  "inline-flex items-center gap-1 text-xs text-primary hover:underline",
+                  seniorMode && "min-h-12 text-lg",
+                )}
               >
                 <ExternalLink className="size-3" />
                 查看原文
               </a>
             ) : (
-              <span className="text-xs text-muted-foreground">此来源无公开链接</span>
+              <span className={cn("text-xs text-muted-foreground", seniorMode && "text-lg")}>
+                此来源无公开链接
+              </span>
             )}
             <button
               type="button"
               onClick={handleOpenAllCitations}
-              className="inline-flex items-center gap-1 text-xs text-muted-foreground hover:text-foreground transition-colors"
+              className={cn(
+                "inline-flex items-center gap-1 text-xs text-muted-foreground hover:text-foreground transition-colors",
+                seniorMode && "min-h-12 text-lg",
+              )}
             >
               <List className="size-3" />
               查看全部引用

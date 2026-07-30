@@ -5,6 +5,11 @@ import { useCallback, useEffect } from "react";
 import { RightPanelContent } from "@/components/layout/right-panel/RightPanelContent";
 import { RightPanelHeader } from "@/components/layout/right-panel/RightPanelHeader";
 import { useRightPanelFrame } from "@/components/layout/right-panel/useRightPanelFrame";
+import {
+  Sheet,
+  SheetContent,
+  SheetTitle,
+} from "@/components/ui/sheet";
 import { LAYOUT } from "@/lib/constants";
 import { cn } from "@/lib/utils";
 import { useAppStore } from "@/stores/appStore";
@@ -49,7 +54,48 @@ export function RightPanel() {
     return () => window.removeEventListener("keydown", closeOnEscape);
   }, [open, requestClose]);
 
-  if (!frame.mounted || !type) return null;
+  if (!type) return null;
+  const panelBody = (
+    <>
+      <RightPanelHeader
+        title={PANEL_TITLES[type]}
+        type={type}
+        content={panelContent}
+        senior={senior}
+        onClose={requestClose}
+      />
+      <div className="flex min-h-0 flex-1 flex-col">
+        <RightPanelContent
+          type={type}
+          panelContent={panelContent}
+          onContentChange={setPanelContent}
+          role={role}
+        />
+      </div>
+    </>
+  );
+
+  if (frame.isMobile) {
+    return (
+      <Sheet
+        open={open}
+        onOpenChange={(nextOpen) => {
+          if (!nextOpen) requestClose();
+        }}
+      >
+        <SheetContent
+          side="right"
+          showCloseButton={false}
+          className="h-full w-full max-w-none gap-0 bg-background p-0 text-foreground sm:max-w-none"
+        >
+          <SheetTitle className="sr-only">{PANEL_TITLES[type]}</SheetTitle>
+          {panelBody}
+        </SheetContent>
+      </Sheet>
+    );
+  }
+
+  if (!frame.mounted) return null;
   const transition = frame.isMobile
     ? "transition-transform duration-[var(--motion-panel)] ease-[var(--motion-ease-drawer)]"
     : "transition-opacity duration-[var(--motion-popover)] ease-[var(--motion-ease-out)]";
@@ -99,21 +145,7 @@ export function RightPanel() {
         >
           <div className="h-12 w-0.5 rounded-full bg-border" />
         </div>
-        <RightPanelHeader
-          title={PANEL_TITLES[type]}
-          type={type}
-          content={panelContent}
-          senior={senior}
-          onClose={requestClose}
-        />
-        <div className="flex min-h-0 flex-1 flex-col">
-          <RightPanelContent
-            type={type}
-            panelContent={panelContent}
-            onContentChange={setPanelContent}
-            role={role}
-          />
-        </div>
+        {panelBody}
       </aside>
     </>
   );

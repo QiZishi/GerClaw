@@ -139,6 +139,14 @@ test("mobile workbench uses an accessible session drawer", async ({ page }) => {
   await page.keyboard.press("Escape");
   await expect(drawer).toBeHidden();
   await expectNoPageOverflow(page, 390);
+
+  await page.getByRole("button", { name: "查看我的健康记录" }).click();
+  const profilePanel = page.getByRole("dialog", { name: "健康画像" });
+  await expect(profilePanel).toBeVisible();
+  await expectSeniorTargets(page);
+  await expectNoBlockingAxeViolations(page);
+  await page.keyboard.press("Escape");
+  await expect(profilePanel).toBeHidden();
 });
 
 test("a Run in another conversation does not take over the current Composer", async ({
