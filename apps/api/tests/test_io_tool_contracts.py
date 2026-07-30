@@ -15,6 +15,7 @@ from gerclaw_api.modules.contracts import (
 from gerclaw_api.modules.input_output.module import (
     InputOutputBoundaryError,
     ProductionInputOutputModule,
+    normalize_input_text,
 )
 from gerclaw_api.modules.input_output.protocols import InputOutputModule
 from gerclaw_api.modules.tools.protocols import ToolModule
@@ -42,6 +43,7 @@ def test_production_io_normalizes_text_and_rejects_control_characters() -> None:
     assert normalized.text == "检查\n文本"
     with pytest.raises(InputOutputBoundaryError):
         asyncio.run(module.normalize(request.model_copy(update={"text": "bad\x00text"})))
+    assert normalize_input_text("  请调整\uff0c保留原意。\r\n") == "请调整,保留原意。"
 
 
 def test_production_io_projects_only_reviewed_public_fields() -> None:

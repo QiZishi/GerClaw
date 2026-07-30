@@ -19,6 +19,7 @@ from gerclaw_api.domain.run_schemas import (
     RunQueuedDirectiveCreate,
     RunSteerDirectiveCreate,
 )
+from gerclaw_api.modules.input_output import normalize_input_text
 from gerclaw_api.repositories.run_directive import (
     DuplicateRunDirectiveError,
     RunDirectiveRepository,
@@ -693,7 +694,7 @@ class RunDirectiveService:
         return tuple(self.to_public(item) for item in directives)
 
     async def _ensure_message_projection(self, directive: RunDirective) -> bool:
-        expected_content = [{"type": "text", "text": directive.instruction}]
+        expected_content = [{"type": "text", "text": normalize_input_text(directive.instruction)}]
         if (
             directive.mode == RunDirectiveMode.INTERRUPT_AND_STEER.value
             and directive.successor_run_id is not None

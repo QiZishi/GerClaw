@@ -16,6 +16,15 @@ class InputOutputBoundaryError(ValueError):
     """Raised when an untrusted channel payload cannot be safely projected."""
 
 
+def normalize_input_text(text: str) -> str:
+    """Return the canonical text representation used at every input boundary."""
+
+    normalized = unicodedata.normalize("NFKC", text).replace("\r\n", "\n").strip()
+    if not normalized or _DISALLOWED_CONTROL.search(normalized):
+        raise InputOutputBoundaryError("input text contains unsupported control characters")
+    return normalized
+
+
 class ProductionInputOutputModule:
     """Canonicalize bounded requests and expose only reviewed public output."""
 
@@ -23,9 +32,7 @@ class ProductionInputOutputModule:
         # Re-validate after crossing a module boundary; callers cannot rely on
         # a Python object having originated from Pydantic validation.
         validated = AgentRequest.model_validate(request.model_dump(mode="python"))
-        text = unicodedata.normalize("NFKC", validated.text).replace("\r\n", "\n").strip()
-        if not text or _DISALLOWED_CONTROL.search(text):
-            raise InputOutputBoundaryError("input text contains unsupported control characters")
+        text = normalize_input_text(validated.text)
         attachment_ids = [item.attachment_id for item in validated.attachments]
         if len(attachment_ids) != len(set(attachment_ids)):
             raise InputOutputBoundaryError("duplicate attachment references are not allowed")

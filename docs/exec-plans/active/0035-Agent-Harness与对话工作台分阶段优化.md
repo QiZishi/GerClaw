@@ -1239,6 +1239,12 @@ lease，会等待该 Trace 完成并重放唯一答案，不向用户显示 `Ses
 source Trace 与冻结快照，绑定阶段继续核对 Run/directive/fence。旧 attempt、校验修复和中间失败不
 进入新 SSE；第一条 successor 公开阶段固定为“已按新要求调整执行”。
 
+2026-07-31 真实 Playwright 审计发现，中文全角标点在公共输入边界经 NFKC 规范化后，
+受控 successor 仍用原始 directive 文本做字面比较，导致合法的立即调整在 Run 创建后被误判冲突。
+现已把 NFKC、换行和首尾空白处理提取为唯一共享输入规范化函数；directive 与 successor input
+在同一规范化表示上严格相等，任意其他文本差异仍拒绝绑定。针对性测试覆盖全角逗号成功绑定、
+真实不匹配继续失败以及 exactly-once 重放；真实 GUI 复验结果记录在阶段 7。
+
 普通 resume 与 steer 预留的顺序保证来自状态机本身：普通 resume 只接受 `interrupted`，而 steer
 指令只能在 source 仍为 `running` 时先提交，旧 worker 随后才可转入 `interrupted`，因此一旦 resume
 可见，steer reservation 已经持久化并会被拒绝检查命中，而不是依赖非锁定读取碰运气。

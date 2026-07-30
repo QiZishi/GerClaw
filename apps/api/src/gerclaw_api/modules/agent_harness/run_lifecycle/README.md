@@ -133,7 +133,10 @@ encrypted frozen history, Profile/Memory projection, Skill definitions, document
 configuration, and completed capability results, while recomputing route, ClinicalState,
 clinical action, Context budget, and DAG for the new instruction. It does not re-read mutable
 Memory or Skill state. Binding and applying the steer uses the successor fence and its already
-stored input message, so Conversation history contains the instruction exactly once. Pending
+stored input message. The durable directive and stored input are compared after the shared
+input-boundary NFKC/newline/trim normalization, while any other text mismatch remains a
+conflict, so punctuation canonicalization cannot reject the controlled successor and
+Conversation history still contains the instruction exactly once. Pending
 or stale-claimed queue directives move to the successor and lose the old claim. A stable
 directive-derived Trace makes completed retries replay the same answer without creating a
 third Run. Concurrent retries of the same directive wait for that Trace to become replayable

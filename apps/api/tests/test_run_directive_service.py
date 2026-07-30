@@ -852,7 +852,10 @@ async def test_successor_input_atomically_applies_without_duplicate_message() ->
     )
     created = await service.create(
         original.id,
-        _create(mode=RunDirectiveMode.INTERRUPT_AND_STEER),
+        _create(
+            mode=RunDirectiveMode.INTERRUPT_AND_STEER,
+            instruction="改为只回答三条建议\uff0c不谈饮食。",
+        ),
         tenant_id=TENANT,
         actor_id=ACTOR,
     )
@@ -865,7 +868,7 @@ async def test_successor_input_atomically_applies_without_duplicate_message() ->
         session_id=original.conversation_id,
         trace_id=f"trace_{uuid.uuid4().hex}",
         role="user",
-        content=[{"type": "text", "text": created.instruction}],
+        content=[{"type": "text", "text": "改为只回答三条建议,不谈饮食。"}],
         message_metadata={"channel": "web"},
         created_at=now,
     )
@@ -896,6 +899,16 @@ async def test_successor_input_atomically_applies_without_duplicate_message() ->
     repository.runs[successor.id] = successor
     message_count = len(repository.messages)
 
+    input_message.content = [{"type": "text", "text": "另一条不匹配的要求。"}]
+    with pytest.raises(RunDirectiveConflictError):
+        await service.bind_successor_input(
+            created.id,
+            successor.id,
+            tenant_id=TENANT,
+            actor_id=ACTOR,
+            fencing_token=8,
+        )
+    input_message.content = [{"type": "text", "text": "改为只回答三条建议,不谈饮食。"}]
     applied = await service.bind_successor_input(
         created.id,
         successor.id,
