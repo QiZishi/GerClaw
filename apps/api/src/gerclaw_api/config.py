@@ -158,6 +158,7 @@ class Settings(BaseSettings):
     agent_run_stream_poll_interval_seconds: float = Field(default=0.25, ge=0.05, le=2)
     agent_run_stream_heartbeat_seconds: float = Field(default=10.0, ge=1, le=30)
     agent_directive_trace_wait_seconds: float = Field(default=5.0, ge=0, le=30)
+    agent_steer_interruption_wait_seconds: float = Field(default=30.0, ge=1, le=120)
     evolution_signal_collection_timeout_seconds: float = Field(
         default=1.0,
         ge=0.05,

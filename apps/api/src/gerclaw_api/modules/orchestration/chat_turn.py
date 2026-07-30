@@ -145,6 +145,38 @@ class ChatTurnCoordinator:
                         ) from cancellation_error
                     raise
                 except Exception as error:
+                    # Some provider/AgentScope stream wrappers convert an
+                    # injected task cancellation into a normal stream error.
+                    # The durable user intent remains authoritative: never
+                    # turn a requested stop/steer into a failed Run.
+                    cancelled = (
+                        cancellation_requested is not None
+                        and await cancellation_requested()
+                    )
+                    steered = (
+                        not cancelled
+                        and steering_requested is not None
+                        and await steering_requested()
+                    )
+                    if cancelled or steered:
+                        cancellation_persisted = await finalize_failure(
+                            TraceStatus.CANCELLED,
+                            "CHAT_STEERED" if steered else "CHAT_CANCELLED",
+                            fencing_token,
+                            lease_guard,
+                        )
+                        failure_handled = True
+                        if not cancellation_persisted:
+                            raise ChatCancellationFinalizationError(
+                                "converted cancellation could not be durably finalized"
+                            ) from error
+                        if steered:
+                            raise ChatSteeredInterruption(
+                                "old chat execution was replaced"
+                            ) from error
+                        raise asyncio.CancelledError(
+                            "explicit chat cancellation requested"
+                        ) from error
                     await finalize_failure(
                         TraceStatus.FAILED,
                         error_code(error),

@@ -216,6 +216,49 @@ async def test_steered_turn_uses_distinct_interruption_code() -> None:
 
 
 @pytest.mark.asyncio
+async def test_provider_converted_cancel_error_still_uses_steer_interruption() -> None:
+    coordinator = ChatTurnCoordinator(
+        conversation=_Conversation(),
+        traces=_Traces(status="running", created=True),
+        lease=_Lease(),
+    )  # type: ignore[arg-type]
+    statuses: list[tuple[TraceStatus, str, int | None]] = []
+
+    async def converted_cancellation(_guard: SimpleNamespace) -> object:
+        raise RuntimeError("provider converted task cancellation into stream failure")
+
+    async def finalize(
+        status: TraceStatus,
+        code: str,
+        fencing_token: int | None,
+        _guard: object,
+    ) -> bool:
+        statuses.append((status, code, fencing_token))
+        return True
+
+    with pytest.raises(ChatSteeredInterruption):
+        await coordinator.execute(
+            start_request=_start_request(uuid.uuid4()),
+            request_id="req_converted_steer",
+            trace_id="trace_converted_steer_1234",
+            tenant_id="tenant_test",
+            actor_id="actor_test",
+            session_id=uuid.uuid4(),
+            private_input_artifacts=None,
+            read_replay=lambda: _unexpected("replay must not run"),
+            emit_replay=lambda item: _unexpected("replay must not emit"),
+            wait_for_replay=None,
+            run_owned_turn=converted_cancellation,  # type: ignore[arg-type]
+            finalize_failure=finalize,
+            error_code=lambda error: "CHAT_EXECUTION_FAILED",
+            cancellation_requested=lambda: _return(False),  # type: ignore[arg-type]
+            steering_requested=lambda: _return(True),  # type: ignore[arg-type]
+        )
+
+    assert statuses == [(TraceStatus.CANCELLED, "CHAT_STEERED", 7)]
+
+
+@pytest.mark.asyncio
 async def test_concurrent_same_trace_waits_for_owner_and_replays() -> None:
     conversation = _Conversation()
     traces = _Traces(status="running", created=False)

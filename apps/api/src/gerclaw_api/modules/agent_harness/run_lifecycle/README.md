@@ -71,6 +71,11 @@ cancellation during cleanup. The coordinator carries the already-persisted steer
 SSE as a typed interruption instead of re-reading mutable Redis state during cleanup. Explicit
 cancel takes precedence when both durable signals exist before that outcome is frozen, and
 the local merge is monotonic so a stale Redis steer read cannot downgrade a concurrent cancel.
+If a provider wrapper converts the injected cancellation into a stream error, the coordinator
+reconciles that error with the durable identity-scoped intent before assigning a terminal
+outcome. The separately configured `agent_steer_interruption_wait_seconds` gives provider
+cleanup enough bounded time to persist `interrupted`; it does not enlarge the short
+Trace-to-Run discovery wait.
 
 The immediate-steer API now waits for the old Run's durable `interrupted` state before opening
 a deterministic successor Trace. A pending steer reserves the source against ordinary resume;

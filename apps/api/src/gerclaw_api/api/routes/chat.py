@@ -224,7 +224,7 @@ async def steer_chat(
         directive.target_run_id,
         tenant_id=identity.tenant_id,
         actor_id=identity.actor_id,
-        wait_seconds=settings.agent_directive_trace_wait_seconds,
+        wait_seconds=settings.agent_steer_interruption_wait_seconds,
         poll_interval_seconds=settings.agent_run_stream_poll_interval_seconds,
     )
     source = await RunResumeService(
