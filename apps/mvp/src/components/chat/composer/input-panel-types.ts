@@ -24,6 +24,7 @@ export interface ComposerInputPanelProps {
   contextLoading: boolean;
   companionMode: boolean;
   prescriptionConversation: boolean;
+  showMedicalDisclaimer: boolean;
   micDisabled: boolean;
   dragActive: boolean;
   hasUnboundParsedDocuments: boolean;

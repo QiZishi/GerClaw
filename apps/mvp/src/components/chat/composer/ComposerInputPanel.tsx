@@ -34,6 +34,7 @@ export function ComposerInputPanel({
   contextLoading,
   companionMode,
   prescriptionConversation,
+  showMedicalDisclaimer,
   micDisabled,
   dragActive,
   hasUnboundParsedDocuments,
@@ -235,16 +236,20 @@ export function ComposerInputPanel({
             />
           </div>
         </div>
-        <div className={cn("mt-1.5 text-muted-foreground", seniorMode ? "text-lg" : "text-[11px]")}>
-          {contextLoading && (
-            <span role="status" className={cn("mb-1 block text-primary", seniorMode && "text-lg")}>
-              正在恢复当前会话的技能，恢复完成后即可发送。
-            </span>
-          )}
-          {companionMode
-            ? "此模式提供情感支持，不替代医疗咨询、心理治疗或紧急援助。"
-            : MEDICAL_DISCLAIMER}
-        </div>
+        {(contextLoading || companionMode || showMedicalDisclaimer) && (
+          <div className={cn("mt-1.5 text-muted-foreground", seniorMode ? "text-lg" : "text-[11px]")}>
+            {contextLoading && (
+              <span role="status" className={cn("mb-1 block text-primary", seniorMode && "text-lg")}>
+                正在恢复当前会话的技能，恢复完成后即可发送。
+              </span>
+            )}
+            {companionMode
+              ? "此模式提供情感支持，不替代医疗咨询、心理治疗或紧急援助。"
+              : showMedicalDisclaimer
+                ? MEDICAL_DISCLAIMER
+                : null}
+          </div>
+        )}
       </div>
       <Dialog
         open={limitDialogMessage !== null}

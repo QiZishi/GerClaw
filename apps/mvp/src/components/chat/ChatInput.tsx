@@ -42,6 +42,8 @@ interface ChatInputProps {
   companionMode?: boolean;
   /** Five-prescription collection keeps the familiar chat composer focused on voice, text and files. */
   prescriptionConversation?: boolean;
+  /** Hide the page-level reminder once the current answer already owns the required disclaimer. */
+  showMedicalDisclaimer?: boolean;
   placeholderOverride?: string;
 }
 
@@ -56,6 +58,7 @@ export function ChatInput({
   contextLoading = false,
   companionMode = false,
   prescriptionConversation = false,
+  showMedicalDisclaimer = true,
   placeholderOverride,
 }: ChatInputProps) {
   const [mounted, setMounted] = useState(false);
@@ -293,6 +296,7 @@ export function ChatInput({
       contextLoading={contextLoading}
       companionMode={companionMode}
       prescriptionConversation={prescriptionConversation}
+      showMedicalDisclaimer={showMedicalDisclaimer}
       micDisabled={micDisabled}
       dragActive={dragActive}
       hasUnboundParsedDocuments={hasUnboundParsedDocuments}

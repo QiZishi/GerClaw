@@ -4,6 +4,7 @@ import { HeartHandshake } from "lucide-react";
 
 import { ChatInput } from "@/components/chat/ChatInput";
 import { ChatWorkspaceHeader } from "@/components/chat/ChatWorkspaceHeader";
+import { shouldShowComposerDisclaimer } from "@/components/chat/composer/composer-disclaimer";
 import type {
   ChatDocumentAttachment,
   ChatSendAccepted,
@@ -17,6 +18,7 @@ import { PrescriptionConversation } from "@/components/prescription/Prescription
 import { RiskAlertLedger } from "@/components/risk-alert/RiskAlertLedger";
 import { SkillManager } from "@/components/skills/SkillManager";
 import { cn } from "@/lib/utils";
+import { MEDICAL_DISCLAIMER } from "@/lib/constants";
 import type { AnswerVersion } from "@/services/gerclaw/run-contract";
 import type { FivePrescriptionDraft } from "@/services/gerclaw/schemas";
 import type {
@@ -238,6 +240,10 @@ export function ChatWorkspaceView({
           onStartAction={onStartAction}
           contextLoading={contextLoading}
           companionMode={chatAction === "companion"}
+          showMedicalDisclaimer={shouldShowComposerDisclaimer(
+            messages,
+            MEDICAL_DISCLAIMER,
+          )}
         />
       )}
     </main>
