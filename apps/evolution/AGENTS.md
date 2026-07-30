@@ -29,6 +29,12 @@ copied into the production API image, or callable by the online Agent.
 - Every unavailable result uses a bounded reason code and contains no raw subprocess output.
 - Never trust supplied paired-gate booleans; recompute every per-case/slice/charter gate from
   baseline and candidate observations before signing and again before promotion.
+- Promotion revalidates the frozen candidate, sealed gate, approval authority, approval
+  freshness, and current signed release ledger. Release, ledger, immutable record, and consumed
+  ticket refs move in one Git ref transaction; immutable-track approval cannot be disabled.
+- Rollback targets only a public-key-verified record already present in the atomic release
+  ledger. External audit mirrors may degrade without undoing a committed release; the signed
+  Git ledger remains the repair source and the warning must be retained for operators.
 - Production dependencies must remain free of A-Evolve, GEPA, Adaptive Auto-Harness, training,
   or benchmark packages.
 

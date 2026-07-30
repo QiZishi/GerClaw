@@ -49,9 +49,22 @@ An absent checkout is a normal `unavailable` result. This application deliberate
 download an optimizer and does not provide a same-name fallback. Operators install a pinned
 source into an isolated environment only after supply-chain review.
 
-Current limitations: source availability, freeze, sealed evaluation, and an approval proof
-still do not mutate a release ref. Atomic promotion and rollback are the next module in this
-same isolated application.
+Promotion revalidates the clean frozen worktree, sealed gate, public-key human approval,
+trusted time ordering, freshness, and the current signed release ledger. A single Git
+`update-ref --stdin` transaction moves the release ref, ledger pointer, immutable signed record,
+and one-time approval-ticket ref together. Immutable-track approval is unconditional; mutable
+approval remains a deployment policy. The external JSONL audit mirror is append-only. If that
+mirror is temporarily unavailable, the atomic signed Git ledger remains authoritative and the
+result is explicitly `repair_required` rather than falsely reporting that the release failed.
+
+Rollback accepts only a valid Ed25519 release record already referenced by the immutable release
+record namespace. It creates a new signed history entry and atomically moves the release and
+ledger refs; arbitrary commits and merely well-formed but unreleased records are rejected.
+
+Current limitation: the release signer, human signer, sealed evaluator, Git ref protection, and
+external audit mirror still require deployment as separate identities/roots. Repository code
+enforces their contracts but cannot replace branch protection, HSM/enterprise approval, or
+operating-system permissions.
 
 Effectiveness is measured by deterministic source-pin tests, negative tests for wrong
 remote/commit/license evidence/dirty checkout, production image inspection, and an audited

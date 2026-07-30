@@ -141,6 +141,10 @@ class CandidateFreezer:
         frozen: FrozenCandidate,
     ) -> None:
         repository.require_clean()
+        try:
+            self._governance.validate_candidate(frozen.proposal)
+        except EvolutionGovernanceError as error:
+            raise CandidateControlError(error.code) from error
         if repository.head() != frozen.proposal.candidate_commit:
             raise CandidateControlError("EVOLUTION_HEAD_CHANGED_AFTER_FREEZE")
         if self.governance_digest() != frozen.governance_manifest_sha256:

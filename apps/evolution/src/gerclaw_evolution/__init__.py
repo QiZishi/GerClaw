@@ -30,7 +30,21 @@ from gerclaw_evolution.evaluation import (
     PairedEvaluationGate,
     PairedEvaluationReport,
 )
-from gerclaw_evolution.git_repository import GitRepository, IsolatedWorktreeFactory
+from gerclaw_evolution.git_repository import (
+    GitRepository,
+    IsolatedWorktreeFactory,
+    RefUpdate,
+)
+from gerclaw_evolution.release import (
+    JsonlReleaseAuditLog,
+    PromotionController,
+    PromotionResult,
+    ReleaseSigner,
+    ReleaseSigningKeyRecord,
+    ReleaseVerificationKeyRecord,
+    ReleaseVerifier,
+    SignedReleaseRecord,
+)
 from gerclaw_evolution.sources import (
     OFFICIAL_OPTIMIZER_PINS,
     OfficialOptimizerPin,
@@ -56,13 +70,22 @@ __all__ = [
     "HumanApprovalSigner",
     "HumanApprovalVerifier",
     "IsolatedWorktreeFactory",
+    "JsonlReleaseAuditLog",
     "OfficialOptimizerPin",
     "OptimizerAvailability",
     "OptimizerSourceInspector",
     "PairedEvaluationGate",
     "PairedEvaluationReport",
+    "PromotionController",
+    "PromotionResult",
+    "RefUpdate",
+    "ReleaseSigner",
+    "ReleaseSigningKeyRecord",
+    "ReleaseVerificationKeyRecord",
+    "ReleaseVerifier",
     "RepositoryAuthorityPolicy",
     "SealedEvaluatorProfile",
     "SealedGateAttestation",
     "SealedGatePayload",
+    "SignedReleaseRecord",
 ]

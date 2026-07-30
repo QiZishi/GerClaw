@@ -2,13 +2,25 @@
 
 from __future__ import annotations
 
+import builtins
 import re
 import subprocess
+from dataclasses import dataclass
 from pathlib import Path
 
 from gerclaw_evolution.contracts import CandidateControlError
 
 _WORKTREE_NAME = re.compile(r"^[a-z][a-z0-9-]{2,63}$")
+_OBJECT_ID = re.compile(r"^[a-f0-9]{40}$")
+
+
+@dataclass(frozen=True, slots=True)
+class RefUpdate:
+    """One compare-and-swap entry in an atomic Git ref transaction."""
+
+    ref_name: str
+    new_object_id: str
+    expected_old_object_id: str
 
 
 class GitRepository:
@@ -57,6 +69,116 @@ class GitRepository:
             self.bytes("merge-base", "--is-ancestor", base_commit, candidate_commit)
         except CandidateControlError as error:
             raise CandidateControlError("EVOLUTION_BASE_NOT_ANCESTOR") from error
+
+    def resolve_ref(self, ref_name: str) -> str | None:
+        self._validate_ref_name(ref_name)
+        try:
+            result = subprocess.run(
+                (
+                    "git",
+                    "-C",
+                    str(self.root),
+                    "rev-parse",
+                    "--verify",
+                    "--quiet",
+                    ref_name,
+                ),
+                check=False,
+                capture_output=True,
+                timeout=30,
+            )
+        except (OSError, subprocess.SubprocessError) as error:
+            raise CandidateControlError("EVOLUTION_GIT_UNAVAILABLE") from error
+        if result.returncode == 1:
+            return None
+        if result.returncode != 0:
+            raise CandidateControlError("EVOLUTION_GIT_COMMAND_FAILED")
+        try:
+            object_id = result.stdout.decode("ascii").strip()
+        except UnicodeDecodeError as error:
+            raise CandidateControlError("EVOLUTION_GIT_OUTPUT_INVALID") from error
+        if not _OBJECT_ID.fullmatch(object_id):
+            raise CandidateControlError("EVOLUTION_GIT_REF_INVALID")
+        return object_id
+
+    def store_blob(self, content: builtins.bytes) -> str:
+        try:
+            result = subprocess.run(
+                ("git", "-C", str(self.root), "hash-object", "-w", "--stdin"),
+                input=content,
+                check=False,
+                capture_output=True,
+                timeout=30,
+            )
+        except (OSError, subprocess.SubprocessError) as error:
+            raise CandidateControlError("EVOLUTION_GIT_UNAVAILABLE") from error
+        if result.returncode != 0:
+            raise CandidateControlError("EVOLUTION_GIT_COMMAND_FAILED")
+        try:
+            object_id = result.stdout.decode("ascii").strip()
+        except UnicodeDecodeError as error:
+            raise CandidateControlError("EVOLUTION_GIT_OUTPUT_INVALID") from error
+        if not _OBJECT_ID.fullmatch(object_id):
+            raise CandidateControlError("EVOLUTION_GIT_OBJECT_INVALID")
+        return object_id
+
+    def atomic_update_refs(self, updates: tuple[RefUpdate, ...]) -> None:
+        if not updates or len({update.ref_name for update in updates}) != len(updates):
+            raise CandidateControlError("EVOLUTION_REF_TRANSACTION_INVALID")
+        commands = ["start", "option no-deref"]
+        for update in updates:
+            self._validate_ref_name(update.ref_name)
+            self._require_direct_or_missing_ref(update.ref_name)
+            if not _OBJECT_ID.fullmatch(update.new_object_id) or not _OBJECT_ID.fullmatch(
+                update.expected_old_object_id
+            ):
+                raise CandidateControlError("EVOLUTION_REF_TRANSACTION_INVALID")
+            commands.append(
+                f"update {update.ref_name} {update.new_object_id} "
+                f"{update.expected_old_object_id}"
+            )
+        commands.extend(("prepare", "commit", ""))
+        try:
+            result = subprocess.run(
+                ("git", "-C", str(self.root), "update-ref", "--stdin"),
+                input="\n".join(commands).encode("ascii"),
+                check=False,
+                capture_output=True,
+                timeout=30,
+            )
+        except (OSError, subprocess.SubprocessError) as error:
+            raise CandidateControlError("EVOLUTION_GIT_UNAVAILABLE") from error
+        if result.returncode != 0:
+            raise CandidateControlError("EVOLUTION_ATOMIC_REF_UPDATE_FAILED")
+
+    def read_blob(self, object_id: str) -> builtins.bytes:
+        if not _OBJECT_ID.fullmatch(object_id):
+            raise CandidateControlError("EVOLUTION_GIT_OBJECT_INVALID")
+        return self.bytes("cat-file", "blob", object_id)
+
+    def _validate_ref_name(self, ref_name: str) -> None:
+        if (
+            not ref_name.startswith("refs/gerclaw/")
+            or any(character.isspace() for character in ref_name)
+            or len(ref_name) > 240
+        ):
+            raise CandidateControlError("EVOLUTION_REF_NAME_INVALID")
+        self.bytes("check-ref-format", ref_name)
+
+    def _require_direct_or_missing_ref(self, ref_name: str) -> None:
+        try:
+            result = subprocess.run(
+                ("git", "-C", str(self.root), "symbolic-ref", "--quiet", ref_name),
+                check=False,
+                capture_output=True,
+                timeout=30,
+            )
+        except (OSError, subprocess.SubprocessError) as error:
+            raise CandidateControlError("EVOLUTION_GIT_UNAVAILABLE") from error
+        if result.returncode == 0:
+            raise CandidateControlError("EVOLUTION_SYMBOLIC_REF_FORBIDDEN")
+        if result.returncode != 1:
+            raise CandidateControlError("EVOLUTION_GIT_COMMAND_FAILED")
 
 
 class IsolatedWorktreeFactory:
