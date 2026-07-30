@@ -118,8 +118,12 @@ export const useAppStore = create<AppState>()(
       role: "patient",
       setRole: (role) => {
         const changed = get().role !== role;
-        if (changed && !confirmDiscardArtifactDraft()) return false;
-        if (changed) useArtifactStore.getState().clear();
+        if (!changed) {
+          set({ role, seniorMode: role === "patient" });
+          return true;
+        }
+        if (!confirmDiscardArtifactDraft()) return false;
+        useArtifactStore.getState().clear();
         set({
           role,
           seniorMode: role === "patient" ? true : false,
