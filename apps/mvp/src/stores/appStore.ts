@@ -9,6 +9,10 @@ import type { ChatActionType, Citation, FileTag, RightPanelType, Role, Theme } f
 import { LAYOUT } from "@/lib/constants";
 import { STORAGE_KEYS } from "@/lib/storage";
 import { clampSidebarWidth } from "@/lib/workbench-layout";
+import {
+  confirmDiscardArtifactDraft,
+  useArtifactStore,
+} from "@/stores/artifactStore";
 
 interface AppState {
   // === 主题 ===
@@ -17,7 +21,7 @@ interface AppState {
 
   // === 角色 ===
   role: Role;
-  setRole: (role: Role) => void;
+  setRole: (role: Role) => boolean;
   /** 仅保留当前页面生命周期；游客重新进入时不恢复本地会话或管理入口。 */
   isGuest: boolean;
   setGuestMode: (isGuest: boolean) => void;
@@ -44,13 +48,13 @@ interface AppState {
   rightPanelOpen: boolean;
   rightPanelType: RightPanelType;
   rightPanelWidth: number;
-  setRightPanel: (type: RightPanelType, open?: boolean) => void;
-  closeRightPanel: () => void;
+  setRightPanel: (type: RightPanelType, open?: boolean) => boolean;
+  closeRightPanel: () => boolean;
   setRightPanelWidth: (width: number) => void;
 
   // === 当前会话 ===
   currentSessionId: string | null;
-  setCurrentSession: (id: string | null) => void;
+  setCurrentSession: (id: string | null) => boolean;
 
   // === 中间栏视图（聊天 / 技能管理）===
   // 对齐 Trae Work：点击技能管理在中间栏显示，而非右侧面板
@@ -112,7 +116,10 @@ export const useAppStore = create<AppState>()(
 
       // === 角色 ===
       role: "patient",
-      setRole: (role) =>
+      setRole: (role) => {
+        const changed = get().role !== role;
+        if (changed && !confirmDiscardArtifactDraft()) return false;
+        if (changed) useArtifactStore.getState().clear();
         set({
           role,
           seniorMode: role === "patient" ? true : false,
@@ -124,7 +131,9 @@ export const useAppStore = create<AppState>()(
           panelContent: "",
           streamingInterrupted: false,
           interruptedMessageId: null,
-        }),
+        });
+        return true;
+      },
       isGuest: false,
       setGuestMode: (isGuest) =>
         set({ isGuest, mainView: isGuest ? "chat" : get().mainView }),
@@ -151,14 +160,30 @@ export const useAppStore = create<AppState>()(
       rightPanelOpen: false,
       rightPanelType: null,
       rightPanelWidth: LAYOUT.rightPanel.default,
-      setRightPanel: (type, open = true) =>
+      setRightPanel: (type, open = true) => {
+        const leavingArtifact =
+          get().rightPanelType === "doc-editor" &&
+          (!open || type !== "doc-editor");
+        if (leavingArtifact && !confirmDiscardArtifactDraft()) return false;
+        if (leavingArtifact) useArtifactStore.getState().clear();
         set({
           rightPanelType: type,
           rightPanelOpen: open && type !== null,
           panelContent: "",
-        }),
-      closeRightPanel: () =>
-        set({ rightPanelOpen: false, rightPanelType: null }),
+        });
+        return true;
+      },
+      closeRightPanel: () => {
+        if (
+          get().rightPanelType === "doc-editor" &&
+          !confirmDiscardArtifactDraft()
+        ) {
+          return false;
+        }
+        useArtifactStore.getState().clear();
+        set({ rightPanelOpen: false, rightPanelType: null });
+        return true;
+      },
       setRightPanelWidth: (width) => {
         const maxWidth = typeof window !== "undefined"
           ? Math.min(LAYOUT.rightPanel.max, Math.floor(window.innerWidth * 0.8))
@@ -173,7 +198,24 @@ export const useAppStore = create<AppState>()(
 
       // === 当前会话 ===
       currentSessionId: null,
-      setCurrentSession: (id) => set({ currentSessionId: id, chatAction: "none" }),
+      setCurrentSession: (id) => {
+        if (
+          get().currentSessionId !== id &&
+          !confirmDiscardArtifactDraft()
+        ) {
+          return false;
+        }
+        if (get().currentSessionId !== id) {
+          useArtifactStore.getState().clear();
+          set({
+            currentSessionId: id,
+            chatAction: "none",
+            rightPanelOpen: false,
+            rightPanelType: null,
+          });
+        }
+        return true;
+      },
 
       // === 中间栏视图 ===
       mainView: "chat",

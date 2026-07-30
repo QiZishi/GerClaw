@@ -127,10 +127,10 @@ function ArtifactEditor({
                 variant="outline"
                 size="sm"
                 className={cn("shrink-0 gap-1.5", isSeniorPatient && "min-h-12 text-base")}
-                onClick={workspace.retrySave}
+                onClick={() => void workspace.retrySave()}
               >
                 <RefreshCw className="size-4" />
-                重试
+                {workspace.status === "conflict" ? "基于最新版本重试" : "重试"}
               </Button>
             )}
           </div>

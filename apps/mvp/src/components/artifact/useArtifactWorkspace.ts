@@ -172,6 +172,34 @@ export function useArtifactWorkspace(source: ArtifactDraftSource) {
     if (artifact) setStatus("dirty");
   };
 
+  const retrySave = async () => {
+    setErrorMessage(null);
+    if (status === "conflict" && source.runId) {
+      setStatus("saving");
+      try {
+        const { artifacts } = await readConversationArtifacts(
+          backendSessionId(source.sessionId),
+        );
+        const latest = latestArtifactForRun(artifacts, source.runId);
+        if (!latest) throw new Error("artifact no longer exists");
+        if (!mountedRef.current) return;
+        setArtifact(latest);
+        setStatus("dirty");
+        setStoreDirty(true);
+        setRetryNonce((current) => current + 1);
+      } catch (error) {
+        if (!mountedRef.current) return;
+        const failure = artifactSaveFailure(error);
+        setStatus(failure.status);
+        setErrorMessage(failure.message);
+        setStoreDirty(true);
+      }
+      return;
+    }
+    setStatus(artifact ? "dirty" : source.runId ? "creating" : "local-only");
+    setRetryNonce((current) => current + 1);
+  };
+
   return {
     source,
     artifact,
@@ -183,10 +211,6 @@ export function useArtifactWorkspace(source: ArtifactDraftSource) {
       updateDraft({ title: nextTitle, markdown: latestDraftRef.current.markdown }),
     setMarkdown: (nextMarkdown: string) =>
       updateDraft({ title: latestDraftRef.current.title, markdown: nextMarkdown }),
-    retrySave: () => {
-      setErrorMessage(null);
-      setStatus(artifact ? "dirty" : source.runId ? "creating" : "local-only");
-      setRetryNonce((current) => current + 1);
-    },
+    retrySave,
   };
 }

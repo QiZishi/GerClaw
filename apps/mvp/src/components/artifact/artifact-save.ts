@@ -48,7 +48,8 @@ export function artifactSaveFailure(error: unknown): {
   ) {
     return {
       status: "conflict",
-      message: "文档已在其他窗口更新。请复制当前修改后重新打开，避免覆盖较新的版本。",
+      message:
+        "文档已在其他窗口更新。点击“基于最新版本重试”会保留本地草稿，并在最新修订上再次保存。",
     };
   }
   return {

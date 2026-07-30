@@ -8,7 +8,6 @@ import { useRightPanelFrame } from "@/components/layout/right-panel/useRightPane
 import { LAYOUT } from "@/lib/constants";
 import { cn } from "@/lib/utils";
 import { useAppStore } from "@/stores/appStore";
-import { useArtifactStore } from "@/stores/artifactStore";
 import type { RightPanelType } from "@/types";
 
 const PANEL_TITLES: Record<NonNullable<RightPanelType>, string> = {
@@ -36,16 +35,8 @@ export function RightPanel() {
   const senior = role === "patient" && seniorMode;
 
   const requestClose = useCallback(() => {
-    if (
-      type === "doc-editor" &&
-      useArtifactStore.getState().dirty &&
-      !window.confirm("文档仍有未保存的修改。确定关闭并放弃这些修改吗？")
-    ) {
-      return;
-    }
     closePanel();
-    if (type === "doc-editor") useArtifactStore.getState().clear();
-  }, [closePanel, type]);
+  }, [closePanel]);
 
   useEffect(() => {
     if (!open) return;

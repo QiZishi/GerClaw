@@ -12,7 +12,7 @@
     "test:unit": "npm run test:layout && npm run test:composer && npm run test:message && npm run test:audio && npm run test:cga-audio && npm run test:markdown && npm run test:export && npm run test:account && npm run test:guest-access && npm run test:document && npm run test:gerclaw-proxy && npm run test:feedback && npm run test:runs && npm run test:chat && npm run test:prescription-report",
     "test:layout": "node --test src/lib/workbench-layout.test.ts",
     "test:composer": "node --test src/components/chat/composer/composer-contract.test.ts",
-    "test:message": "node --test src/components/chat/message/message-feedback.test.ts src/components/chat/message/answer-version.test.ts src/components/artifact/artifact-draft.test.ts src/components/artifact/artifact-save.test.ts",
+    "test:message": "node --test src/components/chat/message/message-feedback.test.ts src/components/chat/message/answer-version.test.ts src/components/artifact/artifact-draft.test.ts src/components/artifact/artifact-save.test.ts src/stores/artifactStore.test.ts",
     "test:audio": "node --test src/lib/audioPlaybackCoordinator.test.mjs src/lib/cga-audio.test.mjs src/lib/tts-text.test.mjs src/services/voice/pcm-wav.test.mjs",
     "test:cga-audio": "node scripts/verify-cga-audio-assets.mjs",
     "test:markdown": "node --test src/lib/markdown-gfm.test.ts src/lib/citation-markers.test.ts",

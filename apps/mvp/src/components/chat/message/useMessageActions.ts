@@ -71,9 +71,10 @@ export function useMessageActions({
     }
   };
   const editInDoc = () => {
-    openArtifactDraft(
+    const opened = openArtifactDraft(
       artifactDraftFromMessage(message, `${message.id}:${Date.now()}`),
     );
+    if (!opened) return;
     setRightPanel("doc-editor");
     onEdit?.(message.id);
   };
