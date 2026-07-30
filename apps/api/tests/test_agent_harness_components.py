@@ -86,10 +86,12 @@ def test_run_lifecycle_depends_only_on_protocol_safe_boundaries() -> None:
 def test_composition_entry_is_bounded_after_component_extraction() -> None:
     root = Path(__file__).parents[1] / "src" / "gerclaw_api" / "modules" / "agent_harness"
     orchestrator = (root / "orchestrator.py").read_text(encoding="utf-8")
+    composition_setup = (root / "composition_setup.py").read_text(encoding="utf-8")
 
     assert len(orchestrator.splitlines()) <= 800
-    assert "self._components.run_lifecycle" in orchestrator
-    assert "self._components.context_snapshot_assembler" in orchestrator
+    assert len(composition_setup.splitlines()) <= 300
+    assert "self._components.run_lifecycle" in composition_setup
+    assert "self._components.context_snapshot_assembler" in composition_setup
 
 
 def test_component_packages_do_not_read_environment_directly() -> None:
