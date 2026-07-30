@@ -16,6 +16,10 @@ Memory/Skill 的治理机制。
 排队到下一安全边界。该能力必须和提前感知窗口压力的上下文压缩一起实现，参考 Codex 可公开观察和
 核验的交互语义，但不得臆测、复制或硬编码未公开的内部阈值。
 
+**可用性同样是安全硬约束。** 不得用堆叠校验、宽泛关键词拦截或整段丢弃代替精确治理，导致正常模型输出
+频繁失败或无法展示。能够在权限和医疗底线内修复的错误必须把结构化问题反馈给智能体，回滚到该错误步骤
+开始前的 checkpoint 后有界重试，并保留此前已经验证的正文、证据和产物。
+
 每一阶段必须是独立变更集，完成相关测试、真实 GUI 审阅和 Conventional Commit 后才能进入下一阶段。阶段内只跑相关测试；阶段 7 才跑全量回归。
 
 ## 2. 阶段与状态
@@ -1060,6 +1064,63 @@ proposal ID、track、candidate commit、审批主体和时间。发布与回滚
 - `context_snapshot`、`run_lifecycle`、`planning`、`memory` 和前端 Composer/Controller 分开形成小步
   Conventional Commit；每个模块相关测试通过后及时提交，最后由独立子智能体审阅。阶段 6 的任何离线候选若
   改动这些机制，也必须通过上述 sealed 反例，平均质量提升不能抵消其中任一退化。
+
+#### 6.7 安全校验的可用性、反馈修复与步骤级回退硬约束
+
+“安全”不能被实现成高误杀率的拒绝系统。每个校验器必须先声明保护的具体资产、精确失败条件、可修复性、
+用户可见降级和恢复 checkpoint；禁止用含义宽泛的关键词、模型自判“可能危险”或“宁可全拒”的策略拦截
+正常输出。新增门禁必须同时提交正例、反例和 false-positive 回归，证明不会破坏普通知识、陪伴、CGA、
+用药审查、五大处方、Artifact 和非医疗对话。
+
+失败分为两类：
+
+1. **可修复校验错误**：模型 JSON/schema 局部不合法、缺少必填免责声明、Citation marker 未绑定、
+   某个工具结果字段越界、格式/长度超限、可重新压缩的上下文超窗、可替换 Provider 失败等。系统必须先
+   持久化稳定错误码、失败字段、期望合同和对应 checkpoint；撤销本步骤产生的未验证状态，把最小必要的
+   `ValidationFeedback` 输入给智能体或 fallback，明确“哪里错、为什么不符合合同、下一次必须如何修复”，
+   然后从该步骤开始前重试。反馈不得包含 sealed case、密钥、隐藏 Prompt、private chain-of-thought、
+   其他用户数据或可用于绕过门禁的内部阈值。
+2. **不可安全继续的错误**：tenant/actor/Conversation 身份不匹配、授权或 fresh permit 缺失、fencing
+   失效、凭据/跨主体数据泄露风险、真正终态冲突、输入或冻结上下文损坏、固定安全输入超过模型硬窗口且无法
+   降级，以及经过修复仍会产生明确高风险医疗伤害的输出。此类错误才 fail closed，并提供不泄密、可操作的
+   用户说明；禁止从空上下文、当前可变 Memory/Skill 或另一个 Run 偷偷重启。
+
+步骤级恢复语义固定为：
+
+```text
+checkpoint persisted
+→ execute one model/tool/post-processing step
+→ validate at the owning trust boundary
+→ success: persist output and advance checkpoint
+→ repairable failure: rollback this step only
+→ emit bounded ValidationFeedback
+→ retry/fallback from the same pre-step checkpoint
+→ retries exhausted: preserve valid prior output and degrade affected section
+```
+
+- 重试必须有配置注入的次数、Token、延迟和总预算，且错误签名相同时采用确定性修复或切换 fallback，不能让
+  模型在同一错误上无限循环。每次 attempt 使用单调序号并受同一 worker fencing 约束。
+- 校验粒度必须尽量局部：单个 Citation 不合格时先让智能体重绑；仍失败只移除或改写对应医学主张，不得丢弃
+  其他已验证段落。Artifact 某字段失败时保留合法字段和上一 revision。非致命后处理失败保留正文并进入
+  `completed_with_warnings`。工具失败使用节点 fallback；不能让一个 optional 能力拖垮完整回答。
+- 流式输出在公开前使用有界缓冲验证最小安全单元；已公开且已验证的单元不得因后续步骤失败被删除。尚未完成、
+  未验证的片段不能与 fallback 输出拼接。最终事件明确区分成功、带警告完成、失败、取消和中断。
+- 前端不得把稳定错误码、Zod/Pydantic 堆栈或 Provider 原文直接展示给用户。恢复中显示“正在修复本步骤”及
+  可取消状态；最终只解释受影响的局部能力、已保留内容和可执行的下一步。正常输出在通过精确校验后必须展示，
+  不能被装饰性或重复校验再次拦截。
+- `ValidationFeedback` 必须版本化并至少含 `step_id/attempt/error_code/field_paths/contract_version/
+  repair_action/checkpoint_id`；不保存用户正文副本。相同反馈在 resume/replay 中 exactly-once，旧 worker
+  不能在回滚后提交原失败结果。
+- 观测必须同时记录安全漏放和可用性损害：正常请求失败率、校验 false-positive 样本、首次修复成功率、
+  平均重试次数、保留有效正文比例、`completed_with_warnings` 比例及用户取消率。任何新安全门导致正常切片
+  可用性下降、频繁重试、Token/延迟超预算或答案大面积消失，均视为安全回归，不得晋升。
+- 测试至少覆盖：正常输出不被误杀；schema/Citation/工具输出第一次失败后从原 checkpoint 修复成功；
+  连续相同错误切 deterministic fallback；optional 后处理失败保留正文；不可恢复身份/权限错误不重试；
+  回滚后旧 worker 禁写；修复反馈无正文/密钥/阈值；流式已验证段落保留；错误重放 exactly-once。真实
+  Playwright CLI 要观察一次“正在修复 → 正常完成”和一次“局部降级但正文保留”，不得用 route mock。
+
+该约束写入组件宪章和 sealed gate：安全评测不能只统计拦截率，还必须对普通、复杂、老年交互和低风险内容
+执行可用性非退化门禁。平均安全分提升不能抵消任何核心正常路径从成功变失败，也不能抵消单病例输出质量下降。
 
 ### 阶段 7
 
