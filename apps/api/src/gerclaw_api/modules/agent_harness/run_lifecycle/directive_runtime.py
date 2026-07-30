@@ -45,7 +45,9 @@ class DirectivePreflightDecision(Protocol):
 DirectivePreflight = Callable[..., DirectivePreflightDecision]
 
 
-def _agent_text_values(agent: Any) -> tuple[str, ...]:
+def agent_text_values(agent: Any) -> tuple[str, ...]:
+    """Return only model-visible text for content-free capacity accounting."""
+
     return tuple(
         block.text
         for message in agent.state.context
@@ -113,7 +115,7 @@ class RuntimeDirectiveCoordinator:
 
         directives, boundary_id, claimed_ids, risk_codes = await self._consume(
             budget=budget,
-            text_values=(user_message, *_agent_text_values(agent)),
+            text_values=(user_message, *agent_text_values(agent)),
             boundary_kind="before-model",
         )
         if not directives:
@@ -135,10 +137,37 @@ class RuntimeDirectiveCoordinator:
     ) -> int:
         """Append directives after a completed tool result for the next model call."""
 
+        return await self._apply_between_steps(
+            agent=agent,
+            budget=budget,
+            boundary_kind="after-tool-result",
+        )
+
+    async def apply_before_model(
+        self,
+        *,
+        agent: Any,
+        budget: DirectiveBudget,
+    ) -> int:
+        """Catch directives that arrived after the previous safe boundary."""
+
+        return await self._apply_between_steps(
+            agent=agent,
+            budget=budget,
+            boundary_kind="before-react-model",
+        )
+
+    async def _apply_between_steps(
+        self,
+        *,
+        agent: Any,
+        budget: DirectiveBudget,
+        boundary_kind: str,
+    ) -> int:
         directives, boundary_id, claimed_ids, risk_codes = await self._consume(
             budget=budget,
-            text_values=_agent_text_values(agent),
-            boundary_kind="after-tool-result",
+            text_values=agent_text_values(agent),
+            boundary_kind=boundary_kind,
         )
         for directive in directives:
             agent.state.context.append(

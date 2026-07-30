@@ -44,6 +44,7 @@ ApprovalParker = Callable[[list[ToolCallBlock]], Awaitable[tuple[str, ...]]]
 EvidenceAvailable = Callable[[str], bool]
 ToolResultObserver = Callable[[str, str, dict[str, JsonValue]], Awaitable[None]]
 SafeBoundaryObserver = Callable[[], Awaitable[int]]
+ToolBoundaryObserver = Callable[[str], Awaitable[None]]
 
 
 class StreamBudget(Protocol):
@@ -129,6 +130,8 @@ async def project_agent_stream(
     lifecycle: RunLifecycle,
     timeout_error_factory: Callable[[], Exception],
     tool_result_observer: ToolResultObserver | None = None,
+    model_boundary_observer: SafeBoundaryObserver | None = None,
+    tool_boundary_observer: ToolBoundaryObserver | None = None,
     safe_boundary_observer: SafeBoundaryObserver | None = None,
 ) -> AgentStreamResult:
     """Execute one agent stream while enforcing safety, budgets, and terminal integrity."""
@@ -180,6 +183,16 @@ async def project_agent_stream(
     ):
         if isinstance(event, ModelCallStartEvent):
             budget.check_wall_clock()
+            if model_boundary_observer is not None:
+                applied_count = await model_boundary_observer()
+                if applied_count:
+                    await emit(
+                        "reasoning_summary",
+                        {
+                            "content": "已接收追加要求并继续处理…",
+                            "status": "running",
+                        },
+                    )
             budget.add_step()
             budget.add_model_call()
             await emit(
@@ -196,6 +209,8 @@ async def project_agent_stream(
             )
         elif isinstance(event, ToolCallStartEvent):
             budget.check_wall_clock()
+            if tool_boundary_observer is not None:
+                await tool_boundary_observer(event.tool_call_name)
             budget.add_tool_call()
             tool_names[event.tool_call_id] = event.tool_call_name
             tool_arguments[event.tool_call_id] = ""

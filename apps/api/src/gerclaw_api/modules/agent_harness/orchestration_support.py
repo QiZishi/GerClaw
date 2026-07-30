@@ -2,7 +2,9 @@
 
 from __future__ import annotations
 
-from collections.abc import AsyncIterator
+import inspect
+from collections.abc import AsyncIterator, Awaitable, Callable
+from datetime import UTC, datetime
 from typing import Any
 
 from agentscope.message import ToolCallBlock
@@ -14,6 +16,7 @@ from gerclaw_api.modules.agent_harness.plugin_runtime import (
     ApprovalCallback,
     ApprovalCoordinator,
 )
+from gerclaw_api.modules.agent_harness.protocols import StreamEvent
 from gerclaw_api.modules.agent_harness.run_lifecycle import bounded_events
 from gerclaw_api.modules.agent_harness.run_lifecycle.directive_runtime import (
     RuntimeDirectiveCoordinator,
@@ -29,6 +32,7 @@ from gerclaw_api.modules.runtime.models import (
     RuntimePrincipal,
     ToolCapability,
 )
+from gerclaw_api.modules.validation import validate_harness_stream_event
 from gerclaw_api.security import JsonValue
 
 
@@ -47,7 +51,19 @@ class OrchestrationSupportMixin:
         callback: Any,
         event_type: str,
         data: dict[str, JsonValue],
-    ) -> None: ...
+    ) -> None:
+        event = validate_harness_stream_event(
+            StreamEvent.model_validate(
+                {
+                    "event_type": event_type,
+                    "data": data,
+                    "timestamp": datetime.now(UTC),
+                }
+            )
+        )
+        result = callback(event)
+        if inspect.isawaitable(result):
+            await result
 
     def _bounded_agent_events(
         self,
@@ -133,3 +149,27 @@ class OrchestrationSupportMixin:
                 },
             )
         return effective, None
+
+    @staticmethod
+    def _skill_metadata(skills: list[Any]) -> dict[str, tuple[str, str]]:
+        metadata: dict[str, tuple[str, str]] = {}
+        for skill in skills:
+            if skill.dir.startswith("skill://") and "@" in skill.dir:
+                name, version = skill.dir.removeprefix("skill://").rsplit("@", maxsplit=1)
+                metadata[skill.name] = (name, version)
+        return metadata
+
+    @staticmethod
+    def _skill_result_observer(
+        governance: Any,
+    ) -> Callable[[str, str, dict[str, JsonValue]], Awaitable[None]]:
+        async def observe(
+            tool_name: str,
+            status: str,
+            result_data: dict[str, JsonValue],
+        ) -> None:
+            skill_id = result_data.get("skill")
+            if tool_name == "Skill" and status == "success" and isinstance(skill_id, str):
+                governance.complete_optional_capability(skill_id)
+
+        return observe

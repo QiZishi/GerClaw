@@ -19,6 +19,13 @@ fake probability is produced. Equal-value ASK is preferred over EXAM. The model 
 checks remaining model/tool/token budgets and the provider context window before construction.
 The selected action changes the production plan: mandatory missing treatment information
 produces a deterministic `clinical.ask` node and returns before retrieval or model execution.
+Every AgentScope `ModelCallStartEvent` is now a real pre-side-effect boundary: the coordinator
+recounts the current Agent state, applied runtime directives, images, consumed Runtime budget,
+and output reserve before allowing the provider iterator to advance. Before a tool executes,
+the same policy reserves one tool call, a bounded result sized from injected evidence/output
+reserves, and the follow-up model call needed to consume that result. These checks run for each
+ReAct iteration rather than only once at turn construction.
+
 The coordinator derives missing age, allergy status, complete medication list, and
 comorbidity/organ-function questions from the actual source-linked state, so this path is
 reachable on a new conversation rather than requiring pre-seeded unknowns. Questions are

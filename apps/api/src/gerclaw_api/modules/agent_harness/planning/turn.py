@@ -161,3 +161,29 @@ class TurnPlanningCoordinator:
                 output_reserve_tokens=self._output_reserve_tokens,
             ),
         )
+
+    def check_tool(
+        self,
+        *,
+        usage: ExecutionUsage,
+        text_values: tuple[str, ...],
+        image_count: int,
+        result_reserve_tokens: int,
+    ) -> BudgetPreflightDecision:
+        """Reserve one tool result and the model call needed to consume it."""
+
+        estimated_input_tokens = (
+            self._input_overhead_tokens
+            + image_count * self._image_input_estimate_tokens
+            + approximate_input_tokens(text_values)
+            + result_reserve_tokens
+        )
+        return self._preflight.check(
+            usage,
+            ModelCallEstimate(
+                estimated_input_tokens=estimated_input_tokens,
+                output_reserve_tokens=self._output_reserve_tokens,
+                additional_model_calls=1,
+                additional_tool_calls=1,
+            ),
+        )

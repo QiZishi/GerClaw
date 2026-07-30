@@ -1401,6 +1401,16 @@ intent 做有界重复投递，Coordinator 一捕获取消就同步 acknowledge�
 信号不会打断持久化清理。相关 cancellation/coordinator/chat 测试 `48 passed`，Ruff、Mypy 通过；
 真实 queue→steer 链路的旧 Run 唯一进入 `interrupted`、successor 完成，提交为 `3465a319`。
 
+逐 ReAct/大型工具容量预检随后作为独立变更集落地：AgentScope 的每个
+`ModelCallStartEvent` 都在 Provider iterator 继续前重新盘点当前 Agent Context、已应用 directive、
+图片、累计预算和回答预留；第一轮继续复用已有冻结 Context 预检，后续轮次还能在
+`before-react-model` 边界领取上一边界后刚到达的 queue。每个工具执行前同时预留工具调用、按配置
+evidence/output reserve 取较大值的结果容量，以及消费结果所必需的下一次模型调用；预算不足时工具 owner
+尚未被调用。容量治理由 Planning callback 所有，Run Lifecycle 仅组合 Protocol-safe boundary，
+`orchestrator.py` 仍为 781 行并通过 800 行结构门禁。Harness/Directive/Planning/Component 聚焦测试
+`75 passed`，Ruff、Mypy 通过。PlanNode 持久 checkpoint/resume 和节点级局部 fallback 仍是下一独立
+变更集，没有借本次边界预检虚报完成。
+
 ### 阶段 7
 
 执行完整后端、前端、迁移、Compose、Playwright 和 axe 回归，覆盖患者、医生、访客和响应式关键路径；更新架构、Harness、前端、设计和产品规格，经独立审阅后归档本计划。

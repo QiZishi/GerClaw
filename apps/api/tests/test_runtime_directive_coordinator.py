@@ -140,3 +140,46 @@ async def test_explicit_run_budget_caps_claims_across_multiple_boundaries() -> N
     assert (first_count, second_count, third_count) == (2, 1, 0)
     assert requested_limits == [2, 1]
     assert len(applied) == 3
+
+
+@pytest.mark.asyncio
+async def test_before_model_boundary_uses_distinct_monotonic_identity() -> None:
+    boundaries: list[str] = []
+
+    async def load() -> tuple[RunDirectiveRead, ...]:
+        return ()
+
+    async def claim(
+        boundary_id: str,
+        _limit: int,
+    ) -> tuple[RunDirectiveRead, ...]:
+        boundaries.append(boundary_id)
+        return ()
+
+    async def apply(
+        _directive_ids: tuple[uuid.UUID, ...],
+        _boundary_id: str,
+    ) -> None:
+        raise AssertionError("empty claims must not be applied")
+
+    coordinator = RuntimeDirectiveCoordinator(
+        loader=load,
+        claimer=claim,
+        applier=apply,
+        preflight=lambda **_kwargs: SimpleNamespace(allowed=True, reason_code=""),
+        error_factory=RuntimeBudgetExceededError,
+        risk_classifier=lambda _instructions: (),
+        max_per_boundary=20,
+        max_per_run=200,
+        image_count=0,
+    )
+    agent = SimpleNamespace(state=SimpleNamespace(context=[]))
+
+    await coordinator.prepare_initial(
+        agent=agent,
+        budget=_Budget(),
+        user_message="原始要求",
+    )
+    await coordinator.apply_before_model(agent=agent, budget=_Budget())
+
+    assert boundaries == ["before-model-1", "before-react-model-2"]

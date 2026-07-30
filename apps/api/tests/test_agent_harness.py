@@ -260,6 +260,7 @@ def _harness(
     directive_claimer: Any = None,
     directive_applier: Any = None,
     attempt_repair_observer: Any = None,
+    execution_budget: ExecutionBudget | None = None,
 ) -> ProductionAgentHarness:
     return ProductionAgentHarness(
         settings=settings,
@@ -297,6 +298,7 @@ def _harness(
         directive_claimer=directive_claimer,
         directive_applier=directive_applier,
         attempt_repair_observer=attempt_repair_observer,
+        execution_budget=execution_budget,
     )
 
 
@@ -616,6 +618,105 @@ async def test_queued_directive_after_tool_result_reaches_next_model_call(
         and "工具完成后改为用两句话概括" in message.get_text_content()
         for message in model.last_messages
     )
+
+
+@pytest.mark.asyncio
+async def test_queued_directive_racing_after_tool_boundary_is_claimed_before_next_model(
+    unit_settings: Settings,
+) -> None:
+    applied_boundaries: list[str] = []
+    claimed_before_model = False
+
+    async def load() -> tuple[RunDirectiveRead, ...]:
+        return ()
+
+    async def claim(boundary_id: str, _limit: int) -> tuple[RunDirectiveRead, ...]:
+        nonlocal claimed_before_model
+        if not boundary_id.startswith("before-react-model") or claimed_before_model:
+            return ()
+        claimed_before_model = True
+        return (
+            _directive(
+                status=RunDirectiveStatus.CLAIMED,
+                instruction="下一轮模型调用前改为只列两个重点。",
+                boundary_id=boundary_id,
+            ),
+        )
+
+    async def apply(_directive_ids: tuple[object, ...], boundary_id: str) -> None:
+        applied_boundaries.append(boundary_id)
+
+    model = _HarnessModel(
+        use_tool=True,
+        text="已按两个重点整理。",
+    )
+    harness = _harness(
+        unit_settings,
+        model=model,
+        rag=_HarnessRAG([_evidence()]),
+        directive_loader=load,
+        directive_claimer=claim,
+        directive_applier=apply,
+    )
+    context = await harness.assemble_context(
+        "108815d7-05bf-4c2a-a977-cd034f390fab",
+        "usr_patient00000001",
+        [],
+        [],
+    )
+
+    await harness.process_message(
+        "请搜索老年跌倒预防资料",
+        "108815d7-05bf-4c2a-a977-cd034f390fab",
+        context,
+        lambda _event: None,
+    )
+
+    assert applied_boundaries == ["before-react-model-3"]
+    assert any(
+        message.name == "runtime_user_directive"
+        and "下一轮模型调用前改为只列两个重点" in message.get_text_content()
+        for message in model.last_messages
+    )
+
+
+@pytest.mark.asyncio
+async def test_tool_is_not_executed_without_budget_for_its_followup_model(
+    unit_settings: Settings,
+) -> None:
+    rag = _HarnessRAG([])
+    model = _HarnessModel(
+        use_tool=True,
+        tool_name="search_knowledge",
+        tool_input='{"query":"社区活动"}',
+        text="不应进入第二轮模型调用。",
+    )
+    harness = _harness(
+        unit_settings,
+        model=model,
+        rag=rag,
+        execution_budget=ExecutionBudget(
+            max_model_calls=1,
+            max_tool_calls=5,
+        ),
+    )
+    context = await harness.assemble_context(
+        "108815d7-05bf-4c2a-a977-cd034f390fab",
+        "usr_patient00000001",
+        [],
+        [],
+    )
+
+    with pytest.raises(RuntimeBudgetExceededError, match="RUNTIME_MODEL_CALLS_EXCEEDED"):
+        await harness.process_message(
+            "请搜索社区活动",
+            "108815d7-05bf-4c2a-a977-cd034f390fab",
+            context,
+            lambda _event: None,
+        )
+
+    assert model.calls == 1
+    assert rag.calls == []
 
 
 @pytest.mark.asyncio

@@ -23,6 +23,10 @@ from gerclaw_api.modules.agent_harness.run_lifecycle.protocols import (
     ProductionRunLifecycle,
     RunLifecycle,
 )
+from gerclaw_api.modules.agent_harness.run_lifecycle.react_boundaries import (
+    BoundReActBoundaries,
+    ReActBoundaryCoordinator,
+)
 from gerclaw_api.modules.agent_harness.run_lifecycle.state_machine import (
     AgentRunStateMachine,
     RunFenceConflictError,
@@ -47,9 +51,11 @@ __all__ = [
     "AgentRunStateMachine",
     "AgentStreamResult",
     "AttemptRepairObserver",
+    "BoundReActBoundaries",
     "CanonicalTextStream",
     "EmptyAgentResponseError",
     "ProductionRunLifecycle",
+    "ReActBoundaryCoordinator",
     "RepairableAgentSession",
     "RunFenceConflictError",
     "RunLifecycle",

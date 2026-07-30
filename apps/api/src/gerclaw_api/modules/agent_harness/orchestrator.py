@@ -3,11 +3,10 @@
 # ruff: noqa: RUF001
 from __future__ import annotations
 
-import inspect
 from collections.abc import Awaitable, Callable
-from datetime import UTC, datetime
+from functools import partial
 
-from agentscope.message import AssistantMsg, SystemMsg, ToolCallBlock, UserMsg
+from agentscope.message import AssistantMsg, SystemMsg, UserMsg
 from agentscope.model import ChatModelBase
 from agentscope.skill import Skill as AgentScopeSkill
 
@@ -62,6 +61,7 @@ from gerclaw_api.modules.agent_harness.run_lifecycle import (
     CanonicalTextStream,
     EmptyAgentResponseError,
     ProductionRunLifecycle,
+    ReActBoundaryCoordinator,
     RepairableAgentSession,
     SafeSentenceBuffer,
     UnsupportedAgentContextError,
@@ -117,7 +117,6 @@ from gerclaw_api.modules.security_evaluation import (
     GERIATRIC_AGENT_ASSET_NAME,
     build_core_runtime_asset_security_registry,
 )
-from gerclaw_api.modules.validation import validate_harness_stream_event
 from gerclaw_api.security import JsonValue
 from gerclaw_api.services.model_router import capture_model_attempts
 
@@ -246,6 +245,17 @@ class ProductionAgentHarness(OrchestrationSupportMixin):
             max_per_boundary=self._config.max_directives_per_boundary,
             max_per_run=self._config.max_directives_per_run,
             image_count=len(self._uploaded_images),
+        )
+        self._react_boundaries = ReActBoundaryCoordinator(
+            directives=self._runtime_directives,
+            model_preflight=self._turn_planning.check_model,
+            tool_preflight=self._turn_planning.check_tool,
+            error_factory=RuntimeBudgetExceededError,
+            image_count=len(self._uploaded_images),
+            tool_result_reserve_tokens=max(
+                self._config.context_evidence_reserve_tokens,
+                self._config.model_output_reserve_tokens,
+            ),
         )
         self._agent_factory = agent_factory or ProductionAgentFactory(
             model=model,
@@ -592,11 +602,7 @@ class ProductionAgentHarness(OrchestrationSupportMixin):
             return directive_response
         answer_node = governance.checkpoint(governance.answer_capability())
 
-        skill_metadata: dict[str, tuple[str, str]] = {}
-        for skill in self._agent_skills:
-            if skill.dir.startswith("skill://") and "@" in skill.dir:
-                name, version = skill.dir.removeprefix("skill://").rsplit("@", maxsplit=1)
-                skill_metadata[skill.name] = (name, version)
+        skill_metadata = self._skill_metadata(self._agent_skills)
         output_contract_retries = 0
         with (
             capture_model_attempts() as attempts,
@@ -611,30 +617,22 @@ class ProductionAgentHarness(OrchestrationSupportMixin):
                 ),
             )
 
-            async def park_approvals(tool_calls: list[ToolCallBlock]) -> tuple[str, ...]:
-                return await self._persist_approval_requests(
-                    tool_calls,
-                    capabilities=turn_toolkit.capabilities,
-                    input_models=turn_toolkit.input_models,
-                    stream_callback=stream_callback,
-                )
-
-            async def observe_tool_result(
-                tool_name: str,
-                status: str,
-                result_data: dict[str, JsonValue],
-            ) -> None:
-                if tool_name != "Skill" or status != "success":
-                    return
-                skill_id = result_data.get("skill")
-                if isinstance(skill_id, str):
-                    governance.complete_optional_capability(skill_id)
-
-            async def apply_directives_after_tool() -> int:
-                return await self._runtime_directives.apply_after_tool(
-                    agent=agent_session.agent,
-                    budget=budget,
-                )
+            park_approvals = partial(
+                self._persist_approval_requests,
+                capabilities=turn_toolkit.capabilities,
+                input_models=turn_toolkit.input_models,
+                stream_callback=stream_callback,
+            )
+            observe_tool_result = self._skill_result_observer(governance)
+            apply_directives_after_tool = partial(
+                self._runtime_directives.apply_after_tool,
+                agent=agent_session.agent,
+                budget=budget,
+            )
+            react_boundaries = self._react_boundaries.bind(
+                agent_provider=lambda: agent_session.agent,
+                budget=budget,
+            )
 
             try:
                 stream_result, output_contract_retries = (
@@ -657,6 +655,8 @@ class ProductionAgentHarness(OrchestrationSupportMixin):
                             "RUNTIME_WALL_CLOCK_EXCEEDED"
                         ),
                         tool_result_observer=observe_tool_result,
+                        model_boundary_observer=react_boundaries.before_model,
+                        tool_boundary_observer=react_boundaries.before_tool,
                         safe_boundary_observer=apply_directives_after_tool,
                     )
                 )
@@ -779,22 +779,3 @@ class ProductionAgentHarness(OrchestrationSupportMixin):
         """Compatibility shim for existing tests and consumers."""
 
         return self._uploaded_input.render_documents()
-
-    @staticmethod
-    async def _emit(
-        callback: StreamCallback,
-        event_type: str,
-        data: dict[str, JsonValue],
-    ) -> None:
-        event = validate_harness_stream_event(
-            StreamEvent.model_validate(
-                {
-                    "event_type": event_type,
-                    "data": data,
-                    "timestamp": datetime.now(UTC),
-                }
-            )
-        )
-        result = callback(event)
-        if inspect.isawaitable(result):
-            await result
