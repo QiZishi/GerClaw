@@ -410,10 +410,10 @@ def test_plan_execution_serializes_fallbacks_and_preserves_recovery_on_finalize(
     assert executor.failover_candidates(primary) == ()
     with pytest.raises(PlanningError, match="PLAN_FALLBACK_UNAVAILABLE"):
         executor.start_fallback(primary)
-    executor.complete(first)
-    assert executor.failover_candidates(primary) == ()
-    with pytest.raises(PlanningError, match="PLAN_FALLBACK_UNAVAILABLE"):
-        executor.start_fallback(primary)
+    with pytest.raises(PlanningError, match="PLAN_CAPABILITY_NOT_PENDING"):
+        executor.start_capability("primary.run")
+    executor.fail(first, "FIRST_FALLBACK_UNAVAILABLE")
+    assert executor.failover_candidates(primary) == ("fallback_two",)
     with pytest.raises(PlanningError, match="PLAN_CAPABILITY_NOT_PENDING"):
         executor.start_capability("primary.run")
 
@@ -461,6 +461,26 @@ def test_plan_transition_rejects_fallback_checkpoint_bypass_and_nonserial_histor
 
     with pytest.raises(PlanningError, match="PLAN_EXECUTION_FALLBACK_MISMATCH"):
         validate_plan_execution_transition(plan, failed_primary, bypassed)
+
+    first = executor.start_fallback(primary)
+    executor.fail(first, "FIRST_FALLBACK_UNAVAILABLE")
+    failed_fallback = executor.snapshot()
+    cleared_history = failed_fallback.model_copy(
+        update={
+            "statuses": {
+                **failed_fallback.statuses,
+                "primary": PlanNodeStatus.RUNNING,
+            },
+            "attempts": {
+                **failed_fallback.attempts,
+                "primary": failed_fallback.attempts["primary"] + 1,
+            },
+            "error_codes": {"fallback_one": "FIRST_FALLBACK_UNAVAILABLE"},
+            "fallbacks_used": {},
+        }
+    )
+    with pytest.raises(PlanningError, match="PLAN_EXECUTION_FALLBACK_MISMATCH"):
+        validate_plan_execution_transition(plan, failed_fallback, cleared_history)
 
     for nonserial_status in (
         PlanNodeStatus.RUNNING,

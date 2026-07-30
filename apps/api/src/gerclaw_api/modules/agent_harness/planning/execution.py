@@ -221,17 +221,6 @@ def validate_plan_execution_transition(
         before = current.fallbacks_used.get(source, ())
         after = updated.fallbacks_used.get(source, ())
         if (
-            not after
-            and source == node_id
-            and current.statuses[source] is PlanNodeStatus.FAILED
-            and status is PlanNodeStatus.RUNNING
-            and all(
-                current.statuses[fallback_id] is PlanNodeStatus.FAILED
-                for fallback_id in before
-            )
-        ):
-            pass
-        elif (
             len(after) == len(before) + 1
             and after[:-1] == before
             and after[-1] == node_id
@@ -324,6 +313,7 @@ class DynamicPlanExecutor:
                 and self._statuses[item.node_id]
                 in {PlanNodeStatus.PENDING, PlanNodeStatus.FAILED}
                 and not self._satisfied(item.node_id)
+                and not self._fallbacks_used.get(item.node_id)
             ),
             None,
         )
@@ -340,7 +330,6 @@ class DynamicPlanExecutor:
         self._statuses[node.node_id] = PlanNodeStatus.RUNNING
         self._attempts[node.node_id] += 1
         self._error_codes.pop(node.node_id, None)
-        self._fallbacks_used.pop(node.node_id, None)
         return node.node_id
 
     def complete(self, node_id: str) -> None:
