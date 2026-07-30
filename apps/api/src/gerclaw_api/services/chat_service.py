@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import hashlib
 import json
 import logging
 import time
@@ -745,6 +746,7 @@ class ChatService:
                 ),
                 model_context_tokens=self._model.context_size,
                 trigger_ratio=resolved_harness_config.context_trigger_ratio,
+                hard_stop_ratio=resolved_harness_config.context_hard_stop_ratio,
                 reserve_ratio=resolved_harness_config.context_reserve_ratio,
                 output_reserve_tokens=(resolved_harness_config.model_output_reserve_tokens),
                 input_overhead_tokens=(resolved_harness_config.model_input_overhead_tokens),
@@ -760,8 +762,13 @@ class ChatService:
                     int(self._model.context_size * self._settings.memory_context_budget_ratio),
                 ),
                 model_call_required=not emergency_route,
+                unresolved_item_ids=_clinical_unresolved_item_ids(clinical_state),
             )
-            compression_strategy = "none"
+            compression_strategy: Literal[
+                "none",
+                "agentscope-medical-summary-v1",
+                "deterministic-extractive-v1",
+            ] = "none"
             if (
                 draft.compression_required
                 and memory_enabled
@@ -769,31 +776,12 @@ class ChatService:
                 and regeneration is None
                 and (short_term or session_summary)
             ):
-                compressed = await memory.compress_context(
-                    short_term,
-                    max_tokens=max(1, draft.history_budget_tokens),
-                )
-                history = [
-                    ConversationHistoryMessage(
-                        role=cast(Any, message.role),
-                        text=message.text(),
+                try:
+                    compressed = await memory.compress_context(
+                        short_term,
+                        max_tokens=max(1, draft.history_budget_tokens),
                     )
-                    for message in compressed
-                    if message.role in {"user", "assistant"} and message.text()
-                ]
-                session_summary = "\n\n".join(
-                    message.text()
-                    for message in compressed
-                    if message.role == "system" and message.text()
-                )
-                compression_strategy = "agentscope-medical-summary-v1"
-                if (
-                    estimate_context_tokens(
-                        session_summary,
-                        *(item.text for item in history),
-                    )
-                    > draft.history_budget_tokens
-                ):
+                except Exception:
                     projected_history, session_summary = context_manager.compress_extractively(
                         tuple(history),
                         token_budget=draft.history_budget_tokens,
@@ -801,6 +789,35 @@ class ChatService:
                     )
                     history = list(projected_history)
                     compression_strategy = "deterministic-extractive-v1"
+                else:
+                    history = [
+                        ConversationHistoryMessage(
+                            role=cast(Any, message.role),
+                            text=message.text(),
+                        )
+                        for message in compressed
+                        if message.role in {"user", "assistant"} and message.text()
+                    ]
+                    session_summary = "\n\n".join(
+                        message.text()
+                        for message in compressed
+                        if message.role == "system" and message.text()
+                    )
+                    compression_strategy = "agentscope-medical-summary-v1"
+                    if (
+                        estimate_context_tokens(
+                            session_summary,
+                            *(item.text for item in history),
+                        )
+                        > draft.history_budget_tokens
+                    ):
+                        projected_history, session_summary = context_manager.compress_extractively(
+                            tuple(history),
+                            token_budget=draft.history_budget_tokens,
+                            existing_summary=session_summary,
+                        )
+                        history = list(projected_history)
+                        compression_strategy = "deterministic-extractive-v1"
             elif draft.compression_required:
                 projected_history, session_summary = context_manager.compress_extractively(
                     tuple(history),
@@ -1665,3 +1682,15 @@ class ChatService:
         """Map internal exceptions to stable, non-provider public codes."""
 
         return public_chat_error_code(error)
+
+
+def _clinical_unresolved_item_ids(state: ClinicalState) -> tuple[str, ...]:
+    """Keep unresolved lineage auditable without copying clinical text into metadata."""
+
+    values = (
+        *(("unknown", value) for value in state.unknowns),
+        *(("conflict", value) for value in state.conflicts),
+    )
+    return tuple(
+        f"{kind}:{hashlib.sha256(value.encode('utf-8')).hexdigest()[:24]}" for kind, value in values
+    )

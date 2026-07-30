@@ -44,9 +44,17 @@ Failure semantics:
 
 ## 容量预判与压缩实现
 
+OpenAI 公开说明确认 Codex 会在 Token 超过阈值后自动 compaction，并用较小、具有代表性的
+items 继续执行；公开资料还明确说明后续上下文由 compaction item 与早期窗口的高价值部分组成。
+GerClaw 只借鉴这两个公开语义，不复制未公开阈值、Prompt 或调度算法：
+[Unrolling the Codex agent loop](https://openai.com/index/unrolling-the-codex-agent-loop/)、
+[Equipping the Responses API with a computer environment](https://openai.com/index/equip-responses-api-computer-environment/)。
+
 `ContextWindowManager` 在模型调用前统一估算 `system/tools + current input + Profile +
 ClinicalState + Skills + documents + capability results + plan + images + evidence reserve +
-history + summary + output reserve`。达到 `context_trigger_ratio` 前就为历史分配预算，
+history + summary + output reserve`。`context_trigger_ratio` 是提前压缩的 soft trigger，
+`context_hard_stop_ratio` 是固定输入不可再缩时的 hard stop，配置必须满足
+`reserve < soft < hard < 1`；不使用 Codex 的私有比例。达到 soft trigger 前就为历史分配预算，
 并额外遵守 `memory_context_budget_ratio` 上限。固定输入本身超窗时返回稳定错误，不通过
 删除临床状态、文档片段或证据门禁“凑空间”。无 Provider tokenizer 的预检按 UTF-8
 三字节上界估算中文 Token，并由 trigger/target 间的保留区吸收模型 tokenizer 差异。
@@ -56,12 +64,16 @@ inventory，但即使超出模型窗口也不能阻断 120/急诊提示。
 历史超额时优先调用 AgentScope `ContextConfig` 的结构化医疗摘要：最近最多六条消息保留
 原文，摘要要求保留过敏、当前/停用药物及剂量、生命体征与时间、红旗和待确认项。压缩
 Provider 失败时切换 `deterministic-extractive-v1`：只摘录历史原句，用户临床关键句优先，
-历史助手句标为待核验，不生成新医学事实。加密 `sessions.context_summary` 保存
+用户明确目标、禁止项和验收要求与过敏/用药/红旗具有同级高价值优先级；历史助手句标为待核验，
+不生成新医学事实。结构化压缩抛错、超时或结果仍超预算时自动使用 deterministic fallback，
+不会把一次可修复的压缩失败升级成整轮失败。加密 `sessions.context_summary` 保存
 `source_hash` 和严格校验的 projection；完全相同的来源和预算直接复用，不再次调用模型。
 若结构化摘要与保留轮次仍超过动态 history budget，会再执行同预算的确定性摘录；最终
-projection 仍超过 trigger 时 fail closed。
-`context-projection-v1` 只保存 content-free Token 清单、压缩策略、原始/保留消息数和
-before/after 估算，并随 Run 冻结。
+projection 仍超过有效上限时才 fail closed。
+新 Run 使用 `context-projection-v2`，保存 content-free soft/hard/有效上限、Token 清单、
+压缩策略、源消息范围、稳定 source/retained/omitted IDs、摘要 hash 谱系、unknown/conflict
+不透明 ID 和 before/after 估算，并随 Run 冻结。v1 仍可解析，保证已中断旧 Run 不因合同升级
+丢失恢复能力。
 
 执行失败时，摘要、Memory 候选、assistant message 和成功终态处于同一事务；失败路径先
 rollback，再单独持久化失败 Trace/Run，旧 worker 仍受 fencing 阻断。服务/worker 丢失形成
@@ -72,6 +84,8 @@ Known limit: the snapshot freezes inputs and completed owner-capability results,
 current executor does not yet persist every AgentScope tool-call checkpoint. A resumed
 unfinished model/tool node may execute again behind existing idempotency and fencing
 boundaries. Node-level checkpoint continuation remains a Run Lifecycle responsibility.
+运行中用户指令的 `runtime_directives` reserve 和 exactly-once steer/queue 领取也将在下一个
+独立变更集接入；v2 已预留该 source kind，但当前不会伪造为已实现。
 
 Measure improvement with byte-stable serialized snapshots across resume, zero mutable
 context fetches on the resume path, bounded input, no cross-actor references, uninterrupted

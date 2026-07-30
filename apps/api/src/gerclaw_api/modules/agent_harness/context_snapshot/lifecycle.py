@@ -6,9 +6,10 @@ import hashlib
 import json
 import re
 from dataclasses import dataclass
+from typing import Literal
 
 from gerclaw_api.modules.agent_harness.context_snapshot.models import (
-    ContextProjectionManifest,
+    ContextProjectionManifestV2,
     ContextSnapshotError,
     ContextSourceBudget,
     ConversationHistoryMessage,
@@ -18,6 +19,9 @@ _SEGMENT = re.compile(r"[^。！？!?\n]+(?:[。！？!?]+|\n+|$)")  # noqa: RUF
 _CLINICAL_CRITICAL = re.compile(
     r"过敏|药|剂量|停用|血压|血糖|心率|胸痛|呼吸困难|意识|偏瘫|"
     r"出血|自伤|跌倒|诊断|检查|化验|手术|住院|急诊|否认|没有|不"
+)
+_USER_REQUIREMENT_CRITICAL = re.compile(
+    r"必须|不要|不能|禁止|要求|目标|验收|记住|优先|继续|中断|排队|修改|删除|更新"
 )
 
 
@@ -32,7 +36,9 @@ class ContextWindowDraft:
     """Pre-compression decision based on every known model-visible source."""
 
     model_context_tokens: int
-    trigger_tokens: int
+    soft_trigger_tokens: int
+    hard_stop_tokens: int
+    effective_limit_tokens: int
     target_tokens: int
     output_reserve_tokens: int
     history_budget_tokens: int
@@ -40,6 +46,10 @@ class ContextWindowDraft:
     history_tokens_before: int
     history_message_count: int
     source_hash: str
+    source_history: tuple[ConversationHistoryMessage, ...]
+    source_message_ids: tuple[str, ...]
+    summary_lineage_hashes: tuple[str, ...]
+    unresolved_item_ids: tuple[str, ...]
     sections: tuple[ContextSourceBudget, ...]
     compression_required: bool
     model_call_required: bool
@@ -56,6 +66,7 @@ class ContextWindowManager:
         fixed_sections: tuple[tuple[str, tuple[str, ...]], ...],
         model_context_tokens: int,
         trigger_ratio: float,
+        hard_stop_ratio: float,
         reserve_ratio: float,
         output_reserve_tokens: int,
         input_overhead_tokens: int,
@@ -64,11 +75,14 @@ class ContextWindowManager:
         evidence_reserve_tokens: int,
         history_cap_tokens: int | None = None,
         model_call_required: bool = True,
+        unresolved_item_ids: tuple[str, ...] = (),
     ) -> ContextWindowDraft:
         if model_context_tokens <= 0:
             raise ValueError("model context size must be positive")
-        if not 0 < reserve_ratio < trigger_ratio < 1:
-            raise ValueError("context ratios must satisfy 0 < reserve < trigger < 1")
+        if not 0 < reserve_ratio < trigger_ratio < hard_stop_ratio < 1:
+            raise ValueError(
+                "context ratios must satisfy 0 < reserve < soft trigger < hard stop < 1"
+            )
         if (
             min(
                 output_reserve_tokens,
@@ -95,7 +109,7 @@ class ContextWindowManager:
             tokens = estimate_context_tokens(*values)
             sections.append(
                 ContextSourceBudget(
-                    source=source,  # type: ignore[arg-type]
+                    source=source,
                     policy="required",
                     estimated_tokens=tokens,
                 )
@@ -134,28 +148,42 @@ class ContextWindowManager:
             )
         )
         history_total = history_tokens + summary_tokens
-        trigger_tokens = min(
+        hard_stop_tokens = min(
             model_context_tokens - output_reserve_tokens,
+            int(model_context_tokens * hard_stop_ratio),
+        )
+        soft_trigger_tokens = min(
             int(model_context_tokens * trigger_ratio),
+            hard_stop_tokens - 1,
         )
         target_tokens = min(
-            trigger_tokens,
+            soft_trigger_tokens,
             int(model_context_tokens * (trigger_ratio - reserve_ratio)),
         )
         if not model_call_required:
-            trigger_tokens = model_context_tokens
-            target_tokens = model_context_tokens
-        elif trigger_tokens <= 0 or target_tokens <= 0:
+            soft_trigger_tokens = model_context_tokens - 1
+            hard_stop_tokens = model_context_tokens
+            target_tokens = soft_trigger_tokens
+        elif soft_trigger_tokens <= 0 or hard_stop_tokens <= 1 or target_tokens <= 0:
             raise ContextSnapshotError("CONTEXT_OUTPUT_RESERVE_EXCEEDS_WINDOW")
-        if model_call_required and fixed_tokens > trigger_tokens:
+        if model_call_required and fixed_tokens > hard_stop_tokens:
             raise ContextSnapshotError("CONTEXT_REQUIRED_INPUT_EXCEEDS_WINDOW")
         estimated_before = fixed_tokens + history_total
-        window_compression_required = model_call_required and estimated_before > trigger_tokens
+        window_compression_required = model_call_required and estimated_before > soft_trigger_tokens
+        effective_limit_tokens = (
+            (hard_stop_tokens if fixed_tokens > soft_trigger_tokens else soft_trigger_tokens)
+            if model_call_required
+            else hard_stop_tokens
+        )
         available = (
-            target_tokens if window_compression_required else trigger_tokens
+            (
+                target_tokens
+                if window_compression_required and fixed_tokens <= target_tokens
+                else effective_limit_tokens
+            )
+            if model_call_required
+            else model_context_tokens
         ) - fixed_tokens
-        if model_call_required and available < 1 and history_total:
-            raise ContextSnapshotError("CONTEXT_REQUIRED_INPUT_EXCEEDS_WINDOW")
         history_budget = (
             min(
                 history_total,
@@ -180,9 +208,20 @@ class ContextWindowManager:
                 separators=(",", ":"),
             ).encode("utf-8")
         ).hexdigest()
+        source_message_ids = tuple(
+            item.stable_id or _derived_message_id(index=index, role=item.role, text=item.text)
+            for index, item in enumerate(history)
+        )
+        summary_lineage_hashes = (
+            (hashlib.sha256(session_summary.encode("utf-8")).hexdigest(),)
+            if session_summary
+            else ()
+        )
         return ContextWindowDraft(
             model_context_tokens=model_context_tokens,
-            trigger_tokens=trigger_tokens,
+            soft_trigger_tokens=soft_trigger_tokens,
+            hard_stop_tokens=hard_stop_tokens,
+            effective_limit_tokens=effective_limit_tokens,
             target_tokens=target_tokens,
             output_reserve_tokens=output_reserve_tokens,
             history_budget_tokens=history_budget,
@@ -190,6 +229,10 @@ class ContextWindowManager:
             history_tokens_before=history_total,
             history_message_count=len(history),
             source_hash=source_hash,
+            source_history=history,
+            source_message_ids=source_message_ids,
+            summary_lineage_hashes=summary_lineage_hashes,
+            unresolved_item_ids=unresolved_item_ids,
             sections=tuple(sections),
             compression_required=compression_required,
             model_call_required=model_call_required,
@@ -224,17 +267,23 @@ class ContextWindowManager:
             return tuple(retained), existing_summary
 
         candidates: list[tuple[int, int, str]] = []
+        seen_excerpts: set[str] = set()
         if existing_summary:
             candidates.append((2, -1, f"[既有摘要, 待核验]\n{existing_summary.strip()}"))
         for message_index, message in enumerate(older):
             role = "用户原文" if message.role == "user" else "历史助手内容, 待核验"
             for segment in _SEGMENT.findall(message.text):
                 excerpt = segment.strip()
-                if not excerpt:
+                if not excerpt or excerpt in seen_excerpts:
                     continue
+                seen_excerpts.add(excerpt)
                 priority = (
                     0
-                    if message.role == "user" and _CLINICAL_CRITICAL.search(excerpt)
+                    if message.role == "user"
+                    and (
+                        _CLINICAL_CRITICAL.search(excerpt)
+                        or _USER_REQUIREMENT_CRITICAL.search(excerpt)
+                    )
                     else 1
                     if message.role == "user"
                     else 2
@@ -245,7 +294,10 @@ class ContextWindowManager:
         for _priority, order, excerpt in sorted(candidates, key=lambda item: (item[0], -item[1])):
             excerpt_tokens = estimate_context_tokens(excerpt)
             if used + excerpt_tokens > remaining:
-                continue
+                excerpt = _truncate_exact_excerpt(excerpt, remaining - used)
+                excerpt_tokens = estimate_context_tokens(excerpt)
+                if not excerpt:
+                    continue
             selected.append((order, excerpt))
             used += excerpt_tokens
         selected.sort(key=lambda item: item[0])
@@ -258,34 +310,104 @@ class ContextWindowManager:
         *,
         history: tuple[ConversationHistoryMessage, ...],
         session_summary: str,
-        strategy: str,
-    ) -> ContextProjectionManifest:
+        strategy: Literal[
+            "none",
+            "agentscope-medical-summary-v1",
+            "deterministic-extractive-v1",
+        ],
+    ) -> ContextProjectionManifestV2:
         after_history_tokens = estimate_context_tokens(
             session_summary,
             *(item.text for item in history),
         )
         fixed_tokens = draft.estimated_tokens_before - draft.history_tokens_before
         estimated_after = fixed_tokens + after_history_tokens
-        if draft.model_call_required and estimated_after > draft.trigger_tokens:
+        if draft.model_call_required and estimated_after > draft.effective_limit_tokens:
             raise ContextSnapshotError("CONTEXT_COMPRESSION_INSUFFICIENT")
         compressed = after_history_tokens < draft.history_tokens_before
-        return ContextProjectionManifest(
+        retained_ids = _retained_source_ids(draft, history)
+        retained_id_set = set(retained_ids)
+        omitted_ids = tuple(
+            item for item in draft.source_message_ids if item not in retained_id_set
+        )
+        summary_lineage_hashes = list(draft.summary_lineage_hashes)
+        if session_summary:
+            projected_summary_hash = hashlib.sha256(session_summary.encode("utf-8")).hexdigest()
+            if projected_summary_hash not in summary_lineage_hashes:
+                summary_lineage_hashes.append(projected_summary_hash)
+        return ContextProjectionManifestV2(
             model_context_tokens=draft.model_context_tokens,
             projection_mode=(
                 "model_call" if draft.model_call_required else "deterministic_short_circuit"
             ),
-            trigger_tokens=draft.trigger_tokens,
+            soft_trigger_tokens=draft.soft_trigger_tokens,
+            hard_stop_tokens=draft.hard_stop_tokens,
+            effective_limit_tokens=draft.effective_limit_tokens,
             target_tokens=draft.target_tokens,
             output_reserve_tokens=draft.output_reserve_tokens,
             estimated_tokens_before=draft.estimated_tokens_before,
             estimated_tokens_after=estimated_after,
             history_budget_tokens=draft.history_budget_tokens,
             history_message_count=draft.history_message_count,
-            retained_history_message_count=len(history),
+            retained_history_message_count=len(retained_ids),
             compression_state="compressed" if compressed else "not_needed",
-            compression_strategy=(
-                strategy if compressed else "none"  # type: ignore[arg-type]
-            ),
+            compression_strategy=(strategy if compressed else "none"),
             source_hash=draft.source_hash,
+            source_message_ids=draft.source_message_ids,
+            retained_message_ids=retained_ids,
+            omitted_message_ids=omitted_ids,
+            source_range_start_id=(
+                draft.source_message_ids[0] if draft.source_message_ids else None
+            ),
+            source_range_end_id=(
+                draft.source_message_ids[-1] if draft.source_message_ids else None
+            ),
+            summary_lineage_hashes=tuple(summary_lineage_hashes),
+            unresolved_item_ids=draft.unresolved_item_ids,
             sections=draft.sections,
         )
+
+
+def _derived_message_id(*, index: int, role: str, text: str) -> str:
+    digest = hashlib.sha256(f"{role}\0{text}".encode()).hexdigest()[:24]
+    return f"history:{index}:{digest}"
+
+
+def _truncate_exact_excerpt(value: str, token_budget: int) -> str:
+    if token_budget < 1:
+        return ""
+    selected: list[str] = []
+    selected_bytes = 0
+    for character in value:
+        next_bytes = selected_bytes + len(character.encode())
+        if (next_bytes + 2) // 3 > token_budget:
+            break
+        selected.append(character)
+        selected_bytes = next_bytes
+    return "".join(selected).strip()
+
+
+def _retained_source_ids(
+    draft: ContextWindowDraft,
+    history: tuple[ConversationHistoryMessage, ...],
+) -> tuple[str, ...]:
+    remaining = list(zip(draft.source_history, draft.source_message_ids, strict=True))
+    retained: list[str] = []
+    for projected in history:
+        match_index = next(
+            (
+                index
+                for index, (source, source_id) in enumerate(remaining)
+                if (
+                    projected.stable_id == source_id
+                    or (projected.role == source.role and projected.text == source.text)
+                )
+            ),
+            None,
+        )
+        if match_index is None:
+            continue
+        _source, source_id = remaining.pop(match_index)
+        retained.append(source_id)
+    retained_set = set(retained)
+    return tuple(source_id for source_id in draft.source_message_ids if source_id in retained_set)

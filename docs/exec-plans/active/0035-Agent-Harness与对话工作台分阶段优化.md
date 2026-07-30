@@ -1110,6 +1110,19 @@ proposal ID、track、candidate commit、审批主体和时间。发布与回滚
   Conventional Commit；每个模块相关测试通过后及时提交，最后由独立子智能体审阅。阶段 6 的任何离线候选若
   改动这些机制，也必须通过上述 sealed 反例，平均质量提升不能抵消其中任一退化。
 
+2026-07-30 `context_snapshot` 变更集已按 OpenAI 公开的 Codex 自动阈值 compaction 与“compaction
+item + high-value earlier context”语义实现本地合同，不采用未公开比例：
+[Unrolling the Codex agent loop](https://openai.com/index/unrolling-the-codex-agent-loop/)、
+[Responses API computer environment](https://openai.com/index/equip-responses-api-computer-environment/)。
+新增配置注入的 soft/hard 双阈值（默认 0.85/0.95，强制 `reserve < soft < hard < 1`）、
+`context-projection-v2` 稳定 source/retained/omitted ID、源范围、摘要 hash 谱系和
+unknown/conflict 不透明 ID。固定输入在 soft 与 hard 之间时保留完整固定内容并清空/压缩历史；
+超过 hard 才在模型副作用前失败。模型压缩异常或超预算自动回退 deterministic extractive，
+用户明确目标/禁止项/验收要求与过敏、用药、红旗同级保留；v1 仍可恢复。steer/queue 指令 reserve
+和 exactly-once 领取尚未在此变更集实现，继续作为下一独立提交。
+相关 Context/Harness/Chat/Conversation/Resume/Config 测试 127/127 通过，4 项显式 integration
+环境测试按标记跳过；Ruff 与 11 个相关 source 的 Mypy 通过。
+
 #### 6.7 安全校验的可用性、反馈修复与步骤级回退硬约束
 
 “安全”不能被实现成高误杀率的拒绝系统。每个校验器必须先声明保护的具体资产、精确失败条件、可修复性、

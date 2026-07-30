@@ -14,6 +14,7 @@ from gerclaw_api.modules.agent_harness.context_snapshot.lifecycle import (
 from gerclaw_api.modules.agent_harness.context_snapshot.models import (
     AgentContext,
     ContextProjectionManifest,
+    ContextProjectionManifestV2,
     ContextSnapshotAssembler,
     ContextSnapshotError,
     ContextSourceBudget,
@@ -33,6 +34,7 @@ from gerclaw_api.modules.agent_harness.context_snapshot.uploaded_input import (
 __all__ = [
     "AgentContext",
     "ContextProjectionManifest",
+    "ContextProjectionManifestV2",
     "ContextSnapshotAssembler",
     "ContextSnapshotError",
     "ContextSnapshotInputs",

@@ -11,6 +11,10 @@ BoundedReference = Annotated[
     str,
     StringConstraints(strip_whitespace=True, min_length=1, max_length=256),
 ]
+BoundedStableId = Annotated[
+    str,
+    StringConstraints(pattern=r"^[a-zA-Z0-9][a-zA-Z0-9_.:-]{0,127}$"),
+]
 
 
 class ConversationHistoryMessage(BaseModel):
@@ -20,6 +24,7 @@ class ConversationHistoryMessage(BaseModel):
 
     role: Literal["user", "assistant"]
     text: str = Field(min_length=1, max_length=50_000)
+    stable_id: BoundedStableId | None = None
 
 
 class ContextSourceBudget(BaseModel):
@@ -36,6 +41,7 @@ class ContextSourceBudget(BaseModel):
         "documents",
         "capability_results",
         "plan",
+        "runtime_directives",
         "history",
         "history_summary",
         "images",
@@ -89,6 +95,85 @@ class ContextProjectionManifest(BaseModel):
         return self
 
 
+class ContextProjectionManifestV2(BaseModel):
+    """Dual-threshold projection with stable high-value retention lineage."""
+
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    schema_version: Literal["context-projection-v2"] = "context-projection-v2"
+    projection_mode: Literal["model_call", "deterministic_short_circuit"] = "model_call"
+    model_context_tokens: int = Field(ge=1, le=10_000_000)
+    soft_trigger_tokens: int = Field(ge=1, le=10_000_000)
+    hard_stop_tokens: int = Field(ge=1, le=10_000_000)
+    effective_limit_tokens: int = Field(ge=1, le=10_000_000)
+    target_tokens: int = Field(ge=1, le=10_000_000)
+    output_reserve_tokens: int = Field(ge=1, le=1_000_000)
+    estimated_tokens_before: int = Field(ge=0, le=10_000_000)
+    estimated_tokens_after: int = Field(ge=0, le=10_000_000)
+    history_budget_tokens: int = Field(ge=0, le=10_000_000)
+    history_message_count: int = Field(ge=0, le=200)
+    retained_history_message_count: int = Field(ge=0, le=200)
+    compression_state: Literal["not_needed", "compressed"]
+    compression_strategy: Literal[
+        "none",
+        "agentscope-medical-summary-v1",
+        "deterministic-extractive-v1",
+    ]
+    source_hash: str = Field(pattern=r"^[a-f0-9]{64}$")
+    source_message_ids: tuple[BoundedStableId, ...] = Field(default=(), max_length=200)
+    retained_message_ids: tuple[BoundedStableId, ...] = Field(default=(), max_length=200)
+    omitted_message_ids: tuple[BoundedStableId, ...] = Field(default=(), max_length=200)
+    source_range_start_id: BoundedStableId | None = None
+    source_range_end_id: BoundedStableId | None = None
+    summary_lineage_hashes: tuple[str, ...] = Field(default=(), max_length=20)
+    unresolved_item_ids: tuple[BoundedStableId, ...] = Field(default=(), max_length=200)
+    sections: tuple[ContextSourceBudget, ...] = Field(max_length=20)
+
+    @model_validator(mode="after")
+    def validate_projection(self) -> "ContextProjectionManifestV2":
+        if not (
+            self.target_tokens
+            <= self.soft_trigger_tokens
+            < self.hard_stop_tokens
+            <= self.model_context_tokens
+        ):
+            raise ValueError("context projection thresholds are inconsistent")
+        if not self.soft_trigger_tokens <= self.effective_limit_tokens <= self.hard_stop_tokens:
+            raise ValueError("context projection effective limit is inconsistent")
+        if (
+            self.projection_mode == "model_call"
+            and self.estimated_tokens_after > self.effective_limit_tokens
+        ):
+            raise ValueError("projected context still exceeds its effective limit")
+        if self.retained_history_message_count > self.history_message_count:
+            raise ValueError("retained history count exceeds source count")
+        if len(self.source_message_ids) != self.history_message_count:
+            raise ValueError("context source lineage count does not match history")
+        if len(set(self.source_message_ids)) != len(self.source_message_ids):
+            raise ValueError("context source lineage ids must be unique")
+        if set(self.retained_message_ids) & set(self.omitted_message_ids):
+            raise ValueError("retained and omitted context lineage overlap")
+        if set(self.retained_message_ids) | set(self.omitted_message_ids) != set(
+            self.source_message_ids
+        ):
+            raise ValueError("context lineage does not cover every source message")
+        expected_start = self.source_message_ids[0] if self.source_message_ids else None
+        expected_end = self.source_message_ids[-1] if self.source_message_ids else None
+        if self.source_range_start_id != expected_start or self.source_range_end_id != expected_end:
+            raise ValueError("context source range does not match lineage")
+        if any(
+            len(value) != 64 or any(character not in "0123456789abcdef" for character in value)
+            for value in self.summary_lineage_hashes
+        ):
+            raise ValueError("context summary lineage hash is invalid")
+        sources = [item.source for item in self.sections]
+        if len(sources) != len(set(sources)):
+            raise ValueError("context projection contains duplicate sources")
+        if (self.compression_state == "not_needed") != (self.compression_strategy == "none"):
+            raise ValueError("context compression state and strategy disagree")
+        return self
+
+
 class AgentContext(BaseModel):
     """Validated context snapshot assembled before entering the ReAct loop."""
 
@@ -107,7 +192,7 @@ class AgentContext(BaseModel):
     loaded_skills: tuple[BoundedReference, ...] = Field(default=(), max_length=50)
     uploaded_files: tuple[BoundedReference, ...] = Field(default=(), max_length=20)
     conversation_history: tuple[ConversationHistoryMessage, ...] = Field(default=(), max_length=200)
-    projection: ContextProjectionManifest | None = None
+    projection: ContextProjectionManifest | ContextProjectionManifestV2 | None = None
 
 
 class ContextSnapshotError(RuntimeError):

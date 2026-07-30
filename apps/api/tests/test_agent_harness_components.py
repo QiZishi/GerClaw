@@ -186,6 +186,7 @@ def test_resolved_config_is_validated_and_immutable() -> None:
     )
 
     assert config.max_react_iterations == 6
+    assert config.context_trigger_ratio < config.context_hard_stop_ratio
     with pytest.raises(ValidationError):
         ResolvedHarnessConfig(
             max_react_iterations=0,
@@ -196,6 +197,19 @@ def test_resolved_config_is_validated_and_immutable() -> None:
             memory_min_score=0.6,
             approval_ttl_seconds=900,
             context_trigger_ratio=0.85,
+            context_reserve_ratio=0.2,
+        )
+    with pytest.raises(ValidationError, match="soft trigger < hard stop"):
+        ResolvedHarnessConfig(
+            max_react_iterations=6,
+            max_output_characters=20_000,
+            max_output_bytes=80_000,
+            evidence_top_k=8,
+            memory_top_k=5,
+            memory_min_score=0.6,
+            approval_ttl_seconds=900,
+            context_trigger_ratio=0.85,
+            context_hard_stop_ratio=0.8,
             context_reserve_ratio=0.2,
         )
 

@@ -150,6 +150,33 @@ class _MemoryFacade:
         self.committed_count += 1
 
 
+class _FailingCompressionMemory(_MemoryFacade):
+    async def get_short_term(self, session_id: str, max_turns: int) -> list[MemoryMessage]:
+        await super().get_short_term(session_id, max_turns)
+        return [
+            MemoryMessage(
+                role="user" if index % 2 == 0 else "assistant",
+                content=[
+                    {
+                        "type": "text",
+                        "text": (
+                            "必须继续保留用户要求和验收标准。"
+                            if index == 0
+                            else "较旧的重复上下文。" * 120
+                        ),
+                    }
+                ],
+            )
+            for index in range(20)
+        ]
+
+    async def compress_context(
+        self, messages: list[MemoryMessage], max_tokens: int
+    ) -> list[MemoryMessage]:
+        del messages, max_tokens
+        raise RuntimeError("injected context compressor failure")
+
+
 def _memory_factory(memory: _MemoryFacade | None = None) -> Any:
     instance = memory or _MemoryFacade()
 
@@ -812,8 +839,12 @@ async def test_owned_turn_streams_only_after_durable_success(unit_settings: Sett
         run_journal.start_requests[0].context_snapshot["agent_context"],
     )
     projection = cast(dict[str, Any], agent_context["projection"])
-    assert projection["schema_version"] == "context-projection-v1"
-    assert projection["estimated_tokens_after"] <= projection["trigger_tokens"]
+    assert projection["schema_version"] == "context-projection-v2"
+    assert (
+        projection["estimated_tokens_after"]
+        <= projection["effective_limit_tokens"]
+        <= projection["hard_stop_tokens"]
+    )
     assert projection["source_hash"]
     assert run_journal.start_requests[0].fencing_token == 17
     assert run_journal.answer_message_ids
@@ -841,6 +872,58 @@ async def test_owned_turn_streams_only_after_durable_success(unit_settings: Sett
     replay_done = cast(Any, replay_events[-1])
     assert replay_done.event_type == "done"
     assert replay_done.data["replayed"] is True
+
+
+@pytest.mark.asyncio
+async def test_context_compressor_failure_uses_deterministic_high_value_fallback(
+    unit_settings: Settings,
+) -> None:
+    session_id = uuid.uuid4()
+    memory = _FailingCompressionMemory()
+    run_journal = _RunJournal()
+    model = _TextModel()
+    model.context_size = 16_384
+    service = ChatService(
+        settings=unit_settings,
+        conversation=cast(Any, _ConversationFacade(session_id)),
+        traces=cast(Any, _TraceFacade(created=True, session_id=session_id)),
+        lease=cast(Any, _OwnedLease()),
+        model=cast(Any, model),
+        rag_module=cast(Any, _NoopRAG()),
+        memory_factory=_memory_factory(memory),
+        run_journal=run_journal,
+    )
+
+    async def callback(_event: object) -> None:
+        return None
+
+    await service.process(
+        ChatRequest(
+            session_id=session_id,
+            message="请结合既往信息评估我的高血压用药和近期头晕情况。" * 12,
+        ),
+        identity=AuthContext(
+            actor_id="usr_patient_unit0001",
+            tenant_id="tenant_public0001",
+            scopes=frozenset({"chat:write"}),
+        ),
+        request_id="request_context_fallback_0001",
+        trace_id="trace_context_fallback_0001",
+        callback=cast(Any, callback),
+    )
+
+    projection = cast(
+        dict[str, Any],
+        cast(
+            dict[str, Any],
+            run_journal.start_requests[0].context_snapshot["agent_context"],
+        )["projection"],
+    )
+    assert projection["schema_version"] == "context-projection-v2"
+    assert projection["compression_strategy"] == "deterministic-extractive-v1"
+    assert projection["estimated_tokens_after"] <= projection["effective_limit_tokens"]
+    assert len(projection["source_message_ids"]) == 20
+    assert len(projection["retained_message_ids"]) + len(projection["omitted_message_ids"]) == 20
 
 
 @pytest.mark.asyncio

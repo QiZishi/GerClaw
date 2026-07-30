@@ -129,6 +129,7 @@ class Settings(BaseSettings):
     agent_max_output_bytes: int = Field(default=524_288, ge=4_000, le=2_097_152)
     agent_approval_ttl_seconds: int = Field(default=900, ge=60, le=86_400)
     agent_context_trigger_ratio: float = Field(default=0.85, gt=0, lt=1)
+    agent_context_hard_stop_ratio: float = Field(default=0.95, gt=0, lt=1)
     agent_context_reserve_ratio: float = Field(default=0.2, gt=0, lt=1)
     agent_context_evidence_reserve_tokens: int = Field(
         default=4_096,
@@ -602,6 +603,14 @@ class Settings(BaseSettings):
             raise ValueError("RAG rerank candidates cannot exceed retrieval candidates")
         if self.memory_retrieval_top_k > self.memory_retrieval_candidates:
             raise ValueError("memory top-k cannot exceed retrieval candidates")
+        if not (
+            self.agent_context_reserve_ratio
+            < self.agent_context_trigger_ratio
+            < self.agent_context_hard_stop_ratio
+        ):
+            raise ValueError(
+                "context ratios must satisfy reserve < soft trigger < hard stop"
+            )
         if (
             self.evolution_signal_max_concurrent_collections
             > self.evolution_signal_max_pending_collections

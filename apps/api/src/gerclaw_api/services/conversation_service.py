@@ -102,6 +102,7 @@ class ConversationService:
             ConversationHistoryMessage(
                 role=cast(Literal["user", "assistant"], message.role),
                 text=self._message_text(message),
+                stable_id=f"message:{message.id}",
             )
             for message in messages
             if message.role in {"user", "assistant"} and message.trace_id != exclude_trace_id

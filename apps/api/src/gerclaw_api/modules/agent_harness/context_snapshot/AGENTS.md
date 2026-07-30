@@ -27,13 +27,18 @@ reasoning, or unbounded history. Unknown and absent data must remain distinguish
   inventory. Current input, safety policy, ClinicalState, tool contracts, selected Skill
   versions, plan, document projection, image cost, and evidence/output reserves are required
   inputs. Only conversation history and its prior summary are compressible.
+- Capacity uses injected dual thresholds with `reserve < soft trigger < hard stop < 1`.
+  Crossing soft compresses history; crossing hard with required inputs fails before a
+  Provider side effect. Never copy a Codex-private ratio into GerClaw.
 - Emergency is a deterministic pre-model safety short-circuit. Context accounting must never
   turn a model-window overflow into a blocker for its 120/emergency-care response.
 - Compression must preserve recent turns verbatim and retain clinically critical user
   excerpts without converting them into diagnoses. A model compression failure must use the
   deterministic extractive fallback, never silently drop all history or fabricate a summary.
 - `source_hash`, strategy, before/after estimates, source budgets, and retained message counts
-  are frozen in `context-projection-v1`. Resume must reuse that projection.
+  are frozen. New Runs use `context-projection-v2`, including stable retained/omitted source
+  IDs, source range, summary hash lineage, and opaque unresolved-item IDs. Resume accepts and
+  reuses frozen v1 or v2 without silently rebuilding it.
 
 Consumers may depend on these models; this package depends only on public domain contracts.
 Run context, Harness, Chat, and recovery tests after changes.

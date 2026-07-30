@@ -19,6 +19,7 @@ class ResolvedHarnessConfig(BaseModel):
     memory_min_score: float = Field(ge=0, le=1)
     approval_ttl_seconds: int = Field(ge=60, le=86_400)
     context_trigger_ratio: float = Field(gt=0, lt=1)
+    context_hard_stop_ratio: float = Field(default=0.95, gt=0, lt=1)
     context_reserve_ratio: float = Field(gt=0, lt=1)
     context_evidence_reserve_tokens: int = Field(default=4_096, ge=256, le=32_768)
     quick_route_max_characters: int = Field(default=160, ge=1, le=1_000)
@@ -32,8 +33,14 @@ class ResolvedHarnessConfig(BaseModel):
 
     @model_validator(mode="after")
     def validate_context_ratios(self) -> "ResolvedHarnessConfig":
-        if self.context_reserve_ratio >= self.context_trigger_ratio:
-            raise ValueError("context reserve ratio must be lower than trigger ratio")
+        if not (
+            self.context_reserve_ratio
+            < self.context_trigger_ratio
+            < self.context_hard_stop_ratio
+        ):
+            raise ValueError(
+                "context ratios must satisfy reserve < soft trigger < hard stop"
+            )
         return self
 
     @classmethod
@@ -50,6 +57,7 @@ class ResolvedHarnessConfig(BaseModel):
             memory_min_score=settings.memory_min_score,
             approval_ttl_seconds=settings.agent_approval_ttl_seconds,
             context_trigger_ratio=settings.agent_context_trigger_ratio,
+            context_hard_stop_ratio=settings.agent_context_hard_stop_ratio,
             context_reserve_ratio=settings.agent_context_reserve_ratio,
             context_evidence_reserve_tokens=(settings.agent_context_evidence_reserve_tokens),
             quick_route_max_characters=settings.agent_quick_route_max_characters,
