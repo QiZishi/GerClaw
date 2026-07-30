@@ -36,8 +36,8 @@ Memory/Skill 的治理机制。
 | 3 | ClinicalState、动态规划与医疗门禁 | 已完成：四轮独立审阅修复、真实 GUI 与最终 ACCEPT |
 | 4 | 证据、Memory 与受治理能力组合 | 已完成：三项 P1 修复、真实 GUI/数据库复验、最终独立复审 ACCEPT |
 | 5 | 对话工作台 UI 与交互重构 | 已完成：独立审阅 3 项 P1 修复，真实 Playwright/axe 复验，最终 ACCEPT |
-| 6 | 双轨受控自进化与执行期上下文治理 | 已完成：双轨分类、Memory 在线 CRUD、Skill 在线/离线分轨、去内容化信号、隔离候选、paired/sealed gate、签名审批、原子晋升/回滚、真实拒绝闭环、Codex 风格压缩、steer/queue、逐边界预检、PlanNode checkpoint/resume 与局部 warning/fallback 均完成并通过独立复审 |
-| 7 | 最终回归、真实 GUI 对抗审阅与发布 | 进行中：全量后端、迁移、前端 unit/lint/build 与真实 Playwright/axe 已通过，等待独立终审和归档 |
+| 6 | 双轨受控自进化与执行期上下文治理 | 进行中：核心双轨、在线 Memory/低风险 Skill、steer/queue 与 PlanNode 已落地；最终独立审阅发现 ReAct 压缩、通用步骤修复和危险 Skill 离线桥接仍有 3 项 P1，修复复审前不得关闭 |
+| 7 | 最终回归、真实 GUI 对抗审阅与发布 | 已执行首轮全量回归与真实 Playwright/axe；因阶段 6 终审 REJECT 暂停归档，待 P1 修复后重跑受影响门禁和最终复审 |
 
 ## 3. 阶段 0：冻结基线与真实运行审计
 
@@ -1600,3 +1600,20 @@ category、provenance、exclusions、JSON 和标签均不进入 SSE/Conversation
 完整 external Provider 测试集没有作为本地全量门禁运行；真实 Provider 已由上述无 mock
 Playwright 路径覆盖。该边界在最终发布报告中必须如实保留，不能把 `not external` 写成 external
 套件通过。
+
+**阶段 6/7 独立终审纠偏（2026-07-31）：**
+
+独立子智能体在 `970cfce4` 上判定 `REJECT（P0=0、P1=3、P2=2）`，因此此前表格中的
+“阶段 6 已完成并通过独立复审”不成立，现已恢复为进行中。三个阻断是：
+
+1. 初始 Context Snapshot 与逐 ReAct 预检使用不同的 Token 估算，且逐 ReAct 路径没有可验证的
+   soft-threshold 高价值压缩/谱系合同；
+2. 文档所称“通用 checkpoint repair”超出生产事实，当前仅对回答协议标记做一次固定修复，没有覆盖
+   schema、工具结果边界、Context overflow、citation 和 Provider 可恢复错误；
+3. 危险 Skill 虽会生成离线提案，但 `apps/evolution` 尚无读取提案、执行对应 paired/sealed
+   evaluation 并晋升或拒绝的桥接，提案可能永久停留。
+
+另有两项必须补齐的测试/文档债务：`run_lifecycle/README.md` 的 checkpoint 限制描述已过期；
+Memory 10 路并发、跨主体 update/restore、vector 补偿，以及危险 Skill proposal 并发/竞态缺少承诺过的
+验收用例。修复原则仍是“可用性同样是安全”：可恢复错误在私有 attempt 内回到准确步骤并覆盖重做，
+不把错误尝试、安全策略名或修复过程泄露给用户；不可恢复或预算耗尽才产生简洁真实的终态。
