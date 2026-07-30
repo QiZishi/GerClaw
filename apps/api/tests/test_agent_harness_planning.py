@@ -129,6 +129,18 @@ def test_treatment_unknown_forces_ask_and_builds_clarification_only_plan() -> No
     assert plan.nodes[0].budget.tool_calls == 0
 
 
+def test_generic_medication_reconciliation_question_remains_answerable() -> None:
+    decision = ClinicalDecisionCoordinator(minimum_score=1).prepare(
+        state=_reported_state(),
+        message="请给出老年患者用药核对时最重要的三项信息。",
+        has_attachments=False,
+    )
+
+    assert decision.action_selection.selected is not None
+    assert decision.action_selection.selected.candidate.kind is ActionKind.ANSWER
+    assert decision.clarification_questions == ()
+
+
 def test_diagnostic_direction_is_source_linked_and_never_a_diagnosis() -> None:
     decision = ClinicalDecisionCoordinator(minimum_score=1).prepare(
         state=_reported_state(),
