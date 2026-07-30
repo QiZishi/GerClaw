@@ -25,7 +25,10 @@ from gerclaw_api.modules.agent_harness.context_snapshot import (
     compose_context_snapshot,
     render_untrusted_clinical_state,
 )
-from gerclaw_api.modules.agent_harness.evidence import bind_citation_markers
+from gerclaw_api.modules.agent_harness.evidence import (
+    ModelCitationBindingScope,
+    bind_turn_evidence,
+)
 from gerclaw_api.modules.agent_harness.planning import (
     AgentFactory,
     ClinicalDecisionCoordinator,
@@ -568,19 +571,12 @@ class ProductionAgentHarness:
             capture_agent_search_results() as search_results,
             capture_search_attempts() as search_attempts,
         ):
-
-            def has_traceable_evidence() -> bool:
-                return bool(
-                    initial_citations
-                    or self._uploaded_documents
-                    or self._uploaded_images
-                    or citations_from_results(
-                        agentic_results,
-                        minimum_score=self._config.evidence_min_score,
-                        limit=self._config.evidence_top_k,
-                    )
-                    or citations_from_search_results(search_results)
-                )
+            citation_scope = ModelCitationBindingScope(
+                local_citation_count=len(initial_citations),
+                web_citation_count_provider=lambda: len(
+                    citations_from_search_results(search_results)
+                ),
+            )
 
             async def emit(event_type: str, data: dict[str, JsonValue]) -> None:
                 await self._emit(stream_callback, event_type, data)
@@ -612,7 +608,8 @@ class ProductionAgentHarness:
                 max_output_characters=self._config.max_output_characters,
                 emit=emit,
                 park_approvals=park_approvals,
-                evidence_available=has_traceable_evidence,
+                evidence_available=citation_scope.segment_has_evidence,
+                public_text_transform=citation_scope.normalize_public_text,
                 memory_guard=turn_toolkit.memory_guard,
                 skill_metadata=skill_metadata,
                 search_results=search_results,
@@ -646,25 +643,22 @@ class ProductionAgentHarness:
             minimum_score=self._config.evidence_min_score,
             limit=self._config.evidence_top_k,
         )
-        local_citations = list(initial_citations)
-        local_source_ids = {item.source_id for item in local_citations}
-        local_citations.extend(
-            item
-            for item in additional_local_citations
-            if item.source_id not in local_source_ids
-        )
         web_citations = citations_from_search_results(search_results)
-        citations = [*local_citations, *web_citations]
-        if self._uploaded_documents:
-            citations.extend(attachment_projector.document_citations())
-        if self._uploaded_images:
-            citations.extend(attachment_projector.image_citations())
-        model_text = bind_citation_markers(
+        bound_evidence = bind_turn_evidence(
             model_text,
-            local_citation_count=len(initial_citations),
-            web_citation_count=len(web_citations),
-            web_citation_offset=len(local_citations),
+            initial_local=initial_citations,
+            additional_local=additional_local_citations,
+            web=web_citations,
+            attachments=[
+                *attachment_projector.document_citations(),
+                *attachment_projector.image_citations(),
+            ],
+            is_clinical_claim=(is_medical_message if medical_content else (lambda _segment: False)),
+            markers_already_bound=True,
         )
+        model_text = bound_evidence.text
+        citations = list(bound_evidence.citations)
+        claim_audit = bound_evidence.claim_audit
         patient_clinical_risk_notice_applied = bool(
             self._runtime_principal is not None
             and self._runtime_principal.role in {ActorRole.GUEST, ActorRole.PATIENT}
@@ -679,7 +673,7 @@ class ProductionAgentHarness:
         budget.add_output(disclaimer_delta)
         await self._emit(stream_callback, "text_delta", {"content": disclaimer_delta})
 
-        evidence_backed_clinical_conclusion_allowed = bool(citations)
+        claims_complete = claim_audit.all_clinical_claims_bound
         safe_tool_names: list[JsonValue] = []
         response = AgentResponse(
             text=final_text,
@@ -692,9 +686,7 @@ class ProductionAgentHarness:
             safety=safety_decision(
                 high_risk_codes,
                 deterministic_diagnosis_blocked=(stream_result.deterministic_diagnosis_blocked),
-                evidence_backed_clinical_conclusion_allowed=(
-                    evidence_backed_clinical_conclusion_allowed
-                ),
+                evidence_backed_clinical_conclusion_allowed=(claims_complete),
                 patient_clinical_risk_notice_applied=patient_clinical_risk_notice_applied,
             ),
             medical_content=medical_content,
@@ -719,7 +711,8 @@ class ProductionAgentHarness:
                 ],
                 "shared_result_kinds": turn_results.public_kinds(),
                 "document_focused": document_focused,
-                "evidence_backed_clinical_conclusion": evidence_backed_clinical_conclusion_allowed,
+                "evidence_backed_clinical_conclusion": claims_complete,
+                "claim_evidence_audit": claim_audit.model_dump(mode="json"),
                 "route": route_decision.route.value,
                 "route_reason": route_decision.reason_code,
                 "plan_node_ids": [node.node_id for node in dynamic_plan.nodes],
@@ -789,10 +782,12 @@ class ProductionAgentHarness:
         data: dict[str, JsonValue],
     ) -> None:
         event = validate_harness_stream_event(
-            StreamEvent(
-                event_type=event_type,
-                data=data,
-                timestamp=datetime.now(UTC),
+            StreamEvent.model_validate(
+                {
+                    "event_type": event_type,
+                    "data": data,
+                    "timestamp": datetime.now(UTC),
+                }
             )
         )
         result = callback(event)

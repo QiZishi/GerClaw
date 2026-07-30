@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import re
+from collections.abc import Callable
 
 from gerclaw_api.modules.agent_harness.evidence import EvidenceAdmissionPolicy
 from gerclaw_api.modules.contracts import Citation, SafetyDecision
@@ -107,6 +108,7 @@ _PATIENT_RISK_NOTICE_TRIGGER = re.compile(
     r"(?:您|患者|病人)(?:已经|已)?(?:患有|得了|就是得了)"
     r")"
 )
+_OUTPUT_CLAIM_SEGMENT = re.compile(r"[^。！？!?\n]+(?:[。！？!?]+|\n+|$)")
 
 
 class EvidenceUnavailableError(RuntimeError):
@@ -155,14 +157,15 @@ def sanitize_medical_text(
     text: str,
     *,
     allow_evidence_backed_clinical_conclusion: bool = False,
+    claim_evidence_validator: Callable[[str], bool] | None = None,
 ) -> str:
     """Normalize model text before public emission.
 
     The Harness owns the single, final disclaimer.  Removing a model-invented
     copy here prevents a duplicate footer in streamed UI. A clinical conclusion
-    is not deleted merely because it is direct: it may remain when the Runtime
-    has already obtained traceable local, web, or user-provided evidence for
-    this turn. Without that evidence, deterministic diagnostic language is
+    is not deleted merely because it is direct: it may remain only when the
+    same output segment names traceable evidence admitted by the Runtime.
+    Without that claim-level binding, deterministic diagnostic language is
     rewritten to prevent unsupported certainty.
     """
 
@@ -174,17 +177,31 @@ def sanitize_medical_text(
         condition = match.group("condition").strip()
         return f"提示{condition}的可能性，建议由医生进一步评估"
 
+    def sanitize_assertions(value: str, *, allow: bool) -> str:
+        if allow:
+            return value
+        for pattern in _DETERMINISTIC_DIAGNOSIS_ASSERTIONS:
+            value = pattern.sub(rewrite_assertion, value)
+        for pattern, replacement in _DETERMINISTIC_DIAGNOSIS_REWRITES:
+            value = pattern.sub(replacement, value)
+        return value
+
     sanitized = text.replace(MEDICAL_DISCLAIMER, "")
     for fragment in _MODEL_DISCLAIMER_FRAGMENTS:
         sanitized = sanitized.replace(fragment, "")
     sanitized = _MALFORMED_LIMITATION_DIAGNOSIS.sub(rewrite_malformed_limitation, sanitized)
-    if allow_evidence_backed_clinical_conclusion:
-        return sanitized
-    for pattern in _DETERMINISTIC_DIAGNOSIS_ASSERTIONS:
-        sanitized = pattern.sub(rewrite_assertion, sanitized)
-    for pattern, replacement in _DETERMINISTIC_DIAGNOSIS_REWRITES:
-        sanitized = pattern.sub(replacement, sanitized)
-    return sanitized
+    if claim_evidence_validator is not None:
+        return "".join(
+            sanitize_assertions(
+                match.group(0),
+                allow=claim_evidence_validator(match.group(0)),
+            )
+            for match in _OUTPUT_CLAIM_SEGMENT.finditer(sanitized)
+        )
+    return sanitize_assertions(
+        sanitized,
+        allow=allow_evidence_backed_clinical_conclusion,
+    )
 
 
 def requires_patient_clinical_risk_notice(text: str) -> bool:
@@ -216,7 +233,8 @@ def build_evidence_context(citations: list[Citation]) -> str:
         excerpt = _EMBEDDED_CITATION_MARKER.sub("", citation.excerpt[:3_000])
         entry = (
             f"[E{index}] {citation.title}\n来源：{citation.locator}\n"
-            f"引用时只使用本段标题的 [E{index}]，不要复制正文中的原始编号。\n"
+            f"采用本证据的每条医学事实或建议，必须在同一句末尾标注 [E{index}]；"
+            "不要复制正文中的原始编号。\n"
             "<untrusted-medical-evidence>\n"
             f"{excerpt}\n"
             "</untrusted-medical-evidence>"

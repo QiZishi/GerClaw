@@ -22,7 +22,7 @@ GerClaw 保持老年医学定位。眼科病灶定位不在本计划范围。在
 | 3 | ClinicalState、动态规划与医疗门禁 | 已完成：四轮独立审阅修复、真实 GUI 与最终 ACCEPT |
 | 4 | 证据、Memory 与受治理能力组合 | 已完成：三项 P1 修复、真实 GUI/数据库复验、最终独立复审 ACCEPT |
 | 5 | 对话工作台 UI 与交互重构 | 已完成：独立审阅 3 项 P1 修复，真实 Playwright/axe 复验，最终 ACCEPT |
-| 6 | 双轨受控自进化 | 进行中：完成一手来源定义审计；先修 4 项核心语义偏离，再接入双轨演化 |
+| 6 | 双轨受控自进化 | 进行中：完成一手来源定义审计并关闭 4 项核心语义偏离；开始接入双轨演化 |
 | 7 | 最终回归、真实 GUI 对抗审阅与发布 | 未开始 |
 
 ## 3. 阶段 0：冻结基线与真实运行审计
@@ -774,7 +774,7 @@ Agents SDK、HL7 FHIR、Mem0、Agent Skills、A-Evolve、GEPA 和 Adaptive Auto-
 | ClinicalState | 核心符合 | provenance、unknown、conflict 和 confirmed 分离仍成立；补红旗生命周期测试 |
 | Context Snapshot | **P1 已修复** | 已增加 `context-snapshot-v1`/`run-plan-v1`，恢复消费加密冻结上下文，不再重读当前历史、Profile、Memory、Skill 或文档 |
 | Run Lifecycle | **P1 已修复** | `interrupted` 已从真正终态集合移除，并使用独立 `interrupted_at`；恢复仍受 fencing 约束 |
-| Evidence/Citation | **P1 偏离** | 合同完整，但“存在任意 citation”会解锁所有临床句子；必须建立 claim/segment 到 adopted text 的逐项绑定 |
+| Evidence/Citation | **P1 已修复** | 已按同一 claim/segment 校验 admitted marker，并绑定 source、locator 和 adopted text hash；任意 citation 不再解锁其他临床句子 |
 | Plugin Runtime | **P1 已修复** | Manifest schema 已与 owner adapter 的 Pydantic 合同绑定，并在 owner 调用前后及运行时 schema 漂移时 fail closed |
 | Shared Results | 核心符合 | 保留 actor/run/scope/consumer 全量校验 |
 | Evolution Signals | 安全休眠、尚未实现 | 当前只有去内容化合同和可选 sink；缺生产收集器不等于语义损坏 |
@@ -804,7 +804,13 @@ Agents SDK、HL7 FHIR、Mem0、Agent Skills、A-Evolve、GEPA 和 Adaptive Auto-
   legacy/未知 schema、跨主体或合同漂移 fail closed，禁止回退到当前可变环境。定向单元测试
   96/96、真实 PostgreSQL/Redis Chat + 恢复集成测试 18/18、Ruff/Mypy 和 800 行结构门禁通过。
 
-尚未关闭的唯一 P1 是 Evidence/Citation 逐 claim 绑定；完成后才进入在线/离线演化写路径。
+- Evidence/Citation：模型 `[E#]/[W#]` 在任何 SSE 公开前按稳定位置转成服务端 `[C#]`；
+  `SafeSentenceBuffer` 只允许同一临床句中的有效 marker 支持该句，终态 `ClaimEvidenceAudit` 保存逐主张
+  citation index、source ID、locator 和 adopted text SHA-256。无关证据不再解锁直接诊断，越界或伪造
+  marker fail closed；流式正文与终态正文一致。Evidence/Harness/Search 聚焦测试 120/120、真实
+  PostgreSQL/Redis Chat + 恢复集成 18/18、Ruff/Mypy 和 800 行结构门禁通过。
+
+四项前置 P1 已全部关闭，允许进入在线/离线演化写路径；组件宪章和双轨边界仍须先于候选执行落地。
 
 #### 6.1 必须保留的语义
 

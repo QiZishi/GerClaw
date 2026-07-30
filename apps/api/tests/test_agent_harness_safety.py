@@ -105,6 +105,18 @@ def test_evidence_backed_clinical_conclusion_is_preserved() -> None:
     )
 
 
+def test_claim_level_evidence_does_not_unlock_an_unbound_neighboring_claim() -> None:
+    text = "明确诊断为冠心病 [E1]。明确诊断为糖尿病。"
+    sanitized = sanitize_medical_text(
+        text,
+        claim_evidence_validator=lambda segment: "[E1]" in segment,
+    )
+
+    assert "明确诊断为冠心病 [E1]" in sanitized
+    assert "明确诊断为糖尿病" not in sanitized
+    assert "提示糖尿病的可能性" in sanitized
+
+
 def test_diagnosis_rewrite_preserves_a_clear_system_limitation() -> None:
     unsafe = "不能对任何疾病作出最终的明确诊断为结论。"
     assert sanitize_medical_text(unsafe) == "不能对任何疾病作出最终临床判断。"
@@ -152,7 +164,7 @@ def test_evidence_context_is_bounded_and_marks_content_untrusted() -> None:
     first_section = context.split("\n\n[E2]", maxsplit=1)[0]
     assert "[K2]" not in first_section
     assert "[E5]" not in first_section
-    assert "只使用本段标题的 [E1]" in context
+    assert "每条医学事实或建议，必须在同一句末尾标注 [E1]" in context
 
 
 def test_sanitize_medical_text_removes_model_duplicate_disclaimer() -> None:

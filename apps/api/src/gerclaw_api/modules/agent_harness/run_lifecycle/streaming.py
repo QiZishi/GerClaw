@@ -36,7 +36,7 @@ async def bounded_events[EventT](
 class SafeSentenceBuffer:
     """Hold partial sentences so unsupported certainty cannot cross SSE chunks."""
 
-    def __init__(self, evidence_available: Callable[[], bool]) -> None:
+    def __init__(self, evidence_available: Callable[[str], bool]) -> None:
         self._pending = ""
         self._evidence_available = evidence_available
         self.deterministic_diagnosis_blocked = False
@@ -49,7 +49,7 @@ class SafeSentenceBuffer:
             raw_sentence = self._pending[:end]
             safe_sentence = sanitize_medical_text(
                 raw_sentence,
-                allow_evidence_backed_clinical_conclusion=self._evidence_available(),
+                claim_evidence_validator=self._evidence_available,
             )
             self.deterministic_diagnosis_blocked |= safe_sentence != raw_sentence
             output.append(safe_sentence)
@@ -59,7 +59,7 @@ class SafeSentenceBuffer:
     def finish(self) -> str:
         tail = sanitize_medical_text(
             self._pending,
-            allow_evidence_backed_clinical_conclusion=self._evidence_available(),
+            claim_evidence_validator=self._evidence_available,
         )
         self.deterministic_diagnosis_blocked |= tail != self._pending
         self._pending = ""

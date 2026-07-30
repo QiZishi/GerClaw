@@ -41,7 +41,7 @@ from gerclaw_api.security import JsonValue
 _LOGGER = logging.getLogger("gerclaw.agent_harness")
 EventEmitter = Callable[[str, dict[str, JsonValue]], Awaitable[None]]
 ApprovalParker = Callable[[list[ToolCallBlock]], Awaitable[tuple[str, ...]]]
-EvidenceAvailable = Callable[[], bool]
+EvidenceAvailable = Callable[[str], bool]
 ToolResultObserver = Callable[[str, str, dict[str, JsonValue]], Awaitable[None]]
 
 
@@ -121,6 +121,7 @@ async def project_agent_stream(
     emit: EventEmitter,
     park_approvals: ApprovalParker,
     evidence_available: EvidenceAvailable,
+    public_text_transform: Callable[[str], str],
     memory_guard: MemoryWriteGuard,
     skill_metadata: dict[str, tuple[str, str]],
     search_results: list[Any],
@@ -238,7 +239,7 @@ async def project_agent_stream(
             if raw_character_count > max_output_characters:
                 raise AgentHarnessError("agent output exceeded the configured limit")
             for safe_part in buffer.feed(event.delta):
-                public_part = canonical_stream.feed(safe_part)
+                public_part = canonical_stream.feed(public_text_transform(safe_part))
                 if public_part:
                     budget.add_output(public_part)
                     emitted_parts.append(public_part)
@@ -259,7 +260,7 @@ async def project_agent_stream(
     tail = buffer.finish()
     budget.check_wall_clock()
     if tail:
-        public_tail = canonical_stream.feed(tail)
+        public_tail = canonical_stream.feed(public_text_transform(tail))
         if public_tail:
             budget.add_output(public_tail)
             emitted_parts.append(public_tail)
@@ -271,9 +272,9 @@ async def project_agent_stream(
         raise AgentHarnessError("agent output exceeded the configured limit")
     sanitized_retained_text = sanitize_medical_text(
         retained_text,
-        allow_evidence_backed_clinical_conclusion=evidence_available(),
+        claim_evidence_validator=evidence_available,
     )
-    safe_retained_text = sanitized_retained_text.strip()
+    safe_retained_text = public_text_transform(sanitized_retained_text).strip()
     buffer.deterministic_diagnosis_blocked |= sanitized_retained_text != retained_text
     streamed_agent_text = "".join(streamed_agent_parts)
     observed_agent_text = streamed_agent_text + canonical_stream.pending_whitespace

@@ -368,7 +368,7 @@ def test_canonical_text_stream_strips_only_outer_whitespace() -> None:
 async def test_medical_harness_streams_evidence_backed_cited_response(
     unit_settings: Settings,
 ) -> None:
-    model = _HarnessModel()
+    model = _HarnessModel(text="您已经确诊为高血压，建议请医生复核 [E1]。")
     rag = _HarnessRAG([_evidence()])
     harness = _harness(
         unit_settings,
@@ -413,6 +413,11 @@ async def test_medical_harness_streams_evidence_backed_cited_response(
     assert "evidence_backed_clinical_conclusion_allowed" in response.safety.notices
     assert response.safety.notices.count("patient_clinical_risk_notice_applied") == 1
     assert response.structured["evidence_backed_clinical_conclusion"] is True
+    claim_audit = cast(dict[str, Any], response.structured["claim_evidence_audit"])
+    assert claim_audit["all_clinical_claims_bound"] is True
+    assert cast(list[dict[str, Any]], claim_audit["claims"])[0]["source_ids"] == [
+        "chunk-evidence-001"
+    ]
     assert response.text.count("涉及诊断或用药调整时") == 1
     assert response.text.endswith(MEDICAL_DISCLAIMER)
     assert response.citations[0].source_id == "chunk-evidence-001"
@@ -429,7 +434,7 @@ async def test_doctor_evidence_backed_conclusion_has_no_patient_risk_footer(
 ) -> None:
     harness = _harness(
         unit_settings,
-        model=_HarnessModel(text="明确诊断为冠心病。"),
+        model=_HarnessModel(text="明确诊断为冠心病 [E1]。"),
         rag=_HarnessRAG([_evidence()]),
         actor_role=ActorRole.DOCTOR,
     )
@@ -855,7 +860,7 @@ async def test_final_only_provider_text_is_safely_recovered_from_agent_state(
     model = _HarnessModel(
         use_tool=True,
         final_only=True,
-        text="您患有高血压。建议由医生结合检查进一步评估。",
+        text="您患有高血压，建议由医生结合检查进一步评估 [E1]。",
     )
     harness = _harness(unit_settings, model=model, rag=_HarnessRAG([_evidence()]))
     context = await harness.assemble_context(
@@ -889,7 +894,7 @@ async def test_final_only_outer_whitespace_is_canonical_in_sse_and_done(
 ) -> None:
     model = _HarnessModel(
         final_only=True,
-        text="  \n您患有高血压。建议请医生复核。\n  ",
+        text="  \n您患有高血压，建议请医生复核 [E1]。\n  ",
     )
     harness = _harness(unit_settings, model=model, rag=_HarnessRAG([_evidence()]))
     context = await harness.assemble_context(
@@ -1174,7 +1179,7 @@ async def test_non_projectable_evidence_returns_safe_clarification_before_model_
 async def test_evidence_backed_direct_clinical_conclusions_are_preserved_and_audited(
     unit_settings: Settings,
 ) -> None:
-    unsafe = "您患有冠心病。这是心力衰竭。诊断是高血压。明确诊断为糖尿病。"
+    unsafe = "您患有冠心病 [E1]。这是心力衰竭 [E1]。诊断是高血压 [E1]。明确诊断为糖尿病 [E1]。"
     harness = _harness(
         unit_settings,
         model=_HarnessModel(text=unsafe),
@@ -1201,6 +1206,38 @@ async def test_evidence_backed_direct_clinical_conclusions_are_preserved_and_aud
         str(event.data["content"]) for event in events if event.event_type == "text_delta"
     )
     assert streamed == response.text
+
+
+@pytest.mark.asyncio
+async def test_unbound_direct_clinical_claim_is_rewritten_despite_other_evidence(
+    unit_settings: Settings,
+) -> None:
+    harness = _harness(
+        unit_settings,
+        model=_HarnessModel(text="明确诊断为冠心病。"),
+        rag=_HarnessRAG([_evidence()]),
+    )
+    context = await harness.assemble_context(
+        "108815d7-05bf-4c2a-a977-cd034f390fab",
+        "usr_patient00000001",
+        [],
+        [],
+    )
+
+    response = await harness.process_message(
+        "请根据现有资料评估冠心病风险",
+        "108815d7-05bf-4c2a-a977-cd034f390fab",
+        context,
+        lambda _event: None,
+    )
+
+    assert "明确诊断" not in response.text
+    assert "可能性" in response.text
+    assert response.safety.deterministic_diagnosis_blocked is True
+    assert response.structured["evidence_backed_clinical_conclusion"] is False
+    audit = cast(dict[str, Any], response.structured["claim_evidence_audit"])
+    assert audit["bound_claim_count"] == 0
+    assert cast(list[dict[str, Any]], audit["claims"])[0]["status"] == "unbound"
 
 
 @pytest.mark.asyncio

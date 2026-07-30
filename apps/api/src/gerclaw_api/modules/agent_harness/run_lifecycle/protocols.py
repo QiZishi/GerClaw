@@ -15,7 +15,7 @@ class RunLifecycle(Protocol):
 
     def sentence_buffer(
         self,
-        evidence_available: Callable[[], bool],
+        evidence_available: Callable[[str], bool],
     ) -> SafeSentenceBuffer:
         """Create an isolated medical sentence guard for one run."""
 
@@ -28,6 +28,6 @@ class ProductionRunLifecycle:
 
     def sentence_buffer(
         self,
-        evidence_available: Callable[[], bool],
+        evidence_available: Callable[[str], bool],
     ) -> SafeSentenceBuffer:
         return SafeSentenceBuffer(evidence_available)

@@ -7,8 +7,12 @@ import pytest
 from gerclaw_api.modules.agent_harness.evidence import (
     CitationMarkerValidationError,
     EvidenceAdmissionPolicy,
+    ModelCitationBindingScope,
+    audit_claim_evidence,
     bind_citation_markers,
+    segment_has_admitted_model_marker,
 )
+from gerclaw_api.modules.contracts import Citation
 from gerclaw_api.modules.rag.protocols import RetrievalResult
 
 
@@ -133,3 +137,59 @@ def test_citation_markers_bind_only_to_admitted_terminal_positions() -> None:
                 web_citation_count=1,
                 web_citation_offset=3,
             )
+
+
+def test_streaming_claim_requires_an_in_range_marker_in_the_same_segment() -> None:
+    assert segment_has_admitted_model_marker(
+        "明确诊断为冠心病 [E1]。",
+        local_citation_count=1,
+        web_citation_count=0,
+    )
+    assert not segment_has_admitted_model_marker(
+        "明确诊断为冠心病。",
+        local_citation_count=1,
+        web_citation_count=0,
+    )
+    assert not segment_has_admitted_model_marker(
+        "明确诊断为冠心病 [E2]。",
+        local_citation_count=1,
+        web_citation_count=0,
+    )
+
+
+def test_model_citation_scope_keeps_streaming_public_positions_stable() -> None:
+    scope = ModelCitationBindingScope(
+        local_citation_count=2,
+        web_citation_count_provider=lambda: 1,
+    )
+
+    assert scope.segment_has_evidence("本地 [E1], 联网 [W1]。")
+    assert scope.normalize_public_text("本地 [E1], 联网 [W1]。") == ("本地 [C1], 联网 [C3]。")
+    with pytest.raises(CitationMarkerValidationError):
+        scope.normalize_public_text("模型不得直接输出 [C1]。")
+
+
+def test_claim_audit_binds_source_locator_and_exact_adopted_text_hash() -> None:
+    citations = [
+        Citation(
+            source_id="chunk-1",
+            title="指南",
+            locator="指南.md | 建议 | chunk 1/1",
+            excerpt="实际采用文本",
+            score=0.9,
+            corpus="local_knowledge_base",
+        )
+    ]
+    audit = audit_claim_evidence(
+        "高血压管理需要个体化 [C1]。另一个医学判断。",
+        citations=citations,
+        is_clinical_claim=lambda _segment: True,
+    )
+
+    assert audit.clinical_claim_count == 2
+    assert audit.bound_claim_count == 1
+    assert audit.all_clinical_claims_bound is False
+    assert audit.claims[0].source_ids == ("chunk-1",)
+    assert audit.claims[0].locators == ("指南.md | 建议 | chunk 1/1",)
+    assert len(audit.claims[0].adopted_text_sha256[0]) == 64
+    assert audit.claims[1].status == "unbound"

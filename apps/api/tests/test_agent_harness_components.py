@@ -616,6 +616,6 @@ def test_streaming_primitives_preserve_existing_behavior() -> None:
     canonical.finish()
     assert canonical.pending_whitespace == ""
 
-    sentence_buffer = SafeSentenceBuffer(lambda: False)
+    sentence_buffer = SafeSentenceBuffer(lambda _segment: False)
     assert sentence_buffer.feed("这是待核验信息。")
     assert sentence_buffer.finish() == ""
