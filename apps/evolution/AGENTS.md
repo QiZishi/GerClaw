@@ -12,6 +12,8 @@ copied into the production API image, or callable by the online Agent.
 - Candidate worktrees, optimizer processes, and online signals are untrusted inputs.
 - Sealed cases, thresholds, attestation/approval keys, audit logs, release refs, and
   deployment credentials must live outside candidate-readable roots.
+- Every attestation key is authority-bound to one evaluator version, sealed case-set digest,
+  gate-policy digest, and promotion-active state; key ID is part of the signed domain.
 - The controller may import versioned governance contracts from `apps/api`; it must not copy
   or reinterpret their object-authority rules.
 
@@ -21,6 +23,8 @@ copied into the production API image, or callable by the online Agent.
   source inspection alone.
 - Never log secrets, sealed case content, user content, clinical content, or Provider payloads.
 - Every unavailable result uses a bounded reason code and contains no raw subprocess output.
+- Never trust supplied paired-gate booleans; recompute every per-case/slice/charter gate from
+  baseline and candidate observations before signing and again before promotion.
 - Production dependencies must remain free of A-Evolve, GEPA, Adaptive Auto-Harness, training,
   or benchmark packages.
 
