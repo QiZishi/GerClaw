@@ -51,6 +51,10 @@ from gerclaw_evolution.runner import (
     SubprocessRoutingPairedRunner,
 )
 from gerclaw_evolution.sandbox import CandidateExecutionResult, DockerCandidateExecutor
+from gerclaw_evolution.skill_authorization import (
+    SkillActivationAuthorizer,
+    SkillActivationSigningKey,
+)
 from gerclaw_evolution.skill_runner import SubprocessSkillPairedRunner
 from gerclaw_evolution.sources import (
     OFFICIAL_OPTIMIZER_PINS,
@@ -99,6 +103,8 @@ __all__ = [
     "SealedGateAttestation",
     "SealedGatePayload",
     "SignedReleaseRecord",
+    "SkillActivationAuthorizer",
+    "SkillActivationSigningKey",
     "SubprocessRoutingPairedRunner",
     "SubprocessSkillPairedRunner",
 ]

@@ -2,9 +2,8 @@
 
 from __future__ import annotations
 
-import hashlib
 import uuid
-from typing import Any, cast
+from typing import cast
 
 from sqlalchemy import delete, select
 from sqlalchemy.exc import IntegrityError
@@ -22,6 +21,11 @@ from gerclaw_api.modules.skill.models import (
     SkillDefinition,
     SkillEvolutionDecision,
 )
+from gerclaw_api.modules.skill.storage_projection import (
+    skill_content_hash,
+    skill_name_fingerprint,
+    skill_record_snapshot,
+)
 
 
 class SkillRepositoryConflictError(RuntimeError):
@@ -30,31 +34,6 @@ class SkillRepositoryConflictError(RuntimeError):
 
 class SkillSessionNotFoundError(LookupError):
     """Raised when a session is not owned by the authenticated principal."""
-
-
-def _content_hash(value: str) -> str:
-    return hashlib.sha256(value.encode("utf-8")).hexdigest()
-
-
-def _name_fingerprint(value: str) -> str:
-    normalized = " ".join(value.casefold().split())
-    return hashlib.sha256(normalized.encode("utf-8")).hexdigest()
-
-
-def _snapshot(record: SkillDefinitionRecord) -> dict[str, Any]:
-    return {
-        "skill_id": record.skill_id,
-        "name": record.name,
-        "description": record.description,
-        "version": record.version,
-        "category": record.category,
-        "origin": record.origin,
-        "tool_names": record.tool_names,
-        "source_markdown": record.source_markdown,
-        "content_hash": record.content_hash,
-        "enabled": record.enabled,
-        "revision": record.revision,
-    }
 
 
 class SqlAlchemySkillRepository:
@@ -108,14 +87,14 @@ class SqlAlchemySkillRepository:
             actor_id=actor_id,
             skill_id=definition.skill_id,
             name=definition.name,
-            name_fingerprint=_name_fingerprint(definition.name),
+            name_fingerprint=skill_name_fingerprint(definition.name),
             description=definition.description,
             version=definition.version,
             category=definition.category,
             origin=definition.origin,
             tool_names=definition.tool_names,
             source_markdown=definition.source_markdown,
-            content_hash=_content_hash(definition.source_markdown),
+            content_hash=skill_content_hash(definition.source_markdown),
             enabled=definition.enabled,
             revision=1,
         )
@@ -149,19 +128,19 @@ class SqlAlchemySkillRepository:
                 actor_id=actor_id,
                 skill_definition_id=record.id,
                 revision=record.revision,
-                snapshot=_snapshot(record),
+                snapshot=skill_record_snapshot(record),
             )
         )
         if definition is not None:
             record.name = definition.name
-            record.name_fingerprint = _name_fingerprint(definition.name)
+            record.name_fingerprint = skill_name_fingerprint(definition.name)
             record.description = definition.description
             record.version = definition.version
             record.category = definition.category
             record.origin = definition.origin
             record.tool_names = definition.tool_names
             record.source_markdown = definition.source_markdown
-            record.content_hash = _content_hash(definition.source_markdown)
+            record.content_hash = skill_content_hash(definition.source_markdown)
         if enabled is not None:
             record.enabled = enabled
         record.revision += 1
@@ -200,10 +179,10 @@ class SqlAlchemySkillRepository:
             record.revision != expected_revision
             or current.revision != expected_revision
             or candidate.revision != expected_revision + 1
-            or record.content_hash != _content_hash(current.source_markdown)
+            or record.content_hash != skill_content_hash(current.source_markdown)
         ):
             raise SkillRepositoryConflictError("Skill revision is stale")
-        candidate_content_hash = _content_hash(candidate.source_markdown)
+        candidate_content_hash = skill_content_hash(candidate.source_markdown)
         existing = await self._session.scalar(
             select(SkillEvolutionProposal).where(
                 SkillEvolutionProposal.tenant_id == tenant_id,

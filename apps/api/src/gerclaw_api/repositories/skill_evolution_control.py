@@ -11,12 +11,19 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from gerclaw_api.database.models import (
     SkillDefinitionRecord,
+    SkillDefinitionRevision,
     SkillEvolutionProposal,
     SkillEvolutionReviewEvent,
 )
+from gerclaw_api.modules.skill.models import SkillDefinition
 from gerclaw_api.modules.skill.offline_contracts import (
     TERMINAL_SKILL_REVIEW_EVENTS,
     SkillReviewEventAppend,
+)
+from gerclaw_api.modules.skill.storage_projection import (
+    skill_content_hash,
+    skill_name_fingerprint,
+    skill_record_snapshot,
 )
 
 
@@ -115,5 +122,39 @@ class SkillEvolutionControlRepository:
             ) from error
         return event
 
+    async def apply_candidate(
+        self,
+        record: SkillDefinitionRecord,
+        candidate: SkillDefinition,
+    ) -> SkillDefinitionRecord:
+        """Advance the locked record exactly once while retaining its prior revision."""
+
+        self._session.add(
+            SkillDefinitionRevision(
+                tenant_id=record.tenant_id,
+                actor_id=record.actor_id,
+                skill_definition_id=record.id,
+                revision=record.revision,
+                snapshot=skill_record_snapshot(record),
+            )
+        )
+        record.name = candidate.name
+        record.name_fingerprint = skill_name_fingerprint(candidate.name)
+        record.description = candidate.description
+        record.version = candidate.version
+        record.category = candidate.category
+        record.origin = candidate.origin
+        record.tool_names = candidate.tool_names
+        record.source_markdown = candidate.source_markdown
+        record.content_hash = skill_content_hash(candidate.source_markdown)
+        record.enabled = candidate.enabled
+        record.revision = candidate.revision
+        await self._session.flush()
+        await self._session.refresh(record)
+        return record
+
     async def commit(self) -> None:
         await self._session.commit()
+
+    async def rollback(self) -> None:
+        await self._session.rollback()

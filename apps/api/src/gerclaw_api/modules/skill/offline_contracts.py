@@ -103,3 +103,51 @@ class SkillProposalExportEnvelope(BaseModel):
     nonce: str = Field(pattern=r"^[a-f0-9]{24}$")
     encrypted_payload_sha256: str = Field(pattern=r"^[a-f0-9]{64}$")
     exporter_signature: str = Field(pattern=r"^[a-f0-9]{128}$")
+
+
+class SkillActivationAuthorizationPayload(BaseModel):
+    """Content-free immutable candidate identity authorized for one atomic activation."""
+
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    schema_version: Literal["skill-activation-authorization-payload-v1"] = (
+        "skill-activation-authorization-payload-v1"
+    )
+    proposal_id: uuid.UUID
+    object_kind: Literal["skill.clinical", "skill.tooling"]
+    base_revision: int = Field(ge=1)
+    candidate_revision: int = Field(ge=2)
+    base_content_sha256: str = Field(pattern=r"^[a-f0-9]{64}$")
+    candidate_content_sha256: str = Field(pattern=r"^[a-f0-9]{64}$")
+    frozen_manifest_sha256: str = Field(pattern=r"^[a-f0-9]{64}$")
+    paired_report_sha256: str = Field(pattern=r"^[a-f0-9]{64}$")
+    sealed_attestation_sha256: str = Field(pattern=r"^[a-f0-9]{64}$")
+    approval_proof_sha256: str = Field(pattern=r"^[a-f0-9]{64}$")
+    approval_ticket_digest: str = Field(pattern=r"^[a-f0-9]{64}$")
+    authorized_at: datetime
+    expires_at: datetime
+
+    @model_validator(mode="after")
+    def validate_activation_identity(self) -> SkillActivationAuthorizationPayload:
+        if self.candidate_revision != self.base_revision + 1:
+            raise ValueError("activation candidate must advance one revision")
+        if (
+            self.authorized_at.tzinfo is None
+            or self.expires_at.tzinfo is None
+            or self.expires_at <= self.authorized_at
+        ):
+            raise ValueError("activation authorization requires a bounded aware time window")
+        return self
+
+
+class SkillActivationAuthorization(BaseModel):
+    """Ed25519 authorization verifiable by the production operator boundary."""
+
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    schema_version: Literal["skill-activation-authorization-v1"] = (
+        "skill-activation-authorization-v1"
+    )
+    key_id: str = Field(pattern=r"^[a-z][a-z0-9_.-]{2,99}$")
+    payload: SkillActivationAuthorizationPayload
+    signature: str = Field(pattern=r"^[a-f0-9]{128}$")
