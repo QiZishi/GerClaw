@@ -5,6 +5,7 @@ import { Brain, ChevronDown } from "lucide-react";
 import { cn } from "@/lib/utils";
 import type { ThinkingBlock as ThinkingBlockData } from "@/types";
 import { useReducedMotion } from "@/hooks/useReducedMotion";
+import { projectPublicAnalysis } from "./public-execution-projection";
 
 interface ThinkingBlockProps {
   data: ThinkingBlockData;
@@ -14,15 +15,9 @@ export function ThinkingBlock({ data }: ThinkingBlockProps) {
   const [expanded, setExpanded] = useState(false);
   const reducedMotion = useReducedMotion();
   const isThinking = data.status === "thinking";
-  const hasContent = data.content.length > 0;
-  // Runtime only projects safe progress summaries here, never chain-of-thought.
-  // Once the turn is done, a past-tense summary avoids the contradictory
-  // “已思考 / 正在分析” state that makes a finished response feel stuck.
-  const displayContent = isThinking
-    ? data.content
-    : "本次分析已完成。为保护安全与隐私，系统不展示内部推理；相关资料和工具结果会在消息中单独列出。";
+  const projection = projectPublicAnalysis(data);
 
-  if (isThinking && !hasContent) {
+  if (isThinking && !projection.detail) {
     // The message-level status bar owns the single animated indicator and
     // elapsed clock, so nested blocks never create a distracting loader wall.
     return null;
@@ -32,9 +27,13 @@ export function ThinkingBlock({ data }: ThinkingBlockProps) {
     <div className="rounded-xl border border-border/40 bg-muted/30 overflow-hidden mb-2">
       <button
         type="button"
-        onClick={() => setExpanded((v) => !v)}
-        className="senior-min-target flex w-full items-center justify-between gap-2 px-3 py-2 text-left hover:bg-muted/50 transition-colors"
-        aria-expanded={expanded}
+        onClick={() => projection.expandable && setExpanded((v) => !v)}
+        className={cn(
+          "senior-min-target flex w-full items-center justify-between gap-2 px-3 py-2 text-left",
+          projection.expandable && "hover:bg-muted/50 transition-colors"
+        )}
+        aria-expanded={projection.expandable ? expanded : false}
+        disabled={!projection.expandable}
       >
         <span className="flex items-center gap-2 text-sm text-muted-foreground/80">
           <Brain 
@@ -44,10 +43,10 @@ export function ThinkingBlock({ data }: ThinkingBlockProps) {
             )} 
           />
           <span className="font-medium">
-            {isThinking ? "正在分析" : expanded ? "收起分析" : "分析已完成"}
+            {isThinking && expanded ? "收起分析" : projection.label}
           </span>
         </span>
-        {hasContent && (
+        {projection.expandable && (
           <ChevronDown
             className={cn(
               "size-4 shrink-0 text-muted-foreground/60",
@@ -57,7 +56,7 @@ export function ThinkingBlock({ data }: ThinkingBlockProps) {
           />
         )}
       </button>
-      {hasContent && (
+      {projection.expandable && projection.detail && (
         <div
           className={cn(
             "grid",
@@ -67,7 +66,7 @@ export function ThinkingBlock({ data }: ThinkingBlockProps) {
         >
           <div className="min-h-0 overflow-hidden">
             <div className="px-3 pb-3 pt-1 text-sm text-muted-foreground/80 whitespace-pre-wrap border-t border-border/30 leading-relaxed">
-              {displayContent}
+              {projection.detail}
             </div>
           </div>
         </div>

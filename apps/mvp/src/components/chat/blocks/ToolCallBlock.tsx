@@ -8,6 +8,7 @@ import { cn } from "@/lib/utils";
 import { formatDuration } from "@/lib/format";
 import type { ToolCallBlock as ToolCallBlockData, SearchResultItem } from "@/types";
 import { useReducedMotion } from "@/hooks/useReducedMotion";
+import { projectPublicTool } from "./public-execution-projection";
 
 interface LocalKBChunk {
   id: string;
@@ -28,22 +29,6 @@ function isWebSearch(toolName: string): boolean {
 
 function isLocalKnowledgeSearch(toolName: string): boolean {
   return toolName === "local_knowledge_search";
-}
-
-function getToolDisplayName(toolName: string): string {
-  if (toolName === "search_memory") {
-    return "健康记录";
-  }
-  if (toolName === "search_knowledge") {
-    return "医学检索";
-  }
-  if (isWebSearch(toolName)) {
-    return "联网搜索";
-  }
-  if (isLocalKnowledgeSearch(toolName)) {
-    return "本地知识库检索";
-  }
-  return toolName;
 }
 
 function getSearchQuery(data: ToolCallBlockData): string {
@@ -190,7 +175,7 @@ function WebSearchBlock({
           ) : isFailed ? (
             <span className="flex items-center gap-1 text-destructive truncate">
               <AlertTriangle className="size-3.5 shrink-0" />
-              搜索失败{data.errorMessage ? `：${data.errorMessage}` : ""}
+              搜索暂时不可用
             </span>
           ) : searchQuery ? (
             <span className="truncate">「{searchQuery}」</span>
@@ -342,7 +327,7 @@ function LocalKnowledgeSearchBlock({
           ) : isFailed ? (
             <span className="flex items-center gap-1 text-destructive truncate">
               <AlertTriangle className="size-3.5 shrink-0" />
-              检索失败{data.errorMessage ? `：${data.errorMessage}` : ""}
+              检索暂时不可用
             </span>
           ) : searchQuery ? (
             <span className="truncate">「{searchQuery}」</span>
@@ -432,12 +417,7 @@ export function ToolCallBlock({ data, onRetry }: ToolCallBlockProps) {
   const elapsedMs = useToolElapsed(data);
   const isSearch = isWebSearch(data.toolName);
   const isLocalKB = isLocalKnowledgeSearch(data.toolName);
-  const hasContent = (data.params && Object.keys(data.params).length > 0) || data.result !== undefined;
-  const hasDetails = hasContent || (data.status === "failed" && Boolean(data.errorMessage));
-
-  const displayName = getToolDisplayName(data.toolName);
-  const expandTransition = reducedMotion ? "" : "transition-[grid-template-rows] duration-200 ease-out";
-  const chevronTransition = reducedMotion ? "" : "transition-transform duration-200 ease-out";
+  const projection = projectPublicTool(data);
 
   if (isSearch) {
     return (
@@ -475,88 +455,31 @@ export function ToolCallBlock({ data, onRetry }: ToolCallBlockProps) {
 
   return (
     <div className="rounded-xl border border-border/40 bg-muted/30 overflow-hidden mb-2">
-      <button
-        type="button"
-        onClick={() => setExpanded((v) => !v)}
-        className={cn("flex w-full items-center justify-between gap-2 px-3 py-2 text-left", hasDetails && "hover:bg-muted/50 transition-colors")}
-        aria-expanded={expanded}
-        disabled={!hasDetails}
-      >
+      <div className="flex w-full items-center justify-between gap-2 px-3 py-2 text-left">
           <span className="flex min-w-0 items-center gap-2 text-sm text-muted-foreground/80">
             {toolIconEl}
-          <span className="min-w-0 truncate font-medium">{displayName}</span>
-          <StatusBadge status={data.status} />
-          {data.status === "failed" && data.errorMessage && (
-            <span className="truncate text-xs text-destructive">{data.errorMessage}</span>
-          )}
+          <span className="min-w-0 truncate font-medium">{projection.label}</span>
+          <span className={cn("text-xs", data.status === "failed" && "text-destructive")}>
+            {projection.statusLabel}
+          </span>
           {elapsedMs !== undefined && (
             <span className="text-xs text-muted-foreground/60">
               · {formatDuration(elapsedMs)}
             </span>
           )}
         </span>
-        {hasDetails && (
-          <ChevronDown
-            className={cn(
-              "size-4 shrink-0 text-muted-foreground/60",
-              chevronTransition,
-              expanded && "rotate-180"
-            )}
-          />
+        {data.status === "failed" && onRetry && (
+          <Button
+            size="sm"
+            variant="outline"
+            className="gap-1 h-7 text-xs"
+            onClick={() => onRetry(data.id)}
+          >
+            <RotateCw className="size-3" />
+            重试
+          </Button>
         )}
-      </button>
-      {hasDetails && (
-        <div
-          className={cn(
-            "grid",
-            expandTransition,
-            expanded ? "grid-rows-[1fr]" : "grid-rows-[0fr]"
-          )}
-          aria-hidden={!expanded}
-        >
-          <div className="min-h-0 overflow-hidden">
-            <div className="border-t border-border/30 px-3 pb-3 pt-1 space-y-2 text-sm text-muted-foreground/80">
-              {data.params && Object.keys(data.params).length > 0 && (
-                <div>
-                  <div className="text-xs text-muted-foreground mb-1">参数</div>
-                  <pre className="bg-muted rounded p-2 overflow-x-auto font-mono text-xs text-muted-foreground/80">
-                    {JSON.stringify(data.params, null, 2)}
-                  </pre>
-                </div>
-              )}
-              {data.result !== undefined && (
-                <div>
-                  <div className="text-xs text-muted-foreground mb-1">结果</div>
-                  <pre className="bg-muted rounded p-2 overflow-x-auto font-mono text-xs text-muted-foreground/80 max-h-48 overflow-y-auto">
-                    {typeof data.result === "string"
-                      ? data.result
-                      : JSON.stringify(data.result, null, 2)}
-                  </pre>
-                </div>
-              )}
-              {data.status === "failed" && data.errorMessage && (
-                <div className="text-destructive text-xs">
-                  错误：{data.errorMessage}
-                </div>
-              )}
-              {data.status === "failed" && onRetry && (
-                <Button
-                  size="sm"
-                  variant="outline"
-                  className="gap-1 h-7 text-xs"
-                  onClick={(e) => {
-                    e.stopPropagation();
-                    onRetry(data.id);
-                  }}
-                >
-                  <RotateCw className="size-3" />
-                  重试
-                </Button>
-              )}
-            </div>
-          </div>
-        </div>
-      )}
+      </div>
     </div>
   );
 }
