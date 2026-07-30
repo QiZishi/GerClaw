@@ -67,7 +67,7 @@ class MemoryFactView(BaseModel):
     category: MemoryCategory
     memory_type: MemoryType
     status: MemoryStatus
-    access_level: MemoryAccessLevel
+    access_level: MemoryAccessLevel = "standard"
     statement: str = Field(min_length=1, max_length=1_000)
     details: dict[str, JsonValue]
     confidence: float = Field(ge=0, le=1)
