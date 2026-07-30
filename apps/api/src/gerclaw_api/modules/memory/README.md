@@ -16,7 +16,13 @@
 ## 每轮执行
 
 1. 从加密 `messages` 只加载当前有效回答版本组成的有界短期历史；全量上下文预检为历史动态分配 token budget。超额时用 AgentScope 医疗摘要压缩，强制保留过敏、当前/停用药物、红旗事件和待确认信息；Provider 不可用时只做确定性原文摘录。加密摘要同时保存 `source_hash` 和严格 projection，相同来源与预算直接复用。
-2. 将确认画像和摘要作为 `<untrusted-user-memory>` 背景，而不是 system instruction。
+2. 将确认画像作为版本化 `memory-prompt-projection-v1` JSON 放入
+   `<untrusted-user-memory>` 背景，而不是 system instruction。投影显式携带
+   `governance_track=mutable`；偏好逐项标记 `presentation_only`，其他健康自述逐项标记
+   `untrusted_user_context`；每条记录保留 `fact_id/revision/status` 并明确
+   `mutability=online_crud`，继续服从新增、更新、停用和删除的在线事实源。投影同时声明不得
+   覆盖系统、医疗安全、业务、身份授权、工具许可或 Harness 门禁。内容截断只能跳过完整
+   record，并继续尝试后续较短记录，不能产生半截 JSON 或丢失权限标签。
 3. `Mem0Middleware(mode="both")` 自动召回并暴露 `search_memory`/`add_memory`；GerClaw async client adapter 将调用映射回同一 `ProductionMemoryModule`。
 4. 写入只抽取本轮真实 user message，不从 assistant 回复或工具建议反向造事实。模型投影必须符合严格、显式版本化的 `memory-extraction-model-output-v1`；缺失/旧版本、未知字段或异常 shape 在证据核对和持久化前失败。所有新事实默认进入 `proposed`，只有用户通过 revision-fenced decision 明确确认后才写入向量和画像。否认同样先成为提案；确认后才将对应事实转为 inactive。
 5. assistant、事实/画像、`memory.update` Trace 与 completed Trace 在同一 request-scoped PostgreSQL 事务提交。模型、Qdrant、schema 或 ownership 失败均不发送 `done`。

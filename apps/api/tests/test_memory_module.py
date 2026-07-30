@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import json
 import uuid
 from datetime import UTC, datetime, timedelta
 from types import SimpleNamespace
@@ -930,7 +931,87 @@ def test_profile_projection_includes_only_confirmed_and_bounded_pending() -> Non
     assert "阿司匹林" in rendered
     assert "用户不确定" not in rendered
     assert "<untrusted-user-memory>" in rendered
+    payload = json.loads(
+        rendered.removeprefix("<untrusted-user-memory>\n").removesuffix(
+            "\n</untrusted-user-memory>"
+        )
+    )
+    assert payload["schema_version"] == "memory-prompt-projection-v1"
+    assert payload["governance_track"] == "mutable"
+    assert payload["mutation_policy"] == "online_crud"
+    assert "身份授权" in payload["boundary"]
+    records = [
+        record
+        for section in payload["sections"]
+        for record in section["records"]
+    ]
+    assert {record["authority"] for record in records} == {"untrusted_user_context"}
+    assert {record["mutability"] for record in records} == {"online_crud"}
+    assert all(record["status"] == "confirmed" for record in records)
+    assert all(record["fact_id"] and record["revision"] == 1 for record in records)
     assert render_core_profile(empty_profile()) == ""
+
+
+def test_memory_prompt_projection_separates_preference_authority() -> None:
+    user_id = uuid.uuid4()
+    preference = _fact(
+        user_id=user_id,
+        category="preference",
+        statement="用户希望回答简洁一些",
+        entity="response_style",
+    )
+    condition = _fact(
+        user_id=user_id,
+        category="condition",
+        statement="用户自述有高血压病史",
+        entity="高血压",
+    )
+
+    rendered = render_core_profile(rebuild_profile([preference, condition]))
+    payload = json.loads(
+        rendered.removeprefix("<untrusted-user-memory>\n").removesuffix(
+            "\n</untrusted-user-memory>"
+        )
+    )
+    by_category = {section["category"]: section for section in payload["sections"]}
+
+    assert by_category["preferences"]["authority"] == "presentation_only"
+    assert by_category["preferences"]["records"][0]["authority"] == "presentation_only"
+    assert by_category["preferences"]["records"][0]["mutability"] == "online_crud"
+    assert by_category["conditions"]["authority"] == "untrusted_user_context"
+    assert by_category["conditions"]["records"][0]["authority"] == "untrusted_user_context"
+    assert "工具许可" in payload["boundary"]
+
+
+def test_memory_prompt_projection_skips_oversize_record_without_invalid_json() -> None:
+    user_id = uuid.uuid4()
+    oversized = _fact(
+        user_id=user_id,
+        category="allergy",
+        statement="超长记录" * 2_000,
+        entity="oversized",
+    )
+    concise = _fact(
+        user_id=user_id,
+        category="goal",
+        statement="用户希望每天散步十分钟",
+        entity="daily_walk",
+    )
+
+    rendered = render_core_profile(
+        rebuild_profile([oversized, concise]),
+        max_characters=800,
+    )
+    body = rendered.removeprefix("<untrusted-user-memory>\n").removesuffix(
+        "\n</untrusted-user-memory>"
+    )
+    payload = json.loads(body)
+
+    assert len(body) <= 800
+    assert "超长记录" not in body
+    assert payload["sections"][0]["category"] == "goals"
+    assert payload["sections"][0]["records"][0]["statement"] == "用户希望每天散步十分钟"
+    assert payload["sections"][0]["records"][0]["mutability"] == "online_crud"
 
 
 @pytest.mark.asyncio

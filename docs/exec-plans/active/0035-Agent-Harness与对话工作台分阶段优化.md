@@ -870,12 +870,20 @@ Agents SDK、HL7 FHIR、Mem0、Agent Skills、A-Evolve、GEPA 和 Adaptive Auto-
   `d93c814f2053 → e13c814f2054 → d93c814f2053 → e13c814f2054` 与 `alembic check` 通过；
   frozen resume 不重读可变 Memory 的回归 `1 passed`；BFF proxy/Zod 合同测试 `27 passed`，
   Ruff/Mypy/ESLint 和 Next production build 通过。该变更不把
-  `Memory.confirmed` 升级为临床确诊，也没有开放机制在线修改。
+  `Memory.confirmed` 升级为临床确诊，也没有开放在线修改 Memory 的治理机制、权限边界或核心语义。
   独立子智能体审查先后发现并推动关闭三类 P1：结构化 PATCH 脱离支持原文、生命体征/基本资料
   category shape 可被清空、空白字符串与显式 null 可绕过校验。最终复审
   `ACCEPT（P0=0，P1=0，P2=3）`。保留的 P2 已登记：无日期同措辞 event 需要稳定的客户端事件
   idempotency/source ID；旧 Qdrant revision 可在提交后异步精确清理；阶段 7 增加 10 路并发
   mutation、跨 tenant update/restore 和 restore 向量写入后 PostgreSQL 失败补偿测试。
+- Memory 运行时 Prompt 投影补齐结构化可变语义：确认记录通过
+  `memory-prompt-projection-v1` 携带 `fact_id/revision/status=confirmed`、
+  `governance_track=mutable` 和 `mutability=online_crud`；偏好只具
+  `presentation_only` 权限，其他健康自述为 `untrusted_user_context`。投影明确不能覆盖系统、
+  医疗安全、业务、身份授权、工具许可和 Harness 门禁，但不禁止用户继续通过 owner-service
+  create/update/delete/restore。容量截断只跳过完整超长 record，并继续尝试后续较短记录，保证
+  JSON 和每条 authority 不被切断。Memory/合同/Harness/Chat 聚焦回归 `180 passed`（本地 Qdrant
+  payload index 无效警告 1 条），Ruff 和直接触达 Memory 源文件 Mypy 通过。
 - Skill owner-service 双轨演化：`POST /skills/{skill_id}/evolve` 先查询 tenant/actor
   实际记录并校验 revision，再对已通过 parser、schema、tool allowlist、安全规则和 SemVer 的
   candidate 做服务端差异分类。在线轨不再依赖不可穷举的关键词黑名单：当前/候选必须同时使用
