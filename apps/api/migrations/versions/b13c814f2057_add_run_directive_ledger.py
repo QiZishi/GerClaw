@@ -63,8 +63,12 @@ def upgrade() -> None:
         sa.Column("claimed_at", sa.DateTime(timezone=True), nullable=True),
         sa.Column("applied_at", sa.DateTime(timezone=True), nullable=True),
         sa.Column("cancelled_at", sa.DateTime(timezone=True), nullable=True),
-        sa.CheckConstraint("sequence > 0", name="ck_run_directives_positive_run_directive_sequence"),
-        sa.CheckConstraint("revision > 0", name="ck_run_directives_positive_run_directive_revision"),
+        sa.CheckConstraint(
+            "sequence > 0", name="ck_run_directives_positive_run_directive_sequence"
+        ),
+        sa.CheckConstraint(
+            "revision > 0", name="ck_run_directives_positive_run_directive_revision"
+        ),
         sa.CheckConstraint(
             "mode IN ('interrupt_and_steer','queue_for_next_boundary')",
             name="ck_run_directives_valid_run_directive_mode",

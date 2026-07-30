@@ -56,10 +56,7 @@ def downgrade() -> None:
         "agent_runs",
         type_="check",
     )
-    op.execute(
-        "UPDATE agent_runs SET completed_at = interrupted_at "
-        "WHERE status = 'interrupted'"
-    )
+    op.execute("UPDATE agent_runs SET completed_at = interrupted_at WHERE status = 'interrupted'")
     op.create_check_constraint(
         op.f("ck_agent_runs_valid_agent_run_terminal_time"),
         "agent_runs",

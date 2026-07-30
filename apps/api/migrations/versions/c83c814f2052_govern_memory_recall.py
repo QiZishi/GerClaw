@@ -71,8 +71,7 @@ def downgrade() -> None:
         type_="check",
     )
     op.execute(
-        "UPDATE memory_facts SET status = 'pending' "
-        "WHERE status IN ('proposed','conflicted')"
+        "UPDATE memory_facts SET status = 'pending' WHERE status IN ('proposed','conflicted')"
     )
     op.create_check_constraint(
         op.f("ck_memory_facts_valid_status"),

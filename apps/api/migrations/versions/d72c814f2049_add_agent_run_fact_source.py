@@ -62,12 +62,8 @@ def upgrade() -> None:
         sa.CheckConstraint("revision > 0", name="positive_agent_run_revision"),
         sa.CheckConstraint("last_sequence >= 0", name="nonnegative_agent_run_sequence"),
         sa.CheckConstraint("fencing_token > 0", name="positive_agent_run_fence"),
-        sa.ForeignKeyConstraint(
-            ["conversation_id"], ["sessions.id"], ondelete="CASCADE"
-        ),
-        sa.ForeignKeyConstraint(
-            ["input_message_id"], ["messages.id"], ondelete="RESTRICT"
-        ),
+        sa.ForeignKeyConstraint(["conversation_id"], ["sessions.id"], ondelete="CASCADE"),
+        sa.ForeignKeyConstraint(["input_message_id"], ["messages.id"], ondelete="RESTRICT"),
         sa.PrimaryKeyConstraint("id"),
         sa.UniqueConstraint("tenant_id", "trace_id", name="uq_agent_runs_tenant_trace"),
     )
@@ -130,12 +126,8 @@ def upgrade() -> None:
         ),
         sa.CheckConstraint("version > 0", name="positive_answer_version"),
         sa.ForeignKeyConstraint(["run_id"], ["agent_runs.id"], ondelete="CASCADE"),
-        sa.ForeignKeyConstraint(
-            ["assistant_message_id"], ["messages.id"], ondelete="SET NULL"
-        ),
-        sa.ForeignKeyConstraint(
-            ["supersedes_id"], ["answer_versions.id"], ondelete="SET NULL"
-        ),
+        sa.ForeignKeyConstraint(["assistant_message_id"], ["messages.id"], ondelete="SET NULL"),
+        sa.ForeignKeyConstraint(["supersedes_id"], ["answer_versions.id"], ondelete="SET NULL"),
         sa.PrimaryKeyConstraint("id"),
         sa.UniqueConstraint(
             "run_id",
@@ -186,17 +178,11 @@ def upgrade() -> None:
         ),
         sa.CheckConstraint("revision > 0", name="positive_run_artifact_revision"),
         sa.ForeignKeyConstraint(["run_id"], ["agent_runs.id"], ondelete="CASCADE"),
-        sa.ForeignKeyConstraint(
-            ["conversation_id"], ["sessions.id"], ondelete="CASCADE"
-        ),
+        sa.ForeignKeyConstraint(["conversation_id"], ["sessions.id"], ondelete="CASCADE"),
         sa.PrimaryKeyConstraint("id"),
     )
-    op.create_index(
-        "ix_run_artifacts_tenant_id", "run_artifacts", ["tenant_id"], unique=False
-    )
-    op.create_index(
-        "ix_run_artifacts_actor_id", "run_artifacts", ["actor_id"], unique=False
-    )
+    op.create_index("ix_run_artifacts_tenant_id", "run_artifacts", ["tenant_id"], unique=False)
+    op.create_index("ix_run_artifacts_actor_id", "run_artifacts", ["actor_id"], unique=False)
     op.create_index(
         "ix_run_artifacts_owner_conversation_updated",
         "run_artifacts",
@@ -251,9 +237,7 @@ def upgrade() -> None:
             "created_at", sa.DateTime(timezone=True), server_default=sa.func.now(), nullable=False
         ),
         sa.CheckConstraint("value IN (-1,0,1)", name="valid_run_feedback_revision_value"),
-        sa.CheckConstraint(
-            "revision > 0", name="positive_run_feedback_revision_audit"
-        ),
+        sa.CheckConstraint("revision > 0", name="positive_run_feedback_revision_audit"),
         sa.ForeignKeyConstraint(
             ["feedback_state_id"], ["run_feedback_states.id"], ondelete="CASCADE"
         ),
@@ -271,9 +255,7 @@ def downgrade() -> None:
     op.drop_index("ix_run_feedback_states_actor_id", table_name="run_feedback_states")
     op.drop_index("ix_run_feedback_states_tenant_id", table_name="run_feedback_states")
     op.drop_table("run_feedback_states")
-    op.drop_index(
-        "ix_run_artifacts_owner_conversation_updated", table_name="run_artifacts"
-    )
+    op.drop_index("ix_run_artifacts_owner_conversation_updated", table_name="run_artifacts")
     op.drop_index("ix_run_artifacts_actor_id", table_name="run_artifacts")
     op.drop_index("ix_run_artifacts_tenant_id", table_name="run_artifacts")
     op.drop_table("run_artifacts")
