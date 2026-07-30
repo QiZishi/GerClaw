@@ -199,7 +199,10 @@ def test_safety_decision_marks_an_evidence_backed_conclusion_once() -> None:
 def test_patient_risk_footer_is_reserved_for_actionable_or_direct_conclusions() -> None:
     assert requires_patient_clinical_risk_notice("明确诊断为冠心病。")
     assert requires_patient_clinical_risk_notice("建议停用当前药物。")
+    assert requires_patient_clinical_risk_notice("建议开始服用医生开具的降压药。")
     assert not requires_patient_clinical_risk_notice("建议继续记录血压并复诊。")
+    assert not requires_patient_clinical_risk_notice("睡前一小时停用所有带屏设备。")
+    assert not requires_patient_clinical_risk_notice("现在开始做五分钟腹式呼吸。")
     assert "完整病史" in PATIENT_CLINICAL_RISK_NOTICE
     assert "请勿" not in PATIENT_CLINICAL_RISK_NOTICE
 
