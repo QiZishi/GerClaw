@@ -71,6 +71,7 @@ class _HarnessModel(ChatModelBase):
         final_text: str | None = None,
         tool_name: str = "search_knowledge",
         tool_input: str = '{"query":"老年跌倒预防"}',
+        text_by_call: tuple[str, ...] = (),
     ) -> None:
         self.use_tool = use_tool
         self.text = text or "您已经确诊为高血压。建议请医生复核。"
@@ -78,6 +79,7 @@ class _HarnessModel(ChatModelBase):
         self.final_text = final_text
         self.tool_name = tool_name
         self.tool_input = tool_input
+        self.text_by_call = text_by_call
         self.calls = 0
         self.last_messages: list[Msg] = []
         super().__init__(
@@ -113,15 +115,21 @@ class _HarnessModel(ChatModelBase):
                 usage=ChatUsage(input_tokens=10, output_tokens=3, time=0.01),
             )
 
+        response_text = (
+            self.text_by_call[min(self.calls - 1, len(self.text_by_call) - 1)]
+            if self.text_by_call
+            else self.text
+        )
+
         async def stream() -> AsyncGenerator[ChatResponse, None]:
-            midpoint = max(1, len(self.text) // 2)
-            chunks = (self.text[:midpoint], self.text[midpoint:])
+            midpoint = max(1, len(response_text) // 2)
+            chunks = (response_text[:midpoint], response_text[midpoint:])
             if not self.final_only:
                 for text in chunks:
                     if text:
                         yield ChatResponse(content=[TextBlock(text=text)], is_last=False)
             yield ChatResponse(
-                content=[TextBlock(text=self.final_text or self.text)],
+                content=[TextBlock(text=self.final_text or response_text)],
                 is_last=True,
                 usage=ChatUsage(input_tokens=12, output_tokens=8, time=0.01),
             )
@@ -251,6 +259,7 @@ def _harness(
     directive_loader: Any = None,
     directive_claimer: Any = None,
     directive_applier: Any = None,
+    attempt_repair_observer: Any = None,
 ) -> ProductionAgentHarness:
     return ProductionAgentHarness(
         settings=settings,
@@ -287,6 +296,7 @@ def _harness(
         directive_loader=directive_loader,
         directive_claimer=directive_claimer,
         directive_applier=directive_applier,
+        attempt_repair_observer=attempt_repair_observer,
     )
 
 
@@ -367,6 +377,76 @@ async def test_queued_directive_is_applied_before_initial_model_call(
 
     assert applied and applied[0][1] == "before-model-1"
     assert "先给出三条简短结论" in model.last_messages[-1].get_text_content()
+
+
+@pytest.mark.asyncio
+async def test_private_tool_protocol_markup_is_repaired_before_public_projection(
+    unit_settings: Settings,
+) -> None:
+    repairs: list[tuple[str, tuple[str, ...], str, str, str]] = []
+
+    async def observe_repair(
+        error_code: str,
+        field_paths: tuple[str, ...],
+        contract_version: str,
+        repair_action: str,
+        checkpoint_id: str,
+    ) -> None:
+        repairs.append(
+            (
+                error_code,
+                field_paths,
+                contract_version,
+                repair_action,
+                checkpoint_id,
+            )
+        )
+
+    model = _HarnessModel(
+        text_by_call=(
+            '<invoke name="search_knowledge"><parameter name="query">作息</parameter></invoke>',
+            "最重要的是固定起床时间、白天适量活动、睡前减少刺激。",
+        )
+    )
+    harness = _harness(
+        unit_settings,
+        model=model,
+        rag=_HarnessRAG([]),
+        attempt_repair_observer=observe_repair,
+    )
+    context = await harness.assemble_context(
+        "108815d7-05bf-4c2a-a977-cd034f390fab",
+        "usr_patient00000001",
+        [],
+        [],
+    )
+    events: list[StreamEvent] = []
+
+    response = await harness.process_message(
+        "请给三个建立规律作息的建议",
+        "108815d7-05bf-4c2a-a977-cd034f390fab",
+        context,
+        events.append,
+    )
+
+    assert model.calls == 2
+    assert repairs == [
+        (
+            "answer_protocol_markup",
+            ("answer.text",),
+            "chat-answer-v1",
+            "retry_from_pre_model_checkpoint",
+            "chat.answer.pre_model.v1",
+        )
+    ]
+    assert "<invoke" not in response.text
+    assert "固定起床时间" in response.text
+    assert all("<invoke" not in str(event.data.get("content", "")) for event in events)
+    assert any(
+        message.name == "output_contract_repair"
+        and "不要复述" in message.get_text_content()
+        for message in model.last_messages
+    )
 
 
 @pytest.mark.asyncio

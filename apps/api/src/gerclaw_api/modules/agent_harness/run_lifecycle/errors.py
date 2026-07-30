@@ -23,3 +23,7 @@ class AgentApprovalRequiredError(AgentHarnessError):
 
 class EmptyAgentResponseError(AgentHarnessError):
     """Raised when a model finishes without public text."""
+
+
+class AgentOutputProtocolError(AgentHarnessError):
+    """Raised when provider/tool protocol markup escaped into answer text."""

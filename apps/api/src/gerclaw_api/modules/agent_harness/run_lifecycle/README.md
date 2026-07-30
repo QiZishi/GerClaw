@@ -77,6 +77,14 @@ outcome. The separately configured `agent_steer_interruption_wait_seconds` gives
 cleanup enough bounded time to persist `interrupted`; it does not enlarge the short
 Trace-to-Run discovery wait.
 
+Answer text is also checked for provider/tool protocol markup before its private attempt can be
+promoted. A matching attempt is rejected with content-free `ValidationFeedback`, the stable
+pre-model checkpoint is reopened once within the existing retry/model/Token budgets, and the
+model receives the concrete format defect privately. Events from the rejected attempt never
+receive public sequence numbers; only the replacement attempt is replayable. A second contract
+failure ends normally through the typed failure path instead of exposing or concatenating the
+invalid fragment.
+
 The immediate-steer API now waits for the old Run's durable `interrupted` state before opening
 a deterministic successor Trace. A pending steer reserves the source against ordinary resume;
 after binding, the source disappears from recoverable-run lookup. The successor reuses the

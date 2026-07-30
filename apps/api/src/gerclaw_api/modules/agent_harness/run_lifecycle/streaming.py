@@ -6,10 +6,18 @@ import asyncio
 import re
 from collections.abc import AsyncIterator, Callable
 
-from gerclaw_api.modules.agent_harness.run_lifecycle.errors import AgentHarnessError
+from gerclaw_api.modules.agent_harness.run_lifecycle.errors import (
+    AgentHarnessError,
+    AgentOutputProtocolError,
+)
 from gerclaw_api.modules.agent_harness.safety import sanitize_medical_text
 
 _SENTENCE_END = re.compile(r"[。！？!?\n]")  # noqa: RUF001
+_PRIVATE_PROTOCOL_MARKER = re.compile(
+    r"(?:<\s*/?\s*(?:invoke|parameter|tool_call|function_call)\b|"
+    r"<\|/?(?:tool_call|function_call)[^>]*\|>)",
+    re.IGNORECASE,
+)
 
 
 async def bounded_events[EventT](
@@ -31,6 +39,15 @@ async def bounded_events[EventT](
             else AgentHarnessError("agent stream exceeded its wall-clock limit")
         )
         raise public_error from error
+
+
+def validate_public_answer_text(value: str) -> None:
+    """Reject provider/tool control syntax before staged text becomes public."""
+
+    if _PRIVATE_PROTOCOL_MARKER.search(value):
+        raise AgentOutputProtocolError(
+            "provider tool protocol markup cannot enter public answer text"
+        )
 
 
 class SafeSentenceBuffer:

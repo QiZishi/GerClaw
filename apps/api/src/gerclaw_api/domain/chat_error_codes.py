@@ -22,6 +22,7 @@ CHAT_ERROR_CODE_BY_EXCEPTION: dict[str, str] = {
     "WorkflowContextError": "CHAT_CONTEXT_UNSUPPORTED",
     "DocumentContextError": "CHAT_DOCUMENT_UNAVAILABLE",
     "EmptyAgentResponseError": "CHAT_EMPTY_RESPONSE",
+    "AgentOutputProtocolError": "CHAT_OUTPUT_CONTRACT_INVALID",
     "AgentScopeMemoryAdapterError": "CHAT_MEMORY_UNAVAILABLE",
     "MemoryDataError": "CHAT_MEMORY_UNAVAILABLE",
     "MemoryExtractionError": "CHAT_MEMORY_UNAVAILABLE",

@@ -1049,6 +1049,63 @@ class ChatService:
                 actor_id=identity.actor_id,
             )
 
+        async def repair_answer_attempt(
+            error_code: str,
+            field_paths: tuple[str, ...],
+            contract_version: str,
+            repair_action: str,
+            checkpoint_id: str,
+        ) -> None:
+            if (
+                self._run_journal is None
+                or self._active_run_id is None
+                or self._active_attempt is None
+            ):
+                return
+            rejected_attempt = self._active_attempt
+            if checkpoint_id != rejected_attempt.checkpoint_id:
+                raise RuntimeError("output repair checkpoint does not match active attempt")
+            retained_events = tuple(buffered_events)
+            await self._run_journal.reject_attempt(
+                rejected_attempt.id,
+                ValidationFeedback(
+                    step_id=rejected_attempt.step_id,
+                    attempt=rejected_attempt.attempt,
+                    error_code=error_code,
+                    field_paths=field_paths,
+                    contract_version=contract_version,
+                    repair_action=repair_action,
+                    checkpoint_id=checkpoint_id,
+                ),
+                tenant_id=identity.tenant_id,
+                actor_id=identity.actor_id,
+                fencing_token=lease_guard.fencing_token,
+            )
+            self._active_attempt = await self._run_journal.begin_attempt(
+                self._active_run_id,
+                RunAttemptCreate(
+                    public_operation_id=rejected_attempt.public_operation_id,
+                    step_id=rejected_attempt.step_id,
+                    checkpoint_id=checkpoint_id,
+                    expected_current_attempt_id=(
+                        rejected_attempt.expected_current_attempt_id
+                    ),
+                ),
+                tenant_id=identity.tenant_id,
+                actor_id=identity.actor_id,
+                fencing_token=lease_guard.fencing_token,
+            )
+            buffered_events.clear()
+            for retained_event in retained_events:
+                await self._run_journal.stage_attempt_event(
+                    self._active_attempt.id,
+                    self._run_event(retained_event),
+                    tenant_id=identity.tenant_id,
+                    actor_id=identity.actor_id,
+                    fencing_token=lease_guard.fencing_token,
+                )
+                buffered_events.append(retained_event)
+
         harness = ProductionAgentHarness(
             settings=self._settings,
             model=self._model,
@@ -1084,6 +1141,7 @@ class ChatService:
             directive_loader=load_runtime_directives,
             directive_claimer=claim_runtime_directives,
             directive_applier=apply_runtime_directives,
+            attempt_repair_observer=repair_answer_attempt,
         )
         context = await harness.assemble_context(
             str(payload.session_id),

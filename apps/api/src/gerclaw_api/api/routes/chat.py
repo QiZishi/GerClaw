@@ -818,6 +818,7 @@ def _public_error(code: str) -> tuple[str, bool]:
             False,
         ),
         "CHAT_EMPTY_RESPONSE": ("模型未返回可用内容，请稍后重试。", True),
+        "CHAT_OUTPUT_CONTRACT_INVALID": ("模型回复格式异常，请稍后重试。", True),
         "CHAT_MEMORY_UNAVAILABLE": ("健康记忆服务暂时不可用，本次未完成，请稍后重试。", True),
         "CHAT_SKILL_UNAVAILABLE": ("所选技能不存在、已禁用或暂不可用，请刷新技能列表。", False),
         "CHAT_CANCELLATION_FINALIZATION_FAILED": (

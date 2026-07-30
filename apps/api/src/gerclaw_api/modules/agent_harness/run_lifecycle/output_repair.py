@@ -1,0 +1,158 @@
+"""Bounded private output repair before an answer attempt is promoted."""
+
+from __future__ import annotations
+
+from collections.abc import Awaitable, Callable
+from typing import Any, Protocol
+
+from agentscope.agent import Agent
+from agentscope.message import Msg, SystemMsg
+
+from gerclaw_api.modules.agent_harness.run_lifecycle.agent_stream import (
+    AgentStreamResult,
+    StreamBudget,
+    project_agent_stream,
+)
+from gerclaw_api.modules.agent_harness.run_lifecycle.errors import (
+    AgentOutputProtocolError,
+)
+from gerclaw_api.modules.agent_harness.run_lifecycle.streaming import (
+    validate_public_answer_text,
+)
+from gerclaw_api.security import JsonValue
+
+BufferedEvent = tuple[str, dict[str, JsonValue]]
+BufferedEmitter = Callable[[str, dict[str, JsonValue]], Awaitable[None]]
+AttemptRunner = Callable[[BufferedEmitter], Awaitable[AgentStreamResult]]
+AttemptRepairObserver = Callable[
+    [str, tuple[str, ...], str, str, str],
+    Awaitable[None],
+]
+
+OUTPUT_PROTOCOL_REPAIR_INSTRUCTION = (
+    "上一尝试把内部工具调用格式写进了回答。重新完成用户要求:"
+    "不要复述、解释或输出 invoke、parameter、tool_call、function_call 等协议标签;"
+    "如需工具必须使用已提供的正式工具接口, 否则直接用自然语言回答。"
+)
+
+
+class RetryBudget(StreamBudget, Protocol):
+    """Budget operation consumed by one private repair attempt."""
+
+    def add_retry(self) -> None: ...
+
+
+class RepairableAgentSession:
+    """Rebuild one request-scoped Agent from the pre-model checkpoint."""
+
+    def __init__(
+        self,
+        *,
+        builder: Callable[[list[Msg]], Agent],
+        base_context: list[Msg],
+    ) -> None:
+        self._builder = builder
+        self._base_context = base_context
+        self.agent = builder(list(base_context))
+
+    @classmethod
+    def from_factory(
+        cls,
+        *,
+        factory: Any,
+        base_context: list[Msg],
+        **build_kwargs: Any,
+    ) -> RepairableAgentSession:
+        return cls(
+            builder=lambda current: factory.build(
+                state_context=current,
+                **build_kwargs,
+            ),
+            base_context=base_context,
+        )
+
+    def rebuild(self) -> None:
+        runtime_directives = [
+            message
+            for message in self.agent.state.context
+            if message.name == "runtime_user_directive"
+        ]
+        self.agent = self._builder(
+            [
+                *self._base_context,
+                *runtime_directives,
+                SystemMsg(
+                    name="output_contract_repair",
+                    content=OUTPUT_PROTOCOL_REPAIR_INSTRUCTION,
+                ),
+            ]
+        )
+
+
+def _buffered_emitter(events: list[BufferedEvent]) -> BufferedEmitter:
+    async def emit(event_type: str, data: dict[str, JsonValue]) -> None:
+        events.append((event_type, data))
+
+    return emit
+
+
+async def run_with_output_protocol_repair(
+    *,
+    run_attempt: AttemptRunner,
+    rebuild_agent: Callable[[], None],
+    publish: BufferedEmitter,
+    budget: RetryBudget,
+    observer: AttemptRepairObserver | None,
+) -> tuple[AgentStreamResult, int]:
+    """Retry once from the pre-model checkpoint without exposing bad output."""
+
+    for attempt_index in range(2):
+        events: list[BufferedEvent] = []
+        try:
+            result = await run_attempt(_buffered_emitter(events))
+            validate_public_answer_text(result.text)
+        except AgentOutputProtocolError:
+            if attempt_index > 0:
+                raise
+            budget.add_retry()
+            if observer is not None:
+                await observer(
+                    "answer_protocol_markup",
+                    ("answer.text",),
+                    "chat-answer-v1",
+                    "retry_from_pre_model_checkpoint",
+                    "chat.answer.pre_model.v1",
+                )
+            rebuild_agent()
+            continue
+        for event_type, data in events:
+            await publish(event_type, data)
+        return result, attempt_index
+    raise AssertionError("bounded output repair loop did not terminate")
+
+
+async def project_with_output_protocol_repair(
+    *,
+    session: RepairableAgentSession,
+    publish: BufferedEmitter,
+    budget: RetryBudget,
+    observer: AttemptRepairObserver | None,
+    **project_kwargs: Any,
+) -> tuple[AgentStreamResult, int]:
+    """Bind the generic repair loop to the AgentScope stream projector."""
+
+    async def run_attempt(emit: BufferedEmitter) -> AgentStreamResult:
+        return await project_agent_stream(
+            agent=session.agent,
+            emit=emit,
+            budget=budget,
+            **project_kwargs,
+        )
+
+    return await run_with_output_protocol_repair(
+        run_attempt=run_attempt,
+        rebuild_agent=session.rebuild,
+        publish=publish,
+        budget=budget,
+        observer=observer,
+    )

@@ -58,12 +58,14 @@ from gerclaw_api.modules.agent_harness.protocols import (
 )
 from gerclaw_api.modules.agent_harness.routing import RouteDecision, RouteKind
 from gerclaw_api.modules.agent_harness.run_lifecycle import (
+    AttemptRepairObserver,
     CanonicalTextStream,
     EmptyAgentResponseError,
     ProductionRunLifecycle,
+    RepairableAgentSession,
     SafeSentenceBuffer,
     UnsupportedAgentContextError,
-    project_agent_stream,
+    project_with_output_protocol_repair,
 )
 from gerclaw_api.modules.agent_harness.run_lifecycle.agent_stream import final_agent_text
 from gerclaw_api.modules.agent_harness.run_lifecycle.directive_runtime import (
@@ -168,6 +170,7 @@ class ProductionAgentHarness(OrchestrationSupportMixin):
         directive_loader: DirectiveLoader | None = None,
         directive_claimer: DirectiveClaimer | None = None,
         directive_applier: DirectiveApplier | None = None,
+        attempt_repair_observer: AttemptRepairObserver | None = None,
     ) -> None:
         companion = is_companion_workflow(workflow)
         build_core_runtime_asset_security_registry().assess_agent(
@@ -232,6 +235,7 @@ class ProductionAgentHarness(OrchestrationSupportMixin):
         self._approval_callback = approval_callback
         self._clinical_decision = clinical_decision
         self._preassembled_context = preassembled_context
+        self._attempt_repair_observer = attempt_repair_observer
         self._runtime_directives = RuntimeDirectiveCoordinator(
             loader=directive_loader,
             claimer=directive_claimer,
@@ -565,9 +569,10 @@ class ProductionAgentHarness(OrchestrationSupportMixin):
                 document_focused or companion or route_decision.route is RouteKind.QUICK
             ),
         )
-        agent = self._agent_factory.build(
+        agent_session = RepairableAgentSession.from_factory(
+            factory=self._agent_factory,
+            base_context=state_context,
             session_id=session_id,
-            state_context=state_context,
             toolkit=turn_toolkit.toolkit,
             rag_middleware=turn_toolkit.rag_middleware,
             memory_middleware=turn_toolkit.memory_middleware,
@@ -577,7 +582,7 @@ class ProductionAgentHarness(OrchestrationSupportMixin):
         )
         effective_user_message, directive_response = (
             await self._prepare_initial_runtime_directives(
-                agent=agent,
+                agent=agent_session.agent,
                 budget=budget,
                 user_message=user_message,
                 stream_callback=stream_callback,
@@ -592,6 +597,7 @@ class ProductionAgentHarness(OrchestrationSupportMixin):
             if skill.dir.startswith("skill://") and "@" in skill.dir:
                 name, version = skill.dir.removeprefix("skill://").rsplit("@", maxsplit=1)
                 skill_metadata[skill.name] = (name, version)
+        output_contract_retries = 0
         with (
             capture_model_attempts() as attempts,
             capture_agentic_rag_results() as agentic_results,
@@ -604,9 +610,6 @@ class ProductionAgentHarness(OrchestrationSupportMixin):
                     citations_from_search_results(search_results)
                 ),
             )
-
-            async def emit(event_type: str, data: dict[str, JsonValue]) -> None:
-                await self._emit(stream_callback, event_type, data)
 
             async def park_approvals(tool_calls: list[ToolCallBlock]) -> tuple[str, ...]:
                 return await self._persist_approval_requests(
@@ -629,30 +632,33 @@ class ProductionAgentHarness(OrchestrationSupportMixin):
 
             async def apply_directives_after_tool() -> int:
                 return await self._runtime_directives.apply_after_tool(
-                    agent=agent,
+                    agent=agent_session.agent,
                     budget=budget,
                 )
 
             try:
-                stream_result = await project_agent_stream(
-                    agent=agent,
-                    user_message=attachment_projector.user_message(effective_user_message),
-                    budget=budget,
-                    wall_clock_seconds=self._execution_budget.wall_clock_seconds,
-                    max_output_characters=self._config.max_output_characters,
-                    emit=emit,
-                    park_approvals=park_approvals,
-                    evidence_available=citation_scope.segment_has_evidence,
-                    public_text_transform=citation_scope.normalize_public_text,
-                    memory_guard=turn_toolkit.memory_guard,
-                    skill_metadata=skill_metadata,
-                    search_results=search_results,
-                    lifecycle=self._run_lifecycle,
-                    timeout_error_factory=lambda: RuntimeBudgetExceededError(
-                        "RUNTIME_WALL_CLOCK_EXCEEDED"
-                    ),
-                    tool_result_observer=observe_tool_result,
-                    safe_boundary_observer=apply_directives_after_tool,
+                stream_result, output_contract_retries = (
+                    await project_with_output_protocol_repair(
+                        session=agent_session,
+                        publish=lambda kind, data: self._emit(stream_callback, kind, data),
+                        budget=budget,
+                        observer=self._attempt_repair_observer,
+                        user_message=attachment_projector.user_message(effective_user_message),
+                        wall_clock_seconds=self._execution_budget.wall_clock_seconds,
+                        max_output_characters=self._config.max_output_characters,
+                        park_approvals=park_approvals,
+                        evidence_available=citation_scope.segment_has_evidence,
+                        public_text_transform=citation_scope.normalize_public_text,
+                        memory_guard=turn_toolkit.memory_guard,
+                        skill_metadata=skill_metadata,
+                        search_results=search_results,
+                        lifecycle=self._run_lifecycle,
+                        timeout_error_factory=lambda: RuntimeBudgetExceededError(
+                            "RUNTIME_WALL_CLOCK_EXCEEDED"
+                        ),
+                        tool_result_observer=observe_tool_result,
+                        safe_boundary_observer=apply_directives_after_tool,
+                    )
                 )
             except RuntimeDirectiveEmergency as emergency:
                 return await self._emit_runtime_directive_emergency(
@@ -661,11 +667,7 @@ class ProductionAgentHarness(OrchestrationSupportMixin):
                     stream_callback=stream_callback,
                 )
             selected_model_preference = next(
-                (
-                    attempt.preference
-                    for attempt in reversed(attempts)
-                    if attempt.outcome == "succeeded"
-                ),
+                (item.preference for item in reversed(attempts) if item.outcome == "succeeded"),
                 None,
             )
 
@@ -740,6 +742,7 @@ class ProductionAgentHarness(OrchestrationSupportMixin):
                 "model_failures": sum(
                     1 for attempt in attempts if attempt.outcome in {"failed", "failed_partial"}
                 ),
+                "output_contract_retries": output_contract_retries,
                 "input_tokens": stream_result.input_tokens,
                 "output_tokens": stream_result.output_tokens,
                 "tool_names": safe_tool_names,

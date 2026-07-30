@@ -111,6 +111,39 @@ class _TextModel(ChatModelBase):
         return stream()
 
 
+class _ProtocolRepairModel(_TextModel):
+    def __init__(self) -> None:
+        super().__init__()
+        self.calls = 0
+
+    async def _call_api(
+        self,
+        model_name: str,
+        messages: list[Msg],
+        tools: list[dict[str, Any]] | None = None,
+        tool_choice: ToolChoice | None = None,
+        **kwargs: Any,
+    ) -> ChatResponse | AsyncGenerator[ChatResponse, None]:
+        del model_name, tools, tool_choice, kwargs
+        self.calls += 1
+        self.last_messages = messages
+        text = (
+            '<invoke name="search_knowledge"><parameter name="query">作息</parameter></invoke>'
+            if self.calls == 1
+            else "固定起床时间, 白天适量活动, 睡前减少刺激。"
+        )
+
+        async def stream() -> AsyncGenerator[ChatResponse, None]:
+            yield ChatResponse(content=[TextBlock(text=text)], is_last=False)
+            yield ChatResponse(
+                content=[TextBlock(text=text)],
+                is_last=True,
+                usage=ChatUsage(input_tokens=4, output_tokens=6, time=0.01),
+            )
+
+        return stream()
+
+
 class _NoopRAG:
     async def retrieve(self, *_args: object, **_kwargs: object) -> list[object]:
         return []
@@ -405,6 +438,8 @@ class _RunJournal:
         self.clinical_state = ClinicalState()
         self.attempt: RunAttemptRead | None = None
         self.rejected_attempts: list[ValidationFeedback] = []
+        self.attempt_count = 0
+        self.attempt_event_start = 0
 
     async def resolve_regeneration(
         self,
@@ -485,11 +520,13 @@ class _RunJournal:
     ) -> RunAttemptRead:
         del tenant_id, actor_id
         assert run_id == self.run_id
+        self.attempt_count += 1
+        self.attempt_event_start = len(self.events)
         self.attempt = RunAttemptRead(
             id=request.id,
             run_id=run_id,
             public_operation_id=request.public_operation_id,
-            attempt=1,
+            attempt=self.attempt_count,
             step_id=request.step_id,
             checkpoint_id=request.checkpoint_id,
             fencing_token=fencing_token,
@@ -529,6 +566,7 @@ class _RunJournal:
         assert attempt_id == self.attempt.id
         assert fencing_token == 17
         self.rejected_attempts.append(feedback)
+        del self.events[self.attempt_event_start :]
         self.attempt = self.attempt.model_copy(
             update={
                 "status": RunAttemptStatus.REJECTED,
@@ -1002,6 +1040,54 @@ async def test_owned_turn_streams_only_after_durable_success(unit_settings: Sett
     replay_done = cast(Any, replay_events[-1])
     assert replay_done.event_type == "done"
     assert replay_done.data["replayed"] is True
+
+
+@pytest.mark.asyncio
+async def test_invalid_protocol_attempt_is_rejected_and_replaced_in_place(
+    unit_settings: Settings,
+) -> None:
+    session_id = uuid.uuid4()
+    run_journal = _RunJournal()
+    model = _ProtocolRepairModel()
+    service = ChatService(
+        settings=unit_settings,
+        conversation=cast(Any, _ConversationFacade(session_id)),
+        traces=cast(Any, _TraceFacade(created=True, session_id=session_id)),
+        lease=cast(Any, _OwnedLease()),
+        model=cast(Any, model),
+        rag_module=cast(Any, _NoopRAG()),
+        memory_factory=_memory_factory(),
+        run_journal=run_journal,
+    )
+    events: list[object] = []
+
+    async def callback(event: object) -> None:
+        events.append(event)
+
+    response = await service.process(
+        ChatRequest(session_id=session_id, message="请给三个建立规律作息的建议"),
+        identity=AuthContext(
+            actor_id="usr_patient_unit0001",
+            tenant_id="tenant_public0001",
+            scopes=frozenset({"chat:write"}),
+        ),
+        request_id="request_chat_output_repair_0001",
+        trace_id="trace_chat_output_repair_0001",
+        callback=cast(Any, callback),
+    )
+
+    assert model.calls == 2
+    assert run_journal.attempt_count == 2
+    assert [item.error_code for item in run_journal.rejected_attempts] == [
+        "answer_protocol_markup"
+    ]
+    assert "<invoke" not in response.text
+    assert "固定起床时间" in response.text
+    assert all(
+        "<invoke" not in str(cast(Any, event).data.get("content", ""))
+        for event in events
+    )
+    assert run_journal.transitions == [AgentRunStatus.COMPLETED]
 
 
 @pytest.mark.asyncio
