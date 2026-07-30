@@ -35,14 +35,23 @@ bound to one exact evaluator/case-set/gate-policy profile and an explicit promot
 state. The HMAC domain includes the envelope schema and key ID, so an old, staging, or
 lower-authority key cannot relabel itself as the current medical evaluator.
 
+Automated validation never becomes approval. `human-approval-proof-v1` is created only by a
+separately authenticated, human-controlled Ed25519 signing service and binds the accountable
+approver principal, ticket, candidate commit, track, freeze, paired report, sealed attestation,
+and a trusted-clock time. The promotion-side verifier contains public keys only and exposes no
+approve/sign operation. The API accepts neither `approved=true`, a caller-provided approver
+identity, nor a caller-provided timestamp. It re-verifies the sealed gate and enforces
+freeze → paired evaluation → sealed evaluation → approval ordering. Inactive keys and keys
+whose allowed tracks exclude the proposal fail closed; immutable approval therefore cannot be
+disabled by an ordinary deployment flag.
+
 An absent checkout is a normal `unavailable` result. This application deliberately does not
 download an optimizer and does not provide a same-name fallback. Operators install a pinned
 source into an isolated environment only after supply-chain review.
 
-Current limitations: source availability, freeze, and even a valid sealed evaluation do not
-authorize release, and a verified optimizer still has no access to sealed assets or
-production credentials. Human approval, atomic promotion, and rollback are subsequent
-modules in this same isolated application.
+Current limitations: source availability, freeze, sealed evaluation, and an approval proof
+still do not mutate a release ref. Atomic promotion and rollback are the next module in this
+same isolated application.
 
 Effectiveness is measured by deterministic source-pin tests, negative tests for wrong
 remote/commit/license evidence/dirty checkout, production image inspection, and an audited

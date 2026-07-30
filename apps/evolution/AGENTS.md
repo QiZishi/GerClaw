@@ -14,6 +14,10 @@ copied into the production API image, or callable by the online Agent.
   deployment credentials must live outside candidate-readable roots.
 - Every attestation key is authority-bound to one evaluator version, sealed case-set digest,
   gate-policy digest, and promotion-active state; key ID is part of the signed domain.
+- Automated evaluation and human approval use different keys and envelopes. Human approval
+  uses an Ed25519 private key in a separately authenticated signer; promotion receives only the
+  public verification key and exposes no signing API. Approval identity and time come from the
+  signer authority and trusted clock, never candidate input or an `approved` boolean.
 - The controller may import versioned governance contracts from `apps/api`; it must not copy
   or reinterpret their object-authority rules.
 

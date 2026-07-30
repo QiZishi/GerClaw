@@ -1,5 +1,12 @@
 """GerClaw's isolated, operator-run evolution control plane."""
 
+from gerclaw_evolution.approval import (
+    ApprovalSigningKeyRecord,
+    ApprovalVerificationKeyRecord,
+    HumanApprovalProof,
+    HumanApprovalSigner,
+    HumanApprovalVerifier,
+)
 from gerclaw_evolution.attestation import (
     AttestationKeyRecord,
     AttestationKeyring,
@@ -33,6 +40,8 @@ from gerclaw_evolution.sources import (
 
 __all__ = [
     "OFFICIAL_OPTIMIZER_PINS",
+    "ApprovalSigningKeyRecord",
+    "ApprovalVerificationKeyRecord",
     "AttestationKeyRecord",
     "AttestationKeyring",
     "CandidateControlError",
@@ -43,6 +52,9 @@ __all__ = [
     "EvaluationRun",
     "FrozenCandidate",
     "GitRepository",
+    "HumanApprovalProof",
+    "HumanApprovalSigner",
+    "HumanApprovalVerifier",
     "IsolatedWorktreeFactory",
     "OfficialOptimizerPin",
     "OptimizerAvailability",

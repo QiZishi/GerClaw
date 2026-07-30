@@ -611,6 +611,7 @@ name = "gerclaw-evolution"
 version = "0.1.0"
 source = { editable = "." }
 dependencies = [
+    { name = "cryptography" },
     { name = "gerclaw-api" },
 ]
 
@@ -622,7 +623,10 @@ dev = [
 ]
 
 [package.metadata]
-requires-dist = [{ name = "gerclaw-api", editable = "../api" }]
+requires-dist = [
+    { name = "cryptography", specifier = ">=46.0.0,<50" },
+    { name = "gerclaw-api", editable = "../api" },
+]
 
 [package.metadata.requires-dev]
 dev = [
