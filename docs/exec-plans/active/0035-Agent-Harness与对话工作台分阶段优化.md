@@ -1455,6 +1455,14 @@ failed 快照可缺错误码。修复后快照加入完整 canonical `DynamicPla
 只允许一个 node delta 的持久化 transition 校验。四个审阅反例均已加入回归，扩大后
 Planning/Harness `59 passed`，Ruff 和 Planning 全包 Mypy 通过，等待同一审阅者复审。
 
+第二轮复审仍为 `REJECT（P0=0，P1=2，P2=1）`：持久化 transition 可绕过 dependency/required，
+且不能接受 executor 合法的多个 optional skip；恢复时 fallback history 也未验证声明顺序。现已让
+transition 校验读取精确 PlanNode：依赖未满足不能 running，required 不能从 pending 直接 completed/
+skipped；一次 finalize 的多个 optional skip 会展开为按计划顺序的多条内容无关原子事件。fallback
+history 必须是声明列表的非空有序前缀，且每个目标已实际产生 attempt 并处于 running/completed/failed。
+对应反例加入后 Planning/Harness `61 passed`，Ruff 与 Planning 全包 Mypy 通过，继续等待复审，不把
+首次或二次 REJECT 写成通过。
+
 ### 阶段 7
 
 执行完整后端、前端、迁移、Compose、Playwright 和 axe 回归，覆盖患者、医生、访客和响应式关键路径；更新架构、Harness、前端、设计和产品规格，经独立审阅后归档本计划。

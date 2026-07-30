@@ -113,13 +113,22 @@ class PlanExecutionSnapshot(BaseModel):
         ):
             raise PlanningError("PLAN_EXECUTION_SNAPSHOT_MISMATCH")
         declared_fallbacks = {
-            node.node_id: set(node.fallback)
+            node.node_id: node.fallback
             for node in plan.nodes
         }
         if any(
-            fallback_id not in declared_fallbacks[source_id]
+            fallback_ids != declared_fallbacks[source_id][: len(fallback_ids)]
+            or any(
+                self.attempts[fallback_id] < 1
+                or self.statuses[fallback_id]
+                not in {
+                    PlanNodeStatus.RUNNING,
+                    PlanNodeStatus.COMPLETED,
+                    PlanNodeStatus.FAILED,
+                }
+                for fallback_id in fallback_ids
+            )
             for source_id, fallback_ids in self.fallbacks_used.items()
-            for fallback_id in fallback_ids
         ):
             raise PlanningError("PLAN_EXECUTION_FALLBACK_MISMATCH")
         return self
@@ -142,19 +151,44 @@ def validate_plan_execution_transition(
     plan: DynamicPlan,
     current: PlanExecutionSnapshot,
     updated: PlanExecutionSnapshot,
-) -> PlanExecutionTransition:
-    """Accept exactly one legal node transition and no unrelated snapshot drift."""
+) -> tuple[PlanExecutionTransition, ...]:
+    """Expand one legal persisted delta into its content-free node transitions."""
 
     current.validate_for(plan)
     updated.validate_for(plan)
+    node_by_id = {node.node_id: node for node in plan.nodes}
     changed_nodes = [
         node_id
         for node_id in current.statuses
         if current.statuses[node_id] is not updated.statuses[node_id]
     ]
-    if len(changed_nodes) != 1:
+    if not changed_nodes:
         raise PlanningError("PLAN_EXECUTION_TRANSITION_NOT_ATOMIC")
+    if len(changed_nodes) > 1:
+        if (
+            current.attempts != updated.attempts
+            or current.error_codes != updated.error_codes
+            or current.fallbacks_used != updated.fallbacks_used
+            or any(
+                node_by_id[node_id].required
+                or current.statuses[node_id] is not PlanNodeStatus.PENDING
+                or updated.statuses[node_id] is not PlanNodeStatus.SKIPPED
+                for node_id in changed_nodes
+            )
+        ):
+            raise PlanningError("PLAN_EXECUTION_TRANSITION_NOT_ATOMIC")
+        return tuple(
+            PlanExecutionTransition(
+                node_id=node.node_id,
+                previous_status=PlanNodeStatus.PENDING,
+                status=PlanNodeStatus.SKIPPED,
+                attempt=updated.attempts[node.node_id],
+            )
+            for node in plan.nodes
+            if node.node_id in changed_nodes
+        )
     node_id = changed_nodes[0]
+    node = node_by_id[node_id]
     previous_status = current.statuses[node_id]
     status = updated.statuses[node_id]
     current_attempt = current.attempts[node_id]
@@ -202,6 +236,10 @@ def validate_plan_execution_transition(
         allowed = (
             attempt == current_attempt + 1
             and node_id not in updated.error_codes
+            and all(
+                _snapshot_satisfied(current, dependency)
+                for dependency in node.dependencies
+            )
         )
     elif previous_status is PlanNodeStatus.RUNNING and status in {
         PlanNodeStatus.COMPLETED,
@@ -213,20 +251,34 @@ def validate_plan_execution_transition(
         else:
             allowed = allowed and node_id not in updated.error_codes
     elif previous_status is PlanNodeStatus.PENDING and status is PlanNodeStatus.COMPLETED:
-        allowed = attempt == current_attempt + 1 and node_id not in updated.error_codes
+        allowed = (
+            not node.required
+            and attempt == current_attempt + 1
+            and node_id not in updated.error_codes
+            and all(
+                _snapshot_satisfied(current, dependency)
+                for dependency in node.dependencies
+            )
+        )
     elif previous_status is PlanNodeStatus.PENDING and status is PlanNodeStatus.SKIPPED:
-        allowed = attempt == current_attempt and node_id not in updated.error_codes
+        allowed = (
+            not node.required
+            and attempt == current_attempt
+            and node_id not in updated.error_codes
+        )
     if not allowed:
         raise PlanningError(
             f"PLAN_EXECUTION_TRANSITION_INVALID:{node_id}:{previous_status}:{status}"
         )
-    return PlanExecutionTransition(
-        node_id=node_id,
-        previous_status=previous_status,
-        status=status,
-        attempt=attempt,
-        error_code=updated.error_codes.get(node_id),
-        fallback_for_node_id=fallback_for_node_id,
+    return (
+        PlanExecutionTransition(
+            node_id=node_id,
+            previous_status=previous_status,
+            status=status,
+            attempt=attempt,
+            error_code=updated.error_codes.get(node_id),
+            fallback_for_node_id=fallback_for_node_id,
+        ),
     )
 
 
@@ -404,6 +456,29 @@ def _plan_fingerprint(plan: DynamicPlan) -> str:
         separators=(",", ":"),
     )
     return hashlib.sha256(canonical.encode()).hexdigest()
+
+
+def _snapshot_satisfied(
+    snapshot: PlanExecutionSnapshot,
+    node_id: str,
+    *,
+    visited: frozenset[str] = frozenset(),
+) -> bool:
+    if node_id in visited:
+        return False
+    if snapshot.statuses[node_id] is PlanNodeStatus.COMPLETED:
+        return True
+    return (
+        snapshot.statuses[node_id] is PlanNodeStatus.FAILED
+        and any(
+            _snapshot_satisfied(
+                snapshot,
+                fallback_id,
+                visited=visited | {node_id},
+            )
+            for fallback_id in snapshot.fallbacks_used.get(node_id, ())
+        )
+    )
 
 
 class TurnExecutionGovernance:

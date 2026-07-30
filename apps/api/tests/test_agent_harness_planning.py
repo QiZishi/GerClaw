@@ -293,10 +293,11 @@ def test_plan_execution_transition_accepts_one_node_and_rejects_snapshot_drift()
     running = executor.snapshot()
 
     transition = validate_plan_execution_transition(plan, initial, running)
-    assert transition.node_id == "quick_answer"
-    assert transition.previous_status is PlanNodeStatus.PENDING
-    assert transition.status is PlanNodeStatus.RUNNING
-    assert transition.attempt == 1
+    assert len(transition) == 1
+    assert transition[0].node_id == "quick_answer"
+    assert transition[0].previous_status is PlanNodeStatus.PENDING
+    assert transition[0].status is PlanNodeStatus.RUNNING
+    assert transition[0].attempt == 1
 
     drifted = running.model_copy(update={"attempts": {"quick_answer": 2}})
     with pytest.raises(PlanningError, match="TRANSITION_INVALID"):
@@ -395,6 +396,105 @@ def test_plan_execution_attempt_limit_stops_before_running_and_failed_needs_erro
             statuses={"quick_answer": PlanNodeStatus.FAILED},
             attempts={"quick_answer": 1},
         )
+
+
+def test_plan_transition_rejects_dependency_and_required_checkpoint_bypasses() -> None:
+    plan = DynamicPlan(
+        nodes=(
+            PlanNode(
+                node_id="prerequisite",
+                capability="evidence.retrieve",
+                public_summary="正在准备前置信息",
+            ),
+            PlanNode(
+                node_id="required_action",
+                dependencies=("prerequisite",),
+                capability="answer.compose",
+                public_summary="正在执行必要步骤",
+            ),
+        )
+    )
+    initial = PlanExecutionSnapshot.initial(plan)
+    for illegal_status in (
+        PlanNodeStatus.RUNNING,
+        PlanNodeStatus.COMPLETED,
+        PlanNodeStatus.SKIPPED,
+    ):
+        illegal = initial.model_copy(
+            update={
+                "statuses": {
+                    **initial.statuses,
+                    "required_action": illegal_status,
+                },
+                "attempts": {
+                    **initial.attempts,
+                    "required_action": (
+                        0 if illegal_status is PlanNodeStatus.SKIPPED else 1
+                    ),
+                },
+            }
+        )
+        with pytest.raises(PlanningError):
+            validate_plan_execution_transition(plan, initial, illegal)
+
+
+def test_plan_transition_expands_atomic_optional_skips_and_checks_fallback_prefix() -> None:
+    plan = DynamicPlan(
+        nodes=(
+            PlanNode(
+                node_id="primary",
+                capability="primary.run",
+                public_summary="正在执行主要步骤",
+                fallback=("fallback_one", "fallback_two"),
+            ),
+            PlanNode(
+                node_id="fallback_one",
+                required=False,
+                capability="fallback.one",
+                public_summary="正在执行第一备用步骤",
+            ),
+            PlanNode(
+                node_id="fallback_two",
+                required=False,
+                capability="fallback.two",
+                public_summary="正在执行第二备用步骤",
+            ),
+        )
+    )
+    executor = DynamicPlanExecutor(plan)
+    primary = executor.start_capability("primary.run")
+    executor.complete(primary)
+    before_finalize = executor.snapshot()
+    finalized = executor.finalize()
+
+    transitions = validate_plan_execution_transition(
+        plan,
+        before_finalize,
+        finalized,
+    )
+    assert [(item.node_id, item.status) for item in transitions] == [
+        ("fallback_one", PlanNodeStatus.SKIPPED),
+        ("fallback_two", PlanNodeStatus.SKIPPED),
+    ]
+
+    initial = PlanExecutionSnapshot.initial(plan)
+    out_of_order_history = PlanExecutionSnapshot(
+        plan_fingerprint=initial.plan_fingerprint,
+        statuses={
+            "primary": PlanNodeStatus.FAILED,
+            "fallback_one": PlanNodeStatus.PENDING,
+            "fallback_two": PlanNodeStatus.COMPLETED,
+        },
+        attempts={
+            "primary": 1,
+            "fallback_one": 0,
+            "fallback_two": 1,
+        },
+        error_codes={"primary": "PRIMARY_UNAVAILABLE"},
+        fallbacks_used={"primary": ("fallback_two",)},
+    )
+    with pytest.raises(PlanningError, match="PLAN_EXECUTION_FALLBACK_MISMATCH"):
+        DynamicPlanExecutor(plan, snapshot=out_of_order_history)
 
 
 def test_dynamic_plan_rejects_unavailable_capability_and_aggregate_budget() -> None:
