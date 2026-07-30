@@ -124,6 +124,11 @@ from gerclaw_api.security import JsonValue
 from gerclaw_api.services.model_router import capture_model_attempts
 
 StreamCallback = Callable[[StreamEvent], Awaitable[None] | None]
+CapabilityInvoker = Callable[[str], Awaitable[CapabilityResult]]
+CapabilityResultObserver = Callable[
+    [PlanExecutionSnapshot, CapabilityResult],
+    Awaitable[None],
+]
 _EVIDENCE_UNAVAILABLE_CLARIFICATION = (
     "目前缺少可核验的资料，暂不适合据此作个体化判断。"
     "请补充症状出现和变化、近期检查或完整用药信息，我可以结合这些资料继续说明。"
@@ -156,6 +161,8 @@ class ProductionAgentHarness(OrchestrationSupportMixin):
         governed_capability_ids: tuple[str, ...] = (),
         completed_capability_ids: tuple[str, ...] = (),
         capability_results: tuple[CapabilityResult, ...] = (),
+        capability_invoker: CapabilityInvoker | None = None,
+        capability_result_observer: CapabilityResultObserver | None = None,
         uploaded_documents: list[UploadedDocumentContext] | None = None,
         uploaded_images: list[ImageInput] | None = None,
         runtime_principal: RuntimePrincipal,
@@ -215,7 +222,10 @@ class ProductionAgentHarness(OrchestrationSupportMixin):
         self._loaded_skill_ids = loaded_skill_ids or []
         self._governed_capability_ids = governed_capability_ids
         self._completed_capability_ids = completed_capability_ids
-        self._capability_results = capability_results
+        self._capability_results = list(capability_results)
+        self._capability_invoker = capability_invoker
+        self._capability_result_observer = capability_result_observer
+        self._warning_codes: list[str] = []
         self._uploaded_documents = uploaded_documents or []
         self._uploaded_images = uploaded_images or []
         self._uploaded_input = UploadedInputProjector(
@@ -468,6 +478,51 @@ class ProductionAgentHarness(OrchestrationSupportMixin):
             await governance.complete_persisted(evidence_node)
         for capability_id in self._completed_capability_ids:
             await governance.complete_optional_capability_persisted(capability_id)
+        completed_capability_ids = {
+            item.capability_id for item in self._capability_results
+        }
+        planned_capabilities = {
+            node.capability for node in dynamic_plan.nodes
+        }
+        for capability_id in self._governed_capability_ids:
+            if (
+                capability_id in completed_capability_ids
+                or capability_id not in planned_capabilities
+            ):
+                continue
+            if self._capability_invoker is None:
+                raise UnsupportedAgentContextError(
+                    "governed capability owner is unavailable"
+                )
+            capability_node = await governance.checkpoint_persisted(capability_id)
+            try:
+                capability_result = await self._capability_invoker(capability_id)
+            except Exception:
+                await governance.fail_persisted(
+                    capability_node,
+                    "CAPABILITY_OWNER_FAILED",
+                )
+                if "OPTIONAL_CAPABILITY_FAILED" not in self._warning_codes:
+                    self._warning_codes.append("OPTIONAL_CAPABILITY_FAILED")
+                continue
+            if capability_result.capability_id != capability_id:
+                await governance.fail_persisted(
+                    capability_node,
+                    "CAPABILITY_RESULT_MISMATCH",
+                )
+                if "OPTIONAL_CAPABILITY_FAILED" not in self._warning_codes:
+                    self._warning_codes.append("OPTIONAL_CAPABILITY_FAILED")
+                continue
+            if self._capability_result_observer is not None:
+                governance.complete(capability_node)
+                await self._capability_result_observer(
+                    governance.snapshot(),
+                    capability_result,
+                )
+            else:
+                await governance.complete_persisted(capability_node)
+            self._capability_results.append(capability_result)
+            completed_capability_ids.add(capability_id)
         initial_citations = citations_from_results(
             evidence_results,
             minimum_score=self._config.evidence_min_score,
@@ -491,6 +546,11 @@ class ProductionAgentHarness(OrchestrationSupportMixin):
                 structured={
                     "loaded_skill_ids": list(context.loaded_skills),
                     "governed_capability_ids": list(self._governed_capability_ids),
+                    "capability_results": [
+                        item.model_dump(mode="json")
+                        for item in self._capability_results
+                    ],
+                    "warning_codes": list(self._warning_codes),
                     "document_focused": False,
                     "evidence_state": "unavailable",
                     "route": route_decision.route.value,
@@ -792,6 +852,7 @@ class ProductionAgentHarness(OrchestrationSupportMixin):
                 "capability_results": [
                     item.model_dump(mode="json") for item in self._capability_results
                 ],
+                "warning_codes": list(self._warning_codes),
                 "shared_result_kinds": turn_results.public_kinds(),
                 "document_focused": document_focused,
                 "evidence_backed_clinical_conclusion": claims_complete,

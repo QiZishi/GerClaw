@@ -31,6 +31,7 @@ from gerclaw_api.modules.agent_harness.clinical_state import (
 )
 from gerclaw_api.modules.agent_harness.evolution_signals import EvolutionSignalCollector
 from gerclaw_api.modules.agent_harness.planning import PlanExecutionSnapshot
+from gerclaw_api.modules.agent_harness.plugin_runtime import CapabilityResult
 from gerclaw_api.repositories.agent_run import SqlAlchemyAgentRunRepository
 from gerclaw_api.repositories.answer_version import SqlAlchemyAnswerVersionRepository
 from gerclaw_api.repositories.run_directive import SqlAlchemyRunDirectiveRepository
@@ -113,6 +114,7 @@ class ChatRunJournal(Protocol):
         tenant_id: str,
         actor_id: str,
         fencing_token: int,
+        capability_result: CapabilityResult | None = None,
     ) -> PlanExecutionSnapshot:
         """Persist exactly one fenced PlanNode transition."""
 
@@ -150,6 +152,7 @@ class ChatRunJournal(Protocol):
         fencing_token: int,
         answer_group_run_id: uuid.UUID | None = None,
         expected_current_version_id: uuid.UUID | None = None,
+        warnings: tuple[str, ...] = (),
     ) -> tuple[AnswerVersionRead, AgentRunRead, tuple[RunEventRead, ...]]:
         """Atomically register the answer and CAS-promote the validated attempt."""
 
@@ -466,6 +469,7 @@ class DatabaseChatRunJournal:
         tenant_id: str,
         actor_id: str,
         fencing_token: int,
+        capability_result: CapabilityResult | None = None,
     ) -> PlanExecutionSnapshot:
         async with self._database.session() as session:
             return await AgentRunService(
@@ -476,6 +480,7 @@ class DatabaseChatRunJournal:
                 tenant_id=tenant_id,
                 actor_id=actor_id,
                 fencing_token=fencing_token,
+                capability_result=capability_result,
             )
 
     async def stage_attempt_event(
@@ -526,6 +531,7 @@ class DatabaseChatRunJournal:
         fencing_token: int,
         answer_group_run_id: uuid.UUID | None = None,
         expected_current_version_id: uuid.UUID | None = None,
+        warnings: tuple[str, ...] = (),
     ) -> tuple[AnswerVersionRead, AgentRunRead, tuple[RunEventRead, ...]]:
         if self._completion_session is not None:
             return await self._complete_answer_in_session(
@@ -539,6 +545,7 @@ class DatabaseChatRunJournal:
                 fencing_token=fencing_token,
                 answer_group_run_id=answer_group_run_id,
                 expected_current_version_id=expected_current_version_id,
+                warnings=warnings,
                 commit=False,
             )
         async with self._database.session() as session:
@@ -553,6 +560,7 @@ class DatabaseChatRunJournal:
                 fencing_token=fencing_token,
                 answer_group_run_id=answer_group_run_id,
                 expected_current_version_id=expected_current_version_id,
+                warnings=warnings,
                 commit=True,
             )
         if self._evolution_signal_collector is not None:
@@ -572,6 +580,7 @@ class DatabaseChatRunJournal:
         fencing_token: int,
         answer_group_run_id: uuid.UUID | None,
         expected_current_version_id: uuid.UUID | None,
+        warnings: tuple[str, ...],
         commit: bool,
     ) -> tuple[AnswerVersionRead, AgentRunRead, tuple[RunEventRead, ...]]:
         answer = await AnswerVersionService(SqlAlchemyAnswerVersionRepository(session)).register(
@@ -592,18 +601,24 @@ class DatabaseChatRunJournal:
             "answer_version_id": str(answer.id),
             "answer_version": answer.version,
         }
+        terminal_status = (
+            AgentRunStatus.COMPLETED_WITH_WARNINGS
+            if warnings
+            else AgentRunStatus.COMPLETED
+        )
         run, events = await AgentRunService(SqlAlchemyAgentRunRepository(session)).commit_attempt(
             attempt_id,
             tenant_id=tenant_id,
             actor_id=actor_id,
             fencing_token=fencing_token,
-            target=AgentRunStatus.COMPLETED,
+            target=terminal_status,
             terminal_event=RunEventWrite(
                 event_type="done",
-                status=AgentRunStatus.COMPLETED.value,
+                status=terminal_status.value,
                 public_summary="回答已完成",
                 payload=completed_payload,
             ),
+            warnings=warnings,
             commit=commit,
         )
         return answer, run, events

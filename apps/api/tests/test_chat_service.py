@@ -61,6 +61,7 @@ from gerclaw_api.modules.agent_harness.planning import (
     PlanExecutionSnapshot,
     PlanNodeStatus,
 )
+from gerclaw_api.modules.agent_harness.plugin_runtime import CapabilityResult
 from gerclaw_api.modules.agent_harness.routing import RouteKind
 from gerclaw_api.modules.agent_harness.run_lifecycle import RunFenceConflictError
 from gerclaw_api.modules.memory.models import MemoryUpdateResult
@@ -445,6 +446,7 @@ class _RunJournal:
         self.attempt_count = 0
         self.attempt_event_start = 0
         self.plan_executions: list[PlanExecutionSnapshot] = []
+        self.completion_warnings: tuple[str, ...] = ()
 
     async def resolve_regeneration(
         self,
@@ -522,8 +524,9 @@ class _RunJournal:
         tenant_id: str,
         actor_id: str,
         fencing_token: int,
+        capability_result: object | None = None,
     ) -> PlanExecutionSnapshot:
-        del tenant_id, actor_id
+        del tenant_id, actor_id, capability_result
         assert run_id == self.run_id
         assert fencing_token == 17
         self.plan_executions.append(updated)
@@ -609,6 +612,7 @@ class _RunJournal:
         fencing_token: int,
         answer_group_run_id: uuid.UUID | None = None,
         expected_current_version_id: uuid.UUID | None = None,
+        warnings: tuple[str, ...] = (),
     ) -> tuple[AnswerVersionRead, AgentRunRead, tuple[RunEventRead, ...]]:
         del tenant_id, actor_id, expected_current_version_id
         assert run_id == self.run_id
@@ -628,14 +632,20 @@ class _RunJournal:
             is_current=True,
             created_at=datetime.now(UTC),
         )
+        terminal_status = (
+            AgentRunStatus.COMPLETED_WITH_WARNINGS
+            if warnings
+            else AgentRunStatus.COMPLETED
+        )
+        self.completion_warnings = warnings
         self.events.append(
             RunEventWrite(
                 event_type="done",
-                status="completed",
+                status=terminal_status.value,
                 payload=cast(dict[str, Any], done_payload),
             )
         )
-        self.transitions.append(AgentRunStatus.COMPLETED)
+        self.transitions.append(terminal_status)
         public_events = tuple(
             RunEventRead(
                 run_id=run_id,
@@ -649,7 +659,7 @@ class _RunJournal:
             answer,
             self._run(
                 self.start_requests[0],
-                AgentRunStatus.COMPLETED,
+                terminal_status,
                 revision=len(self.transitions) + 1,
             ),
             public_events,
@@ -720,6 +730,34 @@ class _RunJournal:
             started_at=datetime.now(UTC),
             interrupted_at=(datetime.now(UTC) if status is AgentRunStatus.INTERRUPTED else None),
             completed_at=(datetime.now(UTC) if status in TERMINAL_RUN_STATUSES else None),
+        )
+
+
+class _CapabilityRuntime:
+    def __init__(self, run_journal: _RunJournal, *, fail: bool = False) -> None:
+        self._run_journal = run_journal
+        self._fail = fail
+        self.calls: list[str] = []
+
+    async def invoke(
+        self,
+        capability_id: str,
+        payload: dict[str, JsonValue],
+    ) -> CapabilityResult:
+        assert self._run_journal.start_requests
+        assert self._run_journal.plan_executions
+        assert any(
+            status is PlanNodeStatus.RUNNING
+            for status in self._run_journal.plan_executions[-1].statuses.values()
+        )
+        assert payload["trace_id"]
+        self.calls.append(capability_id)
+        if self._fail:
+            raise RuntimeError("capability owner unavailable")
+        return CapabilityResult(
+            capability_id=capability_id,
+            result_ref=f"owner:{capability_id}:unit",
+            public_summary="专业能力已完成。",
         )
 
 
@@ -1067,6 +1105,90 @@ async def test_owned_turn_streams_only_after_durable_success(unit_settings: Sett
     replay_done = cast(Any, replay_events[-1])
     assert replay_done.event_type == "done"
     assert replay_done.data["replayed"] is True
+
+
+@pytest.mark.asyncio
+async def test_owner_capability_runs_only_after_durable_run_checkpoint(
+    unit_settings: Settings,
+) -> None:
+    session_id = uuid.uuid4()
+    run_journal = _RunJournal()
+    runtime = _CapabilityRuntime(run_journal)
+    service = ChatService(
+        settings=unit_settings,
+        conversation=cast(Any, _ConversationFacade(session_id)),
+        traces=cast(Any, _TraceFacade(created=True, session_id=session_id)),
+        lease=cast(Any, _OwnedLease()),
+        model=cast(Any, _TextModel()),
+        rag_module=cast(Any, _NoopRAG()),
+        memory_factory=_memory_factory(),
+        run_journal=run_journal,
+        capability_runtime=runtime,
+    )
+
+    async def callback(_event: object) -> None:
+        return None
+
+    await service.process(
+        ChatRequest(session_id=session_id, message="请做老年综合评估"),
+        identity=AuthContext(
+            actor_id="usr_patient_unit0001",
+            tenant_id="tenant_public0001",
+            scopes=frozenset({"chat:write"}),
+        ),
+        request_id="request_capability_checkpoint_0001",
+        trace_id="trace_capability_checkpoint_0001",
+        callback=cast(Any, callback),
+    )
+
+    assert runtime.calls == ["gerclaw.cga"]
+    frozen_plan = PersistedRunPlan.model_validate(run_journal.start_requests[0].plan)
+    assert frozen_plan.capability_results == ()
+    assert any(
+        snapshot.statuses.get("capability_1") is PlanNodeStatus.COMPLETED
+        for snapshot in run_journal.plan_executions
+    )
+    assert run_journal.transitions == [AgentRunStatus.COMPLETED]
+
+
+@pytest.mark.asyncio
+async def test_optional_owner_failure_finishes_with_private_warning_and_answer(
+    unit_settings: Settings,
+) -> None:
+    session_id = uuid.uuid4()
+    run_journal = _RunJournal()
+    runtime = _CapabilityRuntime(run_journal, fail=True)
+    service = ChatService(
+        settings=unit_settings,
+        conversation=cast(Any, _ConversationFacade(session_id)),
+        traces=cast(Any, _TraceFacade(created=True, session_id=session_id)),
+        lease=cast(Any, _OwnedLease()),
+        model=cast(Any, _TextModel()),
+        rag_module=cast(Any, _NoopRAG()),
+        memory_factory=_memory_factory(),
+        run_journal=run_journal,
+        capability_runtime=runtime,
+    )
+
+    async def callback(_event: object) -> None:
+        return None
+
+    response = await service.process(
+        ChatRequest(session_id=session_id, message="请做老年综合评估"),
+        identity=AuthContext(
+            actor_id="usr_patient_unit0001",
+            tenant_id="tenant_public0001",
+            scopes=frozenset({"chat:write"}),
+        ),
+        request_id="request_capability_warning_0001",
+        trace_id="trace_capability_warning_0001",
+        callback=cast(Any, callback),
+    )
+
+    assert response.text
+    assert "CAPABILITY_OWNER_FAILED" not in response.text
+    assert run_journal.completion_warnings == ("OPTIONAL_CAPABILITY_FAILED",)
+    assert run_journal.transitions == [AgentRunStatus.COMPLETED_WITH_WARNINGS]
 
 
 @pytest.mark.asyncio

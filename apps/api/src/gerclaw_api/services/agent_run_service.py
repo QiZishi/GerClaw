@@ -30,8 +30,10 @@ from gerclaw_api.modules.agent_harness.context_snapshot import PersistedRunPlan
 from gerclaw_api.modules.agent_harness.planning import (
     PlanExecutionSnapshot,
     PlanningError,
+    PlanNodeStatus,
     validate_plan_execution_transition,
 )
+from gerclaw_api.modules.agent_harness.plugin_runtime import CapabilityResult
 from gerclaw_api.modules.agent_harness.routing import RouteKind
 from gerclaw_api.modules.agent_harness.run_lifecycle import (
     AgentRunStateMachine,
@@ -307,6 +309,7 @@ class AgentRunService:
         tenant_id: str,
         actor_id: str,
         fencing_token: int,
+        capability_result: CapabilityResult | None = None,
     ) -> PlanExecutionSnapshot:
         """Persist exactly one fenced PlanNode transition and its current snapshot."""
 
@@ -325,7 +328,34 @@ class AgentRunService:
                 current,
                 updated,
             )
-            persisted_plan = plan.model_copy(update={"plan_execution": updated})
+            capability_results = plan.capability_results
+            if capability_result is not None:
+                if len(transitions) != 1:
+                    raise PlanningError("PLAN_CAPABILITY_RESULT_TRANSITION_INVALID")
+                transition = transitions[0]
+                node = next(
+                    item
+                    for item in plan.dynamic_plan.nodes
+                    if item.node_id == transition.node_id
+                )
+                if (
+                    transition.status is not PlanNodeStatus.COMPLETED
+                    or node.capability != capability_result.capability_id
+                    or capability_result.capability_id
+                    not in plan.capability_selection.ids
+                    or any(
+                        item.capability_id == capability_result.capability_id
+                        for item in capability_results
+                    )
+                ):
+                    raise PlanningError("PLAN_CAPABILITY_RESULT_TRANSITION_INVALID")
+                capability_results = (*capability_results, capability_result)
+            persisted_plan = plan.model_copy(
+                update={
+                    "plan_execution": updated,
+                    "capability_results": capability_results,
+                }
+            )
         except (PlanningError, ValueError) as error:
             await self._repository.rollback()
             raise AgentRunConflictError("stored run plan is invalid") from error
@@ -437,6 +467,7 @@ class AgentRunService:
         fencing_token: int,
         target: AgentRunStatus,
         terminal_event: RunEventWrite,
+        warnings: tuple[str, ...] = (),
         commit: bool = True,
     ) -> tuple[AgentRunRead, tuple[RunEventRead, ...]]:
         """CAS-promote a validated attempt and its public events in one transaction."""
@@ -459,6 +490,7 @@ class AgentRunService:
             target,
             expected_revision=current.revision,
             fencing_token=fencing_token,
+            warnings=warnings,
         )
         staged = await self._repository.list_attempt_events(attempt.id)
         private_terminal = AgentRunAttemptEvent(

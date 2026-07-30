@@ -49,10 +49,12 @@ the durable checkpoint fact source. The production Harness now observes every ch
 before its attachment, evidence, answer-model, emergency, or clarification side effect and
 persists completion only after success. Skill and already-returned governed-capability results
 persist their optional-node completion after result validation. A stale fence or persistence
-failure therefore stops the next governed Harness side effect. Stable node failures are
-persisted privately and are not added to the public answer. Moving owner capabilities behind
-the Run checkpoint, interrupted-running-node normalization, and durable node output reuse
-remain separate recovery work rather than being implied here.
+failure therefore stops the next governed Harness side effect. Owner capabilities now enter
+`running` only after the Run exists; their validated result and `completed` transition persist
+atomically. An optional owner failure remains private, preserves the valid answer, and produces
+`completed_with_warnings` rather than a false full failure. Stable node failures are not added
+to the public answer. Interrupted-running-node normalization and durable output reuse for
+non-owner nodes remain separate recovery work rather than being implied here.
 
 Queued requirements are available through the owner-scoped Trace create API and Run list/delete
 APIs. The Trace lookup closes the period before a successful stream reveals a Run ID. The

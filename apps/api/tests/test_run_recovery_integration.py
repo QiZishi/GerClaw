@@ -32,9 +32,18 @@ from gerclaw_api.modules.agent_harness.context_snapshot import (
 from gerclaw_api.modules.agent_harness.planning import (
     ClinicalDecisionCoordinator,
     DeterministicPlanner,
+    DynamicPlan,
     DynamicPlanExecutor,
     PlanExecutionSnapshot,
+    PlanNode,
     PlanRequest,
+)
+from gerclaw_api.modules.agent_harness.plugin_runtime import (
+    CapabilityEntrypoint,
+    CapabilityResult,
+    CapabilitySelection,
+    CapabilitySelectionMode,
+    SelectedCapability,
 )
 from gerclaw_api.modules.agent_harness.routing import RouteDecision, RouteKind
 from gerclaw_api.modules.agent_harness.safety import MEDICAL_DISCLAIMER
@@ -269,6 +278,152 @@ async def test_plan_node_transitions_are_fenced_persisted_and_append_audited(
     ] == [
         (node_id, 1, "running", 23),
         (node_id, 1, "completed", 23),
+    ]
+
+
+@pytest.mark.integration
+@pytest.mark.asyncio
+async def test_capability_result_and_completion_commit_atomically_in_postgres(
+    integration_client: tuple[AsyncClient, object],
+) -> None:
+    client, app = integration_client
+    session_id = uuid.uuid4()
+    response = await client.post(
+        "/api/v1/sessions",
+        json={"session_id": str(session_id)},
+    )
+    assert response.status_code == 201, response.text
+
+    payload = ChatRequest(session_id=session_id, message="能力结果原子持久化测试")
+    trace_id = "trace_capability_result_integration_0001"
+    dynamic_plan = DynamicPlan(
+        route=RouteKind.STANDARD,
+        nodes=(
+            PlanNode(
+                node_id="capability",
+                required=False,
+                capability="gerclaw.cga",
+                public_summary="正在执行老年综合评估",
+            ),
+            PlanNode(
+                node_id="answer",
+                capability="answer.standard",
+                public_summary="正在整理回答",
+            ),
+        ),
+    )
+    selection = CapabilitySelection(
+        selected=(
+            SelectedCapability(
+                capability_id="gerclaw.cga",
+                source=CapabilitySelectionMode.MANUAL,
+                entrypoint=CapabilityEntrypoint.CGA_ASSESSMENT,
+                owner_module="cga",
+            ),
+        )
+    )
+    async with app.state.database.session() as session:
+        conversation_service = ConversationService(
+            SqlAlchemyConversationRepository(session)
+        )
+        conversation = await conversation_service.require_session(
+            session_id,
+            tenant_id=TENANT,
+            actor_id=ACTOR,
+        )
+        message = await conversation_service.store_user_message(
+            tenant_id=TENANT,
+            conversation=conversation,
+            session_id=session_id,
+            trace_id=trace_id,
+            text=payload.message,
+            channel="web",
+        )
+        context, base_plan_payload = _frozen_run_material(
+            settings=app.state.settings,
+            payload=payload,
+            input_message_id=message.id,
+            trace_id=trace_id,
+            request_id="req_capability_result_integration_0001",
+        )
+        plan = PersistedRunPlan.model_validate(
+            base_plan_payload
+            | {
+                "capability_selection": selection.model_dump(mode="json"),
+                "dynamic_plan": dynamic_plan.model_dump(mode="json"),
+                "plan_execution": PlanExecutionSnapshot.initial(
+                    dynamic_plan
+                ).model_dump(mode="json"),
+            }
+        )
+        service = AgentRunService(SqlAlchemyAgentRunRepository(session))
+        created = await service.create_run(
+            AgentRunCreate(
+                conversation_id=session_id,
+                input_message_id=message.id,
+                trace_id=trace_id,
+                route=RouteKind.STANDARD,
+                fencing_token=29,
+                context_snapshot=context,
+                plan=plan.model_dump(mode="json"),
+            ),
+            tenant_id=TENANT,
+            actor_id=ACTOR,
+        )
+
+    executor = DynamicPlanExecutor(
+        dynamic_plan,
+        snapshot=plan.effective_plan_execution(),
+    )
+    node_id = executor.start_capability("gerclaw.cga")
+    async with app.state.database.session() as session:
+        service = AgentRunService(SqlAlchemyAgentRunRepository(session))
+        await service.update_plan_execution(
+            created.id,
+            executor.snapshot(),
+            tenant_id=TENANT,
+            actor_id=ACTOR,
+            fencing_token=29,
+        )
+
+    executor.complete(node_id)
+    result = CapabilityResult(
+        capability_id="gerclaw.cga",
+        result_ref="cga:assessment:integration",
+        public_summary="老年综合评估已完成。",
+    )
+    async with app.state.database.session() as session:
+        service = AgentRunService(SqlAlchemyAgentRunRepository(session))
+        completed = await service.update_plan_execution(
+            created.id,
+            executor.snapshot(),
+            tenant_id=TENANT,
+            actor_id=ACTOR,
+            fencing_token=29,
+            capability_result=result,
+        )
+
+    async with app.state.database.session() as session:
+        stored = await session.get(AgentRun, created.id)
+        events = list(
+            (
+                await session.scalars(
+                    select(AgentRunPlanNodeEvent)
+                    .where(AgentRunPlanNodeEvent.run_id == created.id)
+                    .order_by(AgentRunPlanNodeEvent.id.asc())
+                )
+            ).all()
+        )
+    assert stored is not None
+    stored_plan = PersistedRunPlan.model_validate(stored.plan)
+    assert stored_plan.plan_execution == completed
+    assert stored_plan.capability_results == (result,)
+    assert [
+        (event.node_id, event.status, event.fencing_token)
+        for event in events
+    ] == [
+        (node_id, "running", 29),
+        (node_id, "completed", 29),
     ]
 
 

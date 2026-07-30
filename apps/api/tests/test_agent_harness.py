@@ -29,6 +29,10 @@ from gerclaw_api.modules.agent_harness.harness import (
     UnsupportedAgentContextError,
     _CanonicalTextStream,
 )
+from gerclaw_api.modules.agent_harness.planning import (
+    PlanExecutionSnapshot,
+    PlanNodeStatus,
+)
 from gerclaw_api.modules.agent_harness.plugin_runtime import CapabilityResult
 from gerclaw_api.modules.agent_harness.protocols import ConversationHistoryMessage, StreamEvent
 from gerclaw_api.modules.agent_harness.safety import (
@@ -257,6 +261,8 @@ def _harness(
     loaded_skill_ids: list[str] | None = None,
     governed_capability_ids: tuple[str, ...] = (),
     completed_capability_ids: tuple[str, ...] = (),
+    capability_invoker: Any = None,
+    capability_result_observer: Any = None,
     directive_loader: Any = None,
     directive_claimer: Any = None,
     directive_applier: Any = None,
@@ -288,6 +294,8 @@ def _harness(
             )
             for capability_id in completed_capability_ids
         ),
+        capability_invoker=capability_invoker,
+        capability_result_observer=capability_result_observer,
         runtime_principal=RuntimePrincipal(
             tenant_id="tenant_public0001",
             actor_id="usr_patient00000001",
@@ -923,6 +931,94 @@ async def test_successful_owner_capability_completes_its_dynamic_plan_node(
     assert execution["statuses"]["capability_1"] == "completed"
     assert response.structured["capability_results"]
     assert "[C1]" in response.text
+
+
+@pytest.mark.asyncio
+async def test_owner_capability_runs_after_prerequisite_checkpoint_and_persists_result(
+    unit_settings: Settings,
+) -> None:
+    model = _HarnessModel(text="已连接老年综合评估工作台 [E1]。")
+    rag = _HarnessRAG([_evidence()])
+    observed: list[tuple[PlanExecutionSnapshot, CapabilityResult]] = []
+
+    async def invoke(capability_id: str) -> CapabilityResult:
+        assert model.calls == 0
+        assert rag.calls
+        return CapabilityResult(
+            capability_id=capability_id,
+            result_ref="cga:assessment:harness",
+            public_summary="老年综合评估已完成。",
+        )
+
+    async def persist(
+        snapshot: PlanExecutionSnapshot,
+        result: CapabilityResult,
+    ) -> None:
+        observed.append((snapshot, result))
+
+    harness = _harness(
+        unit_settings,
+        model=model,
+        rag=rag,
+        governed_capability_ids=("gerclaw.cga",),
+        capability_invoker=invoke,
+        capability_result_observer=persist,
+    )
+    context = await harness.assemble_context(
+        "108815d7-05bf-4c2a-a977-cd034f390fab",
+        "usr_patient00000001",
+        [],
+        [],
+    )
+
+    response = await harness.process_message(
+        "请结合资料做老年综合评估",
+        "108815d7-05bf-4c2a-a977-cd034f390fab",
+        context,
+        lambda _event: None,
+    )
+
+    assert observed[0][0].statuses["capability_1"] is PlanNodeStatus.COMPLETED
+    assert observed[0][1].result_ref == "cga:assessment:harness"
+    assert response.structured["warning_codes"] == []
+    assert cast(list[dict[str, Any]], response.structured["capability_results"])[0][
+        "result_ref"
+    ] == "cga:assessment:harness"
+
+
+@pytest.mark.asyncio
+async def test_optional_owner_failure_keeps_answer_and_records_private_warning(
+    unit_settings: Settings,
+) -> None:
+    async def fail_owner(_capability_id: str) -> CapabilityResult:
+        raise RuntimeError("owner unavailable")
+
+    harness = _harness(
+        unit_settings,
+        model=_HarnessModel(text="仍可根据现有资料给出一般建议 [E1]。"),
+        rag=_HarnessRAG([_evidence()]),
+        governed_capability_ids=("gerclaw.cga",),
+        capability_invoker=fail_owner,
+    )
+    context = await harness.assemble_context(
+        "108815d7-05bf-4c2a-a977-cd034f390fab",
+        "usr_patient00000001",
+        [],
+        [],
+    )
+
+    response = await harness.process_message(
+        "请结合资料做老年综合评估",
+        "108815d7-05bf-4c2a-a977-cd034f390fab",
+        context,
+        lambda _event: None,
+    )
+
+    execution = cast(dict[str, Any], response.structured["plan_execution"])
+    assert execution["statuses"]["capability_1"] == "failed"
+    assert response.structured["warning_codes"] == ["OPTIONAL_CAPABILITY_FAILED"]
+    assert "仍可根据现有资料" in response.text
+    assert "CAPABILITY_OWNER_FAILED" not in response.text
 
 
 def test_canonical_text_stream_strips_only_outer_whitespace() -> None:

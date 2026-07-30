@@ -35,6 +35,13 @@ from gerclaw_api.modules.agent_harness.planning import (
     PlanNode,
     PlanRequest,
 )
+from gerclaw_api.modules.agent_harness.plugin_runtime import (
+    CapabilityEntrypoint,
+    CapabilityResult,
+    CapabilitySelection,
+    CapabilitySelectionMode,
+    SelectedCapability,
+)
 from gerclaw_api.modules.agent_harness.routing import RouteDecision, RouteKind
 from gerclaw_api.modules.agent_harness.run_lifecycle import (
     RunFenceConflictError,
@@ -459,6 +466,85 @@ async def test_plan_node_transition_expands_optional_finalize_audit_atomically()
 
 
 @pytest.mark.asyncio
+async def test_capability_result_commits_atomically_with_node_completion() -> None:
+    repository = _Repository()
+    service = AgentRunService(repository)
+    base = _persisted_plan()
+    dynamic_plan = DynamicPlan(
+        route=RouteKind.QUICK,
+        nodes=(
+            PlanNode(
+                node_id="capability",
+                required=False,
+                capability="gerclaw.cga",
+                public_summary="正在执行老年综合评估",
+            ),
+            PlanNode(
+                node_id="answer",
+                capability="answer.quick",
+                public_summary="正在整理回答",
+            ),
+        ),
+    )
+    selection = CapabilitySelection(
+        selected=(
+            SelectedCapability(
+                capability_id="gerclaw.cga",
+                source=CapabilitySelectionMode.MANUAL,
+                entrypoint=CapabilityEntrypoint.CGA_ASSESSMENT,
+                owner_module="cga",
+            ),
+        )
+    )
+    persisted_plan = PersistedRunPlan.model_validate(
+        base.model_dump(mode="json")
+        | {
+            "capability_selection": selection.model_dump(mode="json"),
+            "dynamic_plan": dynamic_plan.model_dump(mode="json"),
+            "plan_execution": PlanExecutionSnapshot.initial(dynamic_plan).model_dump(
+                mode="json"
+            ),
+        }
+    )
+    created = await service.create_run(
+        _request(plan=persisted_plan.model_dump(mode="json")),
+        tenant_id=TENANT,
+        actor_id=ACTOR,
+    )
+    executor = DynamicPlanExecutor(
+        dynamic_plan,
+        snapshot=persisted_plan.effective_plan_execution(),
+    )
+    node_id = executor.start_capability("gerclaw.cga")
+    await service.update_plan_execution(
+        created.id,
+        executor.snapshot(),
+        tenant_id=TENANT,
+        actor_id=ACTOR,
+        fencing_token=7,
+    )
+    executor.complete(node_id)
+    result = CapabilityResult(
+        capability_id="gerclaw.cga",
+        result_ref="cga:assessment:unit",
+        public_summary="老年综合评估已完成。",
+    )
+    completed = await service.update_plan_execution(
+        created.id,
+        executor.snapshot(),
+        tenant_id=TENANT,
+        actor_id=ACTOR,
+        fencing_token=7,
+        capability_result=result,
+    )
+
+    stored = PersistedRunPlan.model_validate(repository.runs[created.id].plan)
+    assert stored.plan_execution == completed
+    assert stored.capability_results == (result,)
+    assert repository.plan_node_events[-1].status == "completed"
+
+
+@pytest.mark.asyncio
 async def test_owner_scope_hides_run_and_events_from_other_actor() -> None:
     repository = _Repository()
     service = AgentRunService(repository)
@@ -571,6 +657,40 @@ async def test_private_attempt_events_are_invisible_until_atomic_promotion() -> 
             actor_id=ACTOR,
         )
     ] == ["text_delta", "done"]
+
+
+@pytest.mark.asyncio
+async def test_attempt_promotion_preserves_answer_with_private_warning_terminal() -> None:
+    repository = _Repository()
+    service = AgentRunService(repository)
+    created = await service.create_run(_request(), tenant_id=TENANT, actor_id=ACTOR)
+    attempt = await service.begin_attempt(
+        created.id,
+        RunAttemptCreate(
+            public_operation_id=uuid.uuid4(),
+            step_id="chat.answer",
+            checkpoint_id="chat.answer.pre_model.v1",
+        ),
+        tenant_id=TENANT,
+        actor_id=ACTOR,
+        fencing_token=7,
+    )
+    completed, events = await service.commit_attempt(
+        attempt.id,
+        tenant_id=TENANT,
+        actor_id=ACTOR,
+        fencing_token=7,
+        target=AgentRunStatus.COMPLETED_WITH_WARNINGS,
+        warnings=("OPTIONAL_CAPABILITY_FAILED",),
+        terminal_event=RunEventWrite(
+            event_type="done",
+            status="completed_with_warnings",
+        ),
+    )
+
+    assert completed.status is AgentRunStatus.COMPLETED_WITH_WARNINGS
+    assert completed.warnings == ("OPTIONAL_CAPABILITY_FAILED",)
+    assert events[-1].status == "completed_with_warnings"
 
 
 @pytest.mark.asyncio

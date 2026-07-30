@@ -23,10 +23,14 @@ deltas or duplicate Runtime authorization.
 `GovernedCapabilityRuntime` validates a content-free owner scope and dispatches every selected
 manifest to its exact injected owner entrypoint. Production connects CGA to its resumable
 assessment workspace, medication review and five-prescription to their idempotent typed
-intakes, and report requests to the actor-owned Artifact workspace. Successful owner results
-complete the matching optional plan checkpoint; missing owners, invalid input, or mismatched
-owner results fail closed. The runtime does not copy scoring, intake, draft, or persistence
-logic into the Harness.
+intakes, and report requests to the actor-owned Artifact workspace. Owner work starts only
+after the actor-owned Run exists and the matching optional plan node has durably entered
+`running`. The validated result and node `completed` transition commit atomically in the
+encrypted Run plan. Missing owners, invalid input, mismatched results, or owner failures leave
+the node failed with a bounded private code; because these nodes are optional, the answer
+remains available and the Run finishes as `completed_with_warnings`. Those warning codes are
+operational metadata and are not inserted into answer text. The runtime does not copy scoring,
+intake, draft, or persistence logic into the Harness.
 
 Manifest `input_schema` and `output_schema` are the public JSON Schema projections of the exact
 strict Pydantic owner-adapter contracts. Runtime construction and every invocation reject a
@@ -48,8 +52,11 @@ and budgets are injected at composition. Failure semantics: unknown/duplicate ca
 unsupported workflow selection, manifest schema drift, invalid owner input/output, scope
 mismatch, consumer denial, and reuse-key contract drift fail closed with stable codes.
 
-Known limit: chat activation connects the existing owner workspace but does not bypass its
-required user-input or clinical-review state transitions. Stage 5 adds the visible manual
-workspace controls and editable Artifact experience. Measure success with full allowlist coverage, one
-retrieval/attachment projection per turn, exact single terminal events, and identical policy
-for manual and automatic selection.
+Known limits: chat activation connects the existing owner workspace but does not bypass its
+required user-input or clinical-review state transitions. An owner side effect may finish
+immediately before its atomic result commit is interrupted; recovery therefore still requires
+owner idempotency and durable-result reconciliation rather than claiming distributed
+exactly-once execution. Stage 5 adds the visible manual workspace controls and editable
+Artifact experience. Measure success with full allowlist coverage, owner invocation only after
+a durable checkpoint, atomic result/checkpoint persistence, one retrieval/attachment projection
+per turn, exact single terminal events, and identical policy for manual and automatic selection.

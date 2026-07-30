@@ -1469,7 +1469,10 @@ history 必须是声明列表的非空有序前缀，且每个目标已实际产
 其运行中、已满足或尚未耗尽时不能并发启动父级 sibling。executor 与 transition validator 现在共用
 “下一合法 fallback”判定，恢复快照也拒绝非串行/逆序 lineage。相关反例扩大后
 Planning/Harness/Run Service `83 passed`，Ruff 和直接源文件 Mypy 通过；第六轮独立复审仍在进行，未将
-该模块标记为最终通过。
+该模块标记为最终通过。随后继续关闭不可达 fallback、条件依赖、恢复谱系和深度优先执行反例，累计十轮
+对抗复审后，同一独立审阅者最终判定 `ACCEPT（P0=0，P1=0，P2=0）`。审阅者穷举 226 个可达
+execution snapshot 和 401 个成功 transition，executor 与持久化 validator 不一致数为 0；Planning
+核心至此单独放行，但不替代后续数据库恢复验收。
 
 PlanNode 收口第二小步已建立 Run Lifecycle 持久化事实源：新 Run 显式冻结
 `plan-execution-v1` 初始快照，旧 `run-plan-v1` 缺失该字段时只在恢复边界解释为 all-pending；
@@ -1493,6 +1496,17 @@ observer 使用当前 Run ID、actor 和 lease fencing token 写入唯一事实�
 3 个直接源文件 Mypy 通过，并有显式反例证明 checkpoint observer 失败时 model 调用数为 0。此小步尚未
 解决 owner capability 仍在 Run 建立前调用、恢复时 completed 节点的 durable output reuse、
 interrupted-running 归一化和 warning 终态，因此不将 PlanNode resume 整体标记完成。
+
+第四小步已把受治理 owner capability 移到 Run 创建与节点 `running` checkpoint 成功持久化之后执行；
+owner 返回值经现有严格合同验证后，与该节点 `completed` 和加密
+`PersistedRunPlan.capability_results` 在同一 fenced PostgreSQL 事务提交。可选 owner 失败或返回能力
+不匹配时，节点保存稳定私有错误码，回答继续生成，最终 Run 使用
+`completed_with_warnings`，内部 warning 不进入回答正文。ChatService 不再在 Run 前调用 owner；恢复时
+已经冻结的 capability result 会跳过重复 owner 调用。单元聚焦回归 `109 passed`，Ruff 和 4 个直接源文件
+Mypy 通过；真实 PostgreSQL 集成用例 `1 passed`，同时断言 `running → completed` 审计顺序和 result/
+completion 原子可见。该小步不声称分布式 exactly-once：若 owner side effect 已完成而进程恰在结果事务前
+中断，仍依赖 owner 幂等和后续 durable-result reconciliation。非 owner 节点的输出复用及
+interrupted-running 归一化继续作为下一独立变更集。
 
 ### 阶段 7
 

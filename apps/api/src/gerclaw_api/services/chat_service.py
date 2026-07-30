@@ -66,6 +66,7 @@ from gerclaw_api.modules.agent_harness.planning import (
     requests_report,
 )
 from gerclaw_api.modules.agent_harness.plugin_runtime import (
+    CapabilityResult,
     GovernedCapabilityCatalog,
     PluginRuntime,
     get_default_capability_catalog,
@@ -802,21 +803,12 @@ class ChatService:
             for item in selected_owner_capabilities
             if item.capability_id not in completed_capability_ids
         ]
-        if resume_state is None and selected_owner_capabilities and not emergency_route:
-            if self._capability_runtime is None:
-                raise UnsupportedAgentContextError("governed capability owners are unavailable")
-            for selected_capability in selected_owner_capabilities:
-                capability_results.append(
-                    await self._capability_runtime.invoke(
-                        selected_capability.capability_id,
-                        {
-                            "tenant_id": identity.tenant_id,
-                            "actor_id": identity.actor_id,
-                            "session_id": str(payload.session_id),
-                            "trace_id": trace_id,
-                        },
-                    )
-                )
+        if (
+            selected_owner_capabilities
+            and not emergency_route
+            and self._capability_runtime is None
+        ):
+            raise UnsupportedAgentContextError("governed capability owners are unavailable")
         if (
             frozen_source is None
             and payload.uploaded_files
@@ -1122,6 +1114,38 @@ class ChatService:
                 fencing_token=lease_guard.fencing_token,
             )
 
+        async def invoke_owner_capability(capability_id: str) -> CapabilityResult:
+            if self._capability_runtime is None:
+                raise UnsupportedAgentContextError(
+                    "governed capability owner is unavailable"
+                )
+            return await self._capability_runtime.invoke(
+                capability_id,
+                {
+                    "tenant_id": identity.tenant_id,
+                    "actor_id": identity.actor_id,
+                    "session_id": str(payload.session_id),
+                    "trace_id": trace_id,
+                },
+            )
+
+        async def persist_capability_result(
+            snapshot: PlanExecutionSnapshot,
+            result: CapabilityResult,
+        ) -> None:
+            if self._run_journal is None or self._active_run_id is None:
+                raise UnsupportedAgentContextError(
+                    "capability result persistence is unavailable"
+                )
+            await self._run_journal.update_plan_execution(
+                self._active_run_id,
+                snapshot,
+                tenant_id=identity.tenant_id,
+                actor_id=identity.actor_id,
+                fencing_token=lease_guard.fencing_token,
+                capability_result=result,
+            )
+
         harness = ProductionAgentHarness(
             settings=self._settings,
             model=self._model,
@@ -1142,6 +1166,18 @@ class ChatService:
             governed_capability_ids=(() if emergency_route else capability_selection.ids),
             completed_capability_ids=tuple(item.capability_id for item in capability_results),
             capability_results=tuple(capability_results),
+            capability_invoker=(
+                invoke_owner_capability
+                if selected_owner_capabilities and not emergency_route
+                else None
+            ),
+            capability_result_observer=(
+                persist_capability_result
+                if self._run_journal is not None
+                and selected_owner_capabilities
+                and not emergency_route
+                else None
+            ),
             uploaded_documents=uploaded_documents,
             uploaded_images=payload.images,
             runtime_principal=_runtime_principal(identity, user_id=conversation.user_id),
@@ -1473,6 +1509,17 @@ class ChatService:
                 trace_id=trace_id,
                 session_id=payload.session_id,
             )
+            raw_warning_codes = response.structured.get("warning_codes", [])
+            run_warning_codes = (
+                tuple(
+                    item
+                    for item in raw_warning_codes
+                    if isinstance(item, str)
+                    and item == "OPTIONAL_CAPABILITY_FAILED"
+                )
+                if isinstance(raw_warning_codes, list)
+                else ()
+            )
             # Conversation and Trace repositories share this request's
             # AsyncSession. Stage the assistant plus success events, then let the
             # terminal Trace transition commit the whole success unit atomically.
@@ -1531,6 +1578,7 @@ class ChatService:
                     expected_current_version_id=(
                         regeneration.current_answer_version_id if regeneration is not None else None
                     ),
+                    warnings=run_warning_codes,
                 )
                 done = done.model_copy(
                     update={
