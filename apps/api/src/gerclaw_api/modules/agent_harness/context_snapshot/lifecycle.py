@@ -15,6 +15,7 @@ from gerclaw_api.modules.agent_harness.context_snapshot.models import (
     ContextSourceName,
     ConversationHistoryMessage,
 )
+from gerclaw_api.modules.agent_harness.token_estimation import estimate_text_tokens
 
 _SEGMENT = re.compile(r"[^。！？!?\n]+(?:[。！？!?]+|\n+|$)")  # noqa: RUF001
 _CLINICAL_CRITICAL = re.compile(
@@ -29,7 +30,7 @@ _USER_REQUIREMENT_CRITICAL = re.compile(
 def estimate_context_tokens(*values: str) -> int:
     """Conservative dependency-free UTF-8 estimate shared by projection."""
 
-    return sum(max(1, (len(value.encode("utf-8")) + 2) // 3) for value in values if value)
+    return estimate_text_tokens(values)
 
 
 @dataclass(frozen=True, slots=True)

@@ -8,6 +8,7 @@ from gerclaw_api.modules.agent_harness.planning.contracts import (
     BudgetPreflightDecision,
     ModelCallEstimate,
 )
+from gerclaw_api.modules.agent_harness.token_estimation import estimate_text_tokens
 from gerclaw_api.modules.runtime.budget import ExecutionUsage
 from gerclaw_api.modules.runtime.models import ExecutionBudget
 
@@ -15,7 +16,7 @@ from gerclaw_api.modules.runtime.models import ExecutionBudget
 def approximate_input_tokens(values: Iterable[str]) -> int:
     """Use the shared dependency-free UTF-8 approximation."""
 
-    return sum(max(1, (len(value.encode("utf-8")) + 3) // 4) for value in values if value)
+    return estimate_text_tokens(values)
 
 
 class ModelBudgetPreflight:

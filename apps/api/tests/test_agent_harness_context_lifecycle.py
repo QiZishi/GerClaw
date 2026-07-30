@@ -10,6 +10,7 @@ from gerclaw_api.modules.agent_harness.context_snapshot import (
     ConversationHistoryMessage,
     estimate_context_tokens,
 )
+from gerclaw_api.modules.agent_harness.planning import approximate_input_tokens
 
 
 def _history(count: int, *, width: int = 120) -> tuple[ConversationHistoryMessage, ...]:
@@ -139,6 +140,7 @@ def test_extractive_fallback_preserves_critical_user_text_and_recent_turns() -> 
 
 def test_token_estimate_does_not_treat_four_chinese_bytes_as_one_token() -> None:
     assert estimate_context_tokens("老年患者用药安全") == 8
+    assert approximate_input_tokens(("老年患者用药安全",)) == 8
 
 
 def test_finalize_rejects_a_projection_that_still_exceeds_trigger() -> None:
