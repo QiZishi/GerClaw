@@ -22,7 +22,7 @@ GerClaw 保持老年医学定位。眼科病灶定位不在本计划范围。在
 | 3 | ClinicalState、动态规划与医疗门禁 | 已完成：四轮独立审阅修复、真实 GUI 与最终 ACCEPT |
 | 4 | 证据、Memory 与受治理能力组合 | 已完成：三项 P1 修复、真实 GUI/数据库复验、最终独立复审 ACCEPT |
 | 5 | 对话工作台 UI 与交互重构 | 已完成：独立审阅 3 项 P1 修复，真实 Playwright/axe 复验，最终 ACCEPT |
-| 6 | 受控离线自进化 | 未开始 |
+| 6 | 双轨受控自进化 | 进行中：完成一手来源定义审计；先修 4 项核心语义偏离，再接入双轨演化 |
 | 7 | 最终回归、真实 GUI 对抗审阅与发布 | 未开始 |
 
 ## 3. 阶段 0：冻结基线与真实运行审计
@@ -730,6 +730,66 @@ cd apps/mvp && npm run test:e2e
 依据 `DUAL_TRACK_EVOLUTION_GUIDE.md` 实现按权限分类的双轨演化。这里的双轨不能被误解为
 “Memory/Skill 一律不可在线变化”，也不能把“允许演化”误解为可以修改组件存在的核心原理。
 
+#### 6.0 一手来源定义审计与前置修复
+
+2026-07-30 由独立子智能体联网检索一手资料并只读核对生产代码。审计采用 AgentScope、OpenAI
+Agents SDK、HL7 FHIR、Mem0、Agent Skills、A-Evolve、GEPA 和 Adaptive Auto-Harness 的官方文档、
+规范、仓库或原始论文：
+
+- Agent/Runner/RunState/Session/Context：
+  `https://openai.github.io/openai-agents-python/agents/`、
+  `https://openai.github.io/openai-agents-python/ref/run_state/`、
+  `https://openai.github.io/openai-agents-python/sessions/`、
+  `https://openai.github.io/openai-agents-python/context/`
+- AgentScope Routing、Task Plan、Memory、Long-term Memory、Skill：
+  `https://doc.agentscope.io/tutorial/workflow_routing.html`、
+  `https://doc.agentscope.io/tutorial/task_plan.html`、
+  `https://doc.agentscope.io/tutorial/task_memory.html`、
+  `https://doc.agentscope.io/tutorial/task_long_term_memory.html`、
+  `https://doc.agentscope.io/tutorial/task_agent_skill.html`
+- Memory/Skill 可变内容合同：
+  `https://github.com/mem0ai/mem0/blob/main/cli/README.md`、
+  `https://agentskills.io/specification`
+- 临床事实状态、来源和患者自述用药：
+  `https://www.hl7.org/fhir/R5/condition.html`、
+  `https://hl7.org/fhir/provenance.html`、
+  `https://hl7.org/fhir/R5/evidence.html`、
+  `https://hl7.org/fhir/medicationstatement.html`
+- 工具与 Guardrail：
+  `https://openai.github.io/openai-agents-python/guardrails/`、
+  `https://openai.github.io/openai-agents-python/ref/tool/`
+- 离线演化：
+  `https://github.com/A-EVO-Lab/a-evolve`、
+  `https://github.com/gepa-ai/gepa`、
+  `https://arxiv.org/abs/2507.19457`、
+  `https://github.com/A-EVO-Lab/AdaptiveHarness`、
+  `https://arxiv.org/abs/2606.01770`
+
+总体判定为 **DRIFTED，但不是 CRITICAL，也没有被整体改废**：
+
+| 组件 | 当前判定 | 证据与阶段 6 处理 |
+| --- | --- | --- |
+| Routing | 核心符合 | Emergency 在首次模型调用前覆盖 Quick，继续冻结这条优先级 |
+| Planning | 核心符合 | DAG、依赖和预算存在；能力节点必须在 Run 建立后执行并持久化节点状态 |
+| ClinicalState | 核心符合 | provenance、unknown、conflict 和 confirmed 分离仍成立；补红旗生命周期测试 |
+| Context Snapshot | **P1 偏离** | 当前 Run 仅保存摘要字段，恢复会重读当前环境；必须持久化足以重放的稳定快照并从快照恢复 |
+| Run Lifecycle | **P1 偏离** | `interrupted` 同时被列为终态又允许转回 running；必须统一为可恢复非终态，或恢复时创建 successor Run |
+| Evidence/Citation | **P1 偏离** | 合同完整，但“存在任意 citation”会解锁所有临床句子；必须建立 claim/segment 到 adopted text 的逐项绑定 |
+| Plugin Runtime | **P1 偏离** | Manifest 声明 input/output schema，但 owner 调用前后未强制执行；必须把声明变成可执行合同 |
+| Shared Results | 核心符合 | 保留 actor/run/scope/consumer 全量校验 |
+| Evolution Signals | 安全休眠、尚未实现 | 当前只有去内容化合同和可选 sink；缺生产收集器不等于语义损坏 |
+| Memory | 核心符合 | 已在线新增、修订、冲突、确认、拒绝、inactive 和召回过滤；补明确 PATCH/DELETE、tombstone/恢复审计，不冻结内容 |
+| Skill | 核心符合 | 已有注册、版本更新、删除、执行和 evolution draft；补低风险在线激活与危险变更离线分轨 |
+| Runtime | 核心符合 | 仍是唯一实际工具执行信任边界，Plugin Runtime 不得绕过 |
+| Harness facade | 功能符合、结构 P2 | facade 很薄；`orchestrator.py` 815 行，超过 800 行门禁，继续拆分但不得迁移领域所有权 |
+
+独立审计实际执行 11 个 Harness/Run/Memory/Skill/Runtime 测试文件，结果 `76 passed, 1 failed`；
+唯一失败是 `orchestrator.py` 815 行超过既有 800 行结构门禁。它属于 P2 结构债，不代表运行时机制失效，
+但必须在阶段 6 修复并恢复门禁通过。
+
+双轨能力接入前必须先关闭上述 4 项 P1。否则候选评测会建立在不稳定事实源、矛盾终态、宽泛证据授权或
+说明性 Plugin Schema 上，无法证明演化没有把组件改偏。
+
 #### 6.1 必须保留的语义
 
 - **Memory 内容在线持续 CRUD。** 用户事实、偏好、习惯和状态随使用被新增、查询、更新和删除。
@@ -751,15 +811,27 @@ cd apps/mvp && npm run test:e2e
 在允许候选修改任何组件前，先把以下核心定义建成候选不可写的版本化 manifest 和反例测试。候选删除、
 弱化或绕过任一项均直接拒绝，不能用平均分提升抵消：
 
+- `harness`：只负责编排和公开流式投影，不得复制 Memory、RAG、Skill、Runtime、临床事实或业务持久化；
+  组件只能经公开 Protocol 和依赖注入组合。
 - `routing`：医疗风险升级和红旗模型前短路必须保留，Quick 不能覆盖 Emergency。
-- `planning`：依赖、预算、fallback、checkpoint、必问项和治疗前提不能被跳过。
+- `planning`：计划必须有界、无环、依赖可验证；预算、fallback、checkpoint、必问项和治疗前提不能被跳过；
+  节点状态持久化后才能执行，恢复只能继续 pending/failed 节点。
 - `clinical_state`：未知不能变阴性，冲突不能被模型自行覆盖，模型推测不能升级为 confirmed fact。
-- `context_snapshot`：来源、版本、主体和当前有效回答选择不能被 Memory/Skill 覆盖。
-- `run_lifecycle`：fencing、单调事件、唯一终态、取消/恢复幂等和旧 worker 禁写终态不可修改。
-- `evidence`：实际采用文本、locator、来源等级和绝对相关性门槛必须可核验，不能靠降低门槛制造提升。
-- `plugin_runtime` / Skill：能力声明、共享结果、schema 和工具许可不能由候选自行扩大或绕过。
+- `context_snapshot`：必须版本化、actor-scoped、可序列化且足以重放；输入/历史引用、Memory/Profile/Skill
+  版本、工具和 Prompt 版本、临床状态、计划和当前有效回答选择不能被恢复时的当前环境或 Memory/Skill 覆盖。
+- `run_lifecycle`：真正终态不得有出边；若 `interrupted` 可恢复就不是终态。fencing、单调事件、唯一终态、
+  取消/恢复幂等、旧 worker 禁写终态和非致命失败保留正文不可修改。
+- `evidence`：每项医学主张必须绑定实际采用文本、locator、来源、状态和适用范围；“存在任意证据”不能
+  替代逐项绑定，也不能靠降低相关性门槛制造提升。
+- `plugin_runtime` / Skill：Manifest 必须是 owner 调用前后的真实 input/output 校验合同；能力声明、共享结果、
+  schema、工具许可和 Runtime 权限不能由候选自行扩大或绕过。
+- `runtime`：是唯一真实工具执行边界；所有调用必须校验 schema、权限、fresh permit、预算、超时和审批，
+  未知工具、未知版本或校验失败必须 fail closed。
 - `evolution_signals`：线上不得记录 Query/Answer/附件/证据/临床字段/用户 ID/凭据或 Provider 原始载荷。
 - `memory`：在线 CRUD 必须保留证据、确认、冲突、revision、tombstone、时效、隔离和低权限注入。
+
+`ClinicalState.confirmed` 表示可信来源支持的当前临床事实；`Memory.confirmed` 表示用户确认这条长期自述
+可被记住。两者不得互相强转，也不得把“用户确认记住”呈现为“临床确诊”。
 
 #### 6.3 双轨写入与权限隔离
 
