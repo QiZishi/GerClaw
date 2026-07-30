@@ -485,6 +485,129 @@ def test_nested_fallback_recovery_locks_parent_branch_until_satisfied() -> None:
     assert executor.finalize().statuses["fallback_two"] is PlanNodeStatus.SKIPPED
 
 
+def test_unavailable_nested_fallback_is_explicitly_skipped_before_parent_continues() -> None:
+    plan = DynamicPlan(
+        nodes=(
+            PlanNode(
+                node_id="failed_dependency",
+                capability="dependency.run",
+                public_summary="正在执行依赖步骤",
+            ),
+            PlanNode(
+                node_id="primary",
+                capability="primary.run",
+                public_summary="正在执行主要路径",
+                fallback=("fallback_one", "fallback_two"),
+            ),
+            PlanNode(
+                node_id="fallback_one",
+                required=False,
+                capability="fallback.one",
+                public_summary="正在执行第一备用路径",
+                fallback=("nested_fallback",),
+            ),
+            PlanNode(
+                node_id="fallback_two",
+                required=False,
+                capability="fallback.two",
+                public_summary="正在执行第二备用路径",
+            ),
+            PlanNode(
+                node_id="nested_fallback",
+                required=False,
+                dependencies=("failed_dependency",),
+                capability="fallback.nested",
+                public_summary="正在执行嵌套备用路径",
+            ),
+        )
+    )
+    executor = DynamicPlanExecutor(plan)
+    dependency = executor.start_capability("dependency.run")
+    executor.fail(dependency, "DEPENDENCY_UNAVAILABLE")
+    primary = executor.start_capability("primary.run")
+    executor.fail(primary, "PRIMARY_UNAVAILABLE")
+    first = executor.start_fallback(primary)
+    executor.fail(first, "FIRST_FALLBACK_UNAVAILABLE")
+    before_skip = executor.snapshot()
+
+    assert executor.failover_candidates(first) == ()
+    skipped = executor.skip_unavailable_fallback(first)
+    assert skipped == "nested_fallback"
+    after_skip = executor.snapshot()
+    transition = validate_plan_execution_transition(plan, before_skip, after_skip)
+    assert transition[0].status is PlanNodeStatus.SKIPPED
+    assert transition[0].fallback_for_node_id == "fallback_one"
+    assert executor.failover_candidates(primary) == ("fallback_two",)
+
+
+def test_dynamic_plan_rejects_shared_fallback_ownership() -> None:
+    with pytest.raises(ValidationError, match="exactly one source owner"):
+        DynamicPlan(
+            nodes=(
+                PlanNode(
+                    node_id="primary_one",
+                    capability="primary.one",
+                    public_summary="正在执行主路径一",
+                    fallback=("shared",),
+                ),
+                PlanNode(
+                    node_id="primary_two",
+                    capability="primary.two",
+                    public_summary="正在执行主路径二",
+                    fallback=("shared",),
+                ),
+                PlanNode(
+                    node_id="shared",
+                    required=False,
+                    capability="fallback.shared",
+                    public_summary="正在执行共享备用路径",
+                ),
+            )
+        )
+
+
+def test_attempt_exhausted_fallback_can_be_skipped_without_side_effect() -> None:
+    plan = DynamicPlan(
+        nodes=(
+            PlanNode(
+                node_id="primary",
+                capability="primary.run",
+                public_summary="正在执行主要路径",
+                fallback=("fallback",),
+            ),
+            PlanNode(
+                node_id="fallback",
+                required=False,
+                capability="fallback.run",
+                public_summary="正在执行备用路径",
+            ),
+        )
+    )
+    executor = DynamicPlanExecutor(plan)
+    primary = executor.start_capability("primary.run")
+    executor.fail(primary, "PRIMARY_UNAVAILABLE")
+    failed = executor.snapshot()
+    exhausted = failed.model_copy(
+        update={
+            "attempts": {
+                **failed.attempts,
+                "fallback": 50,
+            }
+        }
+    )
+    restored = DynamicPlanExecutor(plan, snapshot=exhausted)
+
+    assert restored.failover_candidates(primary) == ()
+    assert restored.skip_unavailable_fallback(primary) == "fallback"
+    transition = validate_plan_execution_transition(
+        plan,
+        exhausted,
+        restored.snapshot(),
+    )
+    assert transition[0].attempt == 50
+    assert transition[0].status is PlanNodeStatus.SKIPPED
+
+
 def test_plan_transition_rejects_fallback_checkpoint_bypass_and_nonserial_history() -> None:
     plan = DynamicPlan(
         nodes=(

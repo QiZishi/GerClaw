@@ -119,12 +119,16 @@ class PlanExecutionSnapshot(BaseModel):
         if any(
             fallback_ids != declared_fallbacks[source_id][: len(fallback_ids)]
             or any(
-                self.attempts[fallback_id] < 1
+                (
+                    self.statuses[fallback_id] is not PlanNodeStatus.SKIPPED
+                    and self.attempts[fallback_id] < 1
+                )
                 or self.statuses[fallback_id]
                 not in {
                     PlanNodeStatus.RUNNING,
                     PlanNodeStatus.COMPLETED,
                     PlanNodeStatus.FAILED,
+                    PlanNodeStatus.SKIPPED,
                 }
                 for fallback_id in fallback_ids
             )
@@ -231,14 +235,32 @@ def validate_plan_execution_transition(
         source = next(iter(changed_fallbacks))
         before = current.fallbacks_used.get(source, ())
         after = updated.fallbacks_used.get(source, ())
+        declared_candidate = _snapshot_declared_next_fallback(
+            plan,
+            current,
+            source,
+        )
         if (
             len(after) == len(before) + 1
             and after[:-1] == before
             and after[-1] == node_id
             and current.statuses[source] is PlanNodeStatus.FAILED
             and previous_status is PlanNodeStatus.PENDING
-            and status is PlanNodeStatus.RUNNING
-            and _snapshot_next_fallback(plan, current, source) == node_id
+            and declared_candidate == node_id
+            and (
+                (
+                    status is PlanNodeStatus.RUNNING
+                    and _snapshot_next_fallback(plan, current, source) == node_id
+                )
+                or (
+                    status is PlanNodeStatus.SKIPPED
+                    and _snapshot_fallback_unavailable(
+                        plan,
+                        current,
+                        node_id,
+                    )
+                )
+            )
         ):
             fallback_for_node_id = source
         else:
@@ -385,6 +407,31 @@ class DynamicPlanExecutor:
         )
         return fallback_id
 
+    def skip_unavailable_fallback(self, failed_node_id: str) -> str:
+        """Record one declared fallback that cannot ever reach RUNNING."""
+
+        if self._statuses.get(failed_node_id) is not PlanNodeStatus.FAILED:
+            raise PlanningError(f"PLAN_NODE_NOT_FAILED:{failed_node_id}")
+        snapshot = self.snapshot()
+        fallback_id = _snapshot_declared_next_fallback(
+            self._plan,
+            snapshot,
+            failed_node_id,
+        )
+        if fallback_id is None or not _snapshot_fallback_unavailable(
+            self._plan,
+            snapshot,
+            fallback_id,
+        ):
+            raise PlanningError(f"PLAN_FALLBACK_NOT_UNAVAILABLE:{failed_node_id}")
+        self._statuses[fallback_id] = PlanNodeStatus.SKIPPED
+        self._error_codes.pop(fallback_id, None)
+        self._fallbacks_used[failed_node_id] = (
+            *self._fallbacks_used.get(failed_node_id, ()),
+            fallback_id,
+        )
+        return fallback_id
+
     def failover_candidates(self, failed_node_id: str) -> tuple[str, ...]:
         candidate = _snapshot_next_fallback(
             self._plan,
@@ -420,7 +467,7 @@ class DynamicPlanExecutor:
         self._statuses[node.node_id] = PlanNodeStatus.COMPLETED
         return True
 
-    def skip_optional(self) -> None:
+    def _skip_optional_after_required_complete(self) -> None:
         for node in self._plan.nodes:
             if not node.required and self._statuses[node.node_id] is PlanNodeStatus.PENDING:
                 self._statuses[node.node_id] = PlanNodeStatus.SKIPPED
@@ -433,7 +480,7 @@ class DynamicPlanExecutor:
         ]
         if incomplete:
             raise PlanningError(f"PLAN_REQUIRED_NODE_INCOMPLETE:{','.join(incomplete)}")
-        self.skip_optional()
+        self._skip_optional_after_required_complete()
         return self.snapshot()
 
     def snapshot(self) -> PlanExecutionSnapshot:
@@ -509,7 +556,11 @@ def _snapshot_recovery_exhausted(
     *,
     visited: frozenset[str] = frozenset(),
 ) -> bool:
-    if node_id in visited or snapshot.statuses[node_id] is not PlanNodeStatus.FAILED:
+    if node_id in visited:
+        return False
+    if snapshot.statuses[node_id] is PlanNodeStatus.SKIPPED:
+        return True
+    if snapshot.statuses[node_id] is not PlanNodeStatus.FAILED:
         return False
     if _snapshot_satisfied(snapshot, node_id):
         return False
@@ -527,7 +578,7 @@ def _snapshot_recovery_exhausted(
     )
 
 
-def _snapshot_next_fallback(
+def _snapshot_declared_next_fallback(
     plan: DynamicPlan,
     snapshot: PlanExecutionSnapshot,
     failed_node_id: str,
@@ -548,8 +599,25 @@ def _snapshot_next_fallback(
         return None
     if len(used) >= len(node.fallback):
         return None
-    candidate = node.fallback[len(used)]
+    return node.fallback[len(used)]
+
+
+def _snapshot_next_fallback(
+    plan: DynamicPlan,
+    snapshot: PlanExecutionSnapshot,
+    failed_node_id: str,
+) -> str | None:
+    candidate = _snapshot_declared_next_fallback(
+        plan,
+        snapshot,
+        failed_node_id,
+    )
+    if candidate is None:
+        return None
+    node_by_id = {node.node_id: node for node in plan.nodes}
     if snapshot.statuses[candidate] is not PlanNodeStatus.PENDING:
+        return None
+    if snapshot.attempts[candidate] >= 50:
         return None
     if not all(
         _snapshot_satisfied(snapshot, dependency)
@@ -557,6 +625,30 @@ def _snapshot_next_fallback(
     ):
         return None
     return candidate
+
+
+def _snapshot_fallback_unavailable(
+    plan: DynamicPlan,
+    snapshot: PlanExecutionSnapshot,
+    fallback_id: str,
+) -> bool:
+    if snapshot.statuses[fallback_id] is not PlanNodeStatus.PENDING:
+        return False
+    if snapshot.attempts[fallback_id] >= 50:
+        return True
+    node_by_id = {node.node_id: node for node in plan.nodes}
+    return any(
+        snapshot.statuses[dependency] is PlanNodeStatus.SKIPPED
+        or (
+            snapshot.statuses[dependency] is PlanNodeStatus.FAILED
+            and _snapshot_recovery_exhausted(
+                snapshot,
+                node_by_id,
+                dependency,
+            )
+        )
+        for dependency in node_by_id[fallback_id].dependencies
+    )
 
 
 class TurnExecutionGovernance:
@@ -592,6 +684,9 @@ class TurnExecutionGovernance:
 
     def start_fallback(self, failed_node_id: str) -> str:
         return self._executor.start_fallback(failed_node_id)
+
+    def skip_unavailable_fallback(self, failed_node_id: str) -> str:
+        return self._executor.skip_unavailable_fallback(failed_node_id)
 
     def snapshot(self) -> PlanExecutionSnapshot:
         return self._executor.snapshot()

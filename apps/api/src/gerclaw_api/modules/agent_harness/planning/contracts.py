@@ -66,6 +66,14 @@ class DynamicPlan(BaseModel):
         }
         if unknown := referenced - known:
             raise ValueError(f"plan references unknown nodes: {sorted(unknown)}")
+        fallback_owners: dict[str, str] = {}
+        for node in self.nodes:
+            for fallback_id in node.fallback:
+                owner = fallback_owners.setdefault(fallback_id, node.node_id)
+                if owner != node.node_id:
+                    raise ValueError(
+                        "plan fallback node must have exactly one source owner"
+                    )
         references = {
             node.node_id: set((*node.dependencies, *node.fallback)) for node in self.nodes
         }

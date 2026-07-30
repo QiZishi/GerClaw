@@ -55,6 +55,15 @@ dependency、fallback、budget 和 output schema；只复用 node ID 也不能�
 错误码或 fallback 历史与冻结计划不一致时拒绝恢复。Planning
 只拥有状态转换和校验合同，数据库持久化仍由 Run Lifecycle 负责。
 
+Fallback execution is single-owner and depth-first. A source cannot retry after its fallback
+lineage starts, a historical fallback cannot be restarted through the ordinary capability
+entry, and a parent sibling cannot run while nested recovery is active or has satisfied the
+branch. If the next declared fallback can never start because a dependency is irrecoverably
+failed/skipped or its attempt budget is exhausted, `skip_unavailable_fallback` records that
+specific node as `skipped` in the lineage before the next sibling becomes eligible. General
+optional skipping remains private to successful finalization, so it cannot destroy a failed
+required node's recovery path.
+
 Consumers: Chat persists plans and the Harness enforces plan/budget decisions. Configuration:
 all thresholds and reserves arrive through `ResolvedHarnessConfig`. Failure semantics:
 unavailable capability, invalid DAG, aggregate plan overflow, or model preflight failure stops

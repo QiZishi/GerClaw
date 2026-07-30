@@ -10,6 +10,9 @@ Dependency and fallback references form one acyclic recovery graph. Execution sn
 contain only node status, bounded attempt counts, stable error codes, and the declared
 fallbacks actually used. Bind a snapshot to the canonical full plan, not only node IDs.
 Every failed node requires an error code, an exhausted attempt budget must stop before a
-side effect, and an already failed fallback cannot be selected again.
+side effect, and an already failed fallback cannot be selected again. A fallback node has
+exactly one source owner. Recovery follows one depth-first branch at a time; an unavailable
+fallback may be skipped only through the explicit audited transition after an irrecoverable
+dependency or exhausted attempt budget.
 
 Run plan contract, Runtime budget, workflow registry, and Harness tests after changes.
