@@ -15,6 +15,8 @@ tool allowlist 和实际内容差异：
   `skill-evolution-proposal-receipt-v1` 去内容化回执，不回传候选 Markdown，也不改变生产 Skill
   或当前对话冻结的 revision。相同 owner、Skill、基线 revision 和候选内容只形成一条提案。
   后续隔离离线控制器必须从该提案冻结候选并完成 paired/sealed evaluation，在线路径没有批准或激活接口。
+  所有 evolve 调用都必须由请求边界提供真实 Trace ID 和用途隔离 HMAC request fingerprint；Skill
+  模块不会生成临时 Trace 或用候选明文的普通摘要冒充请求 provenance。
 - `category`、风险等级、ownership 与 governance authority 均不能由浏览器、模型或
   Markdown 自报获得；分类使用服务端实际定义，未知情况 fail closed。
 

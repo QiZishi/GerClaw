@@ -913,7 +913,10 @@ Agents SDK、HL7 FHIR、Mem0、Agent Skills、A-Evolve、GEPA 和 Adaptive Auto-
   `alembic check` 已在测试数据库通过；真实 PostgreSQL/Redis/Qdrant 集成验证密文存储、actor 隔离、
   Trace 绑定、重复请求只保留一条提案且生产 Skill 保持原 revision。Skill/Security/Trace 单元回归
   `96 passed`，真实集成 `6 passed`，BFF/Zod 合同 `30 passed`，Ruff、Mypy、ESLint 和 Next
-  production build 通过。
+  production build 通过。独立复审 `ACCEPT（P0=0，P1=0，P2=2）`；其中内部调用可生成临时 Trace/
+  普通 SHA-256 的审计弱点已随即关闭，所有 evolve 调用现在必须由请求边界传入真实 Trace 与用途隔离
+  HMAC fingerprint，聚焦回归 `74 passed`、Ruff/Mypy 通过。剩余 P2 为阶段 7 补真实并发 immutable
+  proposal、跨 tenant 读取及 proposal 与 Skill update/delete 竞态反例。
 
 四项前置 P1 已全部关闭，组件宪章、双轨分类事实源、Memory/Skill 生产写边界已经落地；任何
 immutable 候选执行或晋升前仍必须完成 sealed evaluator 和离线控制器接入。

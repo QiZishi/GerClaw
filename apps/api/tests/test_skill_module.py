@@ -872,6 +872,8 @@ async def test_production_module_clinical_evolution_is_offline_only_and_revision
         "safe-followup",
         change_request="增加资料完整性核对和待医生确认的问题。",
         expected_revision=1,
+        proposal_trace_id="trace_skill_module_evolution_0001",
+        request_fingerprint="a" * 64,
     )
     assert outcome.candidate.version == "1.1.0"
     assert outcome.candidate.revision == 2
@@ -893,12 +895,16 @@ async def test_production_module_clinical_evolution_is_offline_only_and_revision
             "safe-followup",
             change_request="增加资料完整性核对和待医生确认的问题。",
             expected_revision=2,
+            proposal_trace_id="trace_skill_module_evolution_0002",
+            request_fingerprint="b" * 64,
         )
     with pytest.raises(SkillConflictError, match="immutable"):
         await module.evolve_skill_from_nl(
             "health-education",
             change_request="增加资料完整性核对和待医生确认的问题。",
             expected_revision=1,
+            proposal_trace_id="trace_skill_module_evolution_0003",
+            request_fingerprint="c" * 64,
         )
 
 
@@ -952,6 +958,8 @@ async def test_production_module_applies_low_risk_presentation_evolution_online(
         "accessible-summary",
         change_request="增加清晰标题并让段落更容易阅读。",
         expected_revision=1,
+        proposal_trace_id="trace_skill_module_evolution_0004",
+        request_fingerprint="d" * 64,
     )
 
     assert outcome.decision.object_kind == "skill.presentation"

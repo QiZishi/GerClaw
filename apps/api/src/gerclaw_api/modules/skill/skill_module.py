@@ -2,8 +2,7 @@
 
 from __future__ import annotations
 
-import hashlib
-import json
+import re
 import uuid
 from typing import TYPE_CHECKING, cast
 
@@ -226,13 +225,17 @@ class ProductionSkillModule:
         *,
         change_request: str,
         expected_revision: int,
+        proposal_trace_id: str,
+        request_fingerprint: str,
         apply_if_low_risk: bool = True,
         commit: bool = True,
-        proposal_trace_id: str | None = None,
-        request_fingerprint: str | None = None,
     ) -> SkillEvolutionOutcome:
         """Apply only low-authority revisions; return dangerous changes as offline proposals."""
 
+        if not proposal_trace_id or len(proposal_trace_id) > 128:
+            raise SkillConflictError("Skill evolution requires valid request provenance")
+        if re.fullmatch(r"[a-f0-9]{64}", request_fingerprint) is None:
+            raise SkillConflictError("Skill evolution requires valid request provenance")
         if self._generator is None:
             raise RuntimeError("Skill generation model is unavailable")
         if await self._builtins.get(skill_id) is not None:
@@ -263,22 +266,6 @@ class ProductionSkillModule:
         if decision.disposition != "online_applied":
             proposal_receipt = None
             if decision.disposition == "offline_review_required":
-                effective_trace_id = proposal_trace_id or f"module_{uuid.uuid4().hex}"
-                effective_fingerprint = (
-                    request_fingerprint
-                    or hashlib.sha256(
-                        json.dumps(
-                            {
-                                "skill_id": skill_id,
-                                "expected_revision": expected_revision,
-                                "change_request": change_request,
-                            },
-                            ensure_ascii=False,
-                            sort_keys=True,
-                            separators=(",", ":"),
-                        ).encode()
-                    ).hexdigest()
-                )
                 proposal = await self._repository.create_evolution_proposal(
                     skill_id,
                     tenant_id=self._tenant_id,
@@ -288,8 +275,8 @@ class ProductionSkillModule:
                     candidate=candidate,
                     decision=decision,
                     change_request=change_request,
-                    trace_id=effective_trace_id,
-                    request_fingerprint=effective_fingerprint,
+                    trace_id=proposal_trace_id,
+                    request_fingerprint=request_fingerprint,
                 )
                 proposal_receipt = SkillEvolutionProposalReceipt(
                     proposal_id=proposal.id,
