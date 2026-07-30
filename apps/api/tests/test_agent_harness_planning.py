@@ -416,6 +416,73 @@ def test_plan_execution_serializes_fallbacks_and_preserves_recovery_on_finalize(
     assert executor.failover_candidates(primary) == ("fallback_two",)
     with pytest.raises(PlanningError, match="PLAN_CAPABILITY_NOT_PENDING"):
         executor.start_capability("primary.run")
+    executor.start_fallback(primary)
+    with pytest.raises(PlanningError, match="PLAN_CAPABILITY_NOT_PENDING"):
+        executor.start_capability("fallback.one")
+
+
+def test_nested_fallback_recovery_locks_parent_branch_until_satisfied() -> None:
+    plan = DynamicPlan(
+        nodes=(
+            PlanNode(
+                node_id="primary",
+                capability="primary.run",
+                public_summary="正在执行主要路径",
+                fallback=("fallback_one", "fallback_two"),
+            ),
+            PlanNode(
+                node_id="fallback_one",
+                required=False,
+                capability="fallback.one",
+                public_summary="正在执行第一备用路径",
+                fallback=("nested_fallback",),
+            ),
+            PlanNode(
+                node_id="fallback_two",
+                required=False,
+                capability="fallback.two",
+                public_summary="正在执行第二备用路径",
+            ),
+            PlanNode(
+                node_id="nested_fallback",
+                required=False,
+                capability="fallback.nested",
+                public_summary="正在执行嵌套备用路径",
+            ),
+        )
+    )
+    executor = DynamicPlanExecutor(plan)
+    current = executor.snapshot()
+
+    primary = executor.start_capability("primary.run")
+    updated = executor.snapshot()
+    validate_plan_execution_transition(plan, current, updated)
+    current = updated
+    executor.fail(primary, "PRIMARY_UNAVAILABLE")
+    updated = executor.snapshot()
+    validate_plan_execution_transition(plan, current, updated)
+    current = updated
+    first = executor.start_fallback(primary)
+    updated = executor.snapshot()
+    validate_plan_execution_transition(plan, current, updated)
+    current = updated
+    executor.fail(first, "FIRST_FALLBACK_UNAVAILABLE")
+    updated = executor.snapshot()
+    validate_plan_execution_transition(plan, current, updated)
+    current = updated
+    nested = executor.start_fallback(first)
+    updated = executor.snapshot()
+    validate_plan_execution_transition(plan, current, updated)
+    current = updated
+
+    assert executor.failover_candidates(primary) == ()
+    with pytest.raises(PlanningError, match="PLAN_FALLBACK_UNAVAILABLE"):
+        executor.start_fallback(primary)
+    executor.complete(nested)
+    completed = executor.snapshot()
+    validate_plan_execution_transition(plan, current, completed)
+    assert executor.failover_candidates(primary) == ()
+    assert executor.finalize().statuses["fallback_two"] is PlanNodeStatus.SKIPPED
 
 
 def test_plan_transition_rejects_fallback_checkpoint_bypass_and_nonserial_history() -> None:

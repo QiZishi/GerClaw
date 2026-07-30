@@ -135,6 +135,17 @@ class PlanExecutionSnapshot(BaseModel):
             for source_id, fallback_ids in self.fallbacks_used.items()
         ):
             raise PlanningError("PLAN_EXECUTION_FALLBACK_MISMATCH")
+        node_by_id = {node.node_id: node for node in plan.nodes}
+        if any(
+            not _snapshot_recovery_exhausted(
+                self,
+                node_by_id,
+                fallback_id,
+            )
+            for fallback_ids in self.fallbacks_used.values()
+            for fallback_id in fallback_ids[:-1]
+        ):
+            raise PlanningError("PLAN_EXECUTION_FALLBACK_MISMATCH")
         return self
 
 
@@ -227,12 +238,17 @@ def validate_plan_execution_transition(
             and current.statuses[source] is PlanNodeStatus.FAILED
             and previous_status is PlanNodeStatus.PENDING
             and status is PlanNodeStatus.RUNNING
+            and _snapshot_next_fallback(plan, current, source) == node_id
         ):
             fallback_for_node_id = source
         else:
             raise PlanningError("PLAN_EXECUTION_FALLBACK_MISMATCH")
 
     allowed = False
+    is_historical_fallback = any(
+        node_id in fallback_ids
+        for fallback_ids in current.fallbacks_used.values()
+    )
     if (
         previous_status in {PlanNodeStatus.PENDING, PlanNodeStatus.FAILED}
         and status is PlanNodeStatus.RUNNING
@@ -240,6 +256,7 @@ def validate_plan_execution_transition(
         allowed = (
             attempt == current_attempt + 1
             and node_id not in updated.error_codes
+            and (fallback_for_node_id is not None or not is_historical_fallback)
             and all(
                 _snapshot_satisfied(current, dependency)
                 for dependency in node.dependencies
@@ -314,6 +331,10 @@ class DynamicPlanExecutor:
                 in {PlanNodeStatus.PENDING, PlanNodeStatus.FAILED}
                 and not self._satisfied(item.node_id)
                 and not self._fallbacks_used.get(item.node_id)
+                and not any(
+                    item.node_id in fallback_ids
+                    for fallback_ids in self._fallbacks_used.values()
+                )
             ),
             None,
         )
@@ -365,22 +386,12 @@ class DynamicPlanExecutor:
         return fallback_id
 
     def failover_candidates(self, failed_node_id: str) -> tuple[str, ...]:
-        if self._statuses.get(failed_node_id) is not PlanNodeStatus.FAILED:
-            return ()
-        node = self._node(failed_node_id)
-        used = self._fallbacks_used.get(failed_node_id, ())
-        if used and self._statuses[used[-1]] is not PlanNodeStatus.FAILED:
-            return ()
-        if len(used) >= len(node.fallback):
-            return ()
-        fallback_id = node.fallback[len(used)]
-        if self._statuses[fallback_id] is not PlanNodeStatus.PENDING:
-            return ()
-        if not all(
-            self._satisfied(item) for item in self._node(fallback_id).dependencies
-        ):
-            return ()
-        return (fallback_id,)
+        candidate = _snapshot_next_fallback(
+            self._plan,
+            self.snapshot(),
+            failed_node_id,
+        )
+        return (candidate,) if candidate is not None else ()
 
     def complete_optional_capability(self, capability: str) -> bool:
         """Complete one actually observed optional capability, at most once."""
@@ -489,6 +500,63 @@ def _snapshot_satisfied(
             for fallback_id in snapshot.fallbacks_used.get(node_id, ())
         )
     )
+
+
+def _snapshot_recovery_exhausted(
+    snapshot: PlanExecutionSnapshot,
+    node_by_id: dict[str, PlanNode],
+    node_id: str,
+    *,
+    visited: frozenset[str] = frozenset(),
+) -> bool:
+    if node_id in visited or snapshot.statuses[node_id] is not PlanNodeStatus.FAILED:
+        return False
+    if _snapshot_satisfied(snapshot, node_id):
+        return False
+    declared = node_by_id[node_id].fallback
+    if not declared:
+        return True
+    used = snapshot.fallbacks_used.get(node_id, ())
+    if len(used) < len(declared) or not used:
+        return False
+    return _snapshot_recovery_exhausted(
+        snapshot,
+        node_by_id,
+        used[-1],
+        visited=visited | {node_id},
+    )
+
+
+def _snapshot_next_fallback(
+    plan: DynamicPlan,
+    snapshot: PlanExecutionSnapshot,
+    failed_node_id: str,
+) -> str | None:
+    if (
+        snapshot.statuses.get(failed_node_id) is not PlanNodeStatus.FAILED
+        or _snapshot_satisfied(snapshot, failed_node_id)
+    ):
+        return None
+    node_by_id = {node.node_id: node for node in plan.nodes}
+    node = node_by_id[failed_node_id]
+    used = snapshot.fallbacks_used.get(failed_node_id, ())
+    if used and not _snapshot_recovery_exhausted(
+        snapshot,
+        node_by_id,
+        used[-1],
+    ):
+        return None
+    if len(used) >= len(node.fallback):
+        return None
+    candidate = node.fallback[len(used)]
+    if snapshot.statuses[candidate] is not PlanNodeStatus.PENDING:
+        return None
+    if not all(
+        _snapshot_satisfied(snapshot, dependency)
+        for dependency in node_by_id[candidate].dependencies
+    ):
+        return None
+    return candidate
 
 
 class TurnExecutionGovernance:
