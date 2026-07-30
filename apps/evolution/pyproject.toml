@@ -1,0 +1,43 @@
+[project]
+name = "gerclaw-evolution"
+version = "0.1.0"
+description = "Isolated offline evolution controller for GerClaw"
+readme = "README.md"
+requires-python = ">=3.12,<3.14"
+dependencies = [
+  "gerclaw-api",
+]
+
+[dependency-groups]
+dev = [
+  "mypy>=1.17.1,<2",
+  "pytest>=9.0.3,<10",
+  "ruff>=0.12.8,<1",
+]
+
+[tool.uv.sources]
+gerclaw-api = { path = "../api", editable = true }
+
+[build-system]
+requires = ["hatchling>=1.27"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/gerclaw_evolution"]
+
+[tool.pytest.ini_options]
+addopts = ["--strict-config", "--strict-markers"]
+testpaths = ["tests"]
+
+[tool.ruff]
+line-length = 100
+target-version = "py312"
+
+[tool.ruff.lint]
+select = ["ASYNC", "B", "E", "F", "I", "RUF", "SIM", "UP"]
+
+[tool.mypy]
+python_version = "3.12"
+strict = true
+packages = ["gerclaw_evolution"]
+warn_unused_configs = true
