@@ -51,6 +51,7 @@ from gerclaw_evolution.runner import (
     SubprocessRoutingPairedRunner,
 )
 from gerclaw_evolution.sandbox import CandidateExecutionResult, DockerCandidateExecutor
+from gerclaw_evolution.skill_runner import SubprocessSkillPairedRunner
 from gerclaw_evolution.sources import (
     OFFICIAL_OPTIMIZER_PINS,
     OfficialOptimizerPin,
@@ -99,4 +100,5 @@ __all__ = [
     "SealedGatePayload",
     "SignedReleaseRecord",
     "SubprocessRoutingPairedRunner",
+    "SubprocessSkillPairedRunner",
 ]
