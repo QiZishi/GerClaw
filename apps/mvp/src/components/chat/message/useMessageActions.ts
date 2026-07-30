@@ -2,9 +2,11 @@
 
 import { useCallback, useEffect, useState } from "react";
 
+import { artifactDraftFromMessage } from "@/components/artifact/artifact-draft";
 import { useMessageFeedback } from "@/components/chat/message/useMessageFeedback";
 import { toast } from "@/components/ui/toast";
 import { useAppStore } from "@/stores/appStore";
+import { useArtifactStore } from "@/stores/artifactStore";
 import { useChatStore } from "@/stores/chatStore";
 import type { Message, MessageBlock } from "@/types";
 
@@ -37,7 +39,7 @@ export function useMessageActions({
   const autoTtsPlayback = useAppStore((state) => state.autoTtsPlayback);
   const ttsAvailable = useAppStore((state) => state.ttsAvailable);
   const setRightPanel = useAppStore((state) => state.setRightPanel);
-  const setPanelContent = useAppStore((state) => state.setPanelContent);
+  const openArtifactDraft = useArtifactStore((state) => state.openDraft);
   const updateMessage = useChatStore((state) => state.updateMessage);
   const feedback = useMessageFeedback(message);
   const plainText = extractPlainText(message.blocks);
@@ -69,8 +71,10 @@ export function useMessageActions({
     }
   };
   const editInDoc = () => {
+    openArtifactDraft(
+      artifactDraftFromMessage(message, `${message.id}:${Date.now()}`),
+    );
     setRightPanel("doc-editor");
-    setPanelContent(plainText);
     onEdit?.(message.id);
   };
 
