@@ -53,8 +53,13 @@ failure therefore stops the next governed Harness side effect. Owner capabilitie
 `running` only after the Run exists; their validated result and `completed` transition persist
 atomically. An optional owner failure remains private, preserves the valid answer, and produces
 `completed_with_warnings` rather than a false full failure. Stable node failures are not added
-to the public answer. Interrupted-running-node normalization and durable output reuse for
-non-owner nodes remain separate recovery work rather than being implied here.
+to the public answer. Entering `interrupted` now normalizes every durably `running`
+PlanNode to `failed/RUN_INTERRUPTED_BEFORE_NODE_COMMIT` in the same transaction as the
+Run status change. The node keeps its attempt number and append-only audit lineage; an
+adopted worker receives a higher fence and may reopen that exact capability as the next
+attempt. Completed, pending, skipped, and already-failed nodes are not changed by this
+normalization. Durable output reuse for non-owner nodes remains separate recovery work
+rather than being implied here.
 
 Queued requirements are available through the owner-scoped Trace create API and Run list/delete
 APIs. The Trace lookup closes the period before a successful stream reveals a Run ID. The

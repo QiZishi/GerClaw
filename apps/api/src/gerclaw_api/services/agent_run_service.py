@@ -28,7 +28,9 @@ from gerclaw_api.domain.run_schemas import (
 )
 from gerclaw_api.modules.agent_harness.context_snapshot import PersistedRunPlan
 from gerclaw_api.modules.agent_harness.planning import (
+    DynamicPlanExecutor,
     PlanExecutionSnapshot,
+    PlanExecutionTransition,
     PlanningError,
     PlanNodeStatus,
     validate_plan_execution_transition,
@@ -57,6 +59,9 @@ class AgentRunConflictError(RuntimeError):
 
 class RunAttemptConflictError(RuntimeError):
     """Raised when a private attempt loses fencing or current-pointer CAS."""
+
+
+_INTERRUPTED_NODE_ERROR_CODE = "RUN_INTERRUPTED_BEFORE_NODE_COMMIT"
 
 
 class AgentRunService:
@@ -607,6 +612,11 @@ class AgentRunService:
                 result = self.to_public_run(run)
                 await self._repository.rollback()
                 return result
+            if target is AgentRunStatus.INTERRUPTED:
+                await self._normalize_plan_for_interruption(
+                    run,
+                    occurred_at=occurred_at,
+                )
             run.status = updated.status.value
             run.revision = updated.revision
             run.warnings = list(updated.warnings)
@@ -718,6 +728,10 @@ class AgentRunService:
                 fencing_token=current.fencing_token,
                 occurred_at=occurred_at,
             )
+            await self._normalize_plan_for_interruption(
+                run,
+                occurred_at=occurred_at,
+            )
             run.status = updated.status.value
             run.revision = updated.revision
             run.warnings = list(updated.warnings)
@@ -743,6 +757,56 @@ class AgentRunService:
             await self._repository.rollback()
             raise
         return self.to_public_run(run)
+
+    async def _normalize_plan_for_interruption(
+        self,
+        run: AgentRun,
+        *,
+        occurred_at: datetime | None,
+    ) -> None:
+        """Make in-flight nodes retryable in the same transaction as interruption."""
+
+        try:
+            plan = PersistedRunPlan.model_validate(run.plan)
+        except ValueError:
+            # Legacy Runs that predate the versioned plan contract may still be
+            # interrupted safely, but explicit resume already rejects them.
+            return
+        current = plan.effective_plan_execution()
+        executor = DynamicPlanExecutor(plan.dynamic_plan, snapshot=current)
+        transitions: list[PlanExecutionTransition] = []
+        for node in plan.dynamic_plan.nodes:
+            if current.statuses[node.node_id] is not PlanNodeStatus.RUNNING:
+                continue
+            executor.fail(node.node_id, _INTERRUPTED_NODE_ERROR_CODE)
+            updated = executor.snapshot()
+            transitions.extend(
+                validate_plan_execution_transition(
+                    plan.dynamic_plan,
+                    current,
+                    updated,
+                )
+            )
+            current = updated
+        if not transitions:
+            return
+        run.plan = plan.model_copy(update={"plan_execution": current}).model_dump(
+            mode="json"
+        )
+        transitioned_at = occurred_at or datetime.now(UTC)
+        for transition in transitions:
+            await self._repository.add_plan_node_event(
+                AgentRunPlanNodeEvent(
+                    run_id=run.id,
+                    node_id=transition.node_id,
+                    attempt=transition.attempt,
+                    status=transition.status.value,
+                    error_code=transition.error_code,
+                    fallback_for_node_id=transition.fallback_for_node_id,
+                    fencing_token=run.fencing_token,
+                    created_at=transitioned_at,
+                )
+            )
 
     async def _locked_run(
         self,

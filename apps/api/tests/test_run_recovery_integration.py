@@ -720,6 +720,21 @@ async def test_explicit_resume_adopts_interrupted_run_and_completes_it(
             tenant_id=TENANT,
             actor_id=ACTOR,
         )
+        frozen_plan = PersistedRunPlan.model_validate(persisted_plan)
+        plan_executor = DynamicPlanExecutor(
+            frozen_plan.dynamic_plan,
+            snapshot=frozen_plan.effective_plan_execution(),
+        )
+        in_flight_node_id = plan_executor.start_capability(
+            frozen_plan.dynamic_plan.nodes[0].capability
+        )
+        await run_service.update_plan_execution(
+            run.id,
+            plan_executor.snapshot(),
+            tenant_id=TENANT,
+            actor_id=ACTOR,
+            fencing_token=old_fence,
+        )
         await run_service.interrupt_owned(
             run.id,
             tenant_id=TENANT,
@@ -745,8 +760,29 @@ async def test_explicit_resume_adopts_interrupted_run_and_completes_it(
                 )
             ).all()
         )
+        node_events = list(
+            (
+                await session.scalars(
+                    select(AgentRunPlanNodeEvent)
+                    .where(AgentRunPlanNodeEvent.run_id == run_id)
+                    .order_by(AgentRunPlanNodeEvent.id)
+                )
+            ).all()
+        )
     assert resumed is not None and resumed.status == "completed"
     assert resumed.current_answer_version_id is not None
+    resumed_plan = PersistedRunPlan.model_validate(resumed.plan)
+    assert (
+        resumed_plan.effective_plan_execution().statuses[in_flight_node_id].value
+        == "failed"
+    )
+    assert [
+        (event.status, event.error_code)
+        for event in node_events
+    ] == [
+        ("running", None),
+        ("failed", "RUN_INTERRUPTED_BEFORE_NODE_COMMIT"),
+    ]
     assert "run.resumed" in [event.event_type for event in events]
     assert [event.sequence for event in events] == list(range(1, len(events) + 1))
     replay_stream = await client.get(

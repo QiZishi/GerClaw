@@ -33,6 +33,7 @@ from gerclaw_api.modules.agent_harness.planning import (
     DynamicPlanExecutor,
     PlanExecutionSnapshot,
     PlanNode,
+    PlanNodeStatus,
     PlanRequest,
 )
 from gerclaw_api.modules.agent_harness.plugin_runtime import (
@@ -1011,6 +1012,86 @@ async def test_lease_orphan_can_be_marked_interrupted(
     assert interrupted.interrupted_at is not None
     assert repository.events[-1].status == "interrupted"
     assert repository.attempts[attempt.id].status == RunAttemptStatus.INVALIDATED.value
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("interrupt_via_transition", [False, True])
+async def test_interruption_normalizes_running_plan_node_for_retry(
+    interrupt_via_transition: bool,
+) -> None:
+    repository = _Repository()
+    service = AgentRunService(repository)
+    plan = _persisted_plan()
+    request = _request(
+        route=plan.route_decision.route,
+        plan=plan.model_dump(mode="json"),
+    )
+    created = await service.create_run(request, tenant_id=TENANT, actor_id=ACTOR)
+    executor = DynamicPlanExecutor(
+        plan.dynamic_plan,
+        snapshot=plan.effective_plan_execution(),
+    )
+    first_node = plan.dynamic_plan.nodes[0]
+    node_id = executor.start_capability(first_node.capability)
+    await service.update_plan_execution(
+        created.id,
+        executor.snapshot(),
+        tenant_id=TENANT,
+        actor_id=ACTOR,
+        fencing_token=7,
+    )
+
+    if interrupt_via_transition:
+        interrupted = await service.transition(
+            created.id,
+            AgentRunStatus.INTERRUPTED,
+            tenant_id=TENANT,
+            actor_id=ACTOR,
+            expected_revision=None,
+            fencing_token=7,
+        )
+    else:
+        interrupted = await service.interrupt_owned(
+            created.id,
+            tenant_id=TENANT,
+            actor_id=ACTOR,
+        )
+
+    stored = PersistedRunPlan.model_validate(repository.runs[created.id].plan)
+    normalized = stored.effective_plan_execution()
+    assert interrupted.status is AgentRunStatus.INTERRUPTED
+    assert normalized.statuses[node_id] is PlanNodeStatus.FAILED
+    assert normalized.attempts[node_id] == 1
+    assert (
+        normalized.error_codes[node_id]
+        == "RUN_INTERRUPTED_BEFORE_NODE_COMMIT"
+    )
+    assert [
+        (event.status, event.attempt, event.error_code)
+        for event in repository.plan_node_events[-2:]
+    ] == [
+        ("running", 1, None),
+        ("failed", 1, "RUN_INTERRUPTED_BEFORE_NODE_COMMIT"),
+    ]
+
+    resumed = await service.adopt_for_worker(
+        request.model_copy(
+            update={
+                "fencing_token": 8,
+                "plan": stored.model_dump(mode="json"),
+            }
+        ),
+        tenant_id=TENANT,
+        actor_id=ACTOR,
+    )
+    retry = DynamicPlanExecutor(
+        stored.dynamic_plan,
+        snapshot=stored.effective_plan_execution(),
+    )
+
+    assert resumed.status is AgentRunStatus.RUNNING
+    assert retry.start_capability(first_node.capability) == node_id
+    assert retry.snapshot().attempts[node_id] == 2
 
 
 @pytest.mark.asyncio

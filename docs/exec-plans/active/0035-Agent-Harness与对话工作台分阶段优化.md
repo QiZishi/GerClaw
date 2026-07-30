@@ -1508,6 +1508,15 @@ completion 原子可见。该小步不声称分布式 exactly-once：若 owner s
 中断，仍依赖 owner 幂等和后续 durable-result reconciliation。非 owner 节点的输出复用及
 interrupted-running 归一化继续作为下一独立变更集。
 
+第五小步已关闭 `interrupted` 快照中节点永久停留 `running` 的恢复死锁：无论由 worker 主动
+steer 进入 interruption，还是由 startup reconciler 接管孤儿 Run，状态转换的同一事务都会把所有
+`running` PlanNode 改为 `failed/RUN_INTERRUPTED_BEFORE_NODE_COMMIT`，保持原 attempt 和 append-only
+审计；新 worker 取得更高 fence 后只能从该 checkpoint 开启下一 attempt，旧 worker 不能补写。
+`pending/completed/failed/skipped` 均不被这一步误改。Run/Resume 聚焦回归
+`41 passed, 6 skipped`，Ruff/Mypy 通过；真实 PostgreSQL/Redis/Qdrant resume 集成 `1 passed`，
+断言数据库审计为 `running → failed` 且同一 Run/Trace 成功采用。该小步只解决 in-flight 状态归一化；
+已完成非 owner 节点的耐久输出保存与复用仍未虚报完成。
+
 ### 阶段 7
 
 执行完整后端、前端、迁移、Compose、Playwright 和 axe 回归，覆盖患者、医生、访客和响应式关键路径；更新架构、Harness、前端、设计和产品规格，经独立审阅后归档本计划。
