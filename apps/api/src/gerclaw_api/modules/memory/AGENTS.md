@@ -10,6 +10,12 @@ This module owns encrypted, revisioned health facts, profiles, bounded conversat
 - Tenant, actor and session isolation, envelope encryption, revisions and optimistic concurrency apply to every read and write.
 - Never store PHI/plain medical text in vectors, traces, logs or Qdrant payloads. Inactive, stale or orphaned vector revisions cannot enter prompts.
 - Memory is untrusted contextual data, never a system instruction or replacement for current medical evidence.
+- Authenticated owners may create, correct, soft-delete and restore their content through
+  optimistic revisions. Corrections leave recall until re-confirmed; tombstones remain encrypted
+  and auditable, and automatic extraction must never silently resurrect them.
+- Content CRUD is mutable online evolution. Evidence/confirmation/conflict semantics, ownership,
+  encryption, revision fencing, tombstone behavior, recall filtering and Prompt authority are
+  protected mechanisms and cannot be weakened by online content changes.
 - Short-term compression is content mutation, not authority mutation. Preserve recent turns
   verbatim, prioritize exact user excerpts for allergies, medication, observations, red flags,
   negations, and pending confirmations, and mark assistant history as untrusted. Cache only an

@@ -10,11 +10,17 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from gerclaw_api.auth import AuthContext, require_memory_read, require_memory_write
 from gerclaw_api.dependencies import get_database_session
+from gerclaw_api.modules.memory.memory_module import MemoryEvidenceError
 from gerclaw_api.modules.memory.models import (
     HealthProfileRead,
+    MemoryFactCreateRequest,
     MemoryFactDecisionRead,
     MemoryFactDecisionRequest,
+    MemoryFactDeleteRequest,
     MemoryFactHistoryRead,
+    MemoryFactMutationRead,
+    MemoryFactRestoreRequest,
+    MemoryFactUpdateRequest,
     MemoryRecallPreferenceRead,
     MemoryRecallPreferenceRequest,
 )
@@ -48,6 +54,30 @@ def _required_model(request: Request) -> FailoverChatModel:
             detail={"code": "MEMORY_UNAVAILABLE", "message": "记忆服务暂时不可用。"},
         )
     return model
+
+
+def _fact_not_found() -> HTTPException:
+    return HTTPException(
+        status_code=404,
+        detail={"code": "MEMORY_FACT_NOT_FOUND", "message": "记忆事实不存在。"},
+    )
+
+
+def _revision_conflict() -> HTTPException:
+    return HTTPException(
+        status_code=409,
+        detail={"code": "MEMORY_REVISION_CONFLICT", "message": "记忆已更新, 请刷新后重试。"},
+    )
+
+
+def _evidence_mismatch() -> HTTPException:
+    return HTTPException(
+        status_code=422,
+        detail={
+            "code": "MEMORY_EVIDENCE_MISMATCH",
+            "message": "结构化记忆内容必须能在您提交的原文中直接核验。",
+        },
+    )
 
 
 @router.get("/profile", response_model=HealthProfileRead)
@@ -171,20 +201,173 @@ async def decide_fact(
         return result
     except MemoryNotFoundError as error:
         await module.rollback()
-        raise HTTPException(
-            status_code=404,
-            detail={"code": "MEMORY_FACT_NOT_FOUND", "message": "记忆事实不存在。"},
-        ) from error
+        raise _fact_not_found() from error
     except MemoryConflictError as error:
         await module.rollback()
-        raise HTTPException(
-            status_code=409,
-            detail={"code": "MEMORY_REVISION_CONFLICT", "message": "记忆已更新, 请刷新后重试。"},
-        ) from error
+        raise _revision_conflict() from error
+    except MemoryEvidenceError as error:
+        await module.rollback()
+        raise _evidence_mismatch() from error
     except BaseException:
         # The request session dependency only rolls back PostgreSQL. Memory
         # additionally owns pre-commit Qdrant points and must compensate them
         # for provider, flush, response projection, and cancellation failures.
+        await module.rollback()
+        raise
+
+
+@router.post("/facts", response_model=MemoryFactMutationRead, status_code=201)
+async def create_fact(
+    payload: MemoryFactCreateRequest,
+    request: Request,
+    session: SessionDependency,
+    identity: MemoryWriteIdentity,
+) -> MemoryFactMutationRead:
+    """Create one caller-owned proposed fact."""
+
+    await _enforce_rate_limit(request, identity)
+    repository = SqlAlchemyMemoryRepository(session)
+    user = await repository.get_user(tenant_id=identity.tenant_id, actor_id=identity.actor_id)
+    if user is None:
+        user = await repository.get_or_create_user(
+            tenant_id=identity.tenant_id,
+            actor_id=identity.actor_id,
+            role=identity.role,
+        )
+    module = create_memory_module(
+        settings=request.app.state.settings,
+        repository=repository,
+        model=_required_model(request),
+        embedding_model=request.app.state.rag_runtime.embedding_model,
+        vector_store=request.app.state.memory_store,
+        tenant_id=identity.tenant_id,
+        actor_id=identity.actor_id,
+        user_id=user.id,
+        session_id=_NO_SESSION,
+        trace_id=str(request.state.trace_id),
+    )
+    try:
+        result = await module.create_fact(payload)
+        await module.commit()
+        return result
+    except MemoryConflictError as error:
+        await module.rollback()
+        raise _revision_conflict() from error
+    except MemoryEvidenceError as error:
+        await module.rollback()
+        raise _evidence_mismatch() from error
+    except BaseException:
+        await module.rollback()
+        raise
+
+
+@router.patch("/facts/{fact_id}", response_model=MemoryFactMutationRead)
+async def update_fact(
+    fact_id: uuid.UUID,
+    payload: MemoryFactUpdateRequest,
+    request: Request,
+    session: SessionDependency,
+    identity: MemoryWriteIdentity,
+) -> MemoryFactMutationRead:
+    """Correct one caller-owned fact using optimistic concurrency."""
+
+    return await _mutate_existing_fact(
+        fact_id=fact_id,
+        payload=payload,
+        operation="update",
+        request=request,
+        session=session,
+        identity=identity,
+    )
+
+
+@router.delete("/facts/{fact_id}", response_model=MemoryFactMutationRead)
+async def delete_fact(
+    fact_id: uuid.UUID,
+    payload: MemoryFactDeleteRequest,
+    request: Request,
+    session: SessionDependency,
+    identity: MemoryWriteIdentity,
+) -> MemoryFactMutationRead:
+    """Soft-delete one caller-owned fact using a restorable tombstone."""
+
+    return await _mutate_existing_fact(
+        fact_id=fact_id,
+        payload=payload,
+        operation="delete",
+        request=request,
+        session=session,
+        identity=identity,
+    )
+
+
+@router.post("/facts/{fact_id}/restore", response_model=MemoryFactMutationRead)
+async def restore_fact(
+    fact_id: uuid.UUID,
+    payload: MemoryFactRestoreRequest,
+    request: Request,
+    session: SessionDependency,
+    identity: MemoryWriteIdentity,
+) -> MemoryFactMutationRead:
+    """Restore one caller-owned tombstone using optimistic concurrency."""
+
+    return await _mutate_existing_fact(
+        fact_id=fact_id,
+        payload=payload,
+        operation="restore",
+        request=request,
+        session=session,
+        identity=identity,
+    )
+
+
+async def _mutate_existing_fact(
+    *,
+    fact_id: uuid.UUID,
+    payload: MemoryFactUpdateRequest | MemoryFactDeleteRequest | MemoryFactRestoreRequest,
+    operation: str,
+    request: Request,
+    session: AsyncSession,
+    identity: AuthContext,
+) -> MemoryFactMutationRead:
+    await _enforce_rate_limit(request, identity)
+    repository = SqlAlchemyMemoryRepository(session)
+    user = await repository.get_user(tenant_id=identity.tenant_id, actor_id=identity.actor_id)
+    if user is None:
+        raise _fact_not_found()
+    module = create_memory_module(
+        settings=request.app.state.settings,
+        repository=repository,
+        model=_required_model(request),
+        embedding_model=request.app.state.rag_runtime.embedding_model,
+        vector_store=request.app.state.memory_store,
+        tenant_id=identity.tenant_id,
+        actor_id=identity.actor_id,
+        user_id=user.id,
+        session_id=_NO_SESSION,
+        trace_id=str(request.state.trace_id),
+    )
+    try:
+        if operation == "update" and isinstance(payload, MemoryFactUpdateRequest):
+            result = await module.update_fact(fact_id, payload)
+        elif operation == "delete" and isinstance(payload, MemoryFactDeleteRequest):
+            result = await module.delete_fact(fact_id, payload)
+        elif operation == "restore" and isinstance(payload, MemoryFactRestoreRequest):
+            result = await module.restore_fact(fact_id, payload)
+        else:
+            raise RuntimeError("invalid memory mutation dispatch")
+        await module.commit()
+        return result
+    except MemoryNotFoundError as error:
+        await module.rollback()
+        raise _fact_not_found() from error
+    except MemoryConflictError as error:
+        await module.rollback()
+        raise _revision_conflict() from error
+    except MemoryEvidenceError as error:
+        await module.rollback()
+        raise _evidence_mismatch() from error
+    except BaseException:
         await module.rollback()
         raise
 

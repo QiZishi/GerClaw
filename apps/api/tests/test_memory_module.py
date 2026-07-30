@@ -38,12 +38,20 @@ from gerclaw_api.modules.memory.compressor import (
     CompressionResult,
 )
 from gerclaw_api.modules.memory.extractor import MemoryExtractionError, RealMemoryExtractor
-from gerclaw_api.modules.memory.memory_module import MemoryDataError, ProductionMemoryModule
+from gerclaw_api.modules.memory.memory_module import (
+    MemoryDataError,
+    MemoryEvidenceError,
+    ProductionMemoryModule,
+)
 from gerclaw_api.modules.memory.models import (
     MEMORY_MODEL_OUTPUT_SCHEMA_VERSION,
     ExtractedMemoryFact,
+    MemoryFactCreateRequest,
     MemoryFactDecisionRequest,
+    MemoryFactDeleteRequest,
     MemoryFactDetails,
+    MemoryFactRestoreRequest,
+    MemoryFactUpdateRequest,
     MemoryRecallPreferenceRequest,
     MemoryVectorCandidate,
     MemoryVectorRecord,
@@ -1360,6 +1368,182 @@ def _module(
         retrieval_top_k=5,
         retrieval_candidates=20,
     )
+
+
+@pytest.mark.asyncio
+async def test_owner_crud_is_revisioned_restorable_and_never_silently_resurrected() -> None:
+    user_id = uuid.uuid4()
+    repository = _Repository(user_id=user_id, session_id=uuid.uuid4())
+    candidate = _candidate("青霉素")
+    extractor = _Extractor([(candidate, "confirmed")])
+    vector_store = _VectorStore()
+    module = _module(repository, extractor, vector_store)
+
+    created = await module.create_fact(
+        MemoryFactCreateRequest(
+            expected_profile_version=0,
+            category="allergy",
+            memory_type="stable",
+            entity="青霉素",
+            statement="我对青霉素会起皮疹",
+            details=MemoryFactDetails(reaction="皮疹"),
+        )
+    )
+    assert created.fact.status == "proposed"
+    assert created.fact.revision == 1
+    assert created.fact.can_restore is False
+    assert vector_store.records == []
+
+    with pytest.raises(MemoryConflictError, match="already exists"):
+        await module.create_fact(
+            MemoryFactCreateRequest(
+                expected_profile_version=created.profile_version,
+                category="allergy",
+                memory_type="stable",
+                entity="青霉素",
+                statement="重复",
+            )
+        )
+
+    with pytest.raises(ValueError, match="supporting statement"):
+        MemoryFactUpdateRequest(
+            expected_revision=1,
+            details=MemoryFactDetails(reaction="呼吸困难"),
+        )
+    with pytest.raises(MemoryEvidenceError, match="reaction"):
+        await module.update_fact(
+            created.fact.id,
+            MemoryFactUpdateRequest(
+                expected_revision=1,
+                statement="我对青霉素会起皮疹",
+                details=MemoryFactDetails(reaction="呼吸困难"),
+            ),
+        )
+
+    updated = await module.update_fact(
+        created.fact.id,
+        MemoryFactUpdateRequest(
+            expected_revision=1,
+            statement="我对青霉素会出现严重皮疹",
+            details=MemoryFactDetails(reaction="严重皮疹", severity="severe"),
+        ),
+    )
+    assert updated.fact.status == "proposed"
+    assert updated.fact.revision == 2
+    assert repository.revisions[-1].activity == "user_update"
+    assert repository.revisions[-1].snapshot["statement"] == "我对青霉素会起皮疹"
+
+    confirmed = await module.decide_fact(
+        updated.fact.id,
+        MemoryFactDecisionRequest(expected_revision=2, decision="confirm"),
+    )
+    assert confirmed.fact.status == "confirmed"
+    assert confirmed.fact.revision == 3
+    assert repository.revisions[-1].activity == "user_decision"
+
+    deleted = await module.delete_fact(
+        confirmed.fact.id,
+        MemoryFactDeleteRequest(expected_revision=3, reason="incorrect"),
+    )
+    assert deleted.fact.status == "inactive"
+    assert deleted.fact.tombstone_reason == "incorrect"
+    assert deleted.fact.tombstoned_at is not None
+    assert deleted.fact.can_restore is True
+    assert repository.revisions[-1].activity == "user_delete"
+
+    vector_store.candidates = [
+        MemoryVectorCandidate(
+            fact_id=deleted.fact.id,
+            revision=3,
+            category="allergy",
+            score=0.99,
+        )
+    ]
+    recalled = await module.get_long_term("usr_memory_unit0001", query="我的过敏史")
+    assert recalled.relevant_facts == []
+
+    await module.extract_and_update_profile(
+        "usr_memory_unit0001",
+        [MemoryMessage(role="user", content=[{"type": "text", "text": "对青霉素过敏"}])],
+    )
+    assert repository.facts[0].revision == 4
+    assert repository.facts[0].tombstoned_at is not None
+
+    restored = await module.restore_fact(
+        deleted.fact.id,
+        MemoryFactRestoreRequest(expected_revision=4),
+    )
+    assert restored.fact.status == "confirmed"
+    assert restored.fact.revision == 5
+    assert restored.fact.tombstoned_at is None
+    assert restored.fact.can_restore is False
+    assert vector_store.records[-1].revision == 5
+    assert repository.revisions[-1].activity == "user_restore"
+
+    history = await module.read_fact_history(restored.fact.id, limit=10)
+    assert [item.activity for item in history.items] == [
+        "user_restore",
+        "user_delete",
+        "user_decision",
+        "user_update",
+    ]
+    with pytest.raises(MemoryConflictError, match="stale"):
+        await module.delete_fact(
+            restored.fact.id,
+            MemoryFactDeleteRequest(expected_revision=4),
+        )
+    with pytest.raises(MemoryConflictError, match="not restorable"):
+        await module.restore_fact(
+            restored.fact.id,
+            MemoryFactRestoreRequest(expected_revision=5),
+        )
+
+
+@pytest.mark.asyncio
+async def test_owner_update_and_confirmation_cannot_bypass_category_shape() -> None:
+    user_id = uuid.uuid4()
+    repository = _Repository(user_id=user_id, session_id=uuid.uuid4())
+    module = _module(repository, _Extractor([]), _VectorStore())
+    vital = _fact(
+        user_id=user_id,
+        category="vital_sign",
+        status="proposed",
+        statement="我的血压是130/80 mmHg",
+        entity="血压",
+    )
+    vital.details.update({"value": "130/80", "unit": "mmHg"})
+    repository.facts.append(vital)
+
+    with pytest.raises(ValueError, match="cannot be blank"):
+        MemoryFactCreateRequest(
+            expected_profile_version=0,
+            category="vital_sign",
+            memory_type="evolving",
+            entity="血压",
+            statement="我的血压是130/80 mmHg",
+            details=MemoryFactDetails(value=" ", unit=" "),
+        )
+    with pytest.raises(ValueError, match="cannot be null"):
+        MemoryFactUpdateRequest(expected_revision=1, statement=None)
+    with pytest.raises(MemoryEvidenceError, match="value and unit"):
+        await module.update_fact(
+            vital.id,
+            MemoryFactUpdateRequest(
+                expected_revision=1,
+                statement="我的血压记录需要清空",
+                details=MemoryFactDetails(value=None, unit=None),
+            ),
+        )
+    assert vital.revision == 1
+    assert vital.details["value"] == "130/80"
+
+    vital.details["unit"] = None
+    with pytest.raises(MemoryDataError, match="category shape"):
+        await module.decide_fact(
+            vital.id,
+            MemoryFactDecisionRequest(expected_revision=1, decision="confirm"),
+        )
+    assert vital.status == "proposed"
 
 
 @pytest.mark.asyncio

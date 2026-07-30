@@ -2,17 +2,19 @@
 
 from __future__ import annotations
 
+import unicodedata
 import uuid
 from datetime import datetime
 from typing import Final, Literal
 
-from pydantic import BaseModel, ConfigDict, Field, model_validator
+from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
 from gerclaw_api.modules.memory.protocols import (
     MemoryAccessLevel,
     MemoryCategory,
     MemoryFactView,
     MemoryStatus,
+    MemoryTombstoneReason,
     MemoryType,
 )
 
@@ -37,6 +39,47 @@ class MemoryFactDetails(BaseModel):
     level: str | None = Field(default=None, max_length=100)
     source_status: Literal["active", "stopped", "resolved", "historical", "unknown"] = "unknown"
 
+    @field_validator(
+        "value",
+        "unit",
+        "dose",
+        "frequency",
+        "route",
+        "reaction",
+        "code",
+        "level",
+        mode="before",
+    )
+    @classmethod
+    def normalize_optional_text(cls, value: object) -> object:
+        if value is None:
+            return None
+        if not isinstance(value, str):
+            return value
+        normalized = unicodedata.normalize("NFKC", value).strip()
+        if not normalized:
+            raise ValueError("memory detail text cannot be blank")
+        return normalized
+
+
+def validate_memory_fact_shape(
+    *,
+    category: MemoryCategory,
+    entity: str,
+    details: MemoryFactDetails,
+) -> None:
+    """Apply one deterministic category shape gate at every Memory write path."""
+
+    normalized_entity = unicodedata.normalize("NFKC", entity).strip()
+    if not normalized_entity:
+        raise ValueError("memory entity cannot be blank")
+    if category == "basic_info" and details.value is None:
+        raise ValueError("basic information requires a value")
+    if category == "medication" and entity.casefold() in {"药", "药物", "medication"}:
+        raise ValueError("medication entity must name the medicine")
+    if category == "vital_sign" and (details.value is None or details.unit is None):
+        raise ValueError("vital sign requires value and unit")
+
 
 class ExtractedMemoryFact(BaseModel):
     """One LLM candidate that still requires deterministic evidence validation."""
@@ -53,18 +96,25 @@ class ExtractedMemoryFact(BaseModel):
     occurred_at: datetime | None = None
     details: MemoryFactDetails = Field(default_factory=MemoryFactDetails)
 
+    @field_validator("entity", "statement", "evidence_span", mode="before")
+    @classmethod
+    def normalize_required_text(cls, value: object) -> object:
+        if not isinstance(value, str):
+            return value
+        normalized = unicodedata.normalize("NFKC", value).strip()
+        if not normalized:
+            raise ValueError("memory evidence text cannot be blank")
+        return normalized
+
     @model_validator(mode="after")
     def validate_category_shape(self) -> ExtractedMemoryFact:
         """Reject category-specific candidates missing their identifying value."""
 
-        if self.category == "basic_info" and self.details.value is None:
-            raise ValueError("basic information requires a value")
-        if self.category == "medication" and self.entity.casefold() in {"药", "药物", "medication"}:
-            raise ValueError("medication entity must name the medicine")
-        if self.category == "vital_sign" and (
-            self.details.value is None or self.details.unit is None
-        ):
-            raise ValueError("vital sign requires value and unit")
+        validate_memory_fact_shape(
+            category=self.category,
+            entity=self.entity,
+            details=self.details,
+        )
         return self
 
 
@@ -125,6 +175,93 @@ class HealthProfileRead(BaseModel):
     facts: list[MemoryFactView] = Field(default_factory=list, max_length=200)
 
 
+class MemoryFactCreateRequest(BaseModel):
+    """Owner-authored fact that enters the same confirmation lifecycle as extraction."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    expected_profile_version: int = Field(ge=0)
+    category: MemoryCategory
+    memory_type: MemoryType
+    entity: str = Field(min_length=1, max_length=120)
+    statement: str = Field(min_length=1, max_length=1_000)
+    details: MemoryFactDetails = Field(default_factory=MemoryFactDetails)
+    access_level: MemoryAccessLevel = "standard"
+    occurred_at: datetime | None = None
+
+    @field_validator("entity", "statement", mode="before")
+    @classmethod
+    def normalize_required_text(cls, value: object) -> object:
+        if not isinstance(value, str):
+            return value
+        normalized = unicodedata.normalize("NFKC", value).strip()
+        if not normalized:
+            raise ValueError("memory owner text cannot be blank")
+        return normalized
+
+    @model_validator(mode="after")
+    def validate_category_shape(self) -> MemoryFactCreateRequest:
+        validate_memory_fact_shape(
+            category=self.category,
+            entity=self.entity,
+            details=self.details,
+        )
+        return self
+
+
+class MemoryFactUpdateRequest(BaseModel):
+    """Revision-fenced correction that becomes proposed before re-confirmation."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    expected_revision: int = Field(ge=1)
+    statement: str | None = Field(default=None, min_length=1, max_length=1_000)
+    details: MemoryFactDetails | None = None
+    access_level: MemoryAccessLevel | None = None
+    occurred_at: datetime | None = None
+
+    @field_validator("statement", mode="before")
+    @classmethod
+    def normalize_statement(cls, value: object) -> object:
+        if value is None:
+            return None
+        if not isinstance(value, str):
+            return value
+        normalized = unicodedata.normalize("NFKC", value).strip()
+        if not normalized:
+            raise ValueError("memory statement cannot be blank")
+        return normalized
+
+    @model_validator(mode="after")
+    def require_change(self) -> MemoryFactUpdateRequest:
+        mutable_fields = {"statement", "details", "access_level", "occurred_at"}
+        if not self.model_fields_set.intersection(mutable_fields):
+            raise ValueError("memory fact update requires at least one mutable field")
+        if "statement" in self.model_fields_set and self.statement is None:
+            raise ValueError("memory statement cannot be null")
+        semantic_fields = {"details", "occurred_at"}
+        if self.model_fields_set.intersection(semantic_fields) and self.statement is None:
+            raise ValueError("semantic memory changes require a new supporting statement")
+        return self
+
+
+class MemoryFactDeleteRequest(BaseModel):
+    """Revision-fenced owner soft-delete."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    expected_revision: int = Field(ge=1)
+    reason: MemoryTombstoneReason = "user_deleted"
+
+
+class MemoryFactRestoreRequest(BaseModel):
+    """Revision-fenced restoration of a caller-owned tombstone."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    expected_revision: int = Field(ge=1)
+
+
 class MemoryFactDecisionRequest(BaseModel):
     """Optimistic user confirmation or retirement of one extracted fact."""
 
@@ -162,12 +299,29 @@ class MemoryFactDecisionRead(BaseModel):
     profile_version: int = Field(ge=1)
 
 
+class MemoryFactMutationRead(BaseModel):
+    """Current fact and profile projection after one owner CRUD mutation."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    fact: MemoryFactView
+    profile_version: int = Field(ge=1)
+
+
 class MemoryFactRevisionRead(BaseModel):
     """A caller-owned, immutable fact version saved before a later mutation."""
 
     model_config = ConfigDict(extra="forbid")
 
     revision: int = Field(ge=1)
+    activity: Literal[
+        "legacy_update",
+        "extraction_update",
+        "user_decision",
+        "user_update",
+        "user_delete",
+        "user_restore",
+    ]
     category: MemoryCategory
     memory_type: MemoryType
     status: MemoryStatus
@@ -179,6 +333,8 @@ class MemoryFactRevisionRead(BaseModel):
     occurred_at: datetime | None = None
     confirmed_at: datetime | None = None
     expires_at: datetime | None = None
+    tombstoned_at: datetime | None = None
+    tombstone_reason: MemoryTombstoneReason | None = None
     updated_at: datetime | None = None
     recorded_at: datetime
 

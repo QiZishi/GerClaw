@@ -24,7 +24,7 @@ Memory/Skill 的治理机制。
 | 3 | ClinicalState、动态规划与医疗门禁 | 已完成：四轮独立审阅修复、真实 GUI 与最终 ACCEPT |
 | 4 | 证据、Memory 与受治理能力组合 | 已完成：三项 P1 修复、真实 GUI/数据库复验、最终独立复审 ACCEPT |
 | 5 | 对话工作台 UI 与交互重构 | 已完成：独立审阅 3 项 P1 修复，真实 Playwright/axe 复验，最终 ACCEPT |
-| 6 | 双轨受控自进化 | 进行中：完成一手来源定义审计并关闭 4 项核心语义偏离；开始接入双轨演化 |
+| 6 | 双轨受控自进化 | 进行中：完成组件宪章、双轨分类和 Memory owner-service 在线 CRUD；继续 Skill 分轨与 sealed 离线控制面 |
 | 7 | 最终回归、真实 GUI 对抗审阅与发布 | 未开始 |
 
 ## 3. 阶段 0：冻结基线与真实运行审计
@@ -780,7 +780,7 @@ Agents SDK、HL7 FHIR、Mem0、Agent Skills、A-Evolve、GEPA 和 Adaptive Auto-
 | Plugin Runtime | **P1 已修复** | Manifest schema 已与 owner adapter 的 Pydantic 合同绑定，并在 owner 调用前后及运行时 schema 漂移时 fail closed |
 | Shared Results | 核心符合 | 保留 actor/run/scope/consumer 全量校验 |
 | Evolution Signals | 安全休眠、尚未实现 | 当前只有去内容化合同和可选 sink；缺生产收集器不等于语义损坏 |
-| Memory | 核心符合 | 已在线新增、修订、冲突、确认、拒绝、inactive 和召回过滤；补明确 PATCH/DELETE、tombstone/恢复审计，不冻结内容 |
+| Memory | **核心符合，在线 CRUD 已补齐** | owner-scoped create/update/delete/restore、revision、tombstone/恢复审计和自动抽取禁止复活均已落地；内容保持在线可变，核心治理机制不开放在线自改 |
 | Skill | 核心符合 | 已有注册、版本更新、删除、执行和 evolution draft；补低风险在线激活与危险变更离线分轨 |
 | Runtime | 核心符合 | 仍是唯一实际工具执行信任边界，Plugin Runtime 不得绕过 |
 | Harness facade | 功能符合、结构 P2 | facade 很薄；`orchestrator.py` 815 行，超过 800 行门禁，继续拆分但不得迁移领域所有权 |
@@ -847,6 +847,23 @@ Agents SDK、HL7 FHIR、Mem0、Agent Skills、A-Evolve、GEPA 和 Adaptive Auto-
   P1；前两项修复且第三项明确拆为后续 owner-service 模块后，分类基础模块复审
   `ACCEPT（P0=0，P1=0，P2=2）`。P2 为尚无真实 sealed evaluator/controller，以及后续必须执行
   realpath/symlink/freeze-HEAD 复验，不在当前模块伪装完成。
+- Memory owner-service 在线 CRUD：新增显式 create/update/delete/restore API、profile/fact revision
+  fencing、带原因 tombstone、删除前状态恢复、revision activity 审计和 Qdrant revision fence。
+  用户纠正立即退出召回并回到 `proposed`；删除事实保持密文历史但不进入画像/召回；自动抽取遇到
+  tombstone 不得静默复活。语义性 PATCH 必须提交新的支持原文，结构化值无法在原文中确定性核验时
+  返回稳定 422，不能脱离证据后再确认。owner service 先用 tenant/user 组合查询锁定资源，再按 `preference →
+  presentation_only`、其他事实 → `untrusted_user_context` 调用只读双轨分类，浏览器不能提交
+  object kind/authority/ownership。新增和既有 Memory/命令边界测试 `130 passed`，真实
+  PostgreSQL/Qdrant/Redis API 集成 `1 passed`；迁移
+  `d93c814f2053 → e13c814f2054 → d93c814f2053 → e13c814f2054` 与 `alembic check` 通过；
+  frozen resume 不重读可变 Memory 的回归 `1 passed`；BFF proxy/Zod 合同测试 `27 passed`，
+  Ruff/Mypy/ESLint 和 Next production build 通过。该变更不把
+  `Memory.confirmed` 升级为临床确诊，也没有开放机制在线修改。
+  独立子智能体审查先后发现并推动关闭三类 P1：结构化 PATCH 脱离支持原文、生命体征/基本资料
+  category shape 可被清空、空白字符串与显式 null 可绕过校验。最终复审
+  `ACCEPT（P0=0，P1=0，P2=3）`。保留的 P2 已登记：无日期同措辞 event 需要稳定的客户端事件
+  idempotency/source ID；旧 Qdrant revision 可在提交后异步精确清理；阶段 7 增加 10 路并发
+  mutation、跨 tenant update/restore 和 restore 向量写入后 PostgreSQL 失败补偿测试。
 
 四项前置 P1 已全部关闭，组件宪章和双轨分类事实源已经落地；任何候选执行前仍必须完成
 Memory/Skill 生产写边界、sealed evaluator 和离线控制器接入。

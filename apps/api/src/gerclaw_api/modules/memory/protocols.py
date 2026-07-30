@@ -26,6 +26,7 @@ MemoryCategory = Literal[
 MemoryType = Literal["stable", "evolving", "event"]
 MemoryStatus = Literal["proposed", "confirmed", "conflicted", "pending", "inactive"]
 MemoryAccessLevel = Literal["standard", "restricted"]
+MemoryTombstoneReason = Literal["user_deleted", "outdated", "incorrect", "duplicate"]
 
 
 class MemoryUpdateView(Protocol):
@@ -75,6 +76,9 @@ class MemoryFactView(BaseModel):
     occurred_at: datetime | None = None
     confirmed_at: datetime | None = None
     expires_at: datetime | None = None
+    tombstoned_at: datetime | None = None
+    tombstone_reason: MemoryTombstoneReason | None = None
+    can_restore: bool = False
     updated_at: datetime
     relevance_score: float | None = Field(default=None, ge=0, le=1)
 

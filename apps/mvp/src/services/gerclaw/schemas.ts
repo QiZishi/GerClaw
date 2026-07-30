@@ -261,92 +261,26 @@ export type CgaActiveAssessment = z.infer<typeof cgaActiveAssessmentsSchema>["it
 export type CgaScale = z.infer<typeof cgaScalesSchema>["scales"][number];
 export type CgaScaleId = z.infer<typeof cgaScaleIdSchema>;
 
-const memoryCategorySchema = z.enum([
-  "basic_info",
-  "allergy",
-  "condition",
-  "medication",
-  "vital_sign",
-  "assessment",
-  "event",
-  "social",
-  "preference",
-  "goal",
-]);
-
-export const memoryFactSchema = z
-  .object({
-    id: z.string().uuid(),
-    category: memoryCategorySchema,
-    memory_type: z.enum(["stable", "evolving", "event"]),
-    status: z.enum(["proposed", "confirmed", "conflicted", "pending", "inactive"]),
-    access_level: z.enum(["standard", "restricted"]),
-    statement: z.string().min(1).max(1_000),
-    details: z.record(z.string(), z.unknown()),
-    confidence: z.number().min(0).max(1),
-    revision: z.number().int().positive(),
-    source_trace_id: z.string().min(1).max(64).nullable(),
-    occurred_at: z.string().datetime().nullable(),
-    confirmed_at: z.string().datetime().nullable(),
-    expires_at: z.string().datetime().nullable(),
-    updated_at: z.string().datetime(),
-    relevance_score: z.number().min(0).max(1).nullable(),
-  })
-  .strict();
-
-export const healthProfileSchema = z
-  .object({
-    schema_version: z.number().int().min(1),
-    version: z.number().int().min(0),
-    cross_session_recall_enabled: z.boolean(),
-    profile: z.record(z.string(), z.unknown()),
-    facts: z.array(memoryFactSchema).max(200),
-  })
-  .strict();
-
-export const memoryFactDecisionSchema = z
-  .object({
-    fact: memoryFactSchema,
-    profile_version: z.number().int().positive(),
-  })
-  .strict();
-
-export const memoryRecallPreferenceSchema = z
-  .object({
-    enabled: z.boolean(),
-    profile_version: z.number().int().positive(),
-  })
-  .strict();
-
-export const memoryFactRevisionSchema = z
-  .object({
-    revision: z.number().int().positive(),
-    category: memoryCategorySchema,
-    memory_type: z.enum(["stable", "evolving", "event"]),
-    status: z.enum(["proposed", "confirmed", "conflicted", "pending", "inactive"]),
-    access_level: z.enum(["standard", "restricted"]),
-    statement: z.string().min(1).max(1_000),
-    details: z.record(z.string(), z.unknown()),
-    confidence: z.number().min(0).max(1),
-    source_trace_id: z.string().min(1).max(64).nullable(),
-    occurred_at: z.string().datetime().nullable(),
-    confirmed_at: z.string().datetime().nullable(),
-    expires_at: z.string().datetime().nullable(),
-    updated_at: z.string().datetime().nullable(),
-    recorded_at: z.string().datetime(),
-  })
-  .strict();
-
-export const memoryFactHistorySchema = z
-  .object({
-    fact_id: z.string().uuid(),
-    items: z.array(memoryFactRevisionSchema).max(50),
-  })
-  .strict();
-
-export type HealthProfile = z.infer<typeof healthProfileSchema>;
-export type MemoryFact = z.infer<typeof memoryFactSchema>;
-export type MemoryFactHistory = z.infer<typeof memoryFactHistorySchema>;
+export {
+  healthProfileSchema,
+  memoryFactCreateInputSchema,
+  memoryFactDeleteInputSchema,
+  memoryFactDecisionSchema,
+  memoryFactHistorySchema,
+  memoryFactMutationSchema,
+  memoryFactRestoreInputSchema,
+  memoryFactRevisionSchema,
+  memoryFactSchema,
+  memoryFactUpdateInputSchema,
+  memoryRecallPreferenceSchema,
+} from "./memory-contract";
+export type {
+  CreateMemoryFactInput,
+  HealthProfile,
+  MemoryFact,
+  MemoryFactHistory,
+  UpdateMemoryFactInput,
+} from "./memory-contract";
 
 const chronicDateTimeSchema = z.string().datetime();
 

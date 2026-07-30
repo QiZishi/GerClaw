@@ -203,6 +203,7 @@ const proxyRules: Array<{ pattern: RegExp; methods: ReadonlySet<string> }> = [
   },
   { pattern: /^memory\/profile$/, methods: new Set(["GET"]) },
   { pattern: /^memory\/profile\/recall$/, methods: new Set(["PATCH"]) },
+  { pattern: /^memory\/facts$/, methods: new Set(["POST"]) },
   {
     pattern: new RegExp(`^clinical-intakes/${uuidPattern}/prescription-drafts$`, "i"),
     methods: new Set(["GET"]),
@@ -213,6 +214,14 @@ const proxyRules: Array<{ pattern: RegExp; methods: ReadonlySet<string> }> = [
   },
   {
     pattern: new RegExp(`^memory/facts/${uuidPattern}/decision$`, "i"),
+    methods: new Set(["POST"]),
+  },
+  {
+    pattern: new RegExp(`^memory/facts/${uuidPattern}$`, "i"),
+    methods: new Set(["PATCH", "DELETE"]),
+  },
+  {
+    pattern: new RegExp(`^memory/facts/${uuidPattern}/restore$`, "i"),
     methods: new Set(["POST"]),
   },
   { pattern: /^chronic-care\/conditions$/, methods: new Set(["GET", "POST"]) },

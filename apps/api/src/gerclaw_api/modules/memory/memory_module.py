@@ -9,11 +9,11 @@ import re
 import unicodedata
 import uuid
 from datetime import UTC, datetime, timedelta
-from typing import cast
+from typing import TYPE_CHECKING, cast
 
 from pydantic import TypeAdapter, ValidationError
 
-from gerclaw_api.database.models import MemoryFact, MemoryFactRevision, Message
+from gerclaw_api.database.models import HealthProfile, MemoryFact, MemoryFactRevision, Message
 from gerclaw_api.modules.memory.compressor import (
     AgentScopeContextCompressor,
     compression_source_hash,
@@ -21,14 +21,21 @@ from gerclaw_api.modules.memory.compressor import (
 from gerclaw_api.modules.memory.extractor import RealMemoryExtractor, evidence_has_negation
 from gerclaw_api.modules.memory.models import (
     HealthProfileRead,
+    MemoryFactCreateRequest,
     MemoryFactDecisionRead,
     MemoryFactDecisionRequest,
+    MemoryFactDeleteRequest,
+    MemoryFactDetails,
     MemoryFactHistoryRead,
+    MemoryFactMutationRead,
+    MemoryFactRestoreRequest,
     MemoryFactRevisionRead,
+    MemoryFactUpdateRequest,
     MemoryRecallPreferenceRead,
     MemoryRecallPreferenceRequest,
     MemoryUpdateResult,
     MemoryVectorRecord,
+    validate_memory_fact_shape,
 )
 from gerclaw_api.modules.memory.profile import empty_profile, rebuild_profile, render_core_profile
 from gerclaw_api.modules.memory.protocols import (
@@ -52,15 +59,40 @@ from gerclaw_api.repositories.memory import (
 )
 from gerclaw_api.security import JsonValue
 
+if TYPE_CHECKING:
+    from gerclaw_api.modules.agent_harness.evolution_governance import (
+        EvolutionGovernancePolicy,
+    )
+
 _PROFILE = TypeAdapter(dict[str, JsonValue])
 _MEMORY_TYPE: TypeAdapter[MemoryType] = TypeAdapter(MemoryType)
 _MEMORY_ACCESS_LEVEL: TypeAdapter[MemoryAccessLevel] = TypeAdapter(MemoryAccessLevel)
+_MEMORY_CATEGORY: TypeAdapter[MemoryCategory] = TypeAdapter(MemoryCategory)
 _MEMORY_CATEGORIES: TypeAdapter[list[MemoryCategory]] = TypeAdapter(list[MemoryCategory])
 _OPTIONAL_DATETIME: TypeAdapter[datetime | None] = TypeAdapter(datetime | None)
 _FLOAT: TypeAdapter[float] = TypeAdapter(float)
 _LOGGER = logging.getLogger("gerclaw.memory")
 _TRANSIENT_CATEGORIES = frozenset({"medication", "vital_sign", "assessment"})
 _DIFFERENTIAL_HYPOTHESIS = re.compile(r"(?:可能|怀疑|疑似|鉴别|考虑|待排|不能排除|也许|或许|倾向)")
+_DETAIL_EVIDENCE_FIELDS = (
+    "value",
+    "unit",
+    "dose",
+    "frequency",
+    "route",
+    "reaction",
+    "code",
+    "level",
+)
+_EVIDENCE_ENUM_ALIASES = {
+    "mild": ("mild", "轻度", "轻微"),
+    "moderate": ("moderate", "中度"),
+    "severe": ("severe", "严重", "重度"),
+    "active": ("active", "正在", "目前", "现用"),
+    "stopped": ("stopped", "停用", "停止"),
+    "resolved": ("resolved", "已缓解", "已恢复"),
+    "historical": ("historical", "既往", "曾经", "历史"),
+}
 
 
 class MemoryDataError(RuntimeError):
@@ -69,6 +101,65 @@ class MemoryDataError(RuntimeError):
 
 class MemoryUnavailableError(RuntimeError):
     """Safe signal for a required model, vector, or persistence failure."""
+
+
+class MemoryEvidenceError(ValueError):
+    """Owner-authored structured content is not supported by its submitted statement."""
+
+
+def _normalized_evidence(value: str) -> str:
+    return re.sub(r"\s+", "", unicodedata.normalize("NFKC", value).casefold())
+
+
+def _validate_owner_evidence(
+    *,
+    category: str,
+    entity: str,
+    statement: str,
+    details: MemoryFactDetails,
+    occurred_at: datetime | None,
+) -> None:
+    """Reject owner-authored structured values that are absent from their evidence."""
+
+    evidence = _normalized_evidence(statement)
+    if not evidence:
+        raise MemoryEvidenceError("memory statement cannot be blank")
+    if (
+        category not in {"basic_info", "vital_sign", "assessment", "goal"}
+        and _normalized_evidence(entity) not in evidence
+    ):
+        raise MemoryEvidenceError("memory statement does not support its entity")
+    detail_values = details.model_dump(mode="python", exclude_unset=True)
+    for field in _DETAIL_EVIDENCE_FIELDS:
+        value = detail_values.get(field)
+        if value is not None:
+            normalized_value = _normalized_evidence(str(value))
+            if not normalized_value:
+                raise MemoryEvidenceError(f"memory detail field cannot be blank: {field}")
+            if normalized_value not in evidence:
+                raise MemoryEvidenceError(
+                    f"memory statement does not support detail field: {field}"
+                )
+    for field in ("severity", "source_status"):
+        value = detail_values.get(field)
+        if value in {None, "unknown"}:
+            continue
+        aliases = _EVIDENCE_ENUM_ALIASES.get(str(value), (str(value),))
+        if not any(_normalized_evidence(alias) in evidence for alias in aliases):
+            raise MemoryEvidenceError(f"memory statement does not support detail field: {field}")
+    if occurred_at is not None:
+        normalized = (
+            occurred_at
+            if occurred_at.tzinfo is not None
+            else occurred_at.replace(tzinfo=UTC)
+        )
+        date = normalized.astimezone(UTC).date()
+        date_aliases = (
+            date.isoformat(),
+            f"{date.year}年{date.month}月{date.day}日",
+        )
+        if not any(_normalized_evidence(alias) in evidence for alias in date_aliases):
+            raise MemoryEvidenceError("memory statement does not support occurred_at")
 
 
 def _fact_key(
@@ -107,6 +198,7 @@ def _revision_snapshot(fact: MemoryFact) -> dict[str, JsonValue]:
     """Serialize the complete pre-update projection for encrypted audit storage."""
 
     expires_at = getattr(fact, "expires_at", None)
+    tombstoned_at = getattr(fact, "tombstoned_at", None)
     return {
         "source_session_id": str(fact.source_session_id) if fact.source_session_id else None,
         "source_trace_id": fact.source_trace_id,
@@ -122,6 +214,9 @@ def _revision_snapshot(fact: MemoryFact) -> dict[str, JsonValue]:
         "occurred_at": fact.occurred_at.isoformat() if fact.occurred_at else None,
         "confirmed_at": fact.confirmed_at.isoformat() if fact.confirmed_at else None,
         "expires_at": expires_at.isoformat() if expires_at else None,
+        "tombstoned_at": tombstoned_at.isoformat() if tombstoned_at else None,
+        "tombstone_reason": getattr(fact, "tombstone_reason", None),
+        "tombstone_previous_status": getattr(fact, "tombstone_previous_status", None),
         "updated_at": fact.updated_at.isoformat() if fact.updated_at else None,
     }
 
@@ -144,6 +239,9 @@ def _fact_view(fact: MemoryFact, *, relevance_score: float | None = None) -> Mem
                 "occurred_at": fact.occurred_at,
                 "confirmed_at": fact.confirmed_at,
                 "expires_at": getattr(fact, "expires_at", None),
+                "tombstoned_at": getattr(fact, "tombstoned_at", None),
+                "tombstone_reason": getattr(fact, "tombstone_reason", None),
+                "can_restore": getattr(fact, "tombstoned_at", None) is not None,
                 "updated_at": fact.updated_at,
                 "relevance_score": relevance_score,
             }
@@ -171,6 +269,7 @@ def _revision_view(revision: MemoryFactRevision) -> MemoryFactRevisionRead:
         return MemoryFactRevisionRead.model_validate(
             {
                 "revision": revision.revision,
+                "activity": revision.activity or "legacy_update",
                 "category": snapshot["category"],
                 "memory_type": snapshot["memory_type"],
                 "status": snapshot["status"],
@@ -182,6 +281,8 @@ def _revision_view(revision: MemoryFactRevision) -> MemoryFactRevisionRead:
                 "occurred_at": snapshot.get("occurred_at"),
                 "confirmed_at": snapshot.get("confirmed_at"),
                 "expires_at": snapshot.get("expires_at"),
+                "tombstoned_at": snapshot.get("tombstoned_at"),
+                "tombstone_reason": snapshot.get("tombstone_reason"),
                 "updated_at": snapshot.get("updated_at"),
                 "recorded_at": revision.created_at,
             }
@@ -225,6 +326,11 @@ class ProductionMemoryModule:
             version=CORE_RUNTIME_ASSET_VERSION,
             owner_module="memory",
         )
+        from gerclaw_api.modules.agent_harness.evolution_governance import (
+            EvolutionGovernancePolicy,
+        )
+
+        self._governance: EvolutionGovernancePolicy = EvolutionGovernancePolicy()
         self._repository = repository
         self._extractor = extractor
         self._compressor = compressor
@@ -438,6 +544,10 @@ class ProductionMemoryModule:
                 user_id=self._user_id,
                 fact_key=fact_key,
             )
+            if existing is not None and getattr(existing, "tombstoned_at", None) is not None:
+                # A later model extraction cannot silently undo an explicit
+                # owner deletion. Only the fenced restore API may resurrect it.
+                continue
             details = candidate.details.model_dump(mode="json")
             details.update(
                 {
@@ -519,6 +629,7 @@ class ProductionMemoryModule:
                     user_id=self._user_id,
                     fact_id=existing.id,
                     revision=existing.revision,
+                    activity="extraction_update",
                     snapshot=_revision_snapshot(existing),
                 )
             )
@@ -721,6 +832,329 @@ class ProductionMemoryModule:
             items=[_revision_view(revision) for revision in revisions],
         )
 
+    def _classify_owner_mutation(self, fact: MemoryFact, *, expected_revision: int) -> None:
+        """Classify content only after repository ownership has been proven."""
+
+        from gerclaw_api.modules.agent_harness.evolution_governance import (
+            OnlineMutationRequest,
+        )
+
+        is_preference = fact.category == "preference"
+        self._governance.classify_online_mutation(
+            OnlineMutationRequest(
+                object_kind="memory.preference" if is_preference else "memory.clinical_fact",
+                requested_authority=(
+                    "presentation_only" if is_preference else "untrusted_user_context"
+                ),
+                expected_revision=expected_revision,
+            )
+        )
+
+    async def _save_revision(
+        self,
+        fact: MemoryFact,
+        *,
+        activity: str,
+        snapshot: dict[str, JsonValue] | None = None,
+    ) -> None:
+        await self._repository.add_fact_revision(
+            MemoryFactRevision(
+                id=uuid.uuid4(),
+                tenant_id=self._tenant_id,
+                user_id=self._user_id,
+                fact_id=fact.id,
+                revision=fact.revision,
+                activity=activity,
+                snapshot=snapshot if snapshot is not None else _revision_snapshot(fact),
+            )
+        )
+
+    async def _upsert_confirmed_vector(self, fact: MemoryFact) -> None:
+        record = MemoryVectorRecord.model_validate(
+            {
+                "id": fact.id,
+                "category": fact.category,
+                "status": fact.status,
+                "revision": fact.revision,
+                "statement": fact.statement,
+            }
+        )
+        embedding = await self._embedding_model([fact.statement])
+        tenant_namespace, user_namespace = memory_namespace(
+            self._namespace_secret,
+            tenant_id=self._tenant_id,
+            user_id=self._user_id,
+        )
+        self._uncommitted_vector_point_ids.add(memory_point_id(fact.id, fact.revision))
+        await self._vector_store.upsert(
+            [record],
+            embedding.embeddings,
+            tenant_namespace=tenant_namespace,
+            user_namespace=user_namespace,
+        )
+        fact.vector_revision = fact.revision
+
+    async def _rebuild_after_owner_mutation(
+        self,
+        fact: MemoryFact,
+        *,
+        profile: HealthProfile | None = None,
+    ) -> MemoryFactMutationRead:
+        await self._repository.flush()
+        if profile is None:
+            profile = await self._repository.lock_or_create_profile(
+                tenant_id=self._tenant_id,
+                user_id=self._user_id,
+            )
+        all_facts = await self._repository.list_facts(
+            tenant_id=self._tenant_id,
+            user_id=self._user_id,
+            limit=200,
+        )
+        profile.profile = rebuild_profile(all_facts)
+        profile.version += 1
+        await self._repository.flush()
+        self._cached_queries.clear()
+        return MemoryFactMutationRead(
+            fact=_fact_view(fact),
+            profile_version=profile.version,
+        )
+
+    async def create_fact(self, request: MemoryFactCreateRequest) -> MemoryFactMutationRead:
+        """Create one owner-authored proposed fact without granting it factual authority."""
+
+        existing_profile = await self._repository.get_profile(
+            tenant_id=self._tenant_id,
+            user_id=self._user_id,
+        )
+        profile = await self._repository.lock_or_create_profile(
+            tenant_id=self._tenant_id,
+            user_id=self._user_id,
+        )
+        expected_profile_version = 0 if existing_profile is None else existing_profile.version
+        if request.expected_profile_version != expected_profile_version or (
+            existing_profile is None and profile.version != 1
+        ):
+            raise MemoryConflictError("health profile version is stale")
+        event_identity = (
+            _event_identity(
+                occurred_at=request.occurred_at,
+                trace_id="explicit-owner-create",
+                evidence_span=request.statement,
+            )
+            if request.category == "event" or request.memory_type == "event"
+            else None
+        )
+        fact_key = _fact_key(
+            self._namespace_secret,
+            category=request.category,
+            entity=request.entity,
+            event_identity=event_identity,
+        )
+        duplicate = await self._repository.get_fact_by_key_for_update(
+            tenant_id=self._tenant_id,
+            user_id=self._user_id,
+            fact_key=fact_key,
+        )
+        if duplicate is not None:
+            raise MemoryConflictError("memory fact already exists")
+        details = request.details.model_dump(mode="json")
+        details.update(
+            {
+                "entity": request.entity,
+                "evidence_span": request.statement,
+                "polarity": "positive",
+                "source": "user_explicit_create",
+                "proposal_source_status": "owner_authored",
+            }
+        )
+        _validate_owner_evidence(
+            category=request.category,
+            entity=request.entity,
+            statement=request.statement,
+            details=request.details,
+            occurred_at=request.occurred_at,
+        )
+        now = datetime.now(UTC)
+        fact = MemoryFact(
+            id=uuid.uuid4(),
+            tenant_id=self._tenant_id,
+            user_id=self._user_id,
+            source_session_id=None if self._session_id.int == 0 else self._session_id,
+            source_trace_id=self._trace_id,
+            category=request.category,
+            memory_type=request.memory_type,
+            fact_key=fact_key,
+            status="proposed",
+            access_level=request.access_level,
+            statement=request.statement,
+            details=details,
+            confidence=1.0,
+            revision=1,
+            vector_revision=0,
+            occurred_at=request.occurred_at,
+            confirmed_at=None,
+            expires_at=(
+                now + timedelta(days=self._transient_fact_ttl_days)
+                if request.category in _TRANSIENT_CATEGORIES
+                else None
+            ),
+            tombstoned_at=None,
+            tombstone_reason=None,
+            tombstone_previous_status=None,
+        )
+        self._classify_owner_mutation(fact, expected_revision=0)
+        await self._repository.add_fact(fact)
+        return await self._rebuild_after_owner_mutation(fact, profile=profile)
+
+    async def update_fact(
+        self,
+        fact_id: uuid.UUID,
+        request: MemoryFactUpdateRequest,
+    ) -> MemoryFactMutationRead:
+        """Correct one owner fact and withdraw it from recall until re-confirmed."""
+
+        profile = await self._repository.lock_or_create_profile(
+            tenant_id=self._tenant_id,
+            user_id=self._user_id,
+        )
+        fact = await self._repository.get_fact_for_update(
+            tenant_id=self._tenant_id,
+            user_id=self._user_id,
+            fact_id=fact_id,
+        )
+        if fact is None:
+            raise MemoryNotFoundError("memory fact not found")
+        self._classify_owner_mutation(fact, expected_revision=request.expected_revision)
+        if fact.revision != request.expected_revision:
+            raise MemoryConflictError("memory fact revision is stale")
+        if getattr(fact, "tombstoned_at", None) is not None:
+            raise MemoryConflictError("tombstoned memory must be restored before update")
+        original = _revision_snapshot(fact)
+        details = dict(_PROFILE.validate_python(fact.details))
+        if request.details is not None:
+            details.update(request.details.model_dump(mode="json", exclude_unset=True))
+        next_statement = request.statement if request.statement is not None else fact.statement
+        if request.statement is not None:
+            details["evidence_span"] = next_statement
+        details["source"] = "user_explicit_update"
+        details.pop("conflict_previous", None)
+        next_occurred_at = (
+            request.occurred_at
+            if "occurred_at" in request.model_fields_set
+            else fact.occurred_at
+        )
+        public_details = MemoryFactDetails.model_validate(
+            {
+                key: value
+                for key, value in details.items()
+                if key in MemoryFactDetails.model_fields
+            }
+        )
+        entity = details.get("entity")
+        if not isinstance(entity, str):
+            raise MemoryDataError("stored memory fact entity is invalid")
+        try:
+            validate_memory_fact_shape(
+                category=_MEMORY_CATEGORY.validate_python(fact.category),
+                entity=entity,
+                details=public_details,
+            )
+        except ValueError as error:
+            raise MemoryEvidenceError(str(error)) from error
+        _validate_owner_evidence(
+            category=fact.category,
+            entity=entity,
+            statement=next_statement,
+            details=public_details,
+            occurred_at=next_occurred_at,
+        )
+        fact.statement = next_statement
+        fact.details = details
+        if request.access_level is not None:
+            fact.access_level = request.access_level
+        if "occurred_at" in request.model_fields_set:
+            fact.occurred_at = next_occurred_at
+        fact.source_trace_id = self._trace_id
+        fact.source_session_id = None if self._session_id.int == 0 else self._session_id
+        fact.status = "proposed"
+        fact.confirmed_at = None
+        if fact.category in _TRANSIENT_CATEGORIES:
+            fact.expires_at = datetime.now(UTC) + timedelta(days=self._transient_fact_ttl_days)
+        if _revision_snapshot(fact) == original:
+            raise MemoryConflictError("memory fact update does not change content")
+        await self._save_revision(fact, activity="user_update", snapshot=original)
+        fact.revision += 1
+        return await self._rebuild_after_owner_mutation(fact, profile=profile)
+
+    async def delete_fact(
+        self,
+        fact_id: uuid.UUID,
+        request: MemoryFactDeleteRequest,
+    ) -> MemoryFactMutationRead:
+        """Soft-delete one owner fact; the tombstone is immediately non-recallable."""
+
+        profile = await self._repository.lock_or_create_profile(
+            tenant_id=self._tenant_id,
+            user_id=self._user_id,
+        )
+        fact = await self._repository.get_fact_for_update(
+            tenant_id=self._tenant_id,
+            user_id=self._user_id,
+            fact_id=fact_id,
+        )
+        if fact is None:
+            raise MemoryNotFoundError("memory fact not found")
+        self._classify_owner_mutation(fact, expected_revision=request.expected_revision)
+        if fact.revision != request.expected_revision:
+            raise MemoryConflictError("memory fact revision is stale")
+        if getattr(fact, "tombstoned_at", None) is not None:
+            raise MemoryConflictError("memory fact is already tombstoned")
+        await self._save_revision(fact, activity="user_delete")
+        fact.tombstone_previous_status = fact.status
+        fact.status = "inactive"
+        fact.tombstoned_at = datetime.now(UTC)
+        fact.tombstone_reason = request.reason
+        fact.source_trace_id = self._trace_id
+        fact.revision += 1
+        return await self._rebuild_after_owner_mutation(fact, profile=profile)
+
+    async def restore_fact(
+        self,
+        fact_id: uuid.UUID,
+        request: MemoryFactRestoreRequest,
+    ) -> MemoryFactMutationRead:
+        """Restore only an explicit owner tombstone, retaining its immutable history."""
+
+        profile = await self._repository.lock_or_create_profile(
+            tenant_id=self._tenant_id,
+            user_id=self._user_id,
+        )
+        fact = await self._repository.get_fact_for_update(
+            tenant_id=self._tenant_id,
+            user_id=self._user_id,
+            fact_id=fact_id,
+        )
+        if fact is None:
+            raise MemoryNotFoundError("memory fact not found")
+        self._classify_owner_mutation(fact, expected_revision=request.expected_revision)
+        if fact.revision != request.expected_revision:
+            raise MemoryConflictError("memory fact revision is stale")
+        previous_status = getattr(fact, "tombstone_previous_status", None)
+        if getattr(fact, "tombstoned_at", None) is None or previous_status is None:
+            raise MemoryConflictError("memory fact is not restorable")
+        await self._save_revision(fact, activity="user_restore")
+        fact.status = previous_status
+        fact.tombstoned_at = None
+        fact.tombstone_reason = None
+        fact.tombstone_previous_status = None
+        fact.source_trace_id = self._trace_id
+        fact.revision += 1
+        if fact.status == "confirmed":
+            fact.confirmed_at = datetime.now(UTC)
+            await self._upsert_confirmed_vector(fact)
+        return await self._rebuild_after_owner_mutation(fact, profile=profile)
+
     async def decide_fact(
         self, fact_id: uuid.UUID, decision: MemoryFactDecisionRequest
     ) -> MemoryFactDecisionRead:
@@ -737,6 +1171,7 @@ class ProductionMemoryModule:
         )
         if fact is None:
             raise MemoryNotFoundError("memory fact not found")
+        self._classify_owner_mutation(fact, expected_revision=decision.expected_revision)
         if fact.revision != decision.expected_revision:
             raise MemoryConflictError("memory fact revision is stale")
         if fact.status == "inactive" or (
@@ -749,24 +1184,34 @@ class ProductionMemoryModule:
             raise MemoryDataError("stored memory fact is invalid") from error
         evidence = stored_details.get("evidence_span")
         entity = stored_details.get("entity")
+        if not isinstance(entity, str):
+            raise MemoryDataError("stored memory fact entity is invalid")
+        try:
+            stored_public_details = MemoryFactDetails.model_validate(
+                {
+                    key: value
+                    for key, value in stored_details.items()
+                    if key in MemoryFactDetails.model_fields
+                }
+            )
+            validate_memory_fact_shape(
+                category=_MEMORY_CATEGORY.validate_python(fact.category),
+                entity=entity,
+                details=stored_public_details,
+            )
+            if not _normalized_evidence(fact.statement):
+                raise ValueError("memory statement cannot be blank")
+        except (TypeError, ValueError, ValidationError) as error:
+            raise MemoryDataError("stored memory fact category shape is invalid") from error
         negative_evidence = stored_details.get("polarity") == "negative" or (
             isinstance(evidence, str)
             and evidence_has_negation(
                 evidence,
                 category=fact.category,
-                entity=entity if isinstance(entity, str) else None,
+                entity=entity,
             )
         )
-        await self._repository.add_fact_revision(
-            MemoryFactRevision(
-                id=uuid.uuid4(),
-                tenant_id=self._tenant_id,
-                user_id=self._user_id,
-                fact_id=fact.id,
-                revision=fact.revision,
-                snapshot=_revision_snapshot(fact),
-            )
-        )
+        await self._save_revision(fact, activity="user_decision")
         conflict_previous = stored_details.get("conflict_previous")
         if (
             decision.decision == "reject"

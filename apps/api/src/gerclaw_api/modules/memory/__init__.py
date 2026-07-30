@@ -7,8 +7,13 @@ from gerclaw_api.modules.memory.memory_module import (
 )
 from gerclaw_api.modules.memory.models import (
     HealthProfileRead,
+    MemoryFactCreateRequest,
     MemoryFactDecisionRead,
     MemoryFactDecisionRequest,
+    MemoryFactDeleteRequest,
+    MemoryFactMutationRead,
+    MemoryFactRestoreRequest,
+    MemoryFactUpdateRequest,
     MemoryUpdateResult,
 )
 from gerclaw_api.modules.memory.protocols import (
@@ -21,8 +26,13 @@ from gerclaw_api.modules.memory.protocols import (
 __all__ = [
     "HealthProfileRead",
     "MemoryDataError",
+    "MemoryFactCreateRequest",
     "MemoryFactDecisionRead",
     "MemoryFactDecisionRequest",
+    "MemoryFactDeleteRequest",
+    "MemoryFactMutationRead",
+    "MemoryFactRestoreRequest",
+    "MemoryFactUpdateRequest",
     "MemoryFactView",
     "MemoryMessage",
     "MemoryModule",

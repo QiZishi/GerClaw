@@ -6,6 +6,9 @@
 
 - `messages.content/metadata`、`sessions.context_summary`、`health_profiles.profile`、`memory_facts.statement/details` 和 `memory_fact_revisions.snapshot` 均使用 AES-256-GCM envelope 加密。
 - `memory_facts` 保存当前投影，`memory_fact_revisions` 在每次变更前保存不可变密文快照，旧剂量、状态、来源 Trace 和时间不会因停药或纠正而丢失。
+- 用户显式 CRUD 使用同一事实源：新增事实进入 `proposed`；纠正生成新 revision 并暂时退出召回，
+  直到再次确认；删除写入带原因的 tombstone 而非物理删除；恢复只能作用于本人拥有的 tombstone，
+  并以新 revision 恢复删除前状态。自动模型抽取不得复活已删除事实。
 - 普通事实以 category/entity 生成稳定 HMAC dedupe key；重大事件有时间时把 `occurred_at` 纳入 key，无时间时使用 source Trace + evidence hash，因此多次跌倒不会相互覆盖，同一输入重放仍幂等。只有用户原文中可逐字验证的 `evidence_span` 才能进入事实。
 - Qdrant `gerclaw_user_memory_v1` 只保存向量、HMAC tenant/user namespace、fact UUID、category/status/revision。严禁保存 statement、evidence、actor ID 或 tenant ID 明文。
 - Qdrant point ID 为 `UUIDv5(fact_id, revision)`。检索时用 PostgreSQL 当前 `vector_revision` 生成 allowlist point IDs，再校验 Qdrant revision 与 PostgreSQL revision/status，旧写入、回滚孤儿点和 inactive fact 均不可进入 prompt。
@@ -30,6 +33,15 @@ Qdrant 在 PostgreSQL commit 前可能存在不含 PHI 的孤儿 revision point�
 - `GET /api/v1/memory/profile`：`memory:read`，返回当前 actor 的解密画像和事实；未建档 actor 返回空画像。
 - `GET /api/v1/memory/facts/{fact_id}/history?limit=10`：`memory:read`，仅返回当前 actor 拥有的、每次变更前保存的不可变版本；跨 actor/tenant 和不存在事实统一 404，不返回当前投影以外的其他事实。
 - `POST /api/v1/memory/facts/{fact_id}/decision`：`memory:write`，使用 `expected_revision` 乐观锁确认或拒绝当前 actor 的事实；跨 actor/tenant 统一 404。
+- `POST /api/v1/memory/facts`：`memory:write`，以 profile version fence 新增本人事实；结果为
+  `proposed`，不能直接获得 confirmed 权限。
+- `PATCH /api/v1/memory/facts/{fact_id}`：`memory:write`，以 fact revision fence 纠正文本、有限
+  结构化细节、发生时间或访问级别；category/entity 不可借此改写。结构化细节或时间变更必须同时
+  提交新的用户原文，实体、值、单位、剂量、频率、反应等必须能在该原文中直接核验，否则稳定返回
+  `422 MEMORY_EVIDENCE_MISMATCH`；纠正后回到 `proposed`。
+- `DELETE /api/v1/memory/facts/{fact_id}`：`memory:write`，写入可审计 tombstone 并立即退出画像和召回。
+- `POST /api/v1/memory/facts/{fact_id}/restore`：`memory:write`，仅恢复本人 tombstone；普通
+  `inactive`（例如用户拒绝或明确否认）不能伪装成可恢复删除。
 - `PATCH /api/v1/memory/profile/recall`：`memory:write`，使用 profile version 乐观锁开关跨会话召回；关闭后记录仍保留在本人健康档案，但不注入对话。
 
 所有 endpoint 共用 Redis principal 限流。Trace 只记录 fact UUID、category、数量、画像版本和结果，不记录健康文本。
@@ -37,6 +49,11 @@ Qdrant 在 PostgreSQL commit 前可能存在不含 PHI 的孤儿 revision point�
 ## 维护与演进
 
 **可安全改进。** 可优化抽取器、冲突合并、画像展示、生命周期和受授权医生投影；新事实类别需定义证据来源、确认/拒绝、版本迁移与向量 payload 策略。任何模型抽取改动先以合成否定、他人主体和未绑定实体 case 固定边界。
+
+内容演进使用双轨治理中的 mutable track：`preference` 只能获得 `presentation_only` 权限，其他
+健康事实只能作为 `untrusted_user_context`。owner service 必须先完成 tenant/actor/resource
+归属查询，再调用治理分类；浏览器不能自报 object kind、authority 或 ownership。Memory 的核心
+证据、隔离、加密、状态机、revision、tombstone 和召回机制属于不可在线自改的控制面。
 
 **不可破坏的契约。** 事实与版本必须加密并按 tenant/actor 隔离；只有未过期、
 `standard` 且无冲突的 `confirmed` 事实可召回，`proposed`/`pending`/`conflicted`/

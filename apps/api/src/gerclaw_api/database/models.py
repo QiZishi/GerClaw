@@ -963,6 +963,24 @@ class MemoryFact(TimestampMixin, Base):
         CheckConstraint("confidence >= 0 AND confidence <= 1", name="valid_confidence"),
         CheckConstraint("revision > 0", name="positive_revision"),
         CheckConstraint("vector_revision >= 0", name="nonnegative_vector_revision"),
+        CheckConstraint(
+            "tombstone_reason IS NULL OR "
+            "tombstone_reason IN ('user_deleted','outdated','incorrect','duplicate')",
+            name="valid_tombstone_reason",
+        ),
+        CheckConstraint(
+            "tombstone_previous_status IS NULL OR "
+            "tombstone_previous_status IN "
+            "('proposed','confirmed','conflicted','pending','inactive')",
+            name="valid_tombstone_previous_status",
+        ),
+        CheckConstraint(
+            "(tombstoned_at IS NULL AND tombstone_reason IS NULL "
+            "AND tombstone_previous_status IS NULL) OR "
+            "(tombstoned_at IS NOT NULL AND tombstone_reason IS NOT NULL "
+            "AND tombstone_previous_status IS NOT NULL AND status = 'inactive')",
+            name="complete_tombstone",
+        ),
         Index("ix_memory_facts_tenant_user_status", "tenant_id", "user_id", "status"),
         Index("ix_memory_facts_vector_sync", "status", "revision", "vector_revision"),
     )
@@ -991,6 +1009,11 @@ class MemoryFact(TimestampMixin, Base):
     occurred_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     confirmed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     expires_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    tombstoned_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
+    tombstone_reason: Mapped[str | None] = mapped_column(String(32), nullable=True)
+    tombstone_previous_status: Mapped[str | None] = mapped_column(String(16), nullable=True)
 
 
 class MemoryFactRevision(Base):
@@ -1000,6 +1023,11 @@ class MemoryFactRevision(Base):
     __table_args__ = (
         UniqueConstraint("fact_id", "revision", name="uq_memory_fact_revisions_fact_revision"),
         CheckConstraint("revision > 0", name="positive_revision"),
+        CheckConstraint(
+            "activity IN ('legacy_update','extraction_update','user_decision',"
+            "'user_update','user_delete','user_restore')",
+            name="valid_activity",
+        ),
         Index(
             "ix_memory_fact_revisions_tenant_user_created",
             "tenant_id",
@@ -1017,6 +1045,9 @@ class MemoryFactRevision(Base):
         ForeignKey("memory_facts.id", ondelete="CASCADE"), nullable=False
     )
     revision: Mapped[int] = mapped_column(Integer, nullable=False)
+    activity: Mapped[str] = mapped_column(
+        String(32), default="legacy_update", server_default="legacy_update", nullable=False
+    )
     snapshot: Mapped[dict[str, Any]] = mapped_column(EncryptedJSON(), nullable=False)
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now(), nullable=False
