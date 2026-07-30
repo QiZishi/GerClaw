@@ -607,6 +607,29 @@ def test_dynamic_plan_rejects_shared_fallback_ownership() -> None:
                 ),
             )
         )
+    with pytest.raises(ValidationError, match="cannot be a dependency"):
+        DynamicPlan(
+            nodes=(
+                PlanNode(
+                    node_id="primary",
+                    capability="primary.run",
+                    public_summary="正在执行主要路径",
+                    fallback=("conditional_fallback",),
+                ),
+                PlanNode(
+                    node_id="conditional_fallback",
+                    required=False,
+                    capability="fallback.conditional",
+                    public_summary="正在执行条件备用路径",
+                ),
+                PlanNode(
+                    node_id="consumer",
+                    dependencies=("conditional_fallback",),
+                    capability="consumer.run",
+                    public_summary="正在执行错误依赖的必要路径",
+                ),
+            )
+        )
 
 
 def test_fallback_owned_node_cannot_run_through_ordinary_capability_entry() -> None:
