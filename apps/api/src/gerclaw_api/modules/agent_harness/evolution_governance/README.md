@@ -3,7 +3,9 @@
 This package turns Stage 6's dual-track rules into executable, versioned contracts.
 `OBJECT_RULES` classifies persistent object kinds by authority rather than directory name;
 `COMPONENT_CHARTERS` records the core purpose and non-negotiable mechanisms of each Harness
-component. `EvolutionGovernancePolicy` classifies low-authority content, rejects authority
+component. `REQUIRED_CHARTERS_BY_OBJECT_KIND` is the single mapping from each offline-evolvable
+kind to the Charter observations its evaluator must actually produce. `EvolutionGovernancePolicy`
+classifies low-authority content, rejects authority
 escalation and mixed-track candidates, and declares immutable human approval unconditional.
 The production rule/charter mappings are read-only and cannot be replaced through constructor
 injection. Each evolvable kind is also bound to a trusted target namespace, so a candidate

@@ -10,6 +10,7 @@ from pydantic import ValidationError
 from gerclaw_api.modules.agent_harness.evolution_governance import (
     COMPONENT_CHARTERS,
     OBJECT_RULES,
+    REQUIRED_CHARTERS_BY_OBJECT_KIND,
     CandidateChange,
     CandidateProposal,
     EvolutionGovernanceError,
@@ -227,3 +228,22 @@ def test_every_core_component_has_a_candidate_non_writable_charter() -> None:
         item.candidate_readable and not item.candidate_writable for item in COMPONENT_CHARTERS
     )
     assert all(item.protected_mechanisms for item in COMPONENT_CHARTERS)
+
+
+def test_offline_object_kinds_have_controller_owned_required_charters() -> None:
+    offline_kinds = {
+        rule.object_kind
+        for rule in OBJECT_RULES
+        if rule.update_policy == "offline_proposal_only"
+    }
+    known_charters = {
+        evaluator_id
+        for charter in COMPONENT_CHARTERS
+        for evaluator_id in charter.sealed_evaluator_ids
+    }
+
+    assert set(REQUIRED_CHARTERS_BY_OBJECT_KIND) == offline_kinds
+    assert all(
+        required and set(required).issubset(known_charters)
+        for required in REQUIRED_CHARTERS_BY_OBJECT_KIND.values()
+    )

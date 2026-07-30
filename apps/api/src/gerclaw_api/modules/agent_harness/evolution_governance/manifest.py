@@ -4,6 +4,8 @@
 
 from __future__ import annotations
 
+from types import MappingProxyType
+
 from gerclaw_api.modules.agent_harness.evolution_governance.contracts import (
     ComponentCharter,
     EvolutionObjectRule,
@@ -264,4 +266,14 @@ COMPONENT_CHARTERS = (
         protected=("权限引擎", "审批与预算门禁"),
         evaluator="charter.runtime.v1",
     ),
+)
+
+REQUIRED_CHARTERS_BY_OBJECT_KIND = MappingProxyType(
+    {
+        "routing.strategy": ("charter.routing.v1",),
+        "planning.strategy": ("charter.planning.v1",),
+        "prompt.policy": ("charter.harness.v1", "charter.planning.v1"),
+        "skill.clinical": ("charter.plugin_runtime.v1", "charter.skill.v1"),
+        "skill.tooling": ("charter.plugin_runtime.v1", "charter.skill.v1"),
+    }
 )

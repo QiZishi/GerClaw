@@ -14,6 +14,7 @@ from gerclaw_api.modules.agent_harness.evolution_governance.contracts import (
 from gerclaw_api.modules.agent_harness.evolution_governance.manifest import (
     COMPONENT_CHARTERS,
     OBJECT_RULES,
+    REQUIRED_CHARTERS_BY_OBJECT_KIND,
 )
 from gerclaw_api.modules.agent_harness.evolution_governance.policy import (
     EvolutionGovernancePolicy,
@@ -22,6 +23,7 @@ from gerclaw_api.modules.agent_harness.evolution_governance.policy import (
 __all__ = [
     "COMPONENT_CHARTERS",
     "OBJECT_RULES",
+    "REQUIRED_CHARTERS_BY_OBJECT_KIND",
     "CandidateChange",
     "CandidateProposal",
     "ComponentCharter",

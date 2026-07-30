@@ -15,6 +15,8 @@ write Memory, Skill, candidates, approvals, releases, or production configuratio
 - A candidate may contain exactly one track. Path traversal and duplicate targets fail closed.
 - Candidate-declared object kinds never determine authority by themselves; every target must
   match the trusted namespace bound to that kind.
+- The manifest is the sole owner of each offline-evolvable object kind's required Charter IDs;
+  evaluators import this mapping and fail closed on unknown kinds rather than duplicating it.
 
 This classifier never accepts ownership claims from an API or model. The Memory/Skill owner
 service must first prove tenant/actor/resource ownership from its repository and only then
