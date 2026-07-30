@@ -873,7 +873,7 @@ async def test_production_module_clinical_evolution_is_offline_only_and_revision
         change_request="增加资料完整性核对和待医生确认的问题。",
         expected_revision=1,
         proposal_trace_id="trace_skill_module_evolution_0001",
-        request_fingerprint="a" * 64,
+        request_fingerprint="a" * 52,
     )
     assert outcome.candidate.version == "1.1.0"
     assert outcome.candidate.revision == 2

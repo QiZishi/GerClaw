@@ -234,7 +234,7 @@ class ProductionSkillModule:
 
         if not proposal_trace_id or len(proposal_trace_id) > 128:
             raise SkillConflictError("Skill evolution requires valid request provenance")
-        if re.fullmatch(r"[a-f0-9]{64}", request_fingerprint) is None:
+        if re.fullmatch(r"(?:[a-f0-9]{64}|[a-z2-7]{52})", request_fingerprint) is None:
             raise SkillConflictError("Skill evolution requires valid request provenance")
         if self._generator is None:
             raise RuntimeError("Skill generation model is unavailable")
