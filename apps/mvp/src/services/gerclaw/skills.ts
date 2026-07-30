@@ -2,6 +2,7 @@ import { z } from "zod";
 import { GerclawApiError, gerclawRequest } from "./client";
 import {
   generatedSkillSchema,
+  skillEvolutionSchema,
   sessionSchema,
   sessionSkillsSchema,
   skillDefinitionSchema,
@@ -9,6 +10,7 @@ import {
   type SkillDraft,
   type SkillDefinition,
   type SkillInfo,
+  type SkillEvolution,
 } from "./schemas";
 
 const deletedSchema = z.object({ deleted: z.literal(true) }).strict();
@@ -58,15 +60,16 @@ export async function generateSkill(description: string): Promise<SkillDraft> {
 export async function evolveSkill(
   skill: SkillInfo,
   changeRequest: string
-): Promise<SkillDraft> {
+): Promise<SkillEvolution> {
   return gerclawRequest(
     `skills/${encodeURIComponent(skill.skill_id)}/evolve`,
-    generatedSkillSchema,
+    skillEvolutionSchema,
     {
       method: "POST",
       body: JSON.stringify({
         change_request: changeRequest,
         expected_revision: skill.revision,
+        apply_if_low_risk: true,
       }),
     }
   );

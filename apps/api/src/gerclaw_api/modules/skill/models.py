@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import re
 from datetime import datetime
 from typing import Annotated, Final, Literal
 
@@ -113,12 +114,13 @@ class SkillDraftRequest(BaseModel):
 
 
 class SkillEvolutionRequest(BaseModel):
-    """A caller-requested, review-only revision draft for one custom Skill."""
+    """A caller-requested revision evaluated by the server-owned dual-track policy."""
 
     model_config = STRICT
 
     change_request: str = Field(min_length=10, max_length=2_000)
     expected_revision: int = Field(ge=1)
+    apply_if_low_risk: bool = True
 
     @field_validator("change_request")
     @classmethod
@@ -127,6 +129,95 @@ class SkillEvolutionRequest(BaseModel):
         if not normalized:
             raise ValueError("change_request cannot contain only whitespace")
         return normalized
+
+
+class SkillEvolutionDecision(BaseModel):
+    """Public, content-free admission result for one generated Skill revision."""
+
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    schema_version: Literal["skill-evolution-decision-v1"] = "skill-evolution-decision-v1"
+    track: Literal["mutable", "immutable"]
+    object_kind: Literal[
+        "skill.presentation",
+        "skill.retrieval",
+        "skill.clinical",
+        "skill.tooling",
+    ]
+    authority: Literal[
+        "presentation_only",
+        "bounded_retrieval",
+        "clinical_guidance",
+        "control_plane",
+    ]
+    disposition: Literal[
+        "online_applied",
+        "manual_review_draft",
+        "offline_review_required",
+    ]
+    reason_codes: tuple[str, ...] = Field(min_length=1, max_length=10)
+    expected_revision: int = Field(ge=1)
+    resulting_revision: int | None = Field(default=None, ge=2)
+
+    @field_validator("reason_codes")
+    @classmethod
+    def validate_reason_codes(cls, value: tuple[str, ...]) -> tuple[str, ...]:
+        if any(
+            len(code) > 100 or not re.fullmatch(r"SKILL_[A-Z0-9_]+", code) for code in value
+        ):
+            raise ValueError("Skill evolution reason codes must be stable content-free codes")
+        return value
+
+    @model_validator(mode="after")
+    def validate_track_authority(self) -> SkillEvolutionDecision:
+        mutable = self.object_kind in {"skill.presentation", "skill.retrieval"}
+        expected_authority = {
+            "skill.presentation": "presentation_only",
+            "skill.retrieval": "bounded_retrieval",
+            "skill.clinical": "clinical_guidance",
+            "skill.tooling": "control_plane",
+        }[self.object_kind]
+        if mutable != (self.track == "mutable") or self.authority != expected_authority:
+            raise ValueError("Skill evolution kind, track and authority must match")
+        if self.disposition == "offline_review_required":
+            if mutable or self.resulting_revision is not None:
+                raise ValueError("offline review is reserved for non-applied immutable changes")
+        elif not mutable:
+            raise ValueError("immutable changes cannot use a mutable-track disposition")
+        if (self.disposition == "online_applied") != (self.resulting_revision is not None):
+            raise ValueError("resulting revision must exist exactly for online application")
+        if (
+            self.resulting_revision is not None
+            and self.resulting_revision != self.expected_revision + 1
+        ):
+            raise ValueError("online evolution must advance exactly one storage revision")
+        return self
+
+
+class SkillEvolutionOutcome(BaseModel):
+    """Candidate plus the active definition only when online admission succeeded."""
+
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    candidate: SkillDefinition
+    decision: SkillEvolutionDecision
+    active_definition: SkillDefinition | None = None
+
+    @model_validator(mode="after")
+    def active_definition_matches_disposition(self) -> SkillEvolutionOutcome:
+        if self.candidate.revision != self.decision.expected_revision + 1:
+            raise ValueError("candidate must bind the next owner storage revision")
+        applied = self.decision.disposition == "online_applied"
+        if applied != (self.active_definition is not None):
+            raise ValueError("active definition must exist exactly for an online-applied revision")
+        if self.active_definition is not None:
+            if self.active_definition.skill_id != self.candidate.skill_id:
+                raise ValueError("candidate and active Skill ids must match")
+            if self.active_definition.revision != self.decision.resulting_revision:
+                raise ValueError("active revision must match the evolution decision")
+        elif self.decision.resulting_revision is not None:
+            raise ValueError("non-applied evolution cannot claim a resulting revision")
+        return self
 
 
 class GeneratedSkillContent(BaseModel):

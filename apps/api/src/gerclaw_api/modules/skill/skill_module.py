@@ -8,10 +8,17 @@ from typing import TYPE_CHECKING, cast
 from agentscope.skill import Skill as AgentScopeSkill
 
 from gerclaw_api.modules.skill.agentscope_adapter import to_agentscope_skill
+from gerclaw_api.modules.skill.evolution_policy import SkillEvolutionPolicy
 from gerclaw_api.modules.skill.executor import SkillExecutor
 from gerclaw_api.modules.skill.generator import RealSkillGenerator, StructuredSkillModel
 from gerclaw_api.modules.skill.loader import DEFAULT_ALLOWED_TOOLS, parse_skill_markdown
-from gerclaw_api.modules.skill.models import Skill, SkillDefinition, SkillInfo, SkillResult
+from gerclaw_api.modules.skill.models import (
+    Skill,
+    SkillDefinition,
+    SkillEvolutionOutcome,
+    SkillInfo,
+    SkillResult,
+)
 from gerclaw_api.modules.skill.registry import BuiltinSkillRegistry
 from gerclaw_api.modules.skill.security import enforce_skill_runtime_profile
 from gerclaw_api.security import JsonValue
@@ -48,6 +55,7 @@ class ProductionSkillModule:
         model: StructuredSkillModel | None = None,
         builtins: BuiltinSkillRegistry | None = None,
         executor: SkillExecutor | None = None,
+        evolution_policy: SkillEvolutionPolicy | None = None,
         allowed_tools: frozenset[str] = DEFAULT_ALLOWED_TOOLS,
     ) -> None:
         self._repository = repository
@@ -56,6 +64,7 @@ class ProductionSkillModule:
         self._generator = RealSkillGenerator(model) if model is not None else None
         self._builtins = builtins or BuiltinSkillRegistry()
         self._executor = executor or SkillExecutor()
+        self._evolution_policy = evolution_policy or SkillEvolutionPolicy()
         self._allowed_tools = allowed_tools
 
     async def list_skills(self, user_id: str | None = None) -> list[SkillInfo]:
@@ -214,8 +223,10 @@ class ProductionSkillModule:
         *,
         change_request: str,
         expected_revision: int,
-    ) -> SkillDefinition:
-        """Generate a revision draft; saving it remains a separate explicit action."""
+        apply_if_low_risk: bool = True,
+        commit: bool = True,
+    ) -> SkillEvolutionOutcome:
+        """Apply only low-authority revisions; return dangerous changes as offline proposals."""
 
         if self._generator is None:
             raise RuntimeError("Skill generation model is unavailable")
@@ -229,7 +240,48 @@ class ProductionSkillModule:
         current = self._definition_from_record(record)
         if current.revision != expected_revision:
             raise SkillConflictError("Skill revision is stale")
-        return await self._generator.evolve(current, change_request)
+        generated = await self._generator.evolve(current, change_request)
+        candidate = parse_skill_markdown(
+            generated.source_markdown,
+            source="custom",
+            origin="generated",
+            enabled=current.enabled,
+            revision=expected_revision + 1,
+            allowed_tools=self._allowed_tools,
+        )
+        decision = self._evolution_policy.decide(
+            current,
+            candidate,
+            expected_revision=expected_revision,
+            apply_if_low_risk=apply_if_low_risk,
+        )
+        if decision.disposition != "online_applied":
+            return SkillEvolutionOutcome(candidate=candidate, decision=decision)
+
+        existing = await self.list_skills()
+        if any(
+            item.skill_id != skill_id and item.name.casefold() == candidate.name.casefold()
+            for item in existing
+        ):
+            raise SkillConflictError("a Skill with this name already exists")
+        updated_record = await self._repository.update_custom(
+            skill_id,
+            tenant_id=self._tenant_id,
+            actor_id=self._actor_id,
+            expected_revision=expected_revision,
+            definition=candidate,
+            enabled=current.enabled,
+        )
+        if updated_record is None:
+            raise SkillNotFoundError("Skill not found")
+        if commit:
+            await self._repository.commit()
+        active = self._definition_from_record(updated_record)
+        return SkillEvolutionOutcome(
+            candidate=candidate,
+            decision=decision,
+            active_definition=active,
+        )
 
     async def resolve_agent_skills(self, skill_ids: list[str]) -> list[AgentScopeSkill]:
         skills = [await self.load_enabled_skill(skill_id) for skill_id in skill_ids]

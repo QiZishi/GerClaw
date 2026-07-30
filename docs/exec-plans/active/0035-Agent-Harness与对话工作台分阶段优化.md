@@ -24,7 +24,7 @@ Memory/Skill 的治理机制。
 | 3 | ClinicalState、动态规划与医疗门禁 | 已完成：四轮独立审阅修复、真实 GUI 与最终 ACCEPT |
 | 4 | 证据、Memory 与受治理能力组合 | 已完成：三项 P1 修复、真实 GUI/数据库复验、最终独立复审 ACCEPT |
 | 5 | 对话工作台 UI 与交互重构 | 已完成：独立审阅 3 项 P1 修复，真实 Playwright/axe 复验，最终 ACCEPT |
-| 6 | 双轨受控自进化 | 进行中：完成组件宪章、双轨分类和 Memory owner-service 在线 CRUD；继续 Skill 分轨与 sealed 离线控制面 |
+| 6 | 双轨受控自进化 | 进行中：完成组件宪章、双轨分类、Memory 在线 CRUD 和 Skill 在线/离线分轨；继续 sealed evaluator、信号、离线评测与晋升控制面 |
 | 7 | 最终回归、真实 GUI 对抗审阅与发布 | 未开始 |
 
 ## 3. 阶段 0：冻结基线与真实运行审计
@@ -864,9 +864,27 @@ Agents SDK、HL7 FHIR、Mem0、Agent Skills、A-Evolve、GEPA 和 Adaptive Auto-
   `ACCEPT（P0=0，P1=0，P2=3）`。保留的 P2 已登记：无日期同措辞 event 需要稳定的客户端事件
   idempotency/source ID；旧 Qdrant revision 可在提交后异步精确清理；阶段 7 增加 10 路并发
   mutation、跨 tenant update/restore 和 restore 向量写入后 PostgreSQL 失败补偿测试。
+- Skill owner-service 双轨演化：`POST /skills/{skill_id}/evolve` 先查询 tenant/actor
+  实际记录并校验 revision，再对已通过 parser、schema、tool allowlist、安全规则和 SemVer 的
+  candidate 做服务端差异分类。在线轨不再依赖不可穷举的关键词黑名单：当前/候选必须同时使用
+  服务端固定 presentation/retrieval directive DSL，name/category/自由文本/tool/schema 均不可变，
+  retrieval 固定来源指令还必须与不变的 `search_knowledge/search_memory` 精确对应；只有固定指令集合
+  可变化。通过后调用中央 `EvolutionGovernancePolicy` 并以乐观锁在线写入下一 revision，保留原
+  enabled 状态。任意自由文本、临床/控制面同义词、工具或 schema 变化、category 伪装和未知类别全部
+  fail closed 为 `offline_review_required`，不写生产记录且不把危险候选 Markdown 返回在线客户端，
+  避免 `evolve → PATCH` 两步绕过。浏览器只可请求 `apply_if_low_risk`，不能提交
+  kind/authority/owner；响应使用 `skill-evolution-decision-v1`，Pydantic/Zod 同时约束只有
+  `online_applied` 才能返回 matching active revision；取消/异常必须先 rollback 已 flush 的业务
+  mutation，再单独提交失败 Trace。人工创建、导入和显式编辑仍保留为用户内容管理
+  边界，不被错误禁用。聚焦 Skill 单元/API 测试 `74 passed`，真实 PostgreSQL/Redis/Qdrant
+  集成 `6 passed`（含低风险在线 revision、危险候选不回传/不写库及 10 路并发仅一次成功），BFF/Zod
+  合同 `29 passed`，Ruff、Mypy、ESLint 和 Next production build 通过；独立子智能体首轮审阅发现
+  关键词分类可绕过、异常事务可能提交和离线候选可直接保存三项 P1，已按上述固定 DSL、rollback 和
+  在线隐藏候选内容修复。最终复审 `ACCEPT（P0=0，P1=0，P2=1）`；唯一 P2 是尚未用真实外部模型
+  统计 exact DSL 生成成功率，不合规输出会安全降为 immutable，只影响在线成功率而不扩大权限。
 
-四项前置 P1 已全部关闭，组件宪章和双轨分类事实源已经落地；任何候选执行前仍必须完成
-Memory/Skill 生产写边界、sealed evaluator 和离线控制器接入。
+四项前置 P1 已全部关闭，组件宪章、双轨分类事实源、Memory/Skill 生产写边界已经落地；任何
+immutable 候选执行或晋升前仍必须完成 sealed evaluator 和离线控制器接入。
 
 #### 6.1 必须保留的语义
 

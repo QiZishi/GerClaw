@@ -94,6 +94,7 @@ export function SkillEditorDialog({
   const [busy, setBusy] = useState<"generate" | "save" | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [draftQuality, setDraftQuality] = useState<SkillDraft["quality_report"] | null>(null);
+  const [offlineCandidate, setOfflineCandidate] = useState(false);
   const copy = MODE_CONTENT[mode];
   const readOnly = mode === "view";
 
@@ -122,6 +123,10 @@ export function SkillEditorDialog({
   };
 
   const handleSave = async () => {
+    if (offlineCandidate) {
+      setError("离线审核候选不能从对话工作台直接写入生产技能。");
+      return;
+    }
     if (!markdown.trim()) return;
     setBusy("save");
     setError(null);
@@ -148,12 +153,27 @@ export function SkillEditorDialog({
     }
     setBusy("generate");
     setError(null);
+    setOfflineCandidate(false);
     try {
       const draft = await evolveDraft(definition, changeRequest.trim());
-      setMarkdown(draft.definition.source_markdown);
-      setDraftQuality(draft.quality_report);
-      setOrigin("generated");
-      toast.show("已生成新的待审阅修订；确认无误后再保存");
+      if (draft.decision.disposition === "online_applied") {
+        toast.show("低风险技能内容已通过服务端校验并保存为新修订");
+        onOpenChange(false);
+        return;
+      }
+      if (draft.decision.disposition === "offline_review_required") {
+        setOfflineCandidate(true);
+        setDraftQuality(null);
+        toast.show("该变更涉及临床或权限边界，已阻断在线内容回传，未修改当前技能");
+      } else {
+        if (!draft.definition || !draft.quality_report) {
+          throw new Error("技能演化响应缺少可审阅候选");
+        }
+        setMarkdown(draft.definition.source_markdown);
+        setDraftQuality(draft.quality_report);
+        setOrigin("generated");
+        toast.show("已生成新的待审阅修订；确认无误后再保存");
+      }
     } catch (evolutionError) {
       setError(evolutionError instanceof Error ? evolutionError.message : "修订草稿生成失败");
     } finally {
@@ -216,6 +236,20 @@ export function SkillEditorDialog({
           </section>
         )}
 
+        {offlineCandidate && (
+          <section
+            className="rounded-xl border border-amber-500/35 bg-amber-500/10 px-4 py-3"
+            aria-live="polite"
+          >
+            <p className={cn("font-medium text-amber-900 dark:text-amber-200", seniorMode && "text-lg")}>
+              该变更已进入 immutable 轨
+            </p>
+            <p className={cn("mt-2 text-sm leading-6 text-muted-foreground", seniorMode && "text-lg leading-8")}>
+              在线接口不会回传、保存或启用危险候选内容；后续只能由隔离离线控制器重新生成、评测和审批。
+            </p>
+          </section>
+        )}
+
         {draftQuality && (
           <section
             className={cn(
@@ -249,10 +283,10 @@ export function SkillEditorDialog({
           <section className="space-y-3 rounded-xl border border-border bg-muted/20 p-4" aria-labelledby="skill-evolution-title">
             <div>
               <Label id="skill-evolution-title" htmlFor="skill-change-request" className={cn(seniorMode && "text-lg")}>
-                生成优化修订草稿（可选）
+                安全演化技能（可选）
               </Label>
               <p className={cn("mt-1 text-xs text-muted-foreground", seniorMode && "text-lg leading-8")}>
-                根据你的要求生成修订草稿。
+                低风险表达或受限检索调整会形成新修订；临床、工具和权限变更只生成离线审核候选。
               </p>
             </div>
             <textarea
@@ -275,7 +309,7 @@ export function SkillEditorDialog({
                 className={cn(seniorMode && "h-12 px-4 text-lg")}
               >
                 {busy === "generate" ? <span className="text-base leading-none" aria-hidden="true">…</span> : <Bot className="size-5" />}
-                {busy === "generate" ? "正在生成修订" : "生成待审阅修订"}
+                {busy === "generate" ? "正在评估修订" : "生成并安全评估"}
               </Button>
             </div>
           </section>
@@ -295,7 +329,7 @@ export function SkillEditorDialog({
               setMarkdown(value);
               setDraftQuality(null);
             }}
-            readOnly={readOnly}
+            readOnly={readOnly || offlineCandidate}
             seniorMode={seniorMode}
             className="min-h-72"
           />
@@ -316,7 +350,7 @@ export function SkillEditorDialog({
           >
             {readOnly ? "关闭" : "取消"}
           </Button>
-          {!readOnly && (
+          {!readOnly && !offlineCandidate && (
             <Button
               onClick={() => void handleSave()}
               disabled={busy !== null || !markdown.trim()}

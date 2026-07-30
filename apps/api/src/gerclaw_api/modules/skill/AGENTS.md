@@ -2,7 +2,7 @@
 
 ## Responsibility
 
-This module owns the lifecycle of declarative GerClaw Skills: validation, registry, archival, loading, constrained execution, reviewable model-generated drafts and review-only evolution drafts. It does not permit arbitrary code, shell, network calls or privilege escalation.
+This module owns the lifecycle of declarative GerClaw Skills: validation, registry, archival, loading, constrained execution, reviewable model-generated drafts and dual-track evolution. It does not permit arbitrary code, shell, network calls or privilege escalation.
 
 ## Invariants
 
@@ -17,10 +17,21 @@ This module owns the lifecycle of declarative GerClaw Skills: validation, regist
   via the shared versioned output contract; missing, stale or extra provider
   fields may not reach Markdown serialization or manual review.
 - Built-in assets remain declarative and auditable. Do not turn a `SKILL.md` into executable code or a source of medical facts without local evidence.
+- Online evolution authority is derived from the actual owner-scoped current
+  definition and validated candidate diff. Browser/model category labels cannot
+  grant authority. Online presentation/retrieval changes must use the exact
+  server-owned directive DSL; every free-text instruction, name/category/tool/
+  parameter change remains immutable. Clinical, permission and unknown changes
+  remain immutable-track proposals whose content cannot cross the online API.
 
 ## Change and test rules
 
 - Preserve archive/revision readability and tenant/actor access boundaries when changing registry or storage behavior.
-- Evolution may target only a caller-owned custom Skill at its current revision; it must preserve the ID, increase SemVer and return a draft only. It must never overwrite, enable or publish a Skill.
+- Evolution may target only a caller-owned custom Skill at its current revision
+  and must preserve the ID and increase SemVer. An online-admitted mutation must
+  preserve the existing tool list, parameter schema and enabled state, pass the
+  central governance manifest, use only fixed directives, and use optimistic
+  revision control. Immutable candidate content must not change the production
+  record, current conversation, online editor or response payload.
 - Run `tests/test_skill_contract.py`, `tests/test_skill_module.py`, `tests/test_skill_api.py` and integration coverage as applicable.
 - Update the specific built-in Skill folder's `AGENTS.md` and `SKILL.md` together when its intended workflow changes.

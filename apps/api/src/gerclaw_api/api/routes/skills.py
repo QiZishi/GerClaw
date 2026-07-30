@@ -8,7 +8,7 @@ import uuid
 from typing import Annotated, cast
 
 from fastapi import APIRouter, Depends, File, HTTPException, Query, Request, UploadFile, status
-from pydantic import BaseModel, ConfigDict
+from pydantic import BaseModel, ConfigDict, model_validator
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from gerclaw_api.auth import (
@@ -30,6 +30,7 @@ from gerclaw_api.modules.skill import (
     SkillDisabledError,
     SkillDraftQualityReport,
     SkillDraftRequest,
+    SkillEvolutionDecision,
     SkillEvolutionRequest,
     SkillExecuteRequest,
     SkillId,
@@ -60,6 +61,27 @@ class SkillDraftRead(BaseModel):
     trace_id: str
     definition: SkillDefinition
     quality_report: SkillDraftQualityReport
+
+
+class SkillEvolutionRead(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    trace_id: str
+    definition: SkillDefinition | None
+    quality_report: SkillDraftQualityReport | None
+    decision: SkillEvolutionDecision
+    active_definition: SkillDefinition | None
+
+    @model_validator(mode="after")
+    def hide_immutable_candidate_content(self) -> SkillEvolutionRead:
+        offline = self.decision.disposition == "offline_review_required"
+        hidden = self.definition is None and self.quality_report is None
+        present = self.definition is not None and self.quality_report is not None
+        if (offline and not hidden) or (not offline and not present):
+            raise ValueError(
+                "immutable candidate content must not cross the online response boundary"
+            )
+        return self
 
 
 class SkillExecuteRead(BaseModel):
@@ -432,6 +454,7 @@ async def generate_skill(
             quality_report=evaluate_skill_draft(definition),
         )
     except asyncio.CancelledError:
+        await session.rollback()
         await _finish_trace(
             service,
             identity,
@@ -444,6 +467,7 @@ async def generate_skill(
         )
         raise
     except Exception:
+        await session.rollback()
         await _finish_trace(
             service,
             identity,
@@ -456,15 +480,15 @@ async def generate_skill(
         raise
 
 
-@router.post("/{skill_id}/evolve", response_model=SkillDraftRead)
+@router.post("/{skill_id}/evolve", response_model=SkillEvolutionRead)
 async def evolve_skill(
     skill_id: SkillId,
     payload: SkillEvolutionRequest,
     request: Request,
     session: SessionDependency,
     identity: SkillWriteIdentity,
-) -> SkillDraftRead:
-    """Generate a review-only new draft for a caller-owned custom Skill."""
+) -> SkillEvolutionRead:
+    """Apply a low-risk revision or return a dangerous candidate for offline review."""
 
     await _rate_limit(request, identity)
     service = get_trace_service(
@@ -478,10 +502,12 @@ async def evolve_skill(
         request_fingerprint=_fingerprint(request, payload, resource_id=skill_id),
     )
     try:
-        definition = await _module(request, session, identity).evolve_skill_from_nl(
+        outcome = await _module(request, session, identity).evolve_skill_from_nl(
             skill_id,
             change_request=payload.change_request,
             expected_revision=payload.expected_revision,
+            apply_if_low_risk=payload.apply_if_low_risk,
+            commit=False,
         )
         await _finish_trace(
             service,
@@ -490,14 +516,18 @@ async def evolve_skill(
             operation="evolve",
             skill_id=skill_id,
             success=True,
-            version=definition.version,
+            version=outcome.candidate.version,
         )
-        return SkillDraftRead(
+        offline = outcome.decision.disposition == "offline_review_required"
+        return SkillEvolutionRead(
             trace_id=trace_id,
-            definition=definition,
-            quality_report=evaluate_skill_draft(definition),
+            definition=None if offline else outcome.candidate,
+            quality_report=None if offline else evaluate_skill_draft(outcome.candidate),
+            decision=outcome.decision,
+            active_definition=outcome.active_definition,
         )
     except asyncio.CancelledError:
+        await session.rollback()
         await _finish_trace(
             service,
             identity,
@@ -510,6 +540,7 @@ async def evolve_skill(
         )
         raise
     except Exception:
+        await session.rollback()
         await _finish_trace(
             service,
             identity,

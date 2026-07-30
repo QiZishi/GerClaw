@@ -2,17 +2,29 @@
 
 from __future__ import annotations
 
+import asyncio
 import hashlib
 import hmac
+from types import SimpleNamespace
+from typing import Any, cast
 
 import jwt
 import pytest
 from fastapi import Request
 from httpx import ASGITransport, AsyncClient
+from pydantic import ValidationError
+from sqlalchemy.ext.asyncio import AsyncSession
 
+from gerclaw_api.api.routes import skills as skill_routes
 from gerclaw_api.application import create_app
+from gerclaw_api.auth import AuthContext
 from gerclaw_api.config import Settings
-from gerclaw_api.modules.skill import UnsafeSkillError
+from gerclaw_api.modules.skill import (
+    SkillDraftQualityReport,
+    SkillEvolutionDecision,
+    SkillEvolutionRequest,
+    UnsafeSkillError,
+)
 from gerclaw_api.modules.skill.security import SkillSafetyFinding
 
 
@@ -22,6 +34,22 @@ class _RateLimiter:
 
     async def check(self, *, tenant_id: str, actor_id: str) -> None:
         self.calls.append((tenant_id, actor_id))
+
+
+class _RollbackSession:
+    def __init__(self, events: list[str]) -> None:
+        self._events = events
+
+    async def rollback(self) -> None:
+        self._events.append("rollback")
+
+
+class _FailingEvolutionModule:
+    def __init__(self, error: BaseException) -> None:
+        self._error = error
+
+    async def evolve_skill_from_nl(self, *_args: Any, **_kwargs: Any) -> None:
+        raise self._error
 
 
 @pytest.mark.asyncio
@@ -130,3 +158,76 @@ async def test_guest_bootstrap_uses_only_a_valid_bff_signed_visitor_identity(
     assert len(limiter.calls) == 2
     assert limiter.calls[0][1] == limiter.calls[1][1]
     assert all(actor_id.startswith("guest_") for _tenant_id, actor_id in limiter.calls)
+
+
+@pytest.mark.parametrize("error", [RuntimeError("failed after flush"), asyncio.CancelledError()])
+@pytest.mark.asyncio
+async def test_skill_evolution_rolls_back_before_recording_failure_trace(
+    monkeypatch: pytest.MonkeyPatch,
+    error: BaseException,
+) -> None:
+    events: list[str] = []
+    session = _RollbackSession(events)
+    identity = AuthContext(
+        actor_id="usr_patient00000001",
+        tenant_id="tenant_public0001",
+        role="patient",
+        scopes=frozenset({"skill:write"}),
+    )
+    request = SimpleNamespace(
+        app=SimpleNamespace(state=SimpleNamespace(settings=SimpleNamespace(max_events_per_trace=20)))
+    )
+
+    async def no_rate_limit(*_args: Any, **_kwargs: Any) -> None:
+        return None
+
+    async def start_trace(*_args: Any, **_kwargs: Any) -> str:
+        return "trace_skill_evolution_rollback"
+
+    async def finish_trace(*_args: Any, **_kwargs: Any) -> None:
+        events.append("finish")
+
+    monkeypatch.setattr(skill_routes, "_rate_limit", no_rate_limit)
+    monkeypatch.setattr(skill_routes, "_fingerprint", lambda *_args, **_kwargs: "fingerprint")
+    monkeypatch.setattr(skill_routes, "get_trace_service", lambda *_args, **_kwargs: object())
+    monkeypatch.setattr(skill_routes, "_start_trace", start_trace)
+    monkeypatch.setattr(skill_routes, "_finish_trace", finish_trace)
+    monkeypatch.setattr(
+        skill_routes,
+        "_module",
+        lambda *_args, **_kwargs: _FailingEvolutionModule(error),
+    )
+
+    with pytest.raises(type(error)):
+        await skill_routes.evolve_skill(
+            "accessible-summary",
+            SkillEvolutionRequest(
+                change_request="增加一个受限的低风险格式指令。",
+                expected_revision=1,
+            ),
+            cast(Request, request),
+            cast(AsyncSession, session),
+            identity,
+        )
+
+    assert events == ["rollback", "finish"]
+
+
+def test_skill_evolution_response_rejects_half_present_online_candidate() -> None:
+    decision = SkillEvolutionDecision(
+        track="mutable",
+        object_kind="skill.presentation",
+        authority="presentation_only",
+        disposition="manual_review_draft",
+        reason_codes=("SKILL_PRESENTATION_DSL_ONLY",),
+        expected_revision=1,
+    )
+
+    with pytest.raises(ValidationError):
+        skill_routes.SkillEvolutionRead(
+            trace_id="trace_skill_evolution_contract",
+            definition=None,
+            quality_report=SkillDraftQualityReport(missing_checks=()),
+            decision=decision,
+            active_definition=None,
+        )

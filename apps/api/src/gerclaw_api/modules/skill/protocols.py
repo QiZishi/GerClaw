@@ -4,7 +4,13 @@ from __future__ import annotations
 
 from typing import Protocol
 
-from gerclaw_api.modules.skill.models import Skill, SkillDefinition, SkillInfo, SkillResult
+from gerclaw_api.modules.skill.models import (
+    Skill,
+    SkillDefinition,
+    SkillEvolutionOutcome,
+    SkillInfo,
+    SkillResult,
+)
 from gerclaw_api.security import JsonValue
 
 
@@ -32,8 +38,9 @@ class SkillModule(Protocol):
         *,
         change_request: str,
         expected_revision: int,
-    ) -> SkillDefinition:
-        """Generate a non-persistent next draft for one caller-owned Skill."""
+        apply_if_low_risk: bool = True,
+    ) -> SkillEvolutionOutcome:
+        """Apply a low-risk revision or return an immutable-track review candidate."""
 
 
 __all__ = [

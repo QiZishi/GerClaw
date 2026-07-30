@@ -10,7 +10,12 @@ import {
   setSkillEnabled,
   updateSkill,
 } from "@/services/gerclaw/skills";
-import type { SkillDefinition, SkillDraft, SkillInfo } from "@/services/gerclaw/schemas";
+import type {
+  SkillDefinition,
+  SkillDraft,
+  SkillEvolution,
+  SkillInfo,
+} from "@/services/gerclaw/schemas";
 
 type SkillStatus = "idle" | "loading" | "ready" | "error";
 
@@ -26,7 +31,7 @@ interface SkillState {
   ) => Promise<SkillDefinition>;
   update: (skill: SkillInfo, markdown: string) => Promise<SkillDefinition>;
   generateDraft: (description: string) => Promise<SkillDraft>;
-  evolveDraft: (skill: SkillInfo, changeRequest: string) => Promise<SkillDraft>;
+  evolveDraft: (skill: SkillInfo, changeRequest: string) => Promise<SkillEvolution>;
   inspectUpload: (file: File) => Promise<SkillDefinition>;
   toggle: (skill: SkillInfo, enabled: boolean) => Promise<SkillDefinition>;
   remove: (skill: SkillInfo) => Promise<void>;
@@ -66,7 +71,16 @@ export const useSkillStore = create<SkillState>()((set, get) => ({
     return definition;
   },
   generateDraft: (description) => generateSkill(description),
-  evolveDraft: (skill, changeRequest) => evolveSkill(skill, changeRequest),
+  evolveDraft: async (skill, changeRequest) => {
+    const outcome = await evolveSkill(skill, changeRequest);
+    if (outcome.active_definition) {
+      set((state) => ({
+        skills: upsert(state.skills, outcome.active_definition as SkillDefinition),
+        status: "ready",
+      }));
+    }
+    return outcome;
+  },
   inspectUpload: (file) => previewSkillUpload(file),
   toggle: async (skill, enabled) => {
     const definition = await setSkillEnabled(skill, enabled);

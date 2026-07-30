@@ -3,9 +3,9 @@ import {
   feedbackCategorySchema,
   feedbackIdempotencyKeySchema,
   traceIdSchema,
-} from "./feedback-contract";
-export { storedCitationSchema } from "./stored-citation-contract";
-import { storedCitationSchema } from "./stored-citation-contract";
+} from "./feedback-contract.ts";
+export { storedCitationSchema } from "./stored-citation-contract.ts";
+import { storedCitationSchema } from "./stored-citation-contract.ts";
 
 const skillIdSchema = z.string().regex(/^[a-z][a-z0-9_.-]{1,63}$/);
 
@@ -48,6 +48,120 @@ export const generatedSkillSchema = z
     quality_report: skillDraftQualitySchema,
   })
   .strict();
+export const skillEvolutionDecisionSchema = z
+  .object({
+    schema_version: z.literal("skill-evolution-decision-v1"),
+    track: z.enum(["mutable", "immutable"]),
+    object_kind: z.enum([
+      "skill.presentation",
+      "skill.retrieval",
+      "skill.clinical",
+      "skill.tooling",
+    ]),
+    authority: z.enum([
+      "presentation_only",
+      "bounded_retrieval",
+      "clinical_guidance",
+      "control_plane",
+    ]),
+    disposition: z.enum([
+      "online_applied",
+      "manual_review_draft",
+      "offline_review_required",
+    ]),
+    reason_codes: z
+      .array(z.string().min(1).max(100).regex(/^SKILL_[A-Z0-9_]+$/))
+      .min(1)
+      .max(10),
+    expected_revision: z.number().int().positive(),
+    resulting_revision: z.number().int().min(2).nullable(),
+  })
+  .strict();
+export const skillEvolutionSchema = z
+  .object({
+    trace_id: z.string(),
+    definition: skillDefinitionSchema.nullable(),
+    quality_report: skillDraftQualitySchema.nullable(),
+    decision: skillEvolutionDecisionSchema,
+    active_definition: skillDefinitionSchema.nullable(),
+  })
+  .strict()
+  .superRefine((value, context) => {
+    const applied = value.decision.disposition === "online_applied";
+    const offline = value.decision.disposition === "offline_review_required";
+    const mutable = ["skill.presentation", "skill.retrieval"].includes(
+      value.decision.object_kind
+    );
+    const authorityByKind = {
+      "skill.presentation": "presentation_only",
+      "skill.retrieval": "bounded_retrieval",
+      "skill.clinical": "clinical_guidance",
+      "skill.tooling": "control_plane",
+    } as const;
+    if (applied !== (value.active_definition !== null)) {
+      context.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: "active_definition must exist exactly for online-applied evolution",
+      });
+    }
+    if (
+      offline !== (value.definition === null && value.quality_report === null) ||
+      (!offline && (value.definition === null || value.quality_report === null))
+    ) {
+      context.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: "immutable candidate content must not cross the online response boundary",
+      });
+    }
+    if (
+      mutable !== (value.decision.track === "mutable") ||
+      value.decision.authority !== authorityByKind[value.decision.object_kind]
+    ) {
+      context.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: "Skill evolution kind, track and authority must match",
+      });
+    }
+    if (
+      value.decision.disposition === "offline_review_required"
+        ? mutable || value.decision.resulting_revision !== null
+        : !mutable
+    ) {
+      context.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: "immutable changes must remain offline review candidates",
+      });
+    }
+    if (
+      applied !== (value.decision.resulting_revision !== null) ||
+      (value.decision.resulting_revision !== null &&
+        value.decision.resulting_revision !== value.decision.expected_revision + 1)
+    ) {
+      context.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: "resulting revision must bind exactly one online revision",
+      });
+    }
+    if (
+      value.definition !== null &&
+      value.definition.revision !== value.decision.expected_revision + 1
+    ) {
+      context.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: "candidate revision does not match the owner revision fence",
+      });
+    }
+    if (
+      value.active_definition !== null &&
+      (value.active_definition.revision !== value.decision.resulting_revision ||
+        value.active_definition.skill_id !== value.definition?.skill_id)
+    ) {
+      context.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: "active revision does not match evolution decision",
+      });
+    }
+  });
 export const sessionSkillsSchema = z
   .object({
     session_id: z.string().uuid(),
@@ -97,6 +211,7 @@ export type BackendSessionMessages = z.infer<typeof sessionMessagesSchema>;
 export type SkillInfo = z.infer<typeof skillInfoSchema>;
 export type SkillDefinition = z.infer<typeof skillDefinitionSchema>;
 export type SkillDraft = z.infer<typeof generatedSkillSchema>;
+export type SkillEvolution = z.infer<typeof skillEvolutionSchema>;
 
 const approvalStatusSchema = z.enum([
   "pending",
@@ -273,14 +388,14 @@ export {
   memoryFactSchema,
   memoryFactUpdateInputSchema,
   memoryRecallPreferenceSchema,
-} from "./memory-contract";
+} from "./memory-contract.ts";
 export type {
   CreateMemoryFactInput,
   HealthProfile,
   MemoryFact,
   MemoryFactHistory,
   UpdateMemoryFactInput,
-} from "./memory-contract";
+} from "./memory-contract.ts";
 
 const chronicDateTimeSchema = z.string().datetime();
 
@@ -775,7 +890,7 @@ export type DoctorPatientAccess = z.infer<typeof doctorPatientAccessSchema>;
 export type DoctorPatientAccessList = z.infer<typeof doctorPatientAccessListSchema>;
 export type PrescriptionDraftReview = z.infer<typeof prescriptionDraftReviewSchema>;
 
-export { feedbackSubmitSchema } from "./feedback-contract";
+export { feedbackSubmitSchema } from "./feedback-contract.ts";
 
 export const feedbackReadSchema = z
   .object({

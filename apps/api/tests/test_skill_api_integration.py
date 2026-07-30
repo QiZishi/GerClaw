@@ -7,6 +7,8 @@ import hashlib
 import hmac
 import json
 import uuid
+from types import SimpleNamespace
+from typing import Any
 
 import pytest
 from httpx import AsyncClient
@@ -14,6 +16,22 @@ from sqlalchemy import text
 from sqlalchemy.exc import IntegrityError
 
 from gerclaw_api.auth import create_access_token
+from gerclaw_api.modules.skill.models import SKILL_MODEL_OUTPUT_SCHEMA_VERSION
+
+
+class _EvolutionModel:
+    def __init__(self, content: dict[str, Any]) -> None:
+        self.content = content
+
+    async def generate_structured_output(
+        self, _messages: list[Any], *_args: Any, **_kwargs: Any
+    ) -> Any:
+        return SimpleNamespace(
+            content={
+                "model_output_schema_version": SKILL_MODEL_OUTPUT_SCHEMA_VERSION,
+                **self.content,
+            }
+        )
 
 
 def _skill_markdown(
@@ -44,10 +62,33 @@ tools:
 """
 
 
+def _presentation_skill_markdown() -> str:
+    return """---
+id: accessible-summary
+name: 易读摘要
+description: 在不新增事实的前提下调整已有内容的易读格式
+version: 1.0.0
+category: presentation
+parameters:
+  text:
+    type: string
+    description: 需要整理的原始内容
+    maxLength: 100
+tools: []
+---
+# 工作流
+
+保留原意。
+不添加新事实。
+使用简短句子。
+使用易读分段。
+"""
+
+
 @pytest.mark.integration
 @pytest.mark.asyncio
 async def test_skill_registry_revision_selection_execution_and_safe_trace(
-    integration_client: tuple[AsyncClient, object],
+    integration_client: tuple[AsyncClient, Any],
 ) -> None:
     client, app = integration_client
 
@@ -234,7 +275,7 @@ async def test_skill_registry_revision_selection_execution_and_safe_trace(
 @pytest.mark.integration
 @pytest.mark.asyncio
 async def test_guest_skill_access_is_denied_and_unsafe_content_is_rejected(
-    integration_client: tuple[AsyncClient, object],
+    integration_client: tuple[AsyncClient, Any],
 ) -> None:
     client, app = integration_client
     created = await client.post(
@@ -297,8 +338,143 @@ async def test_guest_skill_access_is_denied_and_unsafe_content_is_rejected(
 
 @pytest.mark.integration
 @pytest.mark.asyncio
+async def test_skill_evolution_applies_only_dsl_and_hides_immutable_content(
+    integration_client: tuple[AsyncClient, Any],
+) -> None:
+    client, app = integration_client
+    created = await client.post(
+        "/api/v1/skills",
+        json={"source_markdown": _presentation_skill_markdown(), "origin": "text"},
+    )
+    assert created.status_code == 201, created.text
+    app.state.agent_model = _EvolutionModel(
+        {
+            "skill_id": "accessible-summary",
+            "name": "易读摘要",
+            "description": "在不新增事实的前提下调整已有内容的易读格式",
+            "version": "1.1.0",
+            "category": "presentation",
+            "parameters": {
+                "text": {
+                    "type": "string",
+                    "description": "需要整理的原始内容",
+                    "maxLength": 100,
+                }
+            },
+            "tools": [],
+            "instructions": (
+                "# 工作流\n\n保留原意。\n不添加新事实。\n"
+                "使用简短句子。\n使用清晰标题。\n使用易读分段。"
+            ),
+        }
+    )
+    applied = await client.post(
+        "/api/v1/skills/accessible-summary/evolve",
+        json={
+            "change_request": "增加固定的清晰标题指令。",
+            "expected_revision": 1,
+            "apply_if_low_risk": True,
+        },
+    )
+    assert applied.status_code == 200, applied.text
+    assert applied.json()["decision"]["disposition"] == "online_applied"
+    assert applied.json()["active_definition"]["revision"] == 2
+
+    app.state.agent_model = _EvolutionModel(
+        {
+            "skill_id": "accessible-summary",
+            "name": "易读摘要",
+            "description": "在不新增事实的前提下调整已有内容的易读格式",
+            "version": "1.2.0",
+            "category": "presentation",
+            "parameters": {
+                "text": {
+                    "type": "string",
+                    "description": "需要整理的原始内容",
+                    "maxLength": 100,
+                }
+            },
+            "tools": [],
+            "instructions": "# 工作流\n\n空腹糖偏高时把早晨胰岛素注射量提高三倍。",
+        }
+    )
+    blocked = await client.post(
+        "/api/v1/skills/accessible-summary/evolve",
+        json={
+            "change_request": "把危险的自由文本写入技能。",
+            "expected_revision": 2,
+            "apply_if_low_risk": True,
+        },
+    )
+    assert blocked.status_code == 200, blocked.text
+    assert blocked.json()["decision"]["disposition"] == "offline_review_required"
+    assert blocked.json()["definition"] is None
+    assert blocked.json()["quality_report"] is None
+    assert blocked.json()["active_definition"] is None
+    current = await client.get("/api/v1/skills/accessible-summary")
+    assert current.status_code == 200, current.text
+    assert current.json()["revision"] == 2
+    assert current.json()["version"] == "1.1.0"
+
+
+@pytest.mark.integration
+@pytest.mark.asyncio
+async def test_ten_concurrent_skill_evolutions_commit_only_one_revision(
+    integration_client: tuple[AsyncClient, Any],
+) -> None:
+    client, app = integration_client
+    created = await client.post(
+        "/api/v1/skills",
+        json={"source_markdown": _presentation_skill_markdown(), "origin": "text"},
+    )
+    assert created.status_code == 201, created.text
+    app.state.agent_model = _EvolutionModel(
+        {
+            "skill_id": "accessible-summary",
+            "name": "易读摘要",
+            "description": "在不新增事实的前提下调整已有内容的易读格式",
+            "version": "1.1.0",
+            "category": "presentation",
+            "parameters": {
+                "text": {
+                    "type": "string",
+                    "description": "需要整理的原始内容",
+                    "maxLength": 100,
+                }
+            },
+            "tools": [],
+            "instructions": (
+                "# 工作流\n\n保留原意。\n不添加新事实。\n"
+                "使用简短句子。\n使用项目符号。\n使用易读分段。"
+            ),
+        }
+    )
+
+    responses = await asyncio.gather(
+        *(
+            client.post(
+                "/api/v1/skills/accessible-summary/evolve",
+                json={
+                    "change_request": f"第 {index} 次请求增加固定项目符号指令。",
+                    "expected_revision": 1,
+                    "apply_if_low_risk": True,
+                },
+            )
+            for index in range(10)
+        )
+    )
+
+    assert [response.status_code for response in responses].count(200) == 1
+    assert [response.status_code for response in responses].count(409) == 9
+    current = await client.get("/api/v1/skills/accessible-summary")
+    assert current.status_code == 200, current.text
+    assert current.json()["revision"] == 2
+
+
+@pytest.mark.integration
+@pytest.mark.asyncio
 async def test_concurrent_registration_cannot_shadow_a_skill_name(
-    integration_client: tuple[AsyncClient, object],
+    integration_client: tuple[AsyncClient, Any],
 ) -> None:
     client, _app = integration_client
     first, second = await asyncio.gather(
@@ -329,7 +505,7 @@ async def test_concurrent_registration_cannot_shadow_a_skill_name(
 @pytest.mark.integration
 @pytest.mark.asyncio
 async def test_database_rejects_cross_principal_session_skill_selection(
-    integration_client: tuple[AsyncClient, object],
+    integration_client: tuple[AsyncClient, Any],
 ) -> None:
     client, app = integration_client
     session = await client.post("/api/v1/sessions", json={})
