@@ -1,5 +1,7 @@
 "use client";
 
+import { useCallback, useEffect } from "react";
+
 import { RightPanelContent } from "@/components/layout/right-panel/RightPanelContent";
 import { RightPanelHeader } from "@/components/layout/right-panel/RightPanelHeader";
 import { useRightPanelFrame } from "@/components/layout/right-panel/useRightPanelFrame";
@@ -33,7 +35,7 @@ export function RightPanel() {
   const frame = useRightPanelFrame(open, Boolean(type));
   const senior = role === "patient" && seniorMode;
 
-  const requestClose = () => {
+  const requestClose = useCallback(() => {
     if (
       type === "doc-editor" &&
       useArtifactStore.getState().dirty &&
@@ -43,7 +45,18 @@ export function RightPanel() {
     }
     closePanel();
     if (type === "doc-editor") useArtifactStore.getState().clear();
-  };
+  }, [closePanel, type]);
+
+  useEffect(() => {
+    if (!open) return;
+    const closeOnEscape = (event: KeyboardEvent) => {
+      if (event.key !== "Escape") return;
+      event.preventDefault();
+      requestClose();
+    };
+    window.addEventListener("keydown", closeOnEscape);
+    return () => window.removeEventListener("keydown", closeOnEscape);
+  }, [open, requestClose]);
 
   if (!frame.mounted || !type) return null;
   const transition = frame.isMobile
@@ -54,7 +67,7 @@ export function RightPanel() {
     <>
       <div
         className={cn(
-          "fixed inset-0 z-30 bg-black/40 transition-opacity xl:hidden",
+          "fixed inset-0 z-30 bg-black/40 transition-opacity motion-reduce:transition-none xl:hidden",
           frame.visible ? "opacity-100" : "pointer-events-none opacity-0",
         )}
         onClick={requestClose}
@@ -63,6 +76,7 @@ export function RightPanel() {
       <aside
         className={cn(
           "fixed right-0 top-0 z-40 flex h-full flex-col overflow-hidden border-l border-border bg-background xl:relative xl:z-auto",
+          "motion-reduce:transition-none",
           frame.isMobile ? "w-full" : "shrink-0",
           transition,
           frame.visible

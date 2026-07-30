@@ -679,6 +679,22 @@ gitignored 的 `apps/mvp/output/playwright/stage5-artifact/`，其中
 production build 均通过。Node 仍输出项目既有 `MODULE_TYPELESS_PACKAGE_JSON` warning；测试全部通过，
 没有把 warning 隐去或误报为零。
 
+阶段级无障碍/响应式审计随后覆盖 1440×1000、1024×768 和 390×844。三种 viewport 均无页面横向溢出；
+1024/390 的 Artifact 为全屏覆盖，390 下所有可见离散控件均不小于 48×48px、可见文字不小于 16px。
+桌面左栏实测 `ArrowRight` 增加 16px、双击恢复 272px、折叠态严格 56px；Composer 的 IME composing Enter
+和 Shift+Enter 均未发出 chat 请求，后者只插入换行。移动会话抽屉和 Artifact 均支持 `Escape` 关闭。
+
+axe 首轮没有直接通过：Artifact 页面先发现患者暖蓝 `#0EA5E9` 配白字仅 2.77:1；按最高权威“老年模式自动
+提升 WCAG AAA”增加老年模式专用 `#075985`，白字对比度 7.56:1，普通患者模式仍保留暖蓝。随后发现移动
+Sheet 缺可访问名称，补 `SheetTitle`“会话菜单”；项目内 E2E 又捕获 Popup 从 opacity 0 淡入造成入场阶段
+文字约 2.4:1、按钮约 2.05:1，最终改为只做位移动画。修复后三个 viewport 与抽屉/Artifact 状态的 axe
+均为 0 serious / 0 critical。
+
+新增项目内 `@playwright/test` + `@axe-core/playwright` 门禁，`npm run test:e2e` 使用系统 Chrome、真实
+Next.js/FastAPI，不注册 route mock。首轮为 1 passed / 1 failed，按上述动画问题修复后最终 2/2 passed。
+阶段级前端全量 unit 最终为 71 项 Node 测试全部通过，另校验 82 个题干和 123 个版本绑定 CGA WAV；完整
+ESLint、Next production build 均通过。截图位于 gitignored 的 `output/playwright/stage5-stage/`。
+
 ### 阶段 6
 
 在线只记录去内容化信号；隔离离线环境固定官方优化器来源、commit 和许可证。候选在独立 worktree 配对评测，经过全切片非劣、预算、HMAC sealed test 和人工审批后才能晋升。

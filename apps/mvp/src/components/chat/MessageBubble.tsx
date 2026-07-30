@@ -89,7 +89,11 @@ export function MessageBubble({
             isUser ? "bg-muted text-foreground" : "bg-secondary text-secondary-foreground",
           )}
         >
-          {isUser ? <span className="text-xs">我</span> : <Stethoscope className="size-4" aria-hidden />}
+          {isUser ? (
+            <span className={cn("text-xs", seniorMode && "text-base")}>我</span>
+          ) : (
+            <Stethoscope className="size-4" aria-hidden />
+          )}
         </AvatarFallback>
       </Avatar>
       <div

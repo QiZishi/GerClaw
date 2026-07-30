@@ -33,7 +33,7 @@ export function ThinkingBlock({ data }: ThinkingBlockProps) {
       <button
         type="button"
         onClick={() => setExpanded((v) => !v)}
-        className="flex w-full items-center justify-between gap-2 px-3 py-2 text-left hover:bg-muted/50 transition-colors"
+        className="senior-min-target flex w-full items-center justify-between gap-2 px-3 py-2 text-left hover:bg-muted/50 transition-colors"
         aria-expanded={expanded}
       >
         <span className="flex items-center gap-2 text-sm text-muted-foreground/80">

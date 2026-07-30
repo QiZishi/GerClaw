@@ -3,7 +3,12 @@
 import { useEffect, useState } from "react";
 import { Menu } from "lucide-react";
 import { Button } from "@/components/ui/button";
-import { Sheet, SheetContent, SheetTrigger } from "@/components/ui/sheet";
+import {
+  Sheet,
+  SheetContent,
+  SheetTitle,
+  SheetTrigger,
+} from "@/components/ui/sheet";
 import { Sidebar } from "@/components/layout/Sidebar";
 import { WorkbenchSidebarFrame } from "@/components/layout/WorkbenchSidebarFrame";
 import { ChatArea } from "@/components/layout/ChatArea";
@@ -127,6 +132,7 @@ export default function Home() {
             style={{ width: isSeniorPatient ? "min(92vw, 360px)" : "280px" }}
             showCloseButton={false}
           >
+            <SheetTitle className="sr-only">会话菜单</SheetTitle>
             <Sidebar onNavigate={() => setMobileSidebarOpen(false)} />
           </SheetContent>
         </Sheet>

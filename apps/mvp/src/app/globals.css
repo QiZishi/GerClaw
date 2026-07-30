@@ -187,6 +187,16 @@
   line-height: 1.8;
 }
 
+/* 患者/访客老年模式：保留暖蓝色相，同时满足白字 WCAG AAA（7.56:1）。 */
+.senior-mode[data-role="patient"],
+.senior-mode[data-role="visitor"] {
+  --primary: #075985;
+  --primary-foreground: #ffffff;
+  --ring: #075985;
+  --sidebar-primary: #075985;
+  --sidebar-ring: #075985;
+}
+
 .senior-mode body {
   font-size: 20px;
   line-height: 1.8;
@@ -205,6 +215,10 @@
   min-height: 48px;
   padding-top: 0.625rem;
   padding-bottom: 0.625rem;
+}
+
+.senior-mode .senior-min-target {
+  min-height: 48px;
 }
 
 /* 老年模式：输入框放大（≥48px 高度）*/
