@@ -1527,7 +1527,12 @@ Run + `running` 节点。修复后，owner invoker 只有在 RunJournal 与 runt
 `failed/RUN_INTERRUPTED_BEFORE_OUTPUT_COMMIT`，而附件、确定性 ASK/Emergency 和已有 owner result
 可从冻结事实重建，保持 completed。Harness/Chat/Run/Planning 扩大回归 `150 passed`，Ruff/Mypy 通过；
 真实 PostgreSQL/Redis/Qdrant 原子结果与 resume 用例 `2 passed`。该修正版等待同一审阅者复审，不能把
-首轮 REJECT 写成通过。
+首轮 REJECT 写成通过。随后同一独立审阅者逐项重放六类首轮反例并最终判定
+`ACCEPT（P0=0，P1=0，P2=0）`：修复定向 `9 passed`，Harness/Planning/Run/Chat 独立聚焦
+`133 passed`，真实 PostgreSQL 原子结果与 interrupted resume `2 passed`，Ruff 和 4 个直接源文件
+Mypy 通过；确认无 journal owner 零调用、runtime 缺失真实降级、无 result completion 整体拒绝、
+failed/cancelled/interrupted 同事务归一化，以及 attachment completed resume 不重复 checkpoint。
+独立审阅也确认文档未夸大 distributed exactly-once。
 
 ### 阶段 7
 
