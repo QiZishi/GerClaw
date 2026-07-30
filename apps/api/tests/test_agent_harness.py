@@ -21,6 +21,7 @@ from gerclaw_api.domain.run_schemas import (
     RunDirectiveRead,
     RunDirectiveStatus,
 )
+from gerclaw_api.modules.agent_harness import orchestrator as orchestrator_module
 from gerclaw_api.modules.agent_harness.context_snapshot import ContextSnapshotError
 from gerclaw_api.modules.agent_harness.harness import (
     AgentApprovalRequiredError,
@@ -501,6 +502,45 @@ async def test_private_tool_protocol_markup_is_repaired_before_public_projection
         message.name == "output_contract_repair" and "不要复述" in message.get_text_content()
         for message in model.last_messages
     )
+
+
+@pytest.mark.asyncio
+async def test_answer_checkpoint_completes_only_after_evidence_finalization(
+    unit_settings: Settings,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    observed: list[PlanExecutionSnapshot] = []
+
+    async def persist(snapshot: PlanExecutionSnapshot) -> None:
+        observed.append(snapshot)
+
+    def reject_finalization(*_args: object, **_kwargs: object) -> object:
+        raise RuntimeError("citation finalization failed")
+
+    monkeypatch.setattr(orchestrator_module, "bind_turn_evidence", reject_finalization)
+    harness = _harness(
+        unit_settings,
+        model=_HarnessModel(text="建议改善照明并核对步态风险 [E1]。"),
+        rag=_HarnessRAG([_evidence()]),
+        plan_execution_observer=persist,
+    )
+    context = await harness.assemble_context(
+        "108815d7-05bf-4c2a-a977-cd034f390fab",
+        "usr_patient00000001",
+        [],
+        [],
+    )
+
+    with pytest.raises(RuntimeError, match="citation finalization failed"):
+        await harness.process_message(
+            "怎样预防老年人跌倒？",
+            "108815d7-05bf-4c2a-a977-cd034f390fab",
+            context,
+            lambda _event: None,
+        )
+
+    assert observed[-1].statuses["answer"] is PlanNodeStatus.FAILED
+    assert all(snapshot.statuses["answer"] is not PlanNodeStatus.COMPLETED for snapshot in observed)
 
 
 @pytest.mark.asyncio

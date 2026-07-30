@@ -597,47 +597,58 @@ class ProductionAgentHarness(ProductionHarnessCompositionSetup, OrchestrationSup
                 "ANSWER_OUTPUT_EMPTY",
             )
             raise EmptyAgentResponseError("model completed without public text")
+        try:
+            reusable_evidence = turn_results.evidence_for(
+                "report.compose"
+                if governance.answer_capability() == "report.compose"
+                else "answer.compose"
+            )
+            additional_local_citations = citations_from_results(
+                reusable_evidence + agentic_results,
+                minimum_score=self._config.evidence_min_score,
+                limit=self._config.evidence_top_k,
+            )
+            web_citations = citations_from_search_results(search_results)
+            bound_evidence = bind_turn_evidence(
+                model_text,
+                initial_local=initial_citations,
+                additional_local=additional_local_citations,
+                web=web_citations,
+                attachments=[
+                    *attachment_projector.document_citations(),
+                    *attachment_projector.image_citations(),
+                ],
+                is_clinical_claim=(
+                    is_medical_message if medical_content else (lambda _segment: False)
+                ),
+                markers_already_bound=True,
+            )
+            model_text = bound_evidence.text
+            citations = list(bound_evidence.citations)
+            claim_audit = bound_evidence.claim_audit
+            patient_clinical_risk_notice_applied = bool(
+                self._runtime_principal is not None
+                and self._runtime_principal.role in {ActorRole.GUEST, ActorRole.PATIENT}
+                and requires_patient_clinical_risk_notice(model_text)
+            )
+            patient_risk_delta = (
+                f"\n\n{PATIENT_CLINICAL_RISK_NOTICE}"
+                if patient_clinical_risk_notice_applied
+                else ""
+            )
+            final_text = f"{model_text}{patient_risk_delta}\n\n{MEDICAL_DISCLAIMER}"
+            disclaimer_delta = f"{patient_risk_delta}\n\n{MEDICAL_DISCLAIMER}"
+            budget.check_wall_clock()
+            budget.add_output(disclaimer_delta)
+            await self._emit(stream_callback, "text_delta", {"content": disclaimer_delta})
+        except Exception:
+            await governance.fail_persisted(
+                answer_node,
+                "ANSWER_FINALIZATION_FAILED",
+            )
+            raise
         await governance.complete_persisted(answer_node)
         governance_result = await governance.finish_persisted()
-        reusable_evidence = turn_results.evidence_for(
-            "report.compose"
-            if governance.answer_capability() == "report.compose"
-            else "answer.compose"
-        )
-        additional_local_citations = citations_from_results(
-            reusable_evidence + agentic_results,
-            minimum_score=self._config.evidence_min_score,
-            limit=self._config.evidence_top_k,
-        )
-        web_citations = citations_from_search_results(search_results)
-        bound_evidence = bind_turn_evidence(
-            model_text,
-            initial_local=initial_citations,
-            additional_local=additional_local_citations,
-            web=web_citations,
-            attachments=[
-                *attachment_projector.document_citations(),
-                *attachment_projector.image_citations(),
-            ],
-            is_clinical_claim=(is_medical_message if medical_content else (lambda _segment: False)),
-            markers_already_bound=True,
-        )
-        model_text = bound_evidence.text
-        citations = list(bound_evidence.citations)
-        claim_audit = bound_evidence.claim_audit
-        patient_clinical_risk_notice_applied = bool(
-            self._runtime_principal is not None
-            and self._runtime_principal.role in {ActorRole.GUEST, ActorRole.PATIENT}
-            and requires_patient_clinical_risk_notice(model_text)
-        )
-        patient_risk_delta = (
-            f"\n\n{PATIENT_CLINICAL_RISK_NOTICE}" if patient_clinical_risk_notice_applied else ""
-        )
-        final_text = f"{model_text}{patient_risk_delta}\n\n{MEDICAL_DISCLAIMER}"
-        disclaimer_delta = f"{patient_risk_delta}\n\n{MEDICAL_DISCLAIMER}"
-        budget.check_wall_clock()
-        budget.add_output(disclaimer_delta)
-        await self._emit(stream_callback, "text_delta", {"content": disclaimer_delta})
 
         claims_complete = claim_audit.all_clinical_claims_bound
         safe_tool_names: list[JsonValue] = []
