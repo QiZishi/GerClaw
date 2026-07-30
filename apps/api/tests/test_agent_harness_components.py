@@ -8,6 +8,7 @@ import pytest
 from pydantic import ValidationError
 
 from gerclaw_api.modules.agent_harness import HarnessComponents, ResolvedHarnessConfig
+from gerclaw_api.modules.agent_harness import planning as planning_module
 from gerclaw_api.modules.agent_harness.clinical_state import (
     ClinicalFact,
     ClinicalState,
@@ -18,6 +19,11 @@ from gerclaw_api.modules.agent_harness.clinical_state import (
 from gerclaw_api.modules.agent_harness.evidence import EvidenceRecord
 from gerclaw_api.modules.agent_harness.evolution_signals import EvolutionSignal
 from gerclaw_api.modules.agent_harness.planning import DynamicPlan, PlanNode
+from gerclaw_api.modules.agent_harness.planning.agent_factory import (
+    HIGH_VALUE_COMPRESSION_PROMPT,
+    HIGH_VALUE_SUMMARY_SCHEMA,
+    ProductionAgentFactory,
+)
 from gerclaw_api.modules.agent_harness.plugin_runtime import PluginManifest
 from gerclaw_api.modules.agent_harness.routing import (
     DeterministicRouter,
@@ -214,6 +220,53 @@ def test_resolved_config_is_validated_and_immutable() -> None:
             context_hard_stop_ratio=0.8,
             context_reserve_ratio=0.2,
         )
+
+
+def test_agent_factory_uses_high_value_soft_threshold_compression(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    captured: dict[str, object] = {}
+
+    def capture_agent(**kwargs: object) -> object:
+        captured.update(kwargs)
+        return object()
+
+    monkeypatch.setattr(planning_module.agent_factory, "Agent", capture_agent)
+    config = ResolvedHarnessConfig(
+        max_react_iterations=6,
+        max_output_characters=20_000,
+        max_output_bytes=80_000,
+        evidence_top_k=8,
+        memory_top_k=5,
+        memory_min_score=0.6,
+        approval_ttl_seconds=900,
+        context_trigger_ratio=0.85,
+        context_reserve_ratio=0.2,
+    )
+    factory = ProductionAgentFactory(
+        model=object(),  # type: ignore[arg-type]
+        config=config,
+        workflow="chat",
+    )
+
+    factory.build(
+        session_id="session-compression",
+        state_context=[],
+        toolkit=object(),  # type: ignore[arg-type]
+        rag_middleware=object(),  # type: ignore[arg-type]
+        memory_middleware=object(),  # type: ignore[arg-type]
+        high_risk=False,
+        document_focused=False,
+        retrieval_disabled=False,
+    )
+
+    context_config = captured["context_config"]
+    assert context_config.trigger_ratio == 0.85  # type: ignore[union-attr]
+    assert context_config.reserve_ratio == 0.2  # type: ignore[union-attr]
+    assert context_config.compression_prompt == HIGH_VALUE_COMPRESSION_PROMPT  # type: ignore[union-attr]
+    assert context_config.summary_schema == HIGH_VALUE_SUMMARY_SCHEMA  # type: ignore[union-attr]
+    for field in ("user_requirements", "clinical_facts", "unresolved_items", "source_references"):
+        assert field in context_config.summary_schema["required"]  # type: ignore[union-attr]
 
 
 def test_dynamic_plan_rejects_unknown_and_self_references() -> None:
