@@ -1118,3 +1118,28 @@ def test_model_preflight_fails_before_next_side_effect(
 
     assert not decision.allowed
     assert decision.reason_code == expected_reason
+
+
+def test_model_preflight_allows_soft_range_and_stops_at_configured_hard_ceiling() -> None:
+    preflight = ModelBudgetPreflight(
+        execution_budget=ExecutionBudget(),
+        model_context_tokens=1_000,
+        context_trigger_ratio=0.7,
+        context_hard_stop_ratio=0.9,
+        context_reserve_ratio=0.2,
+    )
+    usage = RuntimeBudgetTracker(ExecutionBudget()).snapshot()
+
+    soft_crossing = preflight.check(
+        usage,
+        ModelCallEstimate(estimated_input_tokens=850, output_reserve_tokens=50),
+    )
+    hard_crossing = preflight.check(
+        usage,
+        ModelCallEstimate(estimated_input_tokens=901, output_reserve_tokens=50),
+    )
+
+    assert soft_crossing.allowed
+    assert soft_crossing.reason_code == "MODEL_PREFLIGHT_ALLOWED"
+    assert not hard_crossing.allowed
+    assert hard_crossing.reason_code == "MODEL_CONTEXT_WINDOW_EXCEEDED"

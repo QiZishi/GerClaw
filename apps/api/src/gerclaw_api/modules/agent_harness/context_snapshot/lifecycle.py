@@ -8,6 +8,7 @@ import re
 from dataclasses import dataclass
 from typing import Literal
 
+from gerclaw_api.context_capacity import ContextWindowLimits
 from gerclaw_api.modules.agent_harness.context_snapshot.models import (
     ContextProjectionManifestV2,
     ContextSnapshotError,
@@ -150,24 +151,24 @@ class ContextWindowManager:
             )
         )
         history_total = history_tokens + summary_tokens
-        hard_stop_tokens = min(
-            model_context_tokens - output_reserve_tokens,
-            int(model_context_tokens * hard_stop_ratio),
-        )
-        soft_trigger_tokens = min(
-            int(model_context_tokens * trigger_ratio),
-            hard_stop_tokens - 1,
-        )
-        target_tokens = min(
-            soft_trigger_tokens,
-            int(model_context_tokens * (trigger_ratio - reserve_ratio)),
-        )
         if not model_call_required:
             soft_trigger_tokens = model_context_tokens - 1
             hard_stop_tokens = model_context_tokens
             target_tokens = soft_trigger_tokens
-        elif soft_trigger_tokens <= 0 or hard_stop_tokens <= 1 or target_tokens <= 0:
-            raise ContextSnapshotError("CONTEXT_OUTPUT_RESERVE_EXCEEDS_WINDOW")
+        else:
+            try:
+                limits = ContextWindowLimits.resolve(
+                    model_context_tokens=model_context_tokens,
+                    trigger_ratio=trigger_ratio,
+                    hard_stop_ratio=hard_stop_ratio,
+                    reserve_ratio=reserve_ratio,
+                    output_reserve_tokens=output_reserve_tokens,
+                )
+            except ValueError as error:
+                raise ContextSnapshotError("CONTEXT_OUTPUT_RESERVE_EXCEEDS_WINDOW") from error
+            soft_trigger_tokens = limits.soft_trigger_tokens
+            hard_stop_tokens = limits.hard_stop_input_tokens
+            target_tokens = limits.target_tokens
         if model_call_required and fixed_tokens > hard_stop_tokens:
             raise ContextSnapshotError("CONTEXT_REQUIRED_INPUT_EXCEEDS_WINDOW")
         estimated_before = fixed_tokens + history_total

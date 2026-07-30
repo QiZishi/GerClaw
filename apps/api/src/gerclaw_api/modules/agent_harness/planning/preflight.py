@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from collections.abc import Iterable
 
+from gerclaw_api.context_capacity import ContextWindowLimits
 from gerclaw_api.modules.agent_harness.planning.contracts import (
     BudgetPreflightDecision,
     ModelCallEstimate,
@@ -27,9 +28,24 @@ class ModelBudgetPreflight:
         *,
         execution_budget: ExecutionBudget,
         model_context_tokens: int,
+        context_trigger_ratio: float | None = None,
+        context_hard_stop_ratio: float | None = None,
+        context_reserve_ratio: float | None = None,
     ) -> None:
         self._budget = execution_budget
         self._model_context_tokens = model_context_tokens
+        self._context_trigger_ratio = context_trigger_ratio
+        self._context_hard_stop_ratio = context_hard_stop_ratio
+        self._context_reserve_ratio = context_reserve_ratio
+        configured_ratios = (
+            context_trigger_ratio,
+            context_hard_stop_ratio,
+            context_reserve_ratio,
+        )
+        if any(value is not None for value in configured_ratios) and any(
+            value is None for value in configured_ratios
+        ):
+            raise ValueError("all context ratios must be provided together")
 
     def check(
         self,
@@ -45,9 +61,8 @@ class ModelBudgetPreflight:
             reason_code = "RUNTIME_INPUT_TOKENS_EXCEEDED"
         elif usage.output_tokens + estimate.output_reserve_tokens > self._budget.max_output_tokens:
             reason_code = "RUNTIME_OUTPUT_TOKENS_EXCEEDED"
-        elif (
-            estimate.estimated_input_tokens + estimate.output_reserve_tokens
-            > self._model_context_tokens
+        elif estimate.estimated_input_tokens > self._hard_input_limit(
+            estimate.output_reserve_tokens
         ):
             reason_code = "MODEL_CONTEXT_WINDOW_EXCEEDED"
         return BudgetPreflightDecision(
@@ -56,3 +71,17 @@ class ModelBudgetPreflight:
             estimated_input_tokens=estimate.estimated_input_tokens,
             output_reserve_tokens=estimate.output_reserve_tokens,
         )
+
+    def _hard_input_limit(self, output_reserve_tokens: int) -> int:
+        if self._context_hard_stop_ratio is None:
+            return self._model_context_tokens - output_reserve_tokens
+        assert self._context_trigger_ratio is not None
+        assert self._context_reserve_ratio is not None
+        limits = ContextWindowLimits.resolve(
+            model_context_tokens=self._model_context_tokens,
+            trigger_ratio=self._context_trigger_ratio,
+            hard_stop_ratio=self._context_hard_stop_ratio,
+            reserve_ratio=self._context_reserve_ratio,
+            output_reserve_tokens=output_reserve_tokens,
+        )
+        return limits.hard_stop_input_tokens

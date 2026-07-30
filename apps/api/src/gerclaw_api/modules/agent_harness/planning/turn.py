@@ -95,6 +95,9 @@ class TurnPlanningCoordinator:
             preflight=ModelBudgetPreflight(
                 execution_budget=execution_budget,
                 model_context_tokens=model_context_tokens,
+                context_trigger_ratio=config.context_trigger_ratio,
+                context_hard_stop_ratio=config.context_hard_stop_ratio,
+                context_reserve_ratio=config.context_reserve_ratio,
             ),
             output_reserve_tokens=config.model_output_reserve_tokens,
             input_overhead_tokens=config.model_input_overhead_tokens,
