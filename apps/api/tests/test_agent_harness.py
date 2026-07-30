@@ -545,6 +545,54 @@ async def test_generic_model_risk_template_is_absent_from_public_answer_and_stre
 
 
 @pytest.mark.asyncio
+async def test_private_clinical_state_is_projected_before_public_stream(
+    unit_settings: Settings,
+) -> None:
+    model = _HarnessModel(
+        text=(
+            "<final-clinical-state>"
+            '{"recommendations":['
+            '{"category":"behavior","detail":"固定睡前放松时间。",'
+            '"provenance":["private"]},'
+            '{"category":"environment","detail":"夜间保持卧室昏暗。",'
+            '"provenance":["private"]}'
+            '],"exclusions":["diet"]}'
+            "</final-clinical-state>"
+        )
+    )
+    harness = _harness(
+        unit_settings,
+        model=model,
+        rag=_HarnessRAG([_evidence()]),
+    )
+    context = await harness.assemble_context(
+        "108815d7-05bf-4c2a-a977-cd034f390fab",
+        "usr_patient00000001",
+        [],
+        [],
+    )
+    events: list[StreamEvent] = []
+
+    response = await harness.process_message(
+        "只给我两条睡前建议。",
+        "108815d7-05bf-4c2a-a977-cd034f390fab",
+        context,
+        events.append,
+    )
+
+    public_stream = "".join(
+        str(event.data.get("content", "")) for event in events if event.event_type == "text_delta"
+    )
+    assert model.calls == 1
+    assert "1. 固定睡前放松时间" in response.text
+    assert "2. 夜间保持卧室昏暗" in response.text
+    assert "final-clinical-state" not in response.text
+    assert "provenance" not in response.text
+    assert "exclusions" not in response.text
+    assert public_stream == response.text
+
+
+@pytest.mark.asyncio
 async def test_applied_directive_is_restored_before_resumed_model_call(
     unit_settings: Settings,
 ) -> None:

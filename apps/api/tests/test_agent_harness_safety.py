@@ -4,7 +4,11 @@ from __future__ import annotations
 
 import pytest
 
-from gerclaw_api.modules.agent_harness.run_lifecycle import project_public_answer
+from gerclaw_api.modules.agent_harness.run_lifecycle import (
+    AgentOutputProtocolError,
+    project_public_answer,
+    validate_public_answer_text,
+)
 from gerclaw_api.modules.agent_harness.safety import (
     MEDICAL_DISCLAIMER,
     PATIENT_CLINICAL_RISK_NOTICE,
@@ -217,3 +221,24 @@ def test_public_answer_projection_preserves_specific_risk_instructions() -> None
     )
 
     assert project_public_answer(answer) == answer
+
+
+def test_public_answer_projection_renders_private_clinical_state_as_plain_advice() -> None:
+    answer = (
+        "<final-clinical-state>"
+        '{"recommendations":['
+        '{"category":"behavior","detail":"固定睡前放松时间。","provenance":["private"]},'
+        '{"category":"environment","detail":"夜间保持卧室昏暗。","provenance":["private"]}'
+        '],"exclusions":["diet"]}'
+        "</final-clinical-state>"
+    )
+
+    public = project_public_answer(answer)
+
+    assert public == "1. 固定睡前放松时间。\n2. 夜间保持卧室昏暗。"
+    assert "final-clinical-state" not in public
+    assert "provenance" not in public
+    assert "exclusions" not in public
+
+    with pytest.raises(AgentOutputProtocolError):
+        validate_public_answer_text("<final-clinical-state>{malformed}</final-clinical-state>")

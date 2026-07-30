@@ -1543,3 +1543,9 @@ failed/cancelled/interrupted 同事务归一化，以及 attachment completed re
 ### 阶段 7
 
 执行完整后端、前端、迁移、Compose、Playwright 和 axe 回归，覆盖患者、医生、访客和响应式关键路径；更新架构、Harness、前端、设计和产品规格，经独立审阅后归档本计划。
+
+2026-07-31 真实 headless Playwright 在 steer successor 成功后捕获到模型把
+`<final-clinical-state>` JSON 协议直接作为最终正文。该缺陷已进入独立输出边界变更：
+合法 envelope 在私有 attempt 内确定性投影为按序自然语言建议，只采用 `recommendations.detail`；
+category、provenance、exclusions、JSON 和标签均不进入 SSE/Conversation/TTS/导出。无法解析或没有
+可读建议的 envelope 继续走一次有界 checkpoint repair，失败尝试不可见且不会被包装成成功。

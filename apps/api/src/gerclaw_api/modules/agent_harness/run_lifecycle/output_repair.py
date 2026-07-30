@@ -35,7 +35,8 @@ AttemptRepairObserver = Callable[
 
 OUTPUT_PROTOCOL_REPAIR_INSTRUCTION = (
     "上一尝试把内部工具调用格式写进了回答。重新完成用户要求:"
-    "不要复述、解释或输出 invoke、parameter、tool_call、function_call 等协议标签;"
+    "不要复述、解释或输出 invoke、parameter、tool_call、function_call、"
+    "final-clinical-state 等协议标签;"
     "如需工具必须使用已提供的正式工具接口, 否则直接用自然语言回答。"
 )
 
@@ -128,7 +129,6 @@ async def run_with_output_protocol_repair(
         events: list[BufferedEvent] = []
         try:
             result = await run_attempt(_buffered_emitter(events))
-            validate_public_answer_text(result.text)
             public_text = project_public_answer(result.text)
             validate_public_answer_text(public_text)
         except AgentOutputProtocolError:

@@ -14,7 +14,7 @@ from gerclaw_api.modules.agent_harness.safety import sanitize_medical_text
 
 _SENTENCE_END = re.compile(r"[。！？!?\n]")  # noqa: RUF001
 _PRIVATE_PROTOCOL_MARKER = re.compile(
-    r"(?:<\s*/?\s*(?:invoke|parameter|tool_call|function_call)\b|"
+    r"(?:<\s*/?\s*(?:invoke|parameter|tool_call|function_call|final-clinical-state)\b|"
     r"<\|/?(?:tool_call|function_call)[^>]*\|>)",
     re.IGNORECASE,
 )

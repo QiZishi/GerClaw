@@ -7,7 +7,11 @@ facade; the composition entry remains outside this package and injects budgets, 
 evidence state, Memory failure checks, and timeout error construction.
 
 Unsafe or empty output raises a typed, repairable error; trailing whitespace is never
-published as a new semantic delta. A chat answer now executes inside an encrypted private
+published as a new semantic delta. A valid `final-clinical-state` private envelope is
+deterministically reduced to its reader-facing recommendation details before publication;
+category, provenance, exclusions, JSON, and protocol tags remain private. A malformed or
+unsupported envelope enters the existing bounded pre-model checkpoint repair instead of
+reaching SSE. A chat answer now executes inside an encrypted private
 `AgentRunAttempt`. Validated stream events remain unsequenced and invisible to SSE/replay until
 the answer, `AnswerVersion`, and terminal Run transition can commit together. The successful
 attempt is then selected through a fencing-protected compare-and-swap and its events receive
