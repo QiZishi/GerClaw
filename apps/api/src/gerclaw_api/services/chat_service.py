@@ -110,6 +110,7 @@ from gerclaw_api.modules.validation import validate_public_chat_stream_event
 from gerclaw_api.modules.workflows import get_default_workflow_registry
 from gerclaw_api.repositories.approval import SqlAlchemyApprovalRepository
 from gerclaw_api.security import JsonValue, audit_hmac_digest
+from gerclaw_api.services.agent_run_service import RunAttemptConflictError
 from gerclaw_api.services.chat_run_journal import ChatRunJournal, RunDirectiveJournal
 from gerclaw_api.services.conversation_service import ConversationService
 from gerclaw_api.services.model_router import FailoverChatModel
@@ -1454,21 +1455,26 @@ class ChatService:
                         actor_id=identity.actor_id,
                         fencing_token=lease_guard.fencing_token,
                     )
-                except RunTerminalConflictError:
+                except (RunAttemptConflictError, RunTerminalConflictError):
                     if not await interruption_requested():
                         raise
             buffered_events.append(validated_event)
 
         promoted_events: tuple[RunEventRead, ...] = ()
+        harness_interrupted = False
         try:
             if successor_started_event is not None:
                 await projected(successor_started_event)
-            response = await harness.process_message(
-                payload.message,
-                str(payload.session_id),
-                context,
-                projected,
-            )
+            try:
+                response = await harness.process_message(
+                    payload.message,
+                    str(payload.session_id),
+                    context,
+                    projected,
+                )
+            except BaseException:
+                harness_interrupted = True
+                raise
             # AgentScope middleware performs asynchronous cleanup when a model
             # stream is interrupted. A provider can finish during that cleanup
             # and consume the task cancellation. The durable intent is therefore
@@ -1575,6 +1581,19 @@ class ChatService:
                 ),
             )
         except BaseException:
+            if (
+                harness_interrupted
+                and cancellation_requested is not None
+                and await cancellation_requested()
+            ):
+                for buffered_event in buffered_events:
+                    if buffered_event.event_type in {
+                        "agent_start",
+                        "reasoning_summary",
+                        "tool_call",
+                        "tool_result",
+                    }:
+                        await callback(buffered_event)
             # Never leave a replayable assistant paired with a non-completed
             # Trace. The outer failure path records the durable failure after the
             # shared transaction has been cleared.
@@ -1887,21 +1906,25 @@ class ChatService:
                 and fencing_token is not None
             ):
                 if self._active_attempt is not None:
-                    await self._run_journal.reject_attempt(
-                        self._active_attempt.id,
-                        ValidationFeedback(
-                            step_id=self._active_attempt.step_id,
-                            attempt=self._active_attempt.attempt,
-                            error_code=code.casefold(),
-                            field_paths=(),
-                            contract_version="chat-stream-v1",
-                            repair_action="resume_from_pre_step_checkpoint",
-                            checkpoint_id=self._active_attempt.checkpoint_id,
-                        ),
-                        tenant_id=identity.tenant_id,
-                        actor_id=identity.actor_id,
-                        fencing_token=fencing_token,
-                    )
+                    try:
+                        await self._run_journal.reject_attempt(
+                            self._active_attempt.id,
+                            ValidationFeedback(
+                                step_id=self._active_attempt.step_id,
+                                attempt=self._active_attempt.attempt,
+                                error_code=code.casefold(),
+                                field_paths=(),
+                                contract_version="chat-stream-v1",
+                                repair_action="resume_from_pre_step_checkpoint",
+                                checkpoint_id=self._active_attempt.checkpoint_id,
+                            ),
+                            tenant_id=identity.tenant_id,
+                            actor_id=identity.actor_id,
+                            fencing_token=fencing_token,
+                        )
+                    except (RunAttemptConflictError, RunTerminalConflictError):
+                        if status is not TraceStatus.CANCELLED:
+                            raise
                 await self._run_journal.transition(
                     self._active_run_id,
                     (

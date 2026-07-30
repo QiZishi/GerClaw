@@ -623,19 +623,18 @@ async def test_run_completion_failure_rolls_back_answer_and_never_emits_done(
         await client.post("/api/v1/sessions", json={"session_id": str(session_id)})
     ).status_code == 201
     monkeypatch.setattr(chat_service_module, "ProductionAgentHarness", _SafeHarness)
-    original_transition = AgentRunService.transition
+    original_commit_attempt = AgentRunService.commit_attempt
 
     async def fail_completed_run(
         service: AgentRunService,
-        run_id: uuid.UUID,
-        target: AgentRunStatus,
+        attempt_id: uuid.UUID,
         **kwargs: Any,
     ) -> Any:
-        if target is AgentRunStatus.COMPLETED:
+        if kwargs.get("target") is AgentRunStatus.COMPLETED:
             raise RunFenceConflictError("injected stale completion fence")
-        return await original_transition(service, run_id, target, **kwargs)
+        return await original_commit_attempt(service, attempt_id, **kwargs)
 
-    monkeypatch.setattr(AgentRunService, "transition", fail_completed_run)
+    monkeypatch.setattr(AgentRunService, "commit_attempt", fail_completed_run)
     response = await client.post(
         "/api/v1/chat",
         headers={"X-Trace-ID": trace_id},
