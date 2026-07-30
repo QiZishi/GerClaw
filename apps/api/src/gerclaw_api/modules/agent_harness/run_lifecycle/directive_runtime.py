@@ -18,7 +18,7 @@ DirectiveClaimer = Callable[[str, int], Awaitable[tuple[RunDirectiveRead, ...]]]
 DirectiveApplier = Callable[[tuple[uuid.UUID, ...], str], Awaitable[None]]
 DirectiveErrorFactory = Callable[[str], Exception]
 DirectiveRiskClassifier = Callable[[tuple[str, ...]], Sequence[str]]
-DirectiveContextPreparer = Callable[[Any, tuple[str, ...]], Awaitable[None]]
+DirectiveContextPreparer = Callable[[Any, tuple[str, ...], int], Awaitable[object]]
 
 
 class RuntimeDirectiveEmergency(Exception):
@@ -217,6 +217,7 @@ class RuntimeDirectiveCoordinator:
                 await self._context_preparer(
                     agent,
                     (*required_text_values, *directive_text),
+                    0,
                 )
             self._ensure_budget(
                 budget=budget,

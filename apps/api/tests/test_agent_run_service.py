@@ -12,6 +12,7 @@ from gerclaw_api.database.models import (
     AgentRun,
     AgentRunAttempt,
     AgentRunAttemptEvent,
+    AgentRunContextBoundary,
     AgentRunPlanNodeEvent,
     RunEvent,
 )
@@ -25,7 +26,10 @@ from gerclaw_api.domain.run_schemas import (
 )
 from gerclaw_api.modules.agent_harness.clinical_state import ClinicalState
 from gerclaw_api.modules.agent_harness.config import ResolvedHarnessConfig
-from gerclaw_api.modules.agent_harness.context_snapshot import PersistedRunPlan
+from gerclaw_api.modules.agent_harness.context_snapshot import (
+    ContextBoundaryDraft,
+    PersistedRunPlan,
+)
 from gerclaw_api.modules.agent_harness.planning import (
     ClinicalDecisionCoordinator,
     DeterministicPlanner,
@@ -69,6 +73,7 @@ class _Repository:
         self.attempts: dict[uuid.UUID, AgentRunAttempt] = {}
         self.attempt_events: list[AgentRunAttemptEvent] = []
         self.plan_node_events: list[AgentRunPlanNodeEvent] = []
+        self.context_boundaries: list[AgentRunContextBoundary] = []
         self.commits = 0
         self.rollbacks = 0
         self.deferred_binding_calls = 0
@@ -151,6 +156,26 @@ class _Repository:
     async def add_plan_node_event(self, event: AgentRunPlanNodeEvent) -> None:
         event.id = len(self.plan_node_events) + 1
         self.plan_node_events.append(event)
+
+    async def latest_context_boundary(
+        self,
+        run_id: uuid.UUID,
+    ) -> AgentRunContextBoundary | None:
+        return next(
+            (
+                boundary
+                for boundary in reversed(self.context_boundaries)
+                if boundary.run_id == run_id
+            ),
+            None,
+        )
+
+    async def add_context_boundary(
+        self,
+        boundary: AgentRunContextBoundary,
+    ) -> None:
+        boundary.id = len(self.context_boundaries) + 1
+        self.context_boundaries.append(boundary)
 
     async def list_attempt_events(
         self,
@@ -271,6 +296,22 @@ def _persisted_plan() -> PersistedRunPlan:
     )
 
 
+def _context_boundary_draft(*, suffix: str) -> ContextBoundaryDraft:
+    return ContextBoundaryDraft(
+        estimated_tokens_before=120,
+        estimated_tokens_after=80,
+        compression_attempted=True,
+        compression_failed=False,
+        source_context_ids=(f"ctx_source_{suffix}",),
+        retained_context_ids=(),
+        omitted_context_ids=(f"ctx_source_{suffix}",),
+        summary_lineage_ids=(f"summary_{suffix}",),
+        required_input_hashes=("a" * 64,),
+        context_hash_before="b" * 64,
+        context_hash_after="c" * 64,
+    )
+
+
 @pytest.mark.asyncio
 async def test_create_is_trace_idempotent_and_rejects_conflicting_replay() -> None:
     repository = _Repository()
@@ -292,6 +333,69 @@ async def test_create_is_trace_idempotent_and_rejects_conflicting_replay() -> No
             request.model_copy(update={"fencing_token": 8}),
             tenant_id=TENANT,
             actor_id=ACTOR,
+        )
+
+
+@pytest.mark.asyncio
+async def test_private_attempt_pointer_is_not_serialized_in_public_run() -> None:
+    repository = _Repository()
+    service = AgentRunService(repository)
+    created = await service.create_run(
+        _request(),
+        tenant_id=TENANT,
+        actor_id=ACTOR,
+    )
+    repository.runs[created.id].current_valid_attempt_id = uuid.uuid4()
+
+    projected = service.to_public_run(repository.runs[created.id])
+
+    assert projected.current_valid_attempt_id is not None
+    assert "current_valid_attempt_id" not in projected.model_dump(mode="json")
+
+
+@pytest.mark.asyncio
+async def test_context_boundaries_are_fenced_private_and_hash_chained() -> None:
+    repository = _Repository()
+    service = AgentRunService(repository)
+    created = await service.create_run(
+        _request(),
+        tenant_id=TENANT,
+        actor_id=ACTOR,
+    )
+
+    first = await service.append_context_boundary(
+        created.id,
+        _context_boundary_draft(suffix="first"),
+        boundary_kind="before-model",
+        model_call_count=1,
+        tenant_id=TENANT,
+        actor_id=ACTOR,
+        fencing_token=7,
+    )
+    second = await service.append_context_boundary(
+        created.id,
+        _context_boundary_draft(suffix="second"),
+        boundary_kind="before-tool",
+        model_call_count=1,
+        tenant_id=TENANT,
+        actor_id=ACTOR,
+        fencing_token=7,
+    )
+
+    assert first.sequence == 1
+    assert first.previous_projection_hash is None
+    assert second.sequence == 2
+    assert second.previous_projection_hash == first.projection_hash
+    assert repository.events == []
+    with pytest.raises(RunFenceConflictError):
+        await service.append_context_boundary(
+            created.id,
+            _context_boundary_draft(suffix="stale"),
+            boundary_kind="before-model",
+            model_call_count=2,
+            tenant_id=TENANT,
+            actor_id=ACTOR,
+            fencing_token=6,
         )
 
 

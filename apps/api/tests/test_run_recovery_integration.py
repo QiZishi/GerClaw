@@ -12,6 +12,7 @@ from sqlalchemy import select
 
 from gerclaw_api.database.models import (
     AgentRun,
+    AgentRunContextBoundary,
     AgentRunPlanNodeEvent,
     AnswerVersion,
     EvolutionSignalRecord,
@@ -24,6 +25,7 @@ from gerclaw_api.modules.agent_harness.clinical_state import ClinicalState
 from gerclaw_api.modules.agent_harness.config import ResolvedHarnessConfig
 from gerclaw_api.modules.agent_harness.context_snapshot import (
     AgentContext,
+    ContextBoundaryDraft,
     ContextProjectionManifest,
     FrozenToolContract,
     PersistedContextSnapshot,
@@ -219,6 +221,33 @@ async def test_plan_node_transitions_are_fenced_persisted_and_append_audited(
             actor_id=ACTOR,
         )
 
+    boundary_draft = ContextBoundaryDraft(
+        estimated_tokens_before=120,
+        estimated_tokens_after=80,
+        compression_attempted=True,
+        compression_failed=False,
+        source_context_ids=("ctx_source",),
+        retained_context_ids=(),
+        omitted_context_ids=("ctx_source",),
+        summary_lineage_ids=("summary_current",),
+        required_input_hashes=("a" * 64,),
+        context_hash_before="b" * 64,
+        context_hash_after="c" * 64,
+    )
+    async with app.state.database.session() as session:
+        boundary = await AgentRunService(
+            SqlAlchemyAgentRunRepository(session)
+        ).append_context_boundary(
+            created.id,
+            boundary_draft,
+            boundary_kind="before-model",
+            model_call_count=1,
+            tenant_id=TENANT,
+            actor_id=ACTOR,
+            fencing_token=23,
+        )
+        assert boundary.sequence == 1
+
     persisted = PersistedRunPlan.model_validate(plan_payload)
     executor = DynamicPlanExecutor(
         persisted.dynamic_plan,
@@ -256,6 +285,15 @@ async def test_plan_node_transitions_are_fenced_persisted_and_append_audited(
 
     async with app.state.database.session() as session:
         stored = await session.get(AgentRun, created.id)
+        context_boundaries = list(
+            (
+                await session.scalars(
+                    select(AgentRunContextBoundary).where(
+                        AgentRunContextBoundary.run_id == created.id
+                    )
+                )
+            ).all()
+        )
         events = list(
             (
                 await session.scalars(
@@ -265,7 +303,9 @@ async def test_plan_node_transitions_are_fenced_persisted_and_append_audited(
                 )
             ).all()
         )
-    assert stored is not None
+        assert stored is not None
+        assert len(context_boundaries) == 1
+        assert context_boundaries[0].projection_hash == boundary.projection_hash
     stored_plan = PersistedRunPlan.model_validate(stored.plan)
     assert stored_plan.plan_execution == completed
     assert running.statuses[node_id].value == "running"

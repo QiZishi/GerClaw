@@ -13,12 +13,14 @@ from gerclaw_api.modules.agent_harness.context_snapshot.lifecycle import (
 )
 from gerclaw_api.modules.agent_harness.context_snapshot.models import (
     AgentContext,
+    ContextBoundaryDraft,
     ContextProjectionManifest,
     ContextProjectionManifestV2,
     ContextSnapshotAssembler,
     ContextSnapshotError,
     ContextSourceBudget,
     ConversationHistoryMessage,
+    PersistedContextBoundary,
     ProductionContextSnapshotAssembler,
 )
 from gerclaw_api.modules.agent_harness.context_snapshot.persisted import (
@@ -34,6 +36,7 @@ from gerclaw_api.modules.agent_harness.context_snapshot.uploaded_input import (
 
 __all__ = [
     "AgentContext",
+    "ContextBoundaryDraft",
     "ContextProjectionManifest",
     "ContextProjectionManifestV2",
     "ContextSnapshotAssembler",
@@ -45,6 +48,7 @@ __all__ = [
     "ConversationHistoryMessage",
     "FrozenRunState",
     "FrozenToolContract",
+    "PersistedContextBoundary",
     "PersistedContextSnapshot",
     "PersistedRunPlan",
     "ProductionContextSnapshotAssembler",

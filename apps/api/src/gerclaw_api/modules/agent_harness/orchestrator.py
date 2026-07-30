@@ -599,11 +599,11 @@ class ProductionAgentHarness(ProductionHarnessCompositionSetup, OrchestrationSup
                 stream_callback=stream_callback,
             )
             observe_tool_result = self._skill_result_observer(governance)
-            apply_directives_after_tool = partial(
-                self._runtime_directives.apply_after_tool,
-                agent=agent_session.agent,
-                budget=budget,
-            )
+            async def apply_directives_after_tool() -> int:
+                return await self._runtime_directives.apply_after_tool(
+                    agent=agent_session.agent,
+                    budget=budget,
+                )
             try:
                 stream_result, output_contract_retries = await project_with_output_protocol_repair(
                     session=agent_session,

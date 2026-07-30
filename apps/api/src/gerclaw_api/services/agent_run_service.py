@@ -2,14 +2,18 @@
 
 from __future__ import annotations
 
+import hashlib
+import json
 import uuid
 from collections.abc import Mapping
 from datetime import UTC, datetime
+from typing import Literal
 
 from gerclaw_api.database.models import (
     AgentRun,
     AgentRunAttempt,
     AgentRunAttemptEvent,
+    AgentRunContextBoundary,
     AgentRunPlanNodeEvent,
     RunEvent,
 )
@@ -26,7 +30,11 @@ from gerclaw_api.domain.run_schemas import (
     RunEventWrite,
     ValidationFeedback,
 )
-from gerclaw_api.modules.agent_harness.context_snapshot import PersistedRunPlan
+from gerclaw_api.modules.agent_harness.context_snapshot import (
+    ContextBoundaryDraft,
+    PersistedContextBoundary,
+    PersistedRunPlan,
+)
 from gerclaw_api.modules.agent_harness.planning import (
     DynamicPlanExecutor,
     PlanExecutionSnapshot,
@@ -85,6 +93,72 @@ class AgentRunService:
     ) -> None:
         self._repository = repository
         self._state_machine = state_machine or AgentRunStateMachine()
+
+    async def append_context_boundary(
+        self,
+        run_id: uuid.UUID,
+        draft: ContextBoundaryDraft,
+        *,
+        boundary_kind: Literal["before-model", "before-tool"],
+        model_call_count: int,
+        tenant_id: str,
+        actor_id: str,
+        fencing_token: int,
+    ) -> PersistedContextBoundary:
+        """Append private content-free compaction lineage under the active fence."""
+
+        run = await self._locked_run(
+            run_id,
+            tenant_id=tenant_id,
+            actor_id=actor_id,
+        )
+        if run.fencing_token != fencing_token:
+            await self._repository.rollback()
+            raise RunFenceConflictError("agent run context boundary fence is stale")
+        if AgentRunStatus(run.status) in RUN_EVENT_CLOSED_STATUSES:
+            await self._repository.rollback()
+            raise RunTerminalConflictError(
+                "closed agent run cannot accept context boundaries"
+            )
+        previous = await self._repository.latest_context_boundary(run.id)
+        sequence = 1 if previous is None else previous.sequence + 1
+        payload = {
+            "schema_version": "context-boundary-v1",
+            "run_id": str(run.id),
+            "sequence": sequence,
+            "boundary_kind": boundary_kind,
+            "model_call_count": model_call_count,
+            "fencing_token": fencing_token,
+            "draft": draft.model_dump(mode="json"),
+            "previous_projection_hash": (
+                previous.projection_hash if previous is not None else None
+            ),
+        }
+        projection_hash = hashlib.sha256(
+            json.dumps(payload, sort_keys=True, separators=(",", ":")).encode()
+        ).hexdigest()
+        projection = PersistedContextBoundary(
+            **payload,
+            projection_hash=projection_hash,
+        )
+        await self._repository.add_context_boundary(
+            AgentRunContextBoundary(
+                run_id=run.id,
+                sequence=sequence,
+                boundary_kind=projection.boundary_kind,
+                model_call_count=model_call_count,
+                fencing_token=fencing_token,
+                projection=projection.model_dump(mode="json"),
+                projection_hash=projection_hash,
+            )
+        )
+        try:
+            await self._repository.flush()
+            await self._repository.commit()
+        except BaseException:
+            await self._repository.rollback()
+            raise
+        return projection
 
     async def create_run(
         self,
@@ -968,6 +1042,8 @@ class AgentRunService:
             route=RouteKind(run.route),
             status=AgentRunStatus(run.status),
             current_answer_version_id=run.current_answer_version_id,
+            # Internal CAS pointer remains available to the worker object but
+            # is excluded from public serialization by the contract.
             current_valid_attempt_id=run.current_valid_attempt_id,
             warnings=tuple(run.warnings),
             last_sequence=run.last_sequence,

@@ -14,6 +14,7 @@ from gerclaw_api.database.models import (
     AgentRun,
     AgentRunAttempt,
     AgentRunAttemptEvent,
+    AgentRunContextBoundary,
     AgentRunPlanNodeEvent,
     ConversationSession,
     RunDirective,
@@ -86,6 +87,18 @@ class AgentRunRepository(Protocol):
 
     async def add_plan_node_event(self, event: AgentRunPlanNodeEvent) -> None:
         """Stage one append-only content-free plan transition."""
+
+    async def latest_context_boundary(
+        self,
+        run_id: uuid.UUID,
+    ) -> AgentRunContextBoundary | None:
+        """Return the latest private compaction lineage row."""
+
+    async def add_context_boundary(
+        self,
+        boundary: AgentRunContextBoundary,
+    ) -> None:
+        """Stage one private fenced context boundary."""
 
     async def list_attempt_events(
         self,
@@ -239,6 +252,26 @@ class SqlAlchemyAgentRunRepository:
 
     async def add_plan_node_event(self, event: AgentRunPlanNodeEvent) -> None:
         self._session.add(event)
+
+    async def latest_context_boundary(
+        self,
+        run_id: uuid.UUID,
+    ) -> AgentRunContextBoundary | None:
+        return cast(
+            AgentRunContextBoundary | None,
+            await self._session.scalar(
+                select(AgentRunContextBoundary)
+                .where(AgentRunContextBoundary.run_id == run_id)
+                .order_by(AgentRunContextBoundary.sequence.desc())
+                .limit(1)
+            ),
+        )
+
+    async def add_context_boundary(
+        self,
+        boundary: AgentRunContextBoundary,
+    ) -> None:
+        self._session.add(boundary)
 
     async def list_attempt_events(
         self,

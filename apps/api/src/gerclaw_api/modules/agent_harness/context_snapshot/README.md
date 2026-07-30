@@ -76,15 +76,30 @@ projection 仍超过有效上限时才 fail closed。
 不透明 ID 和 before/after 估算，并随 Run 冻结。v1 仍可解析，保证已中断旧 Run 不因合同升级
 丢失恢复能力。
 
+ReAct 执行期间，每个 model/tool 副作用前还会生成 `ContextBoundaryDraft`。它将实际
+AgentScope state 的 before/after Token 估算、message/summary 稳定 ID、omitted/retained
+集合、required input hash、压缩失败状态和上下文 hash 写入私有
+`agent_run_context_boundaries`。写入必须持有当前 Run fencing token，按 Run row lock 分配
+sequence，并用 `previous_projection_hash` 形成链；该表使用加密 JSON，且不进入公开
+Run/Event/SSE。工具边界把预期 result reserve 同时放进 soft compaction 和 hard preflight，
+避免“能发出工具、却没有空间读取结果”。
+
+AgentScope 摘要失败时，运行期 fallback 由代码保护 `clinical_state`、临床决策、上传资料、
+admitted evidence、执行期用户指令和最新用户消息，再在剩余目标预算内从新到旧保留原文；
+不会从空上下文重启，也不会把失败升级为默认用户可见错误。结构化摘要 schema 的每个高价值
+字段均禁止空串。`context_trigger_ratio` 同时满足项目 soft/hard 配置和 AgentScope `<0.9`
+合同，防止合法项目配置在 Agent 构造时才失败。
+
 执行失败时，摘要、Memory 候选、assistant message 和成功终态处于同一事务；失败路径先
 rollback，再单独持久化失败 Trace/Run，旧 worker 仍受 fencing 阻断。服务/worker 丢失形成
 `interrupted`，恢复先公开“已恢复执行”，再使用同一快照继续；用户主动点击停止形成
 `cancelled` 真终态，不把可能不完整的流式文本当作可恢复答案。用户若想继续，应发起新 Run。
 
-Known limit: the snapshot freezes inputs and completed owner-capability results, but the
-current executor does not yet persist every AgentScope tool-call checkpoint. A resumed
-unfinished model/tool node may execute again behind existing idempotency and fencing
-boundaries. Node-level checkpoint continuation remains a Run Lifecycle responsibility.
+Known limit: private boundary rows persist content-free lineage and fencing evidence, not
+decrypted AgentScope message bodies or an in-flight Provider stream. Resume still restores the
+frozen v2 Snapshot/Plan and re-executes an unfinished model/tool node behind idempotency and
+fencing; it does not claim exact mid-model continuation. Exact owner-tool checkpoint continuation
+remains a Run Lifecycle responsibility.
 运行中 `queue_for_next_boundary` 使用独立 reserve 和 exactly-once 领取；立即 steer 先让旧
 Run 到达持久化 `interrupted`，再以 `ControlledSuccessorState` 建立新 Run。successor 复用上述
 冻结高价值输入但重新执行当前指令的容量预检和确定性规划，不重新读取可变 Memory、Profile、Skill 或

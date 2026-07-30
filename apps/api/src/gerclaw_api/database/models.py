@@ -551,6 +551,45 @@ class AgentRunAttemptEvent(Base):
     )
 
 
+class AgentRunContextBoundary(Base):
+    """Private, content-free ReAct context compaction lineage."""
+
+    __tablename__ = "agent_run_context_boundaries"
+    __table_args__ = (
+        UniqueConstraint(
+            "run_id",
+            "sequence",
+            name="uq_agent_run_context_boundary_sequence",
+        ),
+        CheckConstraint("sequence > 0", name="positive_context_boundary_sequence"),
+        CheckConstraint("fencing_token > 0", name="positive_context_boundary_fence"),
+        CheckConstraint(
+            "boundary_kind IN ('before-model','before-tool')",
+            name="valid_context_boundary_kind",
+        ),
+        Index(
+            "ix_agent_run_context_boundaries_run_created",
+            "run_id",
+            "created_at",
+            "id",
+        ),
+    )
+
+    id: Mapped[int] = mapped_column(BigInteger, primary_key=True, autoincrement=True)
+    run_id: Mapped[uuid.UUID] = mapped_column(
+        ForeignKey("agent_runs.id", ondelete="CASCADE"), nullable=False
+    )
+    sequence: Mapped[int] = mapped_column(Integer, nullable=False)
+    boundary_kind: Mapped[str] = mapped_column(String(32), nullable=False)
+    model_call_count: Mapped[int] = mapped_column(Integer, nullable=False)
+    fencing_token: Mapped[int] = mapped_column(BigInteger, nullable=False)
+    projection: Mapped[dict[str, Any]] = mapped_column(EncryptedJSON(), nullable=False)
+    projection_hash: Mapped[str] = mapped_column(String(64), nullable=False)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), nullable=False
+    )
+
+
 class AgentRunPlanNodeEvent(Base):
     """Append-only content-free audit of one persisted plan-node transition."""
 

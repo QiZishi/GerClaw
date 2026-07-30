@@ -48,6 +48,7 @@ from gerclaw_api.modules.agent_harness.clinical_state import (
 )
 from gerclaw_api.modules.agent_harness.config import ResolvedHarnessConfig
 from gerclaw_api.modules.agent_harness.context_snapshot import (
+    ContextBoundaryDraft,
     ContextSnapshotError,
     ContextWindowManager,
     ControlledSuccessorState,
@@ -1090,6 +1091,23 @@ class ChatService:
                 fencing_token=lease_guard.fencing_token,
             )
 
+        async def persist_context_boundary(
+            draft: ContextBoundaryDraft,
+            boundary_kind: Literal["before-model", "before-tool"],
+            model_call_count: int,
+        ) -> None:
+            if self._run_journal is None or self._active_run_id is None:
+                return
+            await self._run_journal.append_context_boundary(
+                self._active_run_id,
+                draft,
+                boundary_kind=boundary_kind,
+                model_call_count=model_call_count,
+                tenant_id=identity.tenant_id,
+                actor_id=identity.actor_id,
+                fencing_token=lease_guard.fencing_token,
+            )
+
         async def invoke_owner_capability(capability_id: str) -> CapabilityResult:
             if self._capability_runtime is None:
                 raise UnsupportedAgentContextError("governed capability owner is unavailable")
@@ -1177,6 +1195,7 @@ class ChatService:
             directive_claimer=claim_runtime_directives,
             directive_applier=apply_runtime_directives,
             attempt_repair_observer=repair_answer_attempt,
+            context_boundary_observer=persist_context_boundary,
         )
         context = await harness.assemble_context(
             str(payload.session_id),

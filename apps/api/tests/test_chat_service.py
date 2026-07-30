@@ -52,6 +52,7 @@ from gerclaw_api.modules.agent_harness.clinical_state import (
     FactProvenance,
 )
 from gerclaw_api.modules.agent_harness.context_snapshot import (
+    ContextBoundaryDraft,
     ControlledSuccessorState,
     FrozenRunState,
     PersistedContextSnapshot,
@@ -447,6 +448,7 @@ class _RunJournal:
         self.attempt_event_start = 0
         self.plan_executions: list[PlanExecutionSnapshot] = []
         self.completion_warnings: tuple[str, ...] = ()
+        self.context_boundaries: list[tuple[str, int, ContextBoundaryDraft]] = []
 
     async def resolve_regeneration(
         self,
@@ -515,6 +517,25 @@ class _RunJournal:
             **event.model_dump(),
             created_at=datetime.now(UTC),
         )
+
+    async def append_context_boundary(
+        self,
+        run_id: uuid.UUID,
+        draft: ContextBoundaryDraft,
+        *,
+        boundary_kind: str,
+        model_call_count: int,
+        tenant_id: str,
+        actor_id: str,
+        fencing_token: int,
+    ) -> object:
+        del tenant_id, actor_id
+        assert run_id == self.run_id
+        assert fencing_token == 17
+        self.context_boundaries.append(
+            (boundary_kind, model_call_count, draft)
+        )
+        return object()
 
     async def update_plan_execution(
         self,

@@ -36,7 +36,7 @@ Memory/Skill 的治理机制。
 | 3 | ClinicalState、动态规划与医疗门禁 | 已完成：四轮独立审阅修复、真实 GUI 与最终 ACCEPT |
 | 4 | 证据、Memory 与受治理能力组合 | 已完成：三项 P1 修复、真实 GUI/数据库复验、最终独立复审 ACCEPT |
 | 5 | 对话工作台 UI 与交互重构 | 已完成：独立审阅 3 项 P1 修复，真实 Playwright/axe 复验，最终 ACCEPT |
-| 6 | 双轨受控自进化与执行期上下文治理 | 进行中：核心双轨、在线 Memory/低风险 Skill、steer/queue 与 PlanNode 已落地；最终独立审阅发现 ReAct 压缩、通用步骤修复和危险 Skill 离线桥接仍有 3 项 P1，修复复审前不得关闭 |
+| 6 | 双轨受控自进化与执行期上下文治理 | 进行中：在线 Memory/低风险 Skill、steer/queue、PlanNode、私有 step repair、逐 ReAct 压缩 lineage 与危险 Skill 加密离线桥接已落地；离线 Skill 终审仍有 evaluator/manifest/operator 闭环 P1，修复复审前不得关闭 |
 | 7 | 最终回归、真实 GUI 对抗审阅与发布 | 已执行首轮全量回归与真实 Playwright/axe；因阶段 6 终审 REJECT 暂停归档，待 P1 修复后重跑受影响门禁和最终复审 |
 
 ## 3. 阶段 0：冻结基线与真实运行审计
@@ -1617,3 +1617,21 @@ Playwright 路径覆盖。该边界在最终发布报告中必须如实保留，
 Memory 10 路并发、跨主体 update/restore、vector 补偿，以及危险 Skill proposal 并发/竞态缺少承诺过的
 验收用例。修复原则仍是“可用性同样是安全”：可恢复错误在私有 attempt 内回到准确步骤并覆盖重做，
 不把错误尝试、安全策略名或修复过程泄露给用户；不可恢复或预算耗尽才产生简洁真实的终态。
+
+**逐 ReAct 上下文边界修复（2026-07-31）：**
+
+- 增加私有加密 `agent_run_context_boundaries` 与 migration `d24c814f2061`。每次 model/tool
+  副作用前在 active Run fence 下保存 before/after Token、source/retained/omitted IDs、
+  summary lineage、required input hash、context hash 和前一 projection hash；它不进入公开
+  Run/Event/SSE，旧 worker 不能越 fence 写入。
+- 工具的预期 result reserve 现在参与 soft compaction，不再只在工具执行前的 hard gate 才计算。
+  AgentScope 摘要失败时走代码所有的 deterministic extractive fallback，确定性保留
+  ClinicalState、临床决策、上传资料、admitted evidence、执行期用户新要求和最新用户消息；
+  高价值摘要 schema 不允许空串。
+- repair 重建 Agent 后，after-tool queue callback 动态读取 `agent_session.agent`，不再把已
+  `applied` 的用户新要求写入被丢弃的旧 Agent。项目 soft trigger 同时收紧到 AgentScope 的
+  `<0.9` 构造合同；内部 `current_valid_attempt_id` 仍供 worker CAS，但从公开序列化移除。
+- 定向单元测试 118/118；真实 PostgreSQL migration upgrade → downgrade → upgrade 与
+  `alembic check` 通过；真实 PostgreSQL/Redis/Qdrant context-boundary + PlanNode 集成用例
+  1/1 通过。逐节点 lineage 用于审计与提前容量治理，不虚称可以恢复 Provider 流中间态：
+  unfinished model/tool 仍从冻结 v2 Snapshot/Plan 的安全 checkpoint 重执行。

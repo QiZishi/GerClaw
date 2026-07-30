@@ -1,5 +1,7 @@
 """Validated context supplied to one isolated AgentScope turn."""
 
+import hashlib
+import json
 from typing import Annotated, Literal, Protocol
 
 from pydantic import BaseModel, ConfigDict, Field, StringConstraints, model_validator
@@ -172,6 +174,79 @@ class ContextProjectionManifestV2(BaseModel):
             raise ValueError("context projection contains duplicate sources")
         if (self.compression_state == "not_needed") != (self.compression_strategy == "none"):
             raise ValueError("context compression state and strategy disagree")
+        return self
+
+
+class ContextBoundaryDraft(BaseModel):
+    """Content-free lineage captured around one in-process ReAct compaction."""
+
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    schema_version: Literal["context-boundary-draft-v1"] = "context-boundary-draft-v1"
+    estimated_tokens_before: int = Field(ge=0, le=10_000_000)
+    estimated_tokens_after: int = Field(ge=0, le=10_000_000)
+    compression_attempted: bool
+    compression_failed: bool
+    source_context_ids: tuple[BoundedStableId, ...] = Field(default=(), max_length=500)
+    retained_context_ids: tuple[BoundedStableId, ...] = Field(default=(), max_length=500)
+    omitted_context_ids: tuple[BoundedStableId, ...] = Field(default=(), max_length=500)
+    summary_lineage_ids: tuple[BoundedStableId, ...] = Field(default=(), max_length=100)
+    required_input_hashes: tuple[str, ...] = Field(default=(), max_length=100)
+    context_hash_before: str = Field(pattern=r"^[a-f0-9]{64}$")
+    context_hash_after: str = Field(pattern=r"^[a-f0-9]{64}$")
+
+    @model_validator(mode="after")
+    def validate_lineage(self) -> "ContextBoundaryDraft":
+        source = set(self.source_context_ids)
+        retained = set(self.retained_context_ids)
+        omitted = set(self.omitted_context_ids)
+        if (
+            len(source) != len(self.source_context_ids)
+            or len(retained) != len(self.retained_context_ids)
+            or len(omitted) != len(self.omitted_context_ids)
+            or retained & omitted
+            or retained | omitted != source
+            or any(
+                len(value) != 64
+                or any(character not in "0123456789abcdef" for character in value)
+                for value in self.required_input_hashes
+            )
+        ):
+            raise ValueError("context boundary lineage is inconsistent")
+        if self.compression_failed and not self.compression_attempted:
+            raise ValueError("context compression cannot fail before it is attempted")
+        return self
+
+
+class PersistedContextBoundary(BaseModel):
+    """Private fenced projection; never returned by public Run/Event APIs."""
+
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    schema_version: Literal["context-boundary-v1"] = "context-boundary-v1"
+    run_id: str
+    sequence: int = Field(ge=1)
+    boundary_kind: Literal[
+        "before-model",
+        "before-tool",
+    ]
+    model_call_count: int = Field(ge=0)
+    fencing_token: int = Field(ge=1)
+    draft: ContextBoundaryDraft
+    previous_projection_hash: str | None = Field(
+        default=None,
+        pattern=r"^[a-f0-9]{64}$",
+    )
+    projection_hash: str = Field(pattern=r"^[a-f0-9]{64}$")
+
+    @model_validator(mode="after")
+    def validate_projection_hash(self) -> "PersistedContextBoundary":
+        payload = self.model_dump(mode="json", exclude={"projection_hash"})
+        expected = hashlib.sha256(
+            json.dumps(payload, sort_keys=True, separators=(",", ":")).encode()
+        ).hexdigest()
+        if expected != self.projection_hash:
+            raise ValueError("context boundary projection hash is invalid")
         return self
 
 

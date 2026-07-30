@@ -18,7 +18,7 @@ class ResolvedHarnessConfig(BaseModel):
     memory_top_k: int = Field(ge=1, le=100)
     memory_min_score: float = Field(ge=0, le=1)
     approval_ttl_seconds: int = Field(ge=60, le=86_400)
-    context_trigger_ratio: float = Field(gt=0, lt=1)
+    context_trigger_ratio: float = Field(gt=0, lt=0.9)
     context_hard_stop_ratio: float = Field(default=0.95, gt=0, lt=1)
     context_reserve_ratio: float = Field(gt=0, lt=1)
     context_evidence_reserve_tokens: int = Field(default=4_096, ge=256, le=32_768)

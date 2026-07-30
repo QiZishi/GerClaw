@@ -39,6 +39,7 @@ from gerclaw_api.modules.agent_harness.protocols import (
 from gerclaw_api.modules.agent_harness.routing import RouteDecision
 from gerclaw_api.modules.agent_harness.run_lifecycle import (
     AttemptRepairObserver,
+    ContextBoundaryObserver,
     ProductionRunLifecycle,
     ReActBoundaryCoordinator,
     prepare_react_context,
@@ -125,6 +126,7 @@ class ProductionHarnessCompositionSetup:
         directive_claimer: DirectiveClaimer | None = None,
         directive_applier: DirectiveApplier | None = None,
         attempt_repair_observer: AttemptRepairObserver | None = None,
+        context_boundary_observer: ContextBoundaryObserver | None = None,
     ) -> None:
         companion = is_companion_workflow(workflow)
         build_core_runtime_asset_security_registry().assess_agent(
@@ -214,6 +216,7 @@ class ProductionHarnessCompositionSetup:
             context_preparer=prepare_react_context,
             error_factory=RuntimeBudgetExceededError,
             image_count=len(self._uploaded_images),
+            boundary_observer=context_boundary_observer,
         )
         self._agent_factory = agent_factory or ProductionAgentFactory(
             model=model,

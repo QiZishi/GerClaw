@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import uuid
-from typing import Protocol
+from typing import Literal, Protocol
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -28,6 +28,10 @@ from gerclaw_api.domain.run_schemas import (
 from gerclaw_api.modules.agent_harness.clinical_state import (
     ClinicalState,
     ClinicalStateError,
+)
+from gerclaw_api.modules.agent_harness.context_snapshot import (
+    ContextBoundaryDraft,
+    PersistedContextBoundary,
 )
 from gerclaw_api.modules.agent_harness.evolution_signals import EvolutionSignalCollector
 from gerclaw_api.modules.agent_harness.planning import PlanExecutionSnapshot
@@ -94,6 +98,19 @@ class ChatRunJournal(Protocol):
         fencing_token: int,
     ) -> RunEventRead:
         """Persist one fenced public SSE event immediately."""
+
+    async def append_context_boundary(
+        self,
+        run_id: uuid.UUID,
+        draft: ContextBoundaryDraft,
+        *,
+        boundary_kind: Literal["before-model", "before-tool"],
+        model_call_count: int,
+        tenant_id: str,
+        actor_id: str,
+        fencing_token: int,
+    ) -> PersistedContextBoundary:
+        """Persist one private, content-free compaction projection."""
 
     async def begin_attempt(
         self,
@@ -437,6 +454,30 @@ class DatabaseChatRunJournal:
             return await AgentRunService(SqlAlchemyAgentRunRepository(session)).append_event(
                 run_id,
                 event,
+                tenant_id=tenant_id,
+                actor_id=actor_id,
+                fencing_token=fencing_token,
+            )
+
+    async def append_context_boundary(
+        self,
+        run_id: uuid.UUID,
+        draft: ContextBoundaryDraft,
+        *,
+        boundary_kind: Literal["before-model", "before-tool"],
+        model_call_count: int,
+        tenant_id: str,
+        actor_id: str,
+        fencing_token: int,
+    ) -> PersistedContextBoundary:
+        async with self._database.session() as session:
+            return await AgentRunService(
+                SqlAlchemyAgentRunRepository(session)
+            ).append_context_boundary(
+                run_id,
+                draft,
+                boundary_kind=boundary_kind,
+                model_call_count=model_call_count,
                 tenant_id=tenant_id,
                 actor_id=actor_id,
                 fencing_token=fencing_token,

@@ -28,6 +28,7 @@ from gerclaw_api.modules.agent_harness.run_lifecycle.public_answer import (
 )
 from gerclaw_api.modules.agent_harness.run_lifecycle.react_boundaries import (
     BoundReActBoundaries,
+    ContextBoundaryObserver,
     ReActBoundaryCoordinator,
     prepare_react_context,
 )
@@ -57,6 +58,7 @@ __all__ = [
     "AttemptRepairObserver",
     "BoundReActBoundaries",
     "CanonicalTextStream",
+    "ContextBoundaryObserver",
     "EmptyAgentResponseError",
     "ProductionRunLifecycle",
     "ReActBoundaryCoordinator",

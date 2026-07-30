@@ -308,7 +308,7 @@ class AgentRunRead(BaseModel):
     route: RouteKind
     status: AgentRunStatus
     current_answer_version_id: uuid.UUID | None = None
-    current_valid_attempt_id: uuid.UUID | None = None
+    current_valid_attempt_id: uuid.UUID | None = Field(default=None, exclude=True)
     warnings: tuple[BoundedIdentifier, ...] = Field(default=(), max_length=50)
     last_sequence: int = Field(default=0, ge=0)
     revision: int = Field(ge=1)
