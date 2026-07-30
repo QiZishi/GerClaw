@@ -13,6 +13,7 @@
 - `run_lifecycle`：稳定错误与安全文本流原语；
 - `evidence`：可核验 evidence/citation 元数据；
 - `plugin_runtime`：受治理能力清单与复用结果引用；
+- `evolution_governance`：双轨权限分类与候选不可写组件宪章；
 - `evolution_signals`：严格去内容化的离线演化信号。
 
 阶段 1 仅激活了 `context_snapshot`、`run_lifecycle` 和统一

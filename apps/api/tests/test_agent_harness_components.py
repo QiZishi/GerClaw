@@ -39,18 +39,13 @@ _COMPONENTS = (
     "run_lifecycle",
     "evidence",
     "plugin_runtime",
+    "evolution_governance",
     "evolution_signals",
 )
 
 
 def test_every_component_has_agent_instructions_and_reader_documentation() -> None:
-    root = (
-        Path(__file__).parents[1]
-        / "src"
-        / "gerclaw_api"
-        / "modules"
-        / "agent_harness"
-    )
+    root = Path(__file__).parents[1] / "src" / "gerclaw_api" / "modules" / "agent_harness"
 
     for component in _COMPONENTS:
         assert (root / component / "AGENTS.md").is_file()
@@ -58,13 +53,7 @@ def test_every_component_has_agent_instructions_and_reader_documentation() -> No
 
 
 def test_root_harness_is_a_small_compatibility_facade() -> None:
-    root = (
-        Path(__file__).parents[1]
-        / "src"
-        / "gerclaw_api"
-        / "modules"
-        / "agent_harness"
-    )
+    root = Path(__file__).parents[1] / "src" / "gerclaw_api" / "modules" / "agent_harness"
     facade = (root / "harness.py").read_text(encoding="utf-8")
 
     assert len(facade.splitlines()) <= 100
@@ -78,16 +67,9 @@ def test_root_harness_is_a_small_compatibility_facade() -> None:
 
 
 def test_run_lifecycle_depends_only_on_protocol_safe_boundaries() -> None:
-    root = (
-        Path(__file__).parents[1]
-        / "src"
-        / "gerclaw_api"
-        / "modules"
-        / "agent_harness"
-    )
+    root = Path(__file__).parents[1] / "src" / "gerclaw_api" / "modules" / "agent_harness"
     source = "\n".join(
-        path.read_text(encoding="utf-8")
-        for path in (root / "run_lifecycle").glob("*.py")
+        path.read_text(encoding="utf-8") for path in (root / "run_lifecycle").glob("*.py")
     )
 
     for forbidden_owner in (
@@ -102,13 +84,7 @@ def test_run_lifecycle_depends_only_on_protocol_safe_boundaries() -> None:
 
 
 def test_composition_entry_is_bounded_after_component_extraction() -> None:
-    root = (
-        Path(__file__).parents[1]
-        / "src"
-        / "gerclaw_api"
-        / "modules"
-        / "agent_harness"
-    )
+    root = Path(__file__).parents[1] / "src" / "gerclaw_api" / "modules" / "agent_harness"
     orchestrator = (root / "orchestrator.py").read_text(encoding="utf-8")
 
     assert len(orchestrator.splitlines()) <= 800
@@ -117,18 +93,11 @@ def test_composition_entry_is_bounded_after_component_extraction() -> None:
 
 
 def test_component_packages_do_not_read_environment_directly() -> None:
-    root = (
-        Path(__file__).parents[1]
-        / "src"
-        / "gerclaw_api"
-        / "modules"
-        / "agent_harness"
-    )
+    root = Path(__file__).parents[1] / "src" / "gerclaw_api" / "modules" / "agent_harness"
 
     for component in _COMPONENTS:
         source = "\n".join(
-            path.read_text(encoding="utf-8")
-            for path in (root / component).glob("*.py")
+            path.read_text(encoding="utf-8") for path in (root / component).glob("*.py")
         )
         assert "os.getenv(" not in source
         assert "os.environ[" not in source
@@ -170,21 +139,28 @@ def test_deterministic_router_covers_quick_standard_deep_and_emergency() -> None
     )
 
     assert router.decide(RoutingInput(message="1 + 1 = ?")).route is RouteKind.QUICK
-    assert router.decide(
-        RoutingInput(message="老人最近头晕", medical_content=True)
-    ).route is RouteKind.STANDARD
-    assert router.decide(
-        RoutingInput(
-            message="请综合评估并生成报告",
-            medical_content=True,
-        )
-    ).route is RouteKind.DEEP
-    assert router.decide(
-        RoutingInput(
-            message="请使用能力",
-            selected_capabilities=("gerclaw.cga", "gerclaw.medication_review"),
-        )
-    ).route is RouteKind.DEEP
+    assert (
+        router.decide(RoutingInput(message="老人最近头晕", medical_content=True)).route
+        is RouteKind.STANDARD
+    )
+    assert (
+        router.decide(
+            RoutingInput(
+                message="请综合评估并生成报告",
+                medical_content=True,
+            )
+        ).route
+        is RouteKind.DEEP
+    )
+    assert (
+        router.decide(
+            RoutingInput(
+                message="请使用能力",
+                selected_capabilities=("gerclaw.cga", "gerclaw.medication_review"),
+            )
+        ).route
+        is RouteKind.DEEP
+    )
     emergency = router.decide(
         RoutingInput(
             message="您好",
@@ -440,10 +416,7 @@ def test_user_message_projector_is_idempotent_and_records_red_flags() -> None:
         "red_flag",
     ]
     assert all(fact.status == "reported" for fact in state.facts)
-    assert all(
-        fact.provenance[0].source_id == f"message:{message_id}"
-        for fact in state.facts
-    )
+    assert all(fact.provenance[0].source_id == f"message:{message_id}" for fact in state.facts)
 
 
 def test_user_message_projector_extracts_only_explicit_structured_facts() -> None:
@@ -453,8 +426,7 @@ def test_user_message_projector_extracts_only_explicit_structured_facts() -> Non
         ClinicalState(),
         message_id=uuid.uuid4(),
         message=(
-            "老人78岁, 有高血压病史, 正在服用氨氯地平5mg每日一次, "
-            "没有药物过敏, 最近头晕持续3天。"
+            "老人78岁, 有高血压病史, 正在服用氨氯地平5mg每日一次, 没有药物过敏, 最近头晕持续3天。"
         ),
         observed_at=datetime.now(UTC),
         red_flag_codes=(),
@@ -472,9 +444,7 @@ def test_user_message_projector_extracts_only_explicit_structured_facts() -> Non
     } <= categories
     assert all(fact.status == "reported" for fact in state.facts)
     assert all(
-        provenance.source_type == "user"
-        for fact in state.facts
-        for provenance in fact.provenance
+        provenance.source_type == "user" for fact in state.facts for provenance in fact.provenance
     )
 
 

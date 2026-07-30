@@ -1,0 +1,34 @@
+# Evolution Governance
+
+This package turns Stage 6's dual-track rules into executable, versioned contracts.
+`OBJECT_RULES` classifies persistent object kinds by authority rather than directory name;
+`COMPONENT_CHARTERS` records the core purpose and non-negotiable mechanisms of each Harness
+component. `EvolutionGovernancePolicy` classifies low-authority content, rejects authority
+escalation and mixed-track candidates, and declares immutable human approval unconditional.
+The production rule/charter mappings are read-only and cannot be replaced through constructor
+injection. Each evolvable kind is also bound to a trusted target namespace, so a candidate
+cannot label `policy/prompt/**` as a presentation Skill to acquire mutable-track treatment.
+
+Memory facts, preferences, and workspace habits remain mutable online content. Clinical
+Memory is still low-authority user context and must pass its existing proposed/confirmed,
+conflict, revision, expiry, provenance, and recall gates. Presentation and bounded-retrieval
+Skill versions may evolve online; clinical, tooling, Prompt, routing, and planning changes
+are offline proposals. Safety gates, Runtime permissions, auth, charters, evaluators, sealed
+cases, keys, audit logs, release refs, and credentials cannot be candidate changes.
+
+The policy classifies content only after the Memory or Skill owner has verified the actual
+actor/resource relationship. It intentionally accepts no caller-provided ownership boolean.
+The next isolated change sets wire this classifier into those repository-backed owner
+services; until then the classification manifest is not a production write gate.
+
+This package is intentionally read-only. Candidate storage, worktree/symlink checks, sealed
+attestation, evaluation, approval signatures, and atomic promotion are later Stage 6
+controller responsibilities. Until that controller copies and verifies this manifest outside
+the worktree, the in-process manifest alone is not a complete trust boundary. This package
+does not accept a caller-provided `approved=True` as proof of approval.
+
+Acceptance requires the four mandatory counterexamples, unknown-kind fail-closed behavior,
+path traversal rejection, unique charters/rules, immutable approval despite a disabled
+deployment flag, and the existing component tests. Real sealed evaluator implementations
+and signed approval verification remain mandatory controller work; evaluator IDs alone are
+not evidence that those gates exist.

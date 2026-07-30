@@ -829,8 +829,27 @@ Agents SDK、HL7 FHIR、Mem0、Agent Skills、A-Evolve、GEPA 和 Adaptive Auto-
   citation index、source ID、locator 和 adopted text SHA-256。无关证据不再解锁直接诊断，越界或伪造
   marker fail closed；流式正文与终态正文一致。Evidence/Harness/Search 聚焦测试 120/120、真实
   PostgreSQL/Redis Chat + 恢复集成 18/18、Ruff/Mypy 和 800 行结构门禁通过。
+- Evolution Governance 分类事实源：新增 `evolution_governance` 独立组件，以版本化
+  `EvolutionObjectRule` 和 `ComponentCharter` 明确 mutable/immutable、authority、owner、update
+  policy、可信 target namespace 和候选读写权限。Memory 内容与低风险 Skill 内容保持 mutable；
+  Prompt/路由/规划/临床或工具 Skill 只允许离线提案；Harness 核心、Charter、安全/权限门禁、
+  evaluator/sealed case、密钥、审计和 release ref 不得成为候选。未知 kind 默认 sealed；混轨、
+  authority escalation、kind/target 伪装、路径穿越和重复 target fail closed。生产 Policy 使用只读
+  manifest 且不接受构造器规则注入；在线合同不接受调用方自报 ownership；当前模块只声明 immutable
+  必须审批，不接受 `approved=True` 冒充签名证明。Candidate 冻结合同已包含 base/candidate commit、
+  risk/reason、activation condition、content digest 和 timezone-aware `frozen_at`。定向组件、
+  Memory/Skill/Runtime 边界共 99/99、Ruff、Mypy 通过。
 
-四项前置 P1 已全部关闭，允许进入在线/离线演化写路径；组件宪章和双轨边界仍须先于候选执行落地。
+  该提交只是分类与 Charter 事实源，不虚报为生产写门禁：Memory/Skill owner service 接入、
+  低风险 Skill 确定性分类/在线激活、危险 Skill 转离线、realpath/symlink/freeze 后复验、真实 sealed
+  evaluator、commit-bound HMAC approval 和 promotion controller 仍是下面不可跳过的独立变更集。
+  独立子智能体两轮只读审阅：首轮 REJECT 发现 manifest 构造器注入、裸审批 bool 和生产未接入三项
+  P1；前两项修复且第三项明确拆为后续 owner-service 模块后，分类基础模块复审
+  `ACCEPT（P0=0，P1=0，P2=2）`。P2 为尚无真实 sealed evaluator/controller，以及后续必须执行
+  realpath/symlink/freeze-HEAD 复验，不在当前模块伪装完成。
+
+四项前置 P1 已全部关闭，组件宪章和双轨分类事实源已经落地；任何候选执行前仍必须完成
+Memory/Skill 生产写边界、sealed evaluator 和离线控制器接入。
 
 #### 6.1 必须保留的语义
 
