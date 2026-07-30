@@ -13,6 +13,7 @@ from gerclaw_api.modules.agent_harness.plugin_runtime.contracts import (
     PluginManifest,
     PluginRuntimeError,
     SelectedCapability,
+    capability_contract_schemas,
 )
 from gerclaw_api.modules.workflows import WorkflowId
 
@@ -27,8 +28,8 @@ GERCLAW_CAPABILITY_MANIFESTS: tuple[PluginManifest, ...] = (
         automatic_selection=True,
         supported_workflows=("standard", "cga"),
         shared_result_kinds=("attachment_projection", "clinical_observation"),
-        input_schema={"type": "object", "additionalProperties": False},
-        output_schema={"type": "object", "required": ["assessment_id", "status"]},
+        input_schema=capability_contract_schemas()[0],
+        output_schema=capability_contract_schemas()[1],
     ),
     PluginManifest(
         capability_id="gerclaw.medication_review",
@@ -40,8 +41,8 @@ GERCLAW_CAPABILITY_MANIFESTS: tuple[PluginManifest, ...] = (
         automatic_selection=True,
         supported_workflows=("standard",),
         shared_result_kinds=("clinical_observation",),
-        input_schema={"type": "object", "required": ["intake_id"]},
-        output_schema={"type": "object", "required": ["draft_id", "ruleset_version"]},
+        input_schema=capability_contract_schemas()[0],
+        output_schema=capability_contract_schemas()[1],
     ),
     PluginManifest(
         capability_id="gerclaw.five_prescription",
@@ -57,8 +58,8 @@ GERCLAW_CAPABILITY_MANIFESTS: tuple[PluginManifest, ...] = (
             "clinical_observation",
             "local_evidence",
         ),
-        input_schema={"type": "object", "required": ["intake_id"]},
-        output_schema={"type": "object", "required": ["draft_id", "status"]},
+        input_schema=capability_contract_schemas()[0],
+        output_schema=capability_contract_schemas()[1],
     ),
     PluginManifest(
         capability_id="gerclaw.report_artifact",
@@ -70,8 +71,8 @@ GERCLAW_CAPABILITY_MANIFESTS: tuple[PluginManifest, ...] = (
         automatic_selection=True,
         supported_workflows=("standard", "cga", "prescription"),
         shared_result_kinds=("local_evidence", "clinical_observation"),
-        input_schema={"type": "object", "required": ["run_id", "markdown"]},
-        output_schema={"type": "object", "required": ["artifact_id", "revision"]},
+        input_schema=capability_contract_schemas()[0],
+        output_schema=capability_contract_schemas()[1],
     ),
 )
 

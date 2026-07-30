@@ -22,6 +22,14 @@ complete the matching optional plan checkpoint; missing owners, invalid input, o
 owner results fail closed. The runtime does not copy scoring, intake, draft, or persistence
 logic into the Harness.
 
+Manifest `input_schema` and `output_schema` are the public JSON Schema projections of the exact
+strict Pydantic owner-adapter contracts. Runtime construction and every invocation reject a
+manifest whose declared schemas drift from those executable contracts. The input is validated
+before owner dispatch and the returned value is validated again before its public summary or
+opaque reference can cross the boundary; unknown fields fail closed with bounded, content-free
+error codes. Capability-specific clinical state remains in its existing owner and repository,
+not in a parallel Harness payload.
+
 `TurnSharedResultStore` and `TurnResultReuse` hold authorized attachment projections, reduced
 clinical observations, and local retrieval results once per
 `tenant + actor + session + trace`. References are opaque and consumer-allowlisted; private
@@ -31,8 +39,8 @@ failed terminal tool event and cannot be relabelled as success.
 Consumers: ChatService planning, the production Harness, the capability directory client, and
 the existing owner flows. Configuration: Runtime principal, approval callback/TTL, manifests,
 and budgets are injected at composition. Failure semantics: unknown/duplicate capabilities,
-unsupported workflow selection, scope mismatch, consumer denial, and reuse-key contract drift
-fail closed with stable codes.
+unsupported workflow selection, manifest schema drift, invalid owner input/output, scope
+mismatch, consumer denial, and reuse-key contract drift fail closed with stable codes.
 
 Known limit: chat activation connects the existing owner workspace but does not bypass its
 required user-input or clinical-review state transitions. Stage 5 adds the visible manual

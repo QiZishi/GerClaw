@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from collections.abc import Sequence
 from enum import StrEnum
-from typing import Literal, Protocol
+from typing import Literal, Protocol, cast
 
 from agentscope.tool import ToolBase
 from pydantic import BaseModel, ConfigDict, Field
@@ -15,6 +15,17 @@ from gerclaw_api.security import JsonValue
 
 class PluginRuntimeError(RuntimeError):
     """Stable capability selection or invocation failure."""
+
+
+class CapabilityInvocationContext(BaseModel):
+    """Versioned owner scope passed to every governed capability adapter."""
+
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    tenant_id: str = Field(min_length=1, max_length=128)
+    actor_id: str = Field(min_length=1, max_length=128)
+    session_id: str = Field(min_length=1, max_length=64)
+    trace_id: str = Field(min_length=1, max_length=128)
 
 
 class CapabilityEntrypoint(StrEnum):
@@ -94,6 +105,18 @@ class CapabilityResult(BaseModel):
     result_ref: str = Field(min_length=1, max_length=256)
     public_summary: str = Field(min_length=1, max_length=500)
     reused: bool = False
+
+
+def capability_contract_schemas() -> tuple[
+    dict[str, JsonValue],
+    dict[str, JsonValue],
+]:
+    """Return the exact schemas enforced by the current owner adapter boundary."""
+
+    return (
+        cast(dict[str, JsonValue], CapabilityInvocationContext.model_json_schema()),
+        cast(dict[str, JsonValue], CapabilityResult.model_json_schema()),
+    )
 
 
 class PluginRuntime(Protocol):

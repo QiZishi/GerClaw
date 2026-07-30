@@ -12,6 +12,7 @@ from gerclaw_api.modules.agent_harness.plugin_runtime.catalog import (
 from gerclaw_api.modules.agent_harness.plugin_runtime.contracts import (
     CapabilityCatalogRead,
     CapabilityEntrypoint,
+    CapabilityInvocationContext,
     CapabilityResult,
     CapabilitySelection,
     CapabilitySelectionMode,
@@ -23,7 +24,6 @@ from gerclaw_api.modules.agent_harness.plugin_runtime.contracts import (
     ToolRegistryPort,
 )
 from gerclaw_api.modules.agent_harness.plugin_runtime.invocation import (
-    CapabilityInvocationContext,
     GovernedCapabilityRuntime,
     OwnerCapabilityHandler,
 )

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import uuid
+from typing import cast
 
 import pytest
 
@@ -120,6 +121,18 @@ async def test_runtime_dispatches_to_exact_owner_and_rejects_mismatched_result()
 
     assert result.capability_id == "gerclaw.cga"
     assert len(calls) == 1
+    with pytest.raises(PluginRuntimeError, match="CAPABILITY_INPUT_INVALID"):
+        await runtime.invoke(
+            "gerclaw.cga",
+            {
+                "tenant_id": "tenant-default",
+                "actor_id": "usr_test",
+                "session_id": str(uuid.uuid4()),
+                "trace_id": "trace_capability_runtime_0003",
+                "untrusted_override": True,
+            },
+        )
+    assert len(calls) == 1
     with pytest.raises(PluginRuntimeError, match="CAPABILITY_OWNER_UNAVAILABLE"):
         await runtime.invoke(
             "gerclaw.medication_review",
@@ -128,6 +141,49 @@ async def test_runtime_dispatches_to_exact_owner_and_rejects_mismatched_result()
                 "actor_id": "usr_test",
                 "session_id": str(uuid.uuid4()),
                 "trace_id": "trace_capability_runtime_0002",
+            },
+        )
+
+
+@pytest.mark.asyncio
+async def test_runtime_executes_manifest_output_contract_and_rejects_schema_drift() -> None:
+    manifest = GovernedCapabilityCatalog().resolve("gerclaw.cga")
+    drifted = manifest.model_copy(
+        update={"input_schema": {"type": "object", "additionalProperties": True}}
+    )
+
+    with pytest.raises(PluginRuntimeError, match="CAPABILITY_SCHEMA_UNSUPPORTED"):
+        GovernedCapabilityRuntime(
+            catalog=GovernedCapabilityCatalog((drifted,)),
+            handlers={},
+        )
+
+    async def malformed_owner(
+        _context: CapabilityInvocationContext,
+        capability_id: str,
+    ) -> CapabilityResult:
+        return cast(
+            CapabilityResult,
+            {
+                "capability_id": capability_id,
+                "result_ref": "cga-workspace:session",
+                "public_summary": "CGA 工作台已连接。",
+                "private_payload": "must not cross owner boundary",
+            },
+        )
+
+    runtime = GovernedCapabilityRuntime(
+        catalog=GovernedCapabilityCatalog((manifest,)),
+        handlers={CapabilityEntrypoint.CGA_ASSESSMENT: malformed_owner},
+    )
+    with pytest.raises(PluginRuntimeError, match="CAPABILITY_OUTPUT_INVALID"):
+        await runtime.invoke(
+            "gerclaw.cga",
+            {
+                "tenant_id": "tenant-default",
+                "actor_id": "usr_test",
+                "session_id": str(uuid.uuid4()),
+                "trace_id": "trace_capability_runtime_0004",
             },
         )
 
