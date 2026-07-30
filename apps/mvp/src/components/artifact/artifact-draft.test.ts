@@ -15,8 +15,14 @@ const message: Message = {
   createdAt: 1,
   executionRunId: "6cf3c10d-1d9e-4cfb-8d42-1e32fdb92911",
   blocks: [
-    { kind: "text", content: "# 跌倒预防建议\n\n- 保持通道照明。" },
-    { kind: "disclaimer", content: "本内容不能替代医生诊疗。" },
+    { kind: "text", id: "text-1", content: "# 跌倒预防建议\n\n- 保持通道照明。" },
+    {
+      kind: "action",
+      id: "action-1",
+      summary: "已生成引用列表",
+      buttonLabel: "查看引用",
+      panelType: "citations",
+    },
   ],
 };
 
