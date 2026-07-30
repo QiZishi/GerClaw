@@ -21,7 +21,7 @@ GerClaw 保持老年医学定位。眼科病灶定位不在本计划范围。在
 | 2 | Run 事实源、状态机和恢复 | 已完成：两轮 P1 修复、真实 GUI 对抗审计、最终独立复审 ACCEPT |
 | 3 | ClinicalState、动态规划与医疗门禁 | 已完成：四轮独立审阅修复、真实 GUI 与最终 ACCEPT |
 | 4 | 证据、Memory 与受治理能力组合 | 已完成：三项 P1 修复、真实 GUI/数据库复验、最终独立复审 ACCEPT |
-| 5 | 对话工作台 UI 与交互重构 | 进行中：五个拆分模块与 Artifact 工作台已完成，待阶段级响应式/axe/独立审阅 |
+| 5 | 对话工作台 UI 与交互重构 | 已完成：独立审阅 3 项 P1 修复，真实 Playwright/axe 复验，最终 ACCEPT |
 | 6 | 受控离线自进化 | 未开始 |
 | 7 | 最终回归、真实 GUI 对抗审阅与发布 | 未开始 |
 
@@ -694,6 +694,36 @@ Sheet 缺可访问名称，补 `SheetTitle`“会话菜单”；项目内 E2E �
 Next.js/FastAPI，不注册 route mock。首轮为 1 passed / 1 failed，按上述动画问题修复后最终 2/2 passed。
 阶段级前端全量 unit 最终为 71 项 Node 测试全部通过，另校验 82 个题干和 123 个版本绑定 CGA WAV；完整
 ESLint、Next production build 均通过。截图位于 gitignored 的 `output/playwright/stage5-stage/`。
+
+#### 独立审阅拒绝、修复与复审
+
+独立子智能体首轮判定 `REJECT（P0=0、P1=3、P2=2）`。自动化虽已通过，但生产语义仍有三个阻断：
+
+1. 全局 `isGenerating` 使 A 会话运行中的 Run 劫持 B 会话 Composer；
+2. Artifact 未保存保护只覆盖关闭，换面板、换会话或另一条“转为文档”可绕过；
+3. 真实引用回答未进入原 E2E，引用角标/Popover 小于老年模式尺寸，来源区存在 nested interactive。
+
+修复后，运行状态和 `AbortController` 按 `sessionId` 隔离，旧回调不能清除新 Run；真实 Playwright 新增
+“A 生成中切换 B，B 可发送，返回 A 可安全停止”路径。Artifact 的关闭、换面板、换会话、跨角色切换和
+换草稿统一经过 dirty guard；同角色身份刷新不再重置右栏。409 重试先读取最新 revision，再由用户显式
+选择“基于最新版本重试”，保留本地草稿并写入新修订。项目 Playwright CLI 真实创建服务端 Artifact 后验证：
+关闭和切换健康画像均出现确认，取消后草稿保留，确认后才离开。
+
+引用展开和“查看全部”拆成并列原生按钮；老年模式引用目标为 48×48px，Popover/来源正文为 18px。
+移动右栏改用项目 Base UI `Sheet`，获得 dialog 名称、focus trap、背景隔离、Escape 和焦点恢复。移动 E2E
+实际打开健康画像 dialog 后重新执行 48px 热区和 axe，均无 serious/critical 问题。
+
+最终在 HEAD `086763a` 独立复审：
+
+```text
+VERDICT: ACCEPT
+P0=0, P1=0, P2=0
+cd apps/mvp && npm run test:e2e
+3 passed (13.0s)
+```
+
+审阅使用系统 Chrome、真实 Next.js/FastAPI，不下载浏览器、不注册 route mock。修复集另实际通过完整 ESLint
+和 Next production build；Artifact 聚焦测试为 10/10。Stage 5 至此关闭，允许进入 Stage 6。
 
 ### 阶段 6
 
