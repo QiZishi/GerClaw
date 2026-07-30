@@ -36,7 +36,7 @@ Memory/Skill 的治理机制。
 | 3 | ClinicalState、动态规划与医疗门禁 | 已完成：四轮独立审阅修复、真实 GUI 与最终 ACCEPT |
 | 4 | 证据、Memory 与受治理能力组合 | 已完成：三项 P1 修复、真实 GUI/数据库复验、最终独立复审 ACCEPT |
 | 5 | 对话工作台 UI 与交互重构 | 已完成：独立审阅 3 项 P1 修复，真实 Playwright/axe 复验，最终 ACCEPT |
-| 6 | 双轨受控自进化与执行期上下文治理 | 进行中：完成组件宪章、双轨分类、Memory 在线 CRUD、Skill 在线/离线分轨、去内容化信号、Codex 风格高价值上下文压缩及执行期 steer/queue 前后端闭环；继续 sealed evaluator、离线评测和晋升控制面 |
+| 6 | 双轨受控自进化与执行期上下文治理 | 进行中：双轨分类、Memory 在线 CRUD、Skill 在线/离线分轨、去内容化信号、隔离候选、paired/sealed gate、签名审批、原子晋升/回滚、真实拒绝闭环、Codex 风格压缩及 steer/queue 已完成；继续逐 ReAct/大型工具边界预检、PlanNode checkpoint/resume 与局部 warning/fallback |
 | 7 | 最终回归、真实 GUI 对抗审阅与发布 | 未开始 |
 
 ## 3. 阶段 0：冻结基线与真实运行审计
@@ -956,6 +956,16 @@ epoch 迁移流程；legacy plan 安全降为空 IDs 时尚无 quality marker，
   独立子智能体三轮审阅先后发现 live worktree ignored-file 执行、未执行 Charter 伪绿、freeze 未绑定、
   executor 可旁路和 cleanup 静默失败，均已形成反例测试；最终
   `ACCEPT（P0=0，P1=0，P2=0）`。
+
+2026-07-30 收口复核再次从当前生产代码和证据反查上述结论，而不是仅沿用计划描述：
+`apps/api/Dockerfile` 的 build context 仍是 `apps/api`，API 依赖和 lockfile 均不含 optimizer/
+training/benchmark 包；`apps/evolution` 继续是独立 operator trust domain。离线控制器测试
+`50 passed, 1 skipped`，唯一 skip 明确为当前 shell 未配置 content-addressed sandbox test image；
+Ruff、Mypy 通过。API 侧 governance、signals、Memory、Skill、Context、directive 与私有 attempt
+组合回归 `263 passed, 2 skipped`，无失败。历史真实 Docker 隔离测试和真实 rejected candidate
+证据仍由上面的 content-addressed record 固定，当前未配置镜像的 skip 没有被冒充为重新执行成功。
+离线双轨/晋升控制面已经完成；Stage 6 保持进行中只因为 6.6–6.9 登记的逐 ReAct/大型工具边界预检、
+PlanNode checkpoint/resume 及局部 warning/fallback 尚需各自独立变更集。
 
 #### 6.1 必须保留的语义
 

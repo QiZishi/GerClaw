@@ -20,17 +20,20 @@ cases, keys, audit logs, release refs, and credentials cannot be candidate chang
 
 The policy classifies content only after the Memory or Skill owner has verified the actual
 actor/resource relationship. It intentionally accepts no caller-provided ownership boolean.
-The next isolated change sets wire this classifier into those repository-backed owner
-services; until then the classification manifest is not a production write gate.
+Repository-backed Memory and Skill owner services now call this classifier only after
+verifying the actor/resource relationship. Memory CRUD keeps its online mutable-content
+semantics, while Skill evolution applies only the fixed low-risk directive DSL online and
+routes every other candidate to offline review.
 
 This package is intentionally read-only. Candidate storage, worktree/symlink checks, sealed
-attestation, evaluation, approval signatures, and atomic promotion are later Stage 6
-controller responsibilities. Until that controller copies and verifies this manifest outside
-the worktree, the in-process manifest alone is not a complete trust boundary. This package
-does not accept a caller-provided `approved=True` as proof of approval.
+attestation, evaluation, approval signatures, and atomic promotion belong to the separate
+operator-run `apps/evolution` trust domain. That controller copies and verifies this manifest
+outside the candidate worktree; the in-process manifest alone is not treated as a complete
+trust boundary. This package does not accept a caller-provided `approved=True` as proof of
+approval.
 
 Acceptance requires the four mandatory counterexamples, unknown-kind fail-closed behavior,
 path traversal rejection, unique charters/rules, immutable approval despite a disabled
-deployment flag, and the existing component tests. Real sealed evaluator implementations
-and signed approval verification remain mandatory controller work; evaluator IDs alone are
-not evidence that those gates exist.
+deployment flag, and the existing component tests. The offline controller must continue to
+verify real sealed attestations and signed approvals; evaluator IDs alone are never accepted
+as evidence that those gates ran.
