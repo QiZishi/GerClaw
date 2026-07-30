@@ -25,6 +25,7 @@ from gerclaw_api.domain.chat_schemas import (
     ChatCancelledData,
     ChatCancelRead,
     ChatErrorData,
+    ChatInterruptedData,
     ChatRequest,
     SessionCreateRequest,
     SessionDeleted,
@@ -47,6 +48,7 @@ from gerclaw_api.modules.agent_harness.plugin_runtime import (
 from gerclaw_api.modules.document import DocumentService
 from gerclaw_api.modules.memory.memory_module import ProductionMemoryModule
 from gerclaw_api.modules.memory.runtime import create_memory_module
+from gerclaw_api.modules.orchestration import ChatSteeredInterruption
 from gerclaw_api.modules.rag.runtime import RAGRuntime, create_rag_runtime
 from gerclaw_api.modules.risk_alert.service import RiskAlertService
 from gerclaw_api.modules.search.runtime import SearchRuntime, create_search_runtime
@@ -105,7 +107,7 @@ class _Terminal:
 
 
 _TERMINAL = _Terminal()
-QueueItem = StreamEvent | ChatCancelledData | ChatErrorData | _Terminal
+QueueItem = StreamEvent | ChatCancelledData | ChatInterruptedData | ChatErrorData | _Terminal
 
 
 def _force_enqueue(queue: asyncio.Queue[QueueItem], item: QueueItem) -> None:
@@ -577,6 +579,11 @@ async def _stream_chat(
                                 actor_id=identity.actor_id,
                                 trace_id=trace_id,
                             ),
+                            steering_requested=lambda: registry.is_steer_requested(
+                                tenant_id=identity.tenant_id,
+                                actor_id=identity.actor_id,
+                                trace_id=trace_id,
+                            ),
                             resume_state=resume_state,
                         )
                     finally:
@@ -586,6 +593,11 @@ async def _stream_chat(
                             await request_owned_rag.aclose()
                         if request_owned_model is not None:
                             await request_owned_model.aclose()
+        except ChatSteeredInterruption:
+            _force_enqueue(
+                queue,
+                ChatInterruptedData(trace_id=trace_id),
+            )
         except asyncio.CancelledError:
             _force_enqueue(
                 queue,
@@ -653,6 +665,9 @@ async def _stream_chat(
                     break
                 if isinstance(item, ChatCancelledData):
                     yield _encode_sse("cancelled", item.model_dump(mode="json"))
+                    continue
+                if isinstance(item, ChatInterruptedData):
+                    yield _encode_sse("interrupted", item.model_dump(mode="json"))
                     continue
                 if isinstance(item, ChatErrorData):
                     yield _encode_sse("error", item.model_dump(mode="json"))

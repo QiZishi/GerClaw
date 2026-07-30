@@ -62,11 +62,22 @@ next model call. Public directive responses omit idempotency keys, worker fencin
 private boundary identities. A short configured Trace lookup wait covers the race between SSE
 startup and durable Run creation without allowing cross-actor discovery.
 
-Immediate steering, controlled successor creation, cross-replica steer fan-out, before-tool
-and plan-node boundaries, Context compression after large tool results, and Composer status
-projection remain the next change sets. A model-only stream that receives a directive after
-its initial boundary therefore defers it to the next Run instead of mutating an in-flight
-model call. No UI or API claims immediate steering works before those consumers are connected.
+Immediate steering now has a distinct durable cross-replica control signal. It never reuses
+explicit cancellation: an interrupted worker rejects its private attempt, transitions the Run
+to `interrupted`, leaves its Trace out of failed/cancelled terminal projection, and emits a
+distinct control-only SSE frame. The normal chat route supplies independent cancel and steer
+probes, so either intent still fences final answer promotion even if a provider consumes task
+cancellation during cleanup. The coordinator carries the already-persisted steer outcome to
+SSE as a typed interruption instead of re-reading mutable Redis state during cleanup. Explicit
+cancel takes precedence when both durable signals exist before that outcome is frozen, and
+the local merge is monotonic so a stale Redis steer read cannot downgrade a concurrent cancel.
+
+Controlled successor creation, before-tool and plan-node boundaries, Context compression after
+large tool results, and Composer status projection remain the next change sets. No public API
+can request immediate steering until the successor can inherit the last committed checkpoint
+without re-reading mutable Memory or Skill state. A model-only stream that receives a queued
+directive after its initial boundary therefore defers it to the next Run instead of mutating
+an in-flight model call.
 
 Measure improvement with one terminal event, no failed-attempt bytes in SSE/replay, atomic
 AnswerVersion/current-attempt selection, stale-fence/CAS rejection, cancellation tests, and

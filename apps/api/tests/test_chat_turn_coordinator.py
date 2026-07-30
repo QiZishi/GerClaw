@@ -11,7 +11,10 @@ import pytest
 
 from gerclaw_api.domain.enums import TraceStatus
 from gerclaw_api.domain.trace_schemas import TraceStartRequest
-from gerclaw_api.modules.orchestration import ChatTurnCoordinator
+from gerclaw_api.modules.orchestration import (
+    ChatSteeredInterruption,
+    ChatTurnCoordinator,
+)
 
 
 class _Conversation:
@@ -153,6 +156,47 @@ async def test_cancelled_owned_turn_requires_a_durable_cancelled_finalization() 
         )
 
     assert statuses == [(TraceStatus.CANCELLED, "CHAT_CANCELLED", 7)]
+
+
+@pytest.mark.asyncio
+async def test_steered_turn_uses_distinct_interruption_code() -> None:
+    coordinator = ChatTurnCoordinator(
+        conversation=_Conversation(),
+        traces=_Traces(status="running", created=True),
+        lease=_Lease(),
+    )  # type: ignore[arg-type]
+    statuses: list[tuple[TraceStatus, str, int | None]] = []
+
+    async def interrupted_turn(_guard: SimpleNamespace) -> object:
+        raise asyncio.CancelledError("steer")
+
+    async def finalize(
+        status: TraceStatus,
+        code: str,
+        fencing_token: int | None,
+        _guard: object,
+    ) -> bool:
+        statuses.append((status, code, fencing_token))
+        return True
+
+    with pytest.raises(ChatSteeredInterruption):
+        await coordinator.execute(
+            start_request=_start_request(uuid.uuid4()),
+            request_id="req_steer",
+            trace_id="trace_steer_12345678",
+            tenant_id="tenant_test",
+            actor_id="actor_test",
+            session_id=uuid.uuid4(),
+            private_input_artifacts=None,
+            read_replay=lambda: _unexpected("replay must not run"),
+            emit_replay=lambda item: _unexpected("replay must not emit"),
+            run_owned_turn=interrupted_turn,  # type: ignore[arg-type]
+            finalize_failure=finalize,
+            error_code=lambda error: "CHAT_EXECUTION_FAILED",
+            steering_requested=lambda: _return(True),  # type: ignore[arg-type]
+        )
+
+    assert statuses == [(TraceStatus.CANCELLED, "CHAT_STEERED", 7)]
 
 
 async def _return(value: object) -> object:

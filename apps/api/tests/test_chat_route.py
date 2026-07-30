@@ -13,7 +13,11 @@ from pydantic import ValidationError
 
 from gerclaw_api.api.routes.chat import _TERMINAL, QueueItem, _force_enqueue, chat
 from gerclaw_api.auth import AuthContext
-from gerclaw_api.domain.chat_schemas import ChatCancelledData, ChatRequest
+from gerclaw_api.domain.chat_schemas import (
+    ChatCancelledData,
+    ChatInterruptedData,
+    ChatRequest,
+)
 from gerclaw_api.modules.agent_harness import StreamEvent
 
 
@@ -78,3 +82,10 @@ def test_full_sse_queue_preserves_terminal_tool_result_cancel_and_sentinel() -> 
 
     items = [queue.get_nowait() for _ in range(queue.qsize())]
     assert items[-3:] == [tool_result, cancelled, _TERMINAL]
+
+
+def test_interrupted_control_frame_is_distinct_from_explicit_cancel() -> None:
+    interrupted = ChatInterruptedData(trace_id="trace_steer_control_0001")
+
+    assert interrupted.status == "interrupted"
+    assert interrupted.model_dump()["message"] == "已按新要求调整执行。"

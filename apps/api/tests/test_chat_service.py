@@ -60,6 +60,7 @@ from gerclaw_api.modules.agent_harness.routing import RouteKind
 from gerclaw_api.modules.agent_harness.run_lifecycle import RunFenceConflictError
 from gerclaw_api.modules.memory.models import MemoryUpdateResult
 from gerclaw_api.modules.memory.protocols import MemoryMessage, UserProfile
+from gerclaw_api.modules.orchestration import ChatSteeredInterruption
 from gerclaw_api.modules.runtime.models import ActorRole
 from gerclaw_api.security import JsonValue
 from gerclaw_api.services.chat_service import (
@@ -1282,6 +1283,61 @@ async def test_durable_cancel_intent_fences_success_when_runtime_swallows_task_c
     assert run_journal.answer_message_ids == []
     assert run_journal.transitions == [AgentRunStatus.CANCELLED]
     assert len(run_journal.rejected_attempts) == 1
+
+
+@pytest.mark.asyncio
+async def test_durable_steer_invalidates_attempt_without_publishing_cancel_or_failure(
+    unit_settings: Settings,
+) -> None:
+    session_id = uuid.uuid4()
+    traces = _TraceFacade(created=True, session_id=session_id)
+    conversation = _ConversationFacade(session_id)
+    memory = _MemoryFacade()
+    run_journal = _RunJournal()
+    service = ChatService(
+        settings=unit_settings,
+        conversation=cast(Any, conversation),
+        traces=cast(Any, traces),
+        lease=cast(Any, _OwnedLease()),
+        model=cast(Any, _TextModel()),
+        rag_module=cast(Any, _NoopRAG()),
+        memory_factory=_memory_factory(memory),
+        run_journal=run_journal,
+    )
+    events: list[object] = []
+
+    async def callback(event: object) -> None:
+        events.append(event)
+
+    async def steering_requested() -> bool:
+        return True
+
+    with pytest.raises(ChatSteeredInterruption):
+        await service.process(
+            ChatRequest(session_id=session_id, message="您好!"),
+            identity=AuthContext(
+                actor_id="usr_patient_unit0001",
+                tenant_id="tenant_public0001",
+                scopes=frozenset({"chat:write"}),
+            ),
+            request_id="request_chat_steer_fence_0001",
+            trace_id="trace_chat_steer_0001",
+            callback=cast(Any, callback),
+            steering_requested=steering_requested,
+        )
+
+    assert conversation.response is None
+    assert memory.compensation_count == 1
+    assert memory.committed_count == 0
+    assert traces.trace.status == TraceStatus.RUNNING.value
+    assert traces.finishes == []
+    assert events == []
+    assert run_journal.answer_message_ids == []
+    assert run_journal.transitions == [AgentRunStatus.INTERRUPTED]
+    assert [item.error_code for item in run_journal.rejected_attempts] == [
+        "chat_steered"
+    ]
+    assert run_journal.rejected_attempts[0].repair_action == "start_controlled_successor"
 
 
 @pytest.mark.asyncio

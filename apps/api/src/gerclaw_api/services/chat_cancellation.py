@@ -7,6 +7,7 @@ import json
 import logging
 import re
 from contextlib import suppress
+from enum import StrEnum
 
 from redis.asyncio import Redis
 
@@ -16,6 +17,13 @@ _CHANNEL = "gerclaw:chat:cancellations:v1"
 _SAFE_ID = re.compile(r"^[A-Za-z0-9_.:-]{3,128}$")
 _CANCEL_TTL_SECONDS = 120
 TaskKey = tuple[str, str, str]
+
+
+class ChatControlIntent(StrEnum):
+    """Durable user control intents with distinct lifecycle semantics."""
+
+    CANCEL = "cancel"
+    STEER = "steer"
 
 
 class ChatCancellationUnavailable(RuntimeError):
@@ -28,7 +36,7 @@ class ChatCancellationRegistry:
     def __init__(self, redis: Redis) -> None:
         self._redis = redis
         self._tasks: dict[TaskKey, asyncio.Task[None]] = {}
-        self._requested: set[TaskKey] = set()
+        self._requested: dict[TaskKey, ChatControlIntent] = {}
         self._lock = asyncio.Lock()
         self._listener: asyncio.Task[None] | None = None
         self._pubsub: object | None = None
@@ -77,7 +85,7 @@ class ChatCancellationRegistry:
         async with self._lock:
             self._tasks[key] = task
         try:
-            already_requested = bool(await self._redis.exists(self._request_key(*key)))
+            intent = await self._read_intent(key)
         except Exception as error:
             async with self._lock:
                 if self._tasks.get(key) is task:
@@ -85,11 +93,8 @@ class ChatCancellationRegistry:
             raise ChatCancellationUnavailable(
                 "chat cancellation coordination unavailable"
             ) from error
-        if already_requested and not task.done() and task.cancelling() == 0:
-            async with self._lock:
-                if self._tasks.get(key) is task:
-                    self._requested.add(key)
-            task.cancel("explicit chat cancellation requested")
+        if intent is not None:
+            await self._interrupt_local(key, intent)
 
     async def unregister(
         self,
@@ -105,48 +110,149 @@ class ChatCancellationRegistry:
         async with self._lock:
             if self._tasks.get(key) is task:
                 self._tasks.pop(key, None)
-                self._requested.discard(key)
+                self._requested.pop(key, None)
 
     async def request_cancel(self, *, tenant_id: str, actor_id: str, trace_id: str) -> None:
         """Persist and publish an identity-scoped cancellation request."""
 
         key = (tenant_id, actor_id, trace_id)
+        await self._request_control(key, ChatControlIntent.CANCEL)
+
+    async def request_steer(self, *, tenant_id: str, actor_id: str, trace_id: str) -> None:
+        """Persist and publish an immediate-steer interruption."""
+
+        await self._request_control(
+            (tenant_id, actor_id, trace_id),
+            ChatControlIntent.STEER,
+        )
+
+    async def is_cancel_requested(self, *, tenant_id: str, actor_id: str, trace_id: str) -> bool:
+        """Return the durable intent used as a final pre-commit cancellation fence."""
+
+        return (
+            await self.control_intent(
+                tenant_id=tenant_id,
+                actor_id=actor_id,
+                trace_id=trace_id,
+            )
+            is ChatControlIntent.CANCEL
+        )
+
+    async def is_steer_requested(
+        self,
+        *,
+        tenant_id: str,
+        actor_id: str,
+        trace_id: str,
+    ) -> bool:
+        """Return true only for an immediate-steer interruption."""
+
+        return (
+            await self.control_intent(
+                tenant_id=tenant_id,
+                actor_id=actor_id,
+                trace_id=trace_id,
+            )
+            is ChatControlIntent.STEER
+        )
+
+    async def is_interruption_requested(
+        self,
+        *,
+        tenant_id: str,
+        actor_id: str,
+        trace_id: str,
+    ) -> bool:
+        """Fence final answer promotion for either user control intent."""
+
+        return (
+            await self.control_intent(
+                tenant_id=tenant_id,
+                actor_id=actor_id,
+                trace_id=trace_id,
+            )
+            is not None
+        )
+
+    async def control_intent(
+        self,
+        *,
+        tenant_id: str,
+        actor_id: str,
+        trace_id: str,
+    ) -> ChatControlIntent | None:
+        """Read the durable intent, with explicit cancel taking precedence."""
+
+        key = (tenant_id, actor_id, trace_id)
+        async with self._lock:
+            local = self._requested.get(key)
+        if local is ChatControlIntent.CANCEL:
+            return local
+        try:
+            intent = await self._read_intent(key)
+        except ChatCancellationUnavailable:
+            # A control request already delivered to this worker remains an
+            # authoritative final fence even if Redis fails during cleanup.
+            if local is not None:
+                return local
+            raise
+        if intent is not None:
+            async with self._lock:
+                effective = self._merge_intent(
+                    self._requested.get(key) if key in self._tasks else local,
+                    intent,
+                )
+                if key in self._tasks:
+                    self._requested[key] = effective
+                return effective
+        return local
+
+    async def _request_control(
+        self,
+        key: TaskKey,
+        intent: ChatControlIntent,
+    ) -> None:
         payload = json.dumps(
-            {"tenant_id": tenant_id, "actor_id": actor_id, "trace_id": trace_id},
+            {
+                "tenant_id": key[0],
+                "actor_id": key[1],
+                "trace_id": key[2],
+                "intent": intent.value,
+            },
             separators=(",", ":"),
             sort_keys=True,
         )
         try:
             async with self._redis.pipeline(transaction=True) as pipeline:
-                pipeline.set(self._request_key(*key), "1", ex=_CANCEL_TTL_SECONDS)
+                pipeline.set(
+                    self._request_key(*key, intent=intent),
+                    "1",
+                    ex=_CANCEL_TTL_SECONDS,
+                )
                 pipeline.publish(_CHANNEL, payload)
                 await pipeline.execute()
         except Exception as error:
             raise ChatCancellationUnavailable(
                 "chat cancellation coordination unavailable"
             ) from error
-        await self._cancel_local(key)
+        await self._interrupt_local(key, intent)
 
-    async def is_cancel_requested(self, *, tenant_id: str, actor_id: str, trace_id: str) -> bool:
-        """Return the durable intent used as a final pre-commit cancellation fence."""
-
-        key = (tenant_id, actor_id, trace_id)
-        async with self._lock:
-            if key in self._requested:
-                return True
+    async def _read_intent(self, key: TaskKey) -> ChatControlIntent | None:
         try:
-            requested = bool(
-                await self._redis.exists(self._request_key(tenant_id, actor_id, trace_id))
+            cancel_requested, steer_requested = await self._redis.exists(
+                self._request_key(*key, intent=ChatControlIntent.CANCEL)
+            ), await self._redis.exists(
+                self._request_key(*key, intent=ChatControlIntent.STEER)
             )
         except Exception as error:
             raise ChatCancellationUnavailable(
                 "chat cancellation coordination unavailable"
             ) from error
-        if requested:
-            async with self._lock:
-                if key in self._tasks:
-                    self._requested.add(key)
-        return requested
+        if cancel_requested:
+            return ChatControlIntent.CANCEL
+        if steer_requested:
+            return ChatControlIntent.STEER
+        return None
 
     async def _listen(self, pubsub: object) -> None:
         try:
@@ -155,9 +261,10 @@ class ChatCancellationRegistry:
                 if not isinstance(message, dict):
                     await asyncio.sleep(0)
                     continue
-                key = self._parse_message(message.get("data"))
-                if key is not None:
-                    await self._cancel_local(key)
+                parsed = self._parse_message(message.get("data"))
+                if parsed is not None:
+                    key, intent = parsed
+                    await self._interrupt_local(key, intent)
         except asyncio.CancelledError:
             raise
         except Exception:
@@ -165,16 +272,40 @@ class ChatCancellationRegistry:
             # include payloads or identities in process logs.
             logger.exception("chat_cancellation_listener_failed")
 
-    async def _cancel_local(self, key: TaskKey) -> None:
+    async def _interrupt_local(
+        self,
+        key: TaskKey,
+        intent: ChatControlIntent,
+    ) -> None:
         async with self._lock:
             task = self._tasks.get(key)
             if task is not None and not task.done():
-                self._requested.add(key)
+                self._requested[key] = self._merge_intent(
+                    self._requested.get(key),
+                    intent,
+                )
         if task is not None and not task.done() and task.cancelling() == 0:
-            task.cancel("explicit chat cancellation requested")
+            task.cancel(
+                "explicit chat cancellation requested"
+                if intent is ChatControlIntent.CANCEL
+                else "immediate chat steer requested"
+            )
 
     @staticmethod
-    def _parse_message(raw: object) -> TaskKey | None:
+    def _merge_intent(
+        current: ChatControlIntent | None,
+        incoming: ChatControlIntent,
+    ) -> ChatControlIntent:
+        """Merge concurrent signals without ever downgrading explicit cancel."""
+
+        if ChatControlIntent.CANCEL in {current, incoming}:
+            return ChatControlIntent.CANCEL
+        return incoming
+
+    @staticmethod
+    def _parse_message(
+        raw: object,
+    ) -> tuple[TaskKey, ChatControlIntent] | None:
         if isinstance(raw, bytes):
             try:
                 raw = raw.decode("utf-8")
@@ -186,13 +317,26 @@ class ChatCancellationRegistry:
             payload = json.loads(raw)
         except json.JSONDecodeError:
             return None
-        if not isinstance(payload, dict) or set(payload) != {"tenant_id", "actor_id", "trace_id"}:
+        if not isinstance(payload, dict) or frozenset(payload) not in {
+            frozenset({"tenant_id", "actor_id", "trace_id"}),
+            frozenset({"tenant_id", "actor_id", "trace_id", "intent"}),
+        }:
             return None
         values = (payload["tenant_id"], payload["actor_id"], payload["trace_id"])
         if any(not isinstance(value, str) or _SAFE_ID.fullmatch(value) is None for value in values):
             return None
-        return values
+        try:
+            intent = ChatControlIntent(payload.get("intent", "cancel"))
+        except ValueError:
+            return None
+        return values, intent
 
     @staticmethod
-    def _request_key(tenant_id: str, actor_id: str, trace_id: str) -> str:
-        return f"gerclaw:chat:cancel:v1:{tenant_id}:{actor_id}:{trace_id}"
+    def _request_key(
+        tenant_id: str,
+        actor_id: str,
+        trace_id: str,
+        *,
+        intent: ChatControlIntent = ChatControlIntent.CANCEL,
+    ) -> str:
+        return f"gerclaw:chat:{intent.value}:v1:{tenant_id}:{actor_id}:{trace_id}"

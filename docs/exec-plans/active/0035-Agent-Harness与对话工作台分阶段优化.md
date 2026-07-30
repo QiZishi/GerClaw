@@ -1172,6 +1172,19 @@ idempotency、terminal ↔ successor create、terminal ↔ batch apply、termina
 `test_run_recovery_service.py`，pytest 在收集前退出且未运行用例；修正为仓库真实文件清单后得到上述
 154/154，未把误命令记录成产品通过。
 
+`interrupt_and_steer` 的内部控制信号已作为下一独立变更集接通，但尚未开放公共 steer API：
+Redis 使用身份绑定且区分 `cancel`/`steer` 的持久键与跨副本 fan-out，显式取消在两个信号同时存在时
+优先。聊天生产路由分别注入 cancel 和 steer 探针；即使 Provider 清理时吞掉 task cancellation，任一
+控制意图仍会在最终回答提升前形成 fence。steer 不复用取消终态：旧 Run 进入可恢复的 `interrupted`，
+未提交私有 attempt 以无正文 `chat_steered/start_controlled_successor` 反馈被拒绝，旧 Trace 不写
+`cancelled/failed`，SSE 使用独立的 control-only `interrupted` 帧；前端后续只把它作为替换控制协议，
+不得生成失败或修复气泡。协调器以类型化中断把已经持久化的 steer 结果传给 SSE，不在清理阶段二次读取
+可变 Redis 猜终态，因此 late cancel 不会造成 `Run=interrupted`、SSE=`cancelled` 的状态分裂。
+本地控制意图使用单调合并，旧的 Redis steer 读取不能把并发到达的 cancel 降级。
+相关 Ruff、Mypy 及 cancellation/coordinator/chat/route 测试 `47 passed`。
+只有完成冻结 checkpoint 继承、successor fencing 与 directive 绑定后才允许开放公共入口，避免出现
+“已经打断但没有可靠后继”的半成品能力。
+
 #### 6.7 安全校验的可用性、反馈修复与步骤级回退硬约束
 
 “安全”不能被实现成高误杀率的拒绝系统。每个校验器必须先声明保护的具体资产、精确失败条件、可修复性、

@@ -168,6 +168,16 @@ class ChatCancelledData(BaseModel):
     message: str = "回答已停止。未完成内容不代表完整评估结果。"
 
 
+class ChatInterruptedData(BaseModel):
+    """Control-only SSE terminal for an execution replaced by a successor."""
+
+    model_config = STRICT
+
+    trace_id: str
+    status: Literal["interrupted"] = "interrupted"
+    message: str = "已按新要求调整执行。"
+
+
 class ChatCancelRead(BaseModel):
     """Accepted identity-scoped request to cancel an active or starting turn."""
 

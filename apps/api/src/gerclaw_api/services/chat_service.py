@@ -241,6 +241,7 @@ class ChatService:
         trace_id: str,
         callback: StreamCallback,
         cancellation_requested: CancellationProbe | None = None,
+        steering_requested: CancellationProbe | None = None,
         resume_state: FrozenRunState | None = None,
     ) -> AgentResponse:
         if resume_state is None:
@@ -307,6 +308,7 @@ class ChatService:
                 lease_guard=lease_guard,
                 callback=callback,
                 cancellation_requested=cancellation_requested,
+                steering_requested=steering_requested,
                 active_skill_calls=active_skill_calls,
                 skill_audit_events=skill_audit_events,
                 resume_state=resume_state,
@@ -318,6 +320,13 @@ class ChatService:
             fencing_token: int | None,
             lease_guard: SessionLeaseGuard | None,
         ) -> bool:
+            if code == "CHAT_STEERED":
+                return await self._finish_interruption(
+                    identity=identity,
+                    trace_id=trace_id,
+                    fencing_token=fencing_token,
+                    lease_guard=lease_guard,
+                )
             return await self._finish_failure(
                 payload,
                 identity=identity,
@@ -367,6 +376,7 @@ class ChatService:
             finalize_failure=finalize_failure,
             error_code=self.error_code,
             cancellation_requested=cancellation_requested,
+            steering_requested=steering_requested,
         )
 
     async def _process_owned_turn(
@@ -380,6 +390,7 @@ class ChatService:
         lease_guard: SessionLeaseGuard,
         callback: StreamCallback,
         cancellation_requested: CancellationProbe | None,
+        steering_requested: CancellationProbe | None,
         active_skill_calls: dict[str, ActiveSkillCall],
         skill_audit_events: list[TraceEventCreate],
         resume_state: FrozenRunState | None,
@@ -396,6 +407,18 @@ class ChatService:
                 raise UnsupportedAgentContextError(
                     "resume state identity does not match the active request"
                 )
+
+        async def interruption_requested() -> bool:
+            return bool(
+                (
+                    cancellation_requested is not None
+                    and await cancellation_requested()
+                )
+                or (
+                    steering_requested is not None
+                    and await steering_requested()
+                )
+            )
         conversation = await self._conversation.ensure_session(
             payload.session_id,
             tenant_id=identity.tenant_id,
@@ -1234,10 +1257,7 @@ class ChatService:
                         fencing_token=lease_guard.fencing_token,
                     )
                 except RunTerminalConflictError:
-                    cancellation_is_durable = (
-                        cancellation_requested is not None and await cancellation_requested()
-                    )
-                    if not cancellation_is_durable:
+                    if not await interruption_requested():
                         raise
             buffered_events.append(validated_event)
 
@@ -1253,8 +1273,8 @@ class ChatService:
             # stream is interrupted. A provider can finish during that cleanup
             # and consume the task cancellation. The durable intent is therefore
             # the final fence before an assistant response becomes replayable.
-            if cancellation_requested is not None and await cancellation_requested():
-                raise asyncio.CancelledError("explicit chat cancellation requested")
+            if await interruption_requested():
+                raise asyncio.CancelledError("user interruption requested")
             rendered = await self._input_output.render(response, "web")
             done = ChatDoneData(
                 full_text=cast(str, rendered["text"]),
@@ -1691,6 +1711,58 @@ class ChatService:
             # Callers must never publish a terminal cancellation unless this
             # transaction actually committed the corresponding Trace state.
             return False
+
+    async def _finish_interruption(
+        self,
+        *,
+        identity: AuthContext,
+        trace_id: str,
+        fencing_token: int | None,
+        lease_guard: SessionLeaseGuard | None,
+    ) -> bool:
+        """Invalidate the private attempt and keep the old Trace out of cancel semantics."""
+
+        try:
+            await self._conversation.rollback()
+            if (
+                fencing_token is None
+                or lease_guard is None
+                or self._run_journal is None
+                or self._active_run_id is None
+            ):
+                return False
+            await lease_guard.assert_owned()
+            if self._active_attempt is not None:
+                await self._run_journal.reject_attempt(
+                    self._active_attempt.id,
+                    ValidationFeedback(
+                        step_id=self._active_attempt.step_id,
+                        attempt=self._active_attempt.attempt,
+                        error_code="chat_steered",
+                        field_paths=(),
+                        contract_version="chat-stream-v1",
+                        repair_action="start_controlled_successor",
+                        checkpoint_id=self._active_attempt.checkpoint_id,
+                    ),
+                    tenant_id=identity.tenant_id,
+                    actor_id=identity.actor_id,
+                    fencing_token=fencing_token,
+                )
+            await self._run_journal.transition(
+                self._active_run_id,
+                AgentRunStatus.INTERRUPTED,
+                tenant_id=identity.tenant_id,
+                actor_id=identity.actor_id,
+                fencing_token=fencing_token,
+                public_summary="已按新要求调整执行",
+            )
+            if self._evolution_signal_collector is not None:
+                self._evolution_signal_collector.schedule(self._active_run_id)
+            return True
+        except Exception:
+            return False
+        finally:
+            await self._conversation.rollback()
 
     @staticmethod
     def _run_event(event: StreamEvent) -> RunEventWrite:

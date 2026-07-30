@@ -11,6 +11,7 @@ from redis.asyncio import Redis
 from gerclaw_api.services.chat_cancellation import (
     ChatCancellationRegistry,
     ChatCancellationUnavailable,
+    ChatControlIntent,
 )
 
 
@@ -126,7 +127,7 @@ async def test_cancellation_fans_out_to_the_task_on_another_replica() -> None:
         trace_id="trace_cancel_registry_0001",
         task=task,
     )
-    assert second._requested == set()
+    assert second._requested == {}
     await first.aclose()
     await second.aclose()
     assert all(subscriber.closed for subscriber in redis.subscribers)
@@ -159,6 +160,131 @@ async def test_registration_honors_a_cancel_request_that_won_the_startup_race() 
         trace_id="trace_cancel_registry_0002",
     )
     await registry.aclose()
+
+
+@pytest.mark.asyncio
+async def test_steer_fans_out_without_becoming_a_cancel_intent() -> None:
+    redis = _FakeRedis()
+    sender = ChatCancellationRegistry(cast(Redis, redis))
+    owner = ChatCancellationRegistry(cast(Redis, redis))
+    await sender.start()
+    await owner.start()
+    task = asyncio.create_task(_never())
+    key = {
+        "tenant_id": "tenant_public0001",
+        "actor_id": "usr_patient00000001",
+        "trace_id": "trace_steer_registry_0001",
+    }
+    await owner.register(task=task, **key)
+
+    await sender.request_steer(**key)
+    result = (await asyncio.gather(task, return_exceptions=True))[0]
+
+    assert isinstance(result, asyncio.CancelledError)
+    assert await owner.is_steer_requested(**key)
+    assert not await owner.is_cancel_requested(**key)
+    assert await owner.is_interruption_requested(**key)
+    await owner.unregister(task=task, **key)
+    await sender.aclose()
+    await owner.aclose()
+
+
+@pytest.mark.asyncio
+async def test_explicit_cancel_takes_precedence_over_steer() -> None:
+    redis = _FakeRedis()
+    registry = ChatCancellationRegistry(cast(Redis, redis))
+    key = {
+        "tenant_id": "tenant_public0001",
+        "actor_id": "usr_patient00000001",
+        "trace_id": "trace_control_precedence_0001",
+    }
+
+    await registry.request_steer(**key)
+    await registry.request_cancel(**key)
+
+    assert await registry.control_intent(**key) is ChatControlIntent.CANCEL
+    assert await registry.is_cancel_requested(**key)
+    assert not await registry.is_steer_requested(**key)
+
+
+@pytest.mark.asyncio
+async def test_delivered_local_steer_remains_a_final_fence_during_redis_outage() -> None:
+    class _FailAfterSignalRedis(_FakeRedis):
+        fail_reads = False
+
+        async def exists(self, key: str) -> int:
+            if self.fail_reads:
+                raise ConnectionError("injected")
+            return await super().exists(key)
+
+    redis = _FailAfterSignalRedis()
+    registry = ChatCancellationRegistry(cast(Redis, redis))
+    task = asyncio.create_task(_never())
+    key = {
+        "tenant_id": "tenant_public0001",
+        "actor_id": "usr_patient00000001",
+        "trace_id": "trace_local_steer_fence_0001",
+    }
+    await registry.register(task=task, **key)
+
+    await registry.request_steer(**key)
+    redis.fail_reads = True
+
+    assert await registry.control_intent(**key) is ChatControlIntent.STEER
+    assert await registry.is_steer_requested(**key)
+    await asyncio.gather(task, return_exceptions=True)
+
+
+@pytest.mark.asyncio
+async def test_stale_steer_read_cannot_downgrade_concurrent_local_cancel() -> None:
+    class _BarrierRegistry(ChatCancellationRegistry):
+        block_reads = False
+
+        def __init__(self, redis: Redis) -> None:
+            super().__init__(redis)
+            self.read_started = asyncio.Event()
+            self.release_read = asyncio.Event()
+
+        async def _read_intent(
+            self,
+            key: tuple[str, str, str],
+        ) -> ChatControlIntent | None:
+            if not self.block_reads:
+                return await super()._read_intent(key)
+            self.read_started.set()
+            await self.release_read.wait()
+            return ChatControlIntent.STEER
+
+    redis = _FakeRedis()
+    registry = _BarrierRegistry(cast(Redis, redis))
+    task = asyncio.create_task(_never())
+    key = (
+        "tenant_public0001",
+        "usr_patient00000001",
+        "trace_control_merge_0001",
+    )
+    await registry.register(
+        tenant_id=key[0],
+        actor_id=key[1],
+        trace_id=key[2],
+        task=task,
+    )
+    registry.block_reads = True
+
+    probe = asyncio.create_task(
+        registry.control_intent(
+            tenant_id=key[0],
+            actor_id=key[1],
+            trace_id=key[2],
+        )
+    )
+    await registry.read_started.wait()
+    await registry._interrupt_local(key, ChatControlIntent.CANCEL)
+    registry.release_read.set()
+
+    assert await probe is ChatControlIntent.CANCEL
+    assert registry._requested[key] is ChatControlIntent.CANCEL
+    await asyncio.gather(task, return_exceptions=True)
 
 
 @pytest.mark.asyncio
@@ -207,6 +333,10 @@ async def test_final_cancellation_fence_fails_closed_when_redis_is_unavailable()
             '"trace_id":"trace_ok00000001"}'
         ),
         '{"tenant_id":"tenant_public0001","actor_id":"usr_patient00000001"}',
+        (
+            '{"tenant_id":"tenant_public0001","actor_id":"usr_patient00000001",'
+            '"trace_id":"trace_ok00000001","intent":"unknown"}'
+        ),
     ],
 )
 def test_cancellation_listener_rejects_malformed_messages(payload: object) -> None:

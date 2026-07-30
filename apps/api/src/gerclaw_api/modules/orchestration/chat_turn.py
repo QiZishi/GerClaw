@@ -15,6 +15,7 @@ from gerclaw_api.modules.contracts import AgentResponse
 from gerclaw_api.modules.orchestration.errors import (
     ChatCancellationFinalizationError,
     ChatReplayUnavailableError,
+    ChatSteeredInterruption,
 )
 from gerclaw_api.services.conversation_service import ConversationService
 from gerclaw_api.services.session_lease import SessionLease, SessionLeaseGuard
@@ -65,6 +66,7 @@ class ChatTurnCoordinator:
         finalize_failure: FailureFinalizer,
         error_code: ErrorCodeMapper,
         cancellation_requested: CancellationProbe | None = None,
+        steering_requested: CancellationProbe | None = None,
     ) -> AgentResponse:
         """Run or replay one turn without exposing partial success.
 
@@ -102,6 +104,7 @@ class ChatTurnCoordinator:
         fencing_token: int | None = None
         lease_guard: SessionLeaseGuard | None = None
         failure_handled = False
+        steered = False
         try:
             fencing_token = await self._conversation.next_fencing_token()
             async with self._lease.acquire(
@@ -116,9 +119,12 @@ class ChatTurnCoordinator:
                 try:
                     response = await run_owned_turn(lease_guard)
                 except asyncio.CancelledError as cancellation_error:
+                    steered = (
+                        steering_requested is not None and await steering_requested()
+                    )
                     cancellation_persisted = await finalize_failure(
                         TraceStatus.CANCELLED,
-                        "CHAT_CANCELLED",
+                        "CHAT_STEERED" if steered else "CHAT_CANCELLED",
                         fencing_token,
                         lease_guard,
                     )
@@ -126,6 +132,10 @@ class ChatTurnCoordinator:
                     if not cancellation_persisted:
                         raise ChatCancellationFinalizationError(
                             "cancelled Trace could not be durably finalized"
+                        ) from cancellation_error
+                    if steered:
+                        raise ChatSteeredInterruption(
+                            "old chat execution was replaced"
                         ) from cancellation_error
                     raise
                 except Exception as error:
@@ -142,9 +152,12 @@ class ChatTurnCoordinator:
                 return response
         except asyncio.CancelledError as cancellation_error:
             if owns_trace_execution and not failure_handled:
+                steered = (
+                    steering_requested is not None and await steering_requested()
+                )
                 cancellation_persisted = await finalize_failure(
                     TraceStatus.CANCELLED,
-                    "CHAT_CANCELLED",
+                    "CHAT_STEERED" if steered else "CHAT_CANCELLED",
                     fencing_token,
                     lease_guard,
                 )
@@ -152,7 +165,11 @@ class ChatTurnCoordinator:
                     raise ChatCancellationFinalizationError(
                         "cancelled Trace could not be durably finalized"
                     ) from cancellation_error
-            CHAT_TURNS.labels(outcome="cancelled").inc()
+                if steered:
+                    raise ChatSteeredInterruption(
+                        "old chat execution was replaced"
+                    ) from cancellation_error
+            CHAT_TURNS.labels(outcome="interrupted" if steered else "cancelled").inc()
             CHAT_TURN_LATENCY.observe(time.monotonic() - started)
             raise
         except Exception as error:
