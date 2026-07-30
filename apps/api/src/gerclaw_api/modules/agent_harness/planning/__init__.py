@@ -28,6 +28,7 @@ from gerclaw_api.modules.agent_harness.planning.contracts import (
 )
 from gerclaw_api.modules.agent_harness.planning.execution import (
     DynamicPlanExecutor,
+    PlanExecutionObserver,
     PlanExecutionSnapshot,
     PlanExecutionTransition,
     PlanNodeStatus,
@@ -59,6 +60,7 @@ __all__ = [
     "DynamicPlanExecutor",
     "ModelBudgetPreflight",
     "ModelCallEstimate",
+    "PlanExecutionObserver",
     "PlanExecutionSnapshot",
     "PlanExecutionTransition",
     "PlanNode",

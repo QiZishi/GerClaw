@@ -29,6 +29,7 @@ from gerclaw_api.modules.agent_harness.planning import (
     PlanNodeStatus,
     PlanRequest,
     SAVIActionSelector,
+    TurnExecutionGovernance,
     validate_plan_execution_transition,
 )
 from gerclaw_api.modules.agent_harness.routing import RouteKind
@@ -531,10 +532,27 @@ def test_unavailable_nested_fallback_is_explicitly_skipped_before_parent_continu
     before_skip = executor.snapshot()
 
     assert executor.failover_candidates(first) == ()
+    with pytest.raises(PlanningError, match="PLAN_FALLBACK_NOT_UNAVAILABLE"):
+        executor.skip_unavailable_fallback(first)
+    assert executor.start_capability("dependency.run") == "failed_dependency"
+
+    exhausted_dependency = before_skip.model_copy(
+        update={
+            "attempts": {
+                **before_skip.attempts,
+                "failed_dependency": 50,
+            }
+        }
+    )
+    executor = DynamicPlanExecutor(plan, snapshot=exhausted_dependency)
     skipped = executor.skip_unavailable_fallback(first)
     assert skipped == "nested_fallback"
     after_skip = executor.snapshot()
-    transition = validate_plan_execution_transition(plan, before_skip, after_skip)
+    transition = validate_plan_execution_transition(
+        plan,
+        exhausted_dependency,
+        after_skip,
+    )
     assert transition[0].status is PlanNodeStatus.SKIPPED
     assert transition[0].fallback_for_node_id == "fallback_one"
     assert executor.failover_candidates(primary) == ("fallback_two",)
@@ -564,6 +582,40 @@ def test_dynamic_plan_rejects_shared_fallback_ownership() -> None:
                 ),
             )
         )
+    with pytest.raises(ValidationError, match="entries must be unique"):
+        PlanNode(
+            node_id="primary",
+            capability="primary.run",
+            public_summary="正在执行主要路径",
+            fallback=("fallback", "fallback"),
+        )
+
+
+def test_fallback_owned_node_cannot_run_through_ordinary_capability_entry() -> None:
+    plan = DynamicPlan(
+        nodes=(
+            PlanNode(
+                node_id="primary",
+                capability="primary.run",
+                public_summary="正在执行主要路径",
+                fallback=("fallback",),
+            ),
+            PlanNode(
+                node_id="fallback",
+                required=False,
+                capability="fallback.run",
+                public_summary="正在执行备用路径",
+            ),
+        )
+    )
+    executor = DynamicPlanExecutor(plan)
+
+    assert executor.complete_optional_capability("fallback.run") is False
+    with pytest.raises(PlanningError, match="PLAN_CAPABILITY_NOT_PENDING"):
+        executor.start_capability("fallback.run")
+    primary = executor.start_capability("primary.run")
+    executor.fail(primary, "PRIMARY_UNAVAILABLE")
+    assert executor.start_fallback(primary) == "fallback"
 
 
 def test_attempt_exhausted_fallback_can_be_skipped_without_side_effect() -> None:
@@ -606,6 +658,67 @@ def test_attempt_exhausted_fallback_can_be_skipped_without_side_effect() -> None
     )
     assert transition[0].attempt == 50
     assert transition[0].status is PlanNodeStatus.SKIPPED
+
+
+@pytest.mark.asyncio
+async def test_governance_observes_fallback_start_and_unavailable_skip() -> None:
+    plan = DynamicPlan(
+        nodes=(
+            PlanNode(
+                node_id="primary",
+                capability="primary.run",
+                public_summary="正在执行主要路径",
+                fallback=("fallback",),
+            ),
+            PlanNode(
+                node_id="fallback",
+                required=False,
+                capability="fallback.run",
+                public_summary="正在执行备用路径",
+            ),
+        )
+    )
+    decision = ClinicalDecisionCoordinator(minimum_score=1).prepare(
+        state=ClinicalState(),
+        message="请继续",
+        has_attachments=False,
+    )
+    observed: list[PlanExecutionSnapshot] = []
+
+    async def observe(snapshot: PlanExecutionSnapshot) -> None:
+        observed.append(snapshot)
+
+    governance = TurnExecutionGovernance(
+        plan=plan,
+        decision=decision,
+        observer=observe,
+    )
+    primary = await governance.checkpoint_persisted("primary.run")
+    await governance.fail_persisted(primary, "PRIMARY_UNAVAILABLE")
+    await governance.start_fallback_persisted(primary)
+    assert observed[-1].statuses["fallback"] is PlanNodeStatus.RUNNING
+
+    failed = observed[-2].model_copy(
+        update={
+            "attempts": {
+                **observed[-2].attempts,
+                "fallback": 50,
+            }
+        }
+    )
+    skip_observed: list[PlanExecutionSnapshot] = []
+
+    async def observe_skip(snapshot: PlanExecutionSnapshot) -> None:
+        skip_observed.append(snapshot)
+
+    skip_governance = TurnExecutionGovernance(
+        plan=plan,
+        decision=decision,
+        execution_snapshot=failed,
+        observer=observe_skip,
+    )
+    await skip_governance.skip_unavailable_fallback_persisted(primary)
+    assert skip_observed[-1].statuses["fallback"] is PlanNodeStatus.SKIPPED
 
 
 def test_plan_transition_rejects_fallback_checkpoint_bypass_and_nonserial_history() -> None:

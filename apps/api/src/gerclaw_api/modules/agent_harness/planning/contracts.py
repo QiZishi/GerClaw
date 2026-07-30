@@ -43,6 +43,8 @@ class PlanNode(BaseModel):
     def reject_self_reference(self) -> PlanNode:
         if self.node_id in self.dependencies or self.node_id in self.fallback:
             raise ValueError("plan node cannot depend on or fall back to itself")
+        if len(self.fallback) != len(set(self.fallback)):
+            raise ValueError("plan node fallback entries must be unique")
         return self
 
 

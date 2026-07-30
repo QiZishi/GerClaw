@@ -5,6 +5,7 @@ from __future__ import annotations
 import hashlib
 import json
 import re
+from collections.abc import Awaitable, Callable
 from enum import StrEnum
 from typing import Literal
 
@@ -164,6 +165,9 @@ class PlanExecutionTransition(BaseModel):
     attempt: int = Field(ge=0, le=50)
     error_code: str | None = None
     fallback_for_node_id: str | None = None
+
+
+PlanExecutionObserver = Callable[[PlanExecutionSnapshot], Awaitable[None]]
 
 
 def validate_plan_execution_transition(
@@ -342,6 +346,11 @@ class DynamicPlanExecutor:
         self._attempts = dict(restored.attempts)
         self._error_codes = dict(restored.error_codes)
         self._fallbacks_used = dict(restored.fallbacks_used)
+        self._fallback_node_ids = {
+            fallback_id
+            for node in plan.nodes
+            for fallback_id in node.fallback
+        }
 
     def start_capability(self, capability: str) -> str:
         node = next(
@@ -357,6 +366,7 @@ class DynamicPlanExecutor:
                     item.node_id in fallback_ids
                     for fallback_ids in self._fallbacks_used.values()
                 )
+                and item.node_id not in self._fallback_node_ids
             ),
             None,
         )
@@ -450,6 +460,7 @@ class DynamicPlanExecutor:
                 if not item.required
                 and item.capability == capability
                 and self._statuses[item.node_id] is PlanNodeStatus.PENDING
+                and item.node_id not in self._fallback_node_ids
             ),
             None,
         )
@@ -566,7 +577,11 @@ def _snapshot_recovery_exhausted(
         return False
     declared = node_by_id[node_id].fallback
     if not declared:
-        return True
+        fallback_owned = any(
+            node_id in node.fallback
+            for node in node_by_id.values()
+        )
+        return fallback_owned or snapshot.attempts[node_id] >= 50
     used = snapshot.fallbacks_used.get(node_id, ())
     if len(used) < len(declared) or not used:
         return False
@@ -660,10 +675,12 @@ class TurnExecutionGovernance:
         plan: DynamicPlan,
         decision: TurnClinicalDecision,
         execution_snapshot: PlanExecutionSnapshot | None = None,
+        observer: PlanExecutionObserver | None = None,
     ) -> None:
         self._plan = plan
         self._decision = decision
         self._executor = DynamicPlanExecutor(plan, snapshot=execution_snapshot)
+        self._observer = observer
 
     @property
     def should_ask(self) -> bool:
@@ -673,20 +690,57 @@ class TurnExecutionGovernance:
     def checkpoint(self, capability: str) -> str:
         return self._executor.start_capability(capability)
 
+    async def checkpoint_persisted(self, capability: str) -> str:
+        node_id = self.checkpoint(capability)
+        await self._observe()
+        return node_id
+
     def complete(self, node_id: str) -> None:
         self._executor.complete(node_id)
+
+    async def complete_persisted(self, node_id: str) -> None:
+        self.complete(node_id)
+        await self._observe()
 
     def complete_optional_capability(self, capability: str) -> bool:
         return self._executor.complete_optional_capability(capability)
 
+    async def complete_optional_capability_persisted(self, capability: str) -> bool:
+        completed = self.complete_optional_capability(capability)
+        if completed:
+            await self._observe()
+        return completed
+
     def fail(self, node_id: str, error_code: str) -> tuple[str, ...]:
         return self._executor.fail(node_id, error_code)
+
+    async def fail_persisted(
+        self,
+        node_id: str,
+        error_code: str,
+    ) -> tuple[str, ...]:
+        candidates = self.fail(node_id, error_code)
+        await self._observe()
+        return candidates
 
     def start_fallback(self, failed_node_id: str) -> str:
         return self._executor.start_fallback(failed_node_id)
 
+    async def start_fallback_persisted(self, failed_node_id: str) -> str:
+        fallback_id = self.start_fallback(failed_node_id)
+        await self._observe()
+        return fallback_id
+
     def skip_unavailable_fallback(self, failed_node_id: str) -> str:
         return self._executor.skip_unavailable_fallback(failed_node_id)
+
+    async def skip_unavailable_fallback_persisted(
+        self,
+        failed_node_id: str,
+    ) -> str:
+        fallback_id = self.skip_unavailable_fallback(failed_node_id)
+        await self._observe()
+        return fallback_id
 
     def snapshot(self) -> PlanExecutionSnapshot:
         return self._executor.snapshot()
@@ -700,6 +754,17 @@ class TurnExecutionGovernance:
             ),
             "plan_execution": snapshot.model_dump(mode="json"),
         }
+
+    async def finish_persisted(self) -> dict[str, JsonValue]:
+        before = self.snapshot()
+        result = self.finish()
+        if self.snapshot() != before:
+            await self._observe()
+        return result
+
+    async def _observe(self) -> None:
+        if self._observer is not None:
+            await self._observer(self.snapshot())
 
     def differential_prompt_context(self) -> tuple[str, str | None]:
         serialized = json.dumps(
