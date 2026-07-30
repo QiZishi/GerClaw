@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from collections.abc import Awaitable, Callable
+from dataclasses import replace
 from typing import Any, Protocol
 
 from agentscope.agent import Agent
@@ -15,6 +16,9 @@ from gerclaw_api.modules.agent_harness.run_lifecycle.agent_stream import (
 )
 from gerclaw_api.modules.agent_harness.run_lifecycle.errors import (
     AgentOutputProtocolError,
+)
+from gerclaw_api.modules.agent_harness.run_lifecycle.public_answer import (
+    project_public_answer,
 )
 from gerclaw_api.modules.agent_harness.run_lifecycle.streaming import (
     validate_public_answer_text,
@@ -96,6 +100,20 @@ def _buffered_emitter(events: list[BufferedEvent]) -> BufferedEmitter:
     return emit
 
 
+def _project_answer_events(
+    events: list[BufferedEvent],
+    *,
+    original_text: str,
+    public_text: str,
+) -> list[BufferedEvent]:
+    if public_text == original_text:
+        return events
+    non_text_events = [event for event in events if event[0] != "text_delta"]
+    if public_text:
+        non_text_events.append(("text_delta", {"content": public_text}))
+    return non_text_events
+
+
 async def run_with_output_protocol_repair(
     *,
     run_attempt: AttemptRunner,
@@ -111,6 +129,8 @@ async def run_with_output_protocol_repair(
         try:
             result = await run_attempt(_buffered_emitter(events))
             validate_public_answer_text(result.text)
+            public_text = project_public_answer(result.text)
+            validate_public_answer_text(public_text)
         except AgentOutputProtocolError:
             if attempt_index > 0:
                 raise
@@ -125,9 +145,14 @@ async def run_with_output_protocol_repair(
                 )
             rebuild_agent()
             continue
-        for event_type, data in events:
+        projected_events = _project_answer_events(
+            events,
+            original_text=result.text,
+            public_text=public_text,
+        )
+        for event_type, data in projected_events:
             await publish(event_type, data)
-        return result, attempt_index
+        return replace(result, text=public_text), attempt_index
     raise AssertionError("bounded output repair loop did not terminate")
 
 

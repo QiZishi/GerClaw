@@ -11,6 +11,12 @@ update AnswerVersion/Memory/Context/Artifact, or invoke user-facing SSE/TTS/copy
 staging, rejected, or invalidated attempt. Preserve a single public terminal outcome and
 cancellation idempotency.
 
+The validated attempt must pass through the deterministic `PublicAnswerProjection` before
+promotion. It may remove clearly generic terminal boilerplate and normalize layout, but must
+not call another model, rewrite clinical meaning, remove citations, remove situation-specific
+risk actions, or add internal safety explanations. The one canonical medical disclaimer is
+owned by the Harness after projection.
+
 `public_operation_id` is stable across repair attempts. Attempt numbers are monotonic.
 `ValidationFeedback` must contain only bounded error metadata and checkpoint/contract
 identifiers—never user text, provider payload, hidden prompts, credentials, sealed cases, or

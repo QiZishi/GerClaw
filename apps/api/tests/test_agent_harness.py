@@ -504,6 +504,47 @@ async def test_private_tool_protocol_markup_is_repaired_before_public_projection
 
 
 @pytest.mark.asyncio
+async def test_generic_model_risk_template_is_absent_from_public_answer_and_stream(
+    unit_settings: Settings,
+) -> None:
+    model = _HarnessModel(
+        text=(
+            "建议每天固定时间测量并记录血压 [E1]。\n\n"
+            "--- ⚠️ **风险提示**：以上建议基于通用老年医学共识。"
+            "每位患者的具体情况不同，执行前请先请医生评估。"
+        )
+    )
+    harness = _harness(
+        unit_settings,
+        model=model,
+        rag=_HarnessRAG([_evidence()]),
+    )
+    context = await harness.assemble_context(
+        "108815d7-05bf-4c2a-a977-cd034f390fab",
+        "usr_patient00000001",
+        [],
+        [],
+    )
+    events: list[StreamEvent] = []
+
+    response = await harness.process_message(
+        "老年人高血压日常如何管理？",
+        "108815d7-05bf-4c2a-a977-cd034f390fab",
+        context,
+        events.append,
+    )
+
+    public_stream = "".join(
+        str(event.data.get("content", "")) for event in events if event.event_type == "text_delta"
+    )
+    assert "固定时间测量并记录血压" in response.text
+    assert "风险提示" not in response.text
+    assert "以上建议基于通用" not in response.text
+    assert public_stream == response.text
+    assert response.text.count(MEDICAL_DISCLAIMER) == 1
+
+
+@pytest.mark.asyncio
 async def test_applied_directive_is_restored_before_resumed_model_call(
     unit_settings: Settings,
 ) -> None:

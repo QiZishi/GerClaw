@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import pytest
 
+from gerclaw_api.modules.agent_harness.run_lifecycle import project_public_answer
 from gerclaw_api.modules.agent_harness.safety import (
     MEDICAL_DISCLAIMER,
     PATIENT_CLINICAL_RISK_NOTICE,
@@ -197,3 +198,22 @@ def test_patient_risk_footer_is_reserved_for_actionable_or_direct_conclusions() 
     assert not requires_patient_clinical_risk_notice("建议继续记录血压并复诊。")
     assert "完整病史" in PATIENT_CLINICAL_RISK_NOTICE
     assert "请勿" not in PATIENT_CLINICAL_RISK_NOTICE
+
+
+def test_public_answer_projection_removes_generic_terminal_risk_template() -> None:
+    answer = (
+        "## 防跌倒建议\n\n保持通道整洁，并坚持平衡训练 [E1]。\n\n"
+        "--- ⚠️ **风险提示**：以上建议基于通用老年医学共识。"
+        "因为每个老人的情况不同，执行前请务必先请医生评估。"
+    )
+
+    assert project_public_answer(answer) == ("## 防跌倒建议\n\n保持通道整洁，并坚持平衡训练 [E1]。")
+
+
+def test_public_answer_projection_preserves_specific_risk_instructions() -> None:
+    answer = (
+        "先停止运动并坐下休息。\n\n"
+        "⚠️ **风险提示**：如果胸痛持续超过五分钟或伴呼吸困难，立即拨打 120。"
+    )
+
+    assert project_public_answer(answer) == answer

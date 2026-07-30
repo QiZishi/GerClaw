@@ -117,6 +117,15 @@ receive public sequence numbers; only the replacement attempt is replayable. A s
 failure ends normally through the typed failure path instead of exposing or concatenating the
 invalid fragment.
 
+Every validated model answer now passes through one deterministic reader-facing projection
+before the attempt is promoted. The projection removes only a terminal risk/disclaimer section
+that identifies itself as generic advice or generic patient variability; it preserves
+situation-specific warnings, clinical content and citation markers. If projection changes the
+answer, the buffered private text deltas are replaced by the projected answer while the
+non-text public stages remain intact. The Harness then appends its single short medical
+disclaimer, so copy, TTS, Artifact and export all consume the same current answer instead of
+repeating model boilerplate.
+
 The immediate-steer API now waits for the old Run's durable `interrupted` state before opening
 a deterministic successor Trace. A pending steer reserves the source against ordinary resume;
 after binding, the source disappears from recoverable-run lookup. The successor reuses the
