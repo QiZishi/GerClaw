@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import uuid
 from types import SimpleNamespace
 from typing import Any, cast
@@ -12,8 +13,15 @@ from sqlalchemy import text
 
 from gerclaw_api.auth import create_access_token
 from gerclaw_api.modules.memory.compressor import AgentScopeContextCompressor
-from gerclaw_api.modules.memory.memory_module import ProductionMemoryModule
-from gerclaw_api.modules.memory.models import ExtractedMemoryFact, MemoryFactDetails
+from gerclaw_api.modules.memory.memory_module import (
+    MemoryConflictError,
+    ProductionMemoryModule,
+)
+from gerclaw_api.modules.memory.models import (
+    ExtractedMemoryFact,
+    MemoryFactDecisionRequest,
+    MemoryFactDetails,
+)
 from gerclaw_api.modules.memory.protocols import MemoryMessage
 from gerclaw_api.modules.memory.store import memory_point_id
 from gerclaw_api.repositories.memory import SqlAlchemyMemoryRepository
@@ -96,13 +104,43 @@ async def test_memory_profile_is_encrypted_actor_scoped_and_phi_free_in_qdrant(
     assert payload["profile"]["allergies"] == []
     assert payload["profile"]["pending_items"][0]["details"]["evidence_span"] == "对青霉素过敏"
 
-    confirmed = await client.post(
-        f"/api/v1/memory/facts/{fact_id}/decision",
-        json={"expected_revision": 1, "decision": "confirm"},
-    )
-    assert confirmed.status_code == 200, confirmed.text
-    assert confirmed.json()["fact"]["status"] == "confirmed"
-    assert confirmed.json()["fact"]["revision"] == 2
+    async def confirm_once(attempt: int) -> int | None:
+        async with app.state.database.session() as database_session:
+            repository = SqlAlchemyMemoryRepository(database_session)
+            user = await repository.get_user(tenant_id=TENANT, actor_id=ACTOR)
+            assert user is not None
+            module = ProductionMemoryModule(
+                repository=repository,
+                extractor=cast(Any, _EvidencedExtractor()),
+                compressor=AgentScopeContextCompressor(app.state.agent_model),
+                embedding_model=cast(Any, _DeterministicEmbedding()),
+                vector_store=app.state.memory_store,
+                namespace_secret=(app.state.settings.auth_jwt_secret.get_secret_value().encode()),
+                tenant_id=TENANT,
+                actor_id=ACTOR,
+                user_id=user.id,
+                session_id=session_id,
+                trace_id=f"trace_memory_confirm_{attempt:02d}",
+                retrieval_top_k=5,
+                retrieval_candidates=20,
+            )
+            try:
+                result = await module.decide_fact(
+                    fact_id,
+                    MemoryFactDecisionRequest(
+                        expected_revision=1,
+                        decision="confirm",
+                    ),
+                )
+                await module.commit()
+                return result.fact.revision
+            except MemoryConflictError:
+                await module.rollback()
+                return None
+
+    decisions = await asyncio.gather(*(confirm_once(index) for index in range(10)))
+    assert decisions.count(2) == 1
+    assert decisions.count(None) == 9
 
     profile = await client.get("/api/v1/memory/profile")
     assert profile.status_code == 200, profile.text
@@ -276,3 +314,27 @@ async def test_memory_profile_is_encrypted_actor_scoped_and_phi_free_in_qdrant(
         headers={"Authorization": f"Bearer {other_token}"},
     )
     assert forbidden_history.status_code == 404
+
+    owner_deleted_again = await client.request(
+        "DELETE",
+        f"/api/v1/memory/facts/{fact_id}",
+        json={"expected_revision": 4, "reason": "outdated"},
+    )
+    assert owner_deleted_again.status_code == 200, owner_deleted_again.text
+    assert owner_deleted_again.json()["fact"]["revision"] == 5
+    forbidden_update = await client.patch(
+        f"/api/v1/memory/facts/{fact_id}",
+        headers={"Authorization": f"Bearer {other_token}"},
+        json={
+            "expected_revision": 5,
+            "statement": "跨主体篡改",
+            "details": {"reaction": "无"},
+        },
+    )
+    assert forbidden_update.status_code == 404
+    forbidden_restore = await client.post(
+        f"/api/v1/memory/facts/{fact_id}/restore",
+        headers={"Authorization": f"Bearer {other_token}"},
+        json={"expected_revision": 5},
+    )
+    assert forbidden_restore.status_code == 404
