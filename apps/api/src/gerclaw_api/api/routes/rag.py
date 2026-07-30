@@ -126,7 +126,6 @@ async def retrieve_evidence(
         attributes={
             "module": "rag",
             "operation": "retrieve",
-            "model": request.app.state.settings.embedding_model,
             "request_fingerprint": request_fingerprint,
         },
     )
@@ -177,8 +176,6 @@ async def retrieve_evidence(
                 duration_ms=duration_ms,
                 payload={
                     "operation": "retrieve",
-                    "provider": "siliconflow",
-                    "model": request.app.state.settings.rerank_model,
                     "document_count": len({result.metadata["document_id"] for result in results}),
                     "document_ids": [result.metadata["document_id"] for result in results],
                     "chunk_ids": [result.metadata["chunk_id"] for result in results],
