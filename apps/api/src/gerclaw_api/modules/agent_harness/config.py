@@ -37,13 +37,9 @@ class ResolvedHarnessConfig(BaseModel):
     @model_validator(mode="after")
     def validate_context_ratios(self) -> "ResolvedHarnessConfig":
         if not (
-            self.context_reserve_ratio
-            < self.context_trigger_ratio
-            < self.context_hard_stop_ratio
+            self.context_reserve_ratio < self.context_trigger_ratio < self.context_hard_stop_ratio
         ):
-            raise ValueError(
-                "context ratios must satisfy reserve < soft trigger < hard stop"
-            )
+            raise ValueError("context ratios must satisfy reserve < soft trigger < hard stop")
         return self
 
     @classmethod

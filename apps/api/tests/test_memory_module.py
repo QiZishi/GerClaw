@@ -940,11 +940,7 @@ def test_profile_projection_includes_only_confirmed_and_bounded_pending() -> Non
     assert payload["governance_track"] == "mutable"
     assert payload["mutation_policy"] == "online_crud"
     assert "身份授权" in payload["boundary"]
-    records = [
-        record
-        for section in payload["sections"]
-        for record in section["records"]
-    ]
+    records = [record for section in payload["sections"] for record in section["records"]]
     assert {record["authority"] for record in records} == {"untrusted_user_context"}
     assert {record["mutability"] for record in records} == {"online_crud"}
     assert all(record["status"] == "confirmed" for record in records)

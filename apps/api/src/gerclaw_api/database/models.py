@@ -1280,9 +1280,7 @@ class MemoryFact(TimestampMixin, Base):
     occurred_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     confirmed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     expires_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
-    tombstoned_at: Mapped[datetime | None] = mapped_column(
-        DateTime(timezone=True), nullable=True
-    )
+    tombstoned_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     tombstone_reason: Mapped[str | None] = mapped_column(String(32), nullable=True)
     tombstone_previous_status: Mapped[str | None] = mapped_column(String(16), nullable=True)
 

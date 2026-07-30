@@ -88,9 +88,7 @@ async def test_same_idempotency_key_converges_and_claim_is_fenced(
 
     async def create_once() -> uuid.UUID:
         async with app.state.database.session() as session:
-            result = await RunDirectiveService(
-                SqlAlchemyRunDirectiveRepository(session)
-            ).create(
+            result = await RunDirectiveService(SqlAlchemyRunDirectiveRepository(session)).create(
                 run_id,
                 request.model_copy(update={"id": uuid.uuid4()}),
                 tenant_id=TENANT,
@@ -104,10 +102,7 @@ async def test_same_idempotency_key_converges_and_claim_is_fenced(
     async with app.state.database.session() as session:
         assert await session.scalar(select(func.count()).select_from(RunDirective)) == 1
         encrypted_value = await session.scalar(
-            text(
-                "SELECT instruction FROM run_directives "
-                "WHERE id = CAST(:directive_id AS uuid)"
-            ),
+            text("SELECT instruction FROM run_directives WHERE id = CAST(:directive_id AS uuid)"),
             {"directive_id": str(identities[0])},
         )
         assert isinstance(encrypted_value, str)
@@ -115,9 +110,7 @@ async def test_same_idempotency_key_converges_and_claim_is_fenced(
 
     claim = RunDirectiveClaim(fencing_token=fence, boundary_id="before-model-integration")
     async with app.state.database.session() as session:
-        claimed = await RunDirectiveService(
-            SqlAlchemyRunDirectiveRepository(session)
-        ).claim_next(
+        claimed = await RunDirectiveService(SqlAlchemyRunDirectiveRepository(session)).claim_next(
             run_id,
             claim,
             tenant_id=TENANT,
@@ -128,9 +121,7 @@ async def test_same_idempotency_key_converges_and_claim_is_fenced(
 
     async with app.state.database.session() as session:
         with pytest.raises(RunDirectiveConflictError):
-            await RunDirectiveService(
-                SqlAlchemyRunDirectiveRepository(session)
-            ).mark_applied(
+            await RunDirectiveService(SqlAlchemyRunDirectiveRepository(session)).mark_applied(
                 claimed.id,
                 claim.model_copy(update={"fencing_token": fence + 1}),
                 tenant_id=TENANT,
@@ -138,9 +129,7 @@ async def test_same_idempotency_key_converges_and_claim_is_fenced(
             )
 
     async with app.state.database.session() as session:
-        applied = await RunDirectiveService(
-            SqlAlchemyRunDirectiveRepository(session)
-        ).mark_applied(
+        applied = await RunDirectiveService(SqlAlchemyRunDirectiveRepository(session)).mark_applied(
             claimed.id,
             claim,
             tenant_id=TENANT,
@@ -184,9 +173,7 @@ async def test_queue_api_lists_and_withdraws_unclaimed_instruction(
 
     claim = RunDirectiveClaim(fencing_token=41, boundary_id="before-terminal-race")
     async with app.state.database.session() as session:
-        claimed = await RunDirectiveService(
-            SqlAlchemyRunDirectiveRepository(session)
-        ).claim_next(
+        claimed = await RunDirectiveService(SqlAlchemyRunDirectiveRepository(session)).claim_next(
             run_id,
             claim,
             tenant_id=TENANT,
@@ -221,9 +208,7 @@ async def test_queue_api_lists_and_withdraws_unclaimed_instruction(
 
     async with app.state.database.session() as session:
         with pytest.raises(RunDirectiveConflictError):
-            await RunDirectiveService(
-                SqlAlchemyRunDirectiveRepository(session)
-            ).mark_applied(
+            await RunDirectiveService(SqlAlchemyRunDirectiveRepository(session)).mark_applied(
                 claimed.id,
                 claim,
                 tenant_id=TENANT,
@@ -324,9 +309,7 @@ async def test_terminal_queued_directive_binds_and_applies_on_next_run(
     successor_fence = fence + 1
     async with app.state.database.session() as session:
         conversations = ConversationService(SqlAlchemyConversationRepository(session))
-        original = await AgentRunService(
-            SqlAlchemyAgentRunRepository(session)
-        ).get_run(
+        original = await AgentRunService(SqlAlchemyAgentRunRepository(session)).get_run(
             original_run_id,
             tenant_id=TENANT,
             actor_id=ACTOR,
@@ -347,9 +330,7 @@ async def test_terminal_queued_directive_binds_and_applies_on_next_run(
             channel="web",
         )
     async with app.state.database.session() as session:
-        successor = await AgentRunService(
-            SqlAlchemyAgentRunRepository(session)
-        ).create_run(
+        successor = await AgentRunService(SqlAlchemyAgentRunRepository(session)).create_run(
             AgentRunCreate(
                 conversation_id=original.conversation_id,
                 input_message_id=message.id,
@@ -437,9 +418,7 @@ async def test_terminal_and_successor_creation_race_still_binds_directive(
 
     async def complete_original() -> object:
         async with app.state.database.session() as session:
-            return await AgentRunService(
-                SqlAlchemyAgentRunRepository(session)
-            ).transition(
+            return await AgentRunService(SqlAlchemyAgentRunRepository(session)).transition(
                 original_run_id,
                 AgentRunStatus.COMPLETED,
                 tenant_id=TENANT,
@@ -450,9 +429,7 @@ async def test_terminal_and_successor_creation_race_still_binds_directive(
 
     async def create_successor() -> object:
         async with app.state.database.session() as session:
-            return await AgentRunService(
-                SqlAlchemyAgentRunRepository(session)
-            ).create_run(
+            return await AgentRunService(SqlAlchemyAgentRunRepository(session)).create_run(
                 AgentRunCreate(
                     conversation_id=conversation_id,
                     input_message_id=successor_message_id,
@@ -510,9 +487,7 @@ async def test_terminal_and_batch_apply_race_has_one_consistent_outcome(
     directive_id = uuid.UUID(queued.json()["id"])
     claim = RunDirectiveClaim(fencing_token=fence, boundary_id="race-boundary")
     async with app.state.database.session() as session:
-        claimed = await RunDirectiveService(
-            SqlAlchemyRunDirectiveRepository(session)
-        ).claim_next(
+        claimed = await RunDirectiveService(SqlAlchemyRunDirectiveRepository(session)).claim_next(
             run_id,
             claim,
             tenant_id=TENANT,
@@ -559,9 +534,7 @@ async def test_terminal_and_batch_apply_race_has_one_consistent_outcome(
             .select_from(Message)
             .where(Message.trace_id == f"directive_{directive_id.hex}")
         )
-        assert projected_count == (
-            1 if directive.status == RunDirectiveStatus.APPLIED.value else 0
-        )
+        assert projected_count == (1 if directive.status == RunDirectiveStatus.APPLIED.value else 0)
 
 
 @pytest.mark.integration
@@ -662,9 +635,7 @@ async def test_successor_binding_transfers_full_queue_and_redirects_late_race(
     successor_trace_id = "trace_directive_successor_race_0001"
     async with app.state.database.session() as session:
         conversations = ConversationService(SqlAlchemyConversationRepository(session))
-        source = await AgentRunService(
-            SqlAlchemyAgentRunRepository(session)
-        ).get_run(
+        source = await AgentRunService(SqlAlchemyAgentRunRepository(session)).get_run(
             source_run_id,
             tenant_id=TENANT,
             actor_id=ACTOR,
@@ -682,9 +653,7 @@ async def test_successor_binding_transfers_full_queue_and_redirects_late_race(
             text=steer.instruction,
             channel="web",
         )
-        successor = await AgentRunService(
-            SqlAlchemyAgentRunRepository(session)
-        ).create_run(
+        successor = await AgentRunService(SqlAlchemyAgentRunRepository(session)).create_run(
             AgentRunCreate(
                 conversation_id=source.conversation_id,
                 input_message_id=message.id,
@@ -710,9 +679,7 @@ async def test_successor_binding_transfers_full_queue_and_redirects_late_race(
 
     async def queue_late() -> RunDirectiveRead:
         async with app.state.database.session() as session:
-            return await RunDirectiveService(
-                SqlAlchemyRunDirectiveRepository(session)
-            ).create(
+            return await RunDirectiveService(SqlAlchemyRunDirectiveRepository(session)).create(
                 source_run_id,
                 RunDirectiveCreate(
                     mode=RunDirectiveMode.QUEUE_FOR_NEXT_BOUNDARY,
@@ -746,9 +713,7 @@ async def test_successor_binding_transfers_full_queue_and_redirects_late_race(
 
     async def queue_during_terminal() -> RunDirectiveRead:
         async with app.state.database.session() as session:
-            return await RunDirectiveService(
-                SqlAlchemyRunDirectiveRepository(session)
-            ).create(
+            return await RunDirectiveService(SqlAlchemyRunDirectiveRepository(session)).create(
                 source_run_id,
                 RunDirectiveCreate(
                     mode=RunDirectiveMode.QUEUE_FOR_NEXT_BOUNDARY,
@@ -763,23 +728,17 @@ async def test_successor_binding_transfers_full_queue_and_redirects_late_race(
     async with app.state.database.session() as session:
         transferred = list(
             (
-                await session.scalars(
-                    select(RunDirective).where(RunDirective.id.in_(queued_ids))
-                )
+                await session.scalars(select(RunDirective).where(RunDirective.id.in_(queued_ids)))
             ).all()
         )
         terminal_race = await session.scalar(
             select(RunDirective).where(
-                RunDirective.idempotency_key
-                == "directive-successor-terminal-race"
+                RunDirective.idempotency_key == "directive-successor-terminal-race"
             )
         )
     assert len(transferred) == 101
     assert all(item.successor_run_id is None for item in transferred)
-    assert all(
-        item.status == RunDirectiveStatus.PENDING_NEXT_RUN.value
-        for item in transferred
-    )
+    assert all(item.status == RunDirectiveStatus.PENDING_NEXT_RUN.value for item in transferred)
     assert terminal_race is not None
     assert terminal_race.successor_run_id is None
     assert terminal_race.status == RunDirectiveStatus.PENDING_NEXT_RUN.value

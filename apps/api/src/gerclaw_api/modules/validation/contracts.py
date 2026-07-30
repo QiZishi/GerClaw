@@ -156,9 +156,7 @@ class PublicChatDoneData(_DoneData):
             self.answer_version_id,
             self.answer_version,
         )
-        if any(value is not None for value in values) and any(
-            value is None for value in values
-        ):
+        if any(value is not None for value in values) and any(value is None for value in values):
             raise ValueError("answer version metadata must be complete")
         return self
 
@@ -194,9 +192,7 @@ def _validate(event: StreamEvent, schemas: Mapping[str, type[BaseModel]]) -> Str
     # nulls. Keep that distinction at this single projection boundary.
     exclude_none = isinstance(validated, _ToolResultData)
     return event.model_copy(
-        update={
-            "data": validated.model_dump(mode="json", exclude_none=exclude_none)
-        }
+        update={"data": validated.model_dump(mode="json", exclude_none=exclude_none)}
     )
 
 

@@ -498,8 +498,7 @@ async def test_private_tool_protocol_markup_is_repaired_before_public_projection
     assert "固定起床时间" in response.text
     assert all("<invoke" not in str(event.data.get("content", "")) for event in events)
     assert any(
-        message.name == "output_contract_repair"
-        and "不要复述" in message.get_text_content()
+        message.name == "output_contract_repair" and "不要复述" in message.get_text_content()
         for message in model.last_messages
     )
 
@@ -552,9 +551,7 @@ async def test_applied_directive_is_restored_before_resumed_model_call(
         lambda _event: None,
     )
 
-    assert "恢复后继续遵循已经领取的补充要求" in (
-        model.last_messages[-1].get_text_content()
-    )
+    assert "恢复后继续遵循已经领取的补充要求" in (model.last_messages[-1].get_text_content())
 
 
 @pytest.mark.asyncio
@@ -991,9 +988,10 @@ async def test_owner_capability_runs_after_prerequisite_checkpoint_and_persists_
     assert observed[0][0].statuses["capability_1"] is PlanNodeStatus.COMPLETED
     assert observed[0][1].result_ref == "cga:assessment:harness"
     assert response.structured["warning_codes"] == []
-    assert cast(list[dict[str, Any]], response.structured["capability_results"])[0][
-        "result_ref"
-    ] == "cga:assessment:harness"
+    assert (
+        cast(list[dict[str, Any]], response.structured["capability_results"])[0]["result_ref"]
+        == "cga:assessment:harness"
+    )
 
 
 @pytest.mark.asyncio

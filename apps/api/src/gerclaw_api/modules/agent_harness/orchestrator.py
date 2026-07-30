@@ -137,6 +137,8 @@ _EVIDENCE_UNAVAILABLE_CLARIFICATION = (
 _SafeSentenceBuffer = SafeSentenceBuffer
 _CanonicalTextStream = CanonicalTextStream
 _final_agent_text = final_agent_text
+
+
 class ProductionAgentHarness(OrchestrationSupportMixin):
     """One-turn isolated harness over shared model and retrieval clients."""
 
@@ -396,9 +398,7 @@ class ProductionAgentHarness(OrchestrationSupportMixin):
         safe_high_risk_codes: list[JsonValue] = list(high_risk_codes)
         if route_decision.route is RouteKind.EMERGENCY:
             if governance.status_for("safety.emergency") is not PlanNodeStatus.COMPLETED:
-                emergency_node = await governance.checkpoint_persisted(
-                    "safety.emergency"
-                )
+                emergency_node = await governance.checkpoint_persisted("safety.emergency")
                 await governance.complete_persisted(emergency_node)
             return await emit_deterministic_clarification(
                 body=HIGH_RISK_NOTICE,
@@ -439,9 +439,7 @@ class ProductionAgentHarness(OrchestrationSupportMixin):
             if governance.status_for("attachment.inspect") is PlanNodeStatus.COMPLETED:
                 attachment_projector = await turn_results.attachment_projector()
             else:
-                attachment_node = await governance.checkpoint_persisted(
-                    "attachment.inspect"
-                )
+                attachment_node = await governance.checkpoint_persisted("attachment.inspect")
                 try:
                     attachment_projector = await turn_results.attachment_projector()
                 except Exception:
@@ -488,12 +486,8 @@ class ProductionAgentHarness(OrchestrationSupportMixin):
             await governance.complete_persisted(evidence_node)
         for capability_id in self._completed_capability_ids:
             await governance.complete_optional_capability_persisted(capability_id)
-        completed_capability_ids = {
-            item.capability_id for item in self._capability_results
-        }
-        planned_capabilities = {
-            node.capability for node in dynamic_plan.nodes
-        }
+        completed_capability_ids = {item.capability_id for item in self._capability_results}
+        planned_capabilities = {node.capability for node in dynamic_plan.nodes}
         for capability_id in self._governed_capability_ids:
             if (
                 capability_id in completed_capability_ids
@@ -548,9 +542,7 @@ class ProductionAgentHarness(OrchestrationSupportMixin):
             and not has_uploaded_evidence
             and not can_search_for_evidence
         ):
-            answer_node = await governance.checkpoint_persisted(
-                governance.answer_capability()
-            )
+            answer_node = await governance.checkpoint_persisted(governance.answer_capability())
             await governance.complete_persisted(answer_node)
             return await emit_deterministic_clarification(
                 body=_EVIDENCE_UNAVAILABLE_CLARIFICATION,
@@ -561,8 +553,7 @@ class ProductionAgentHarness(OrchestrationSupportMixin):
                     "loaded_skill_ids": list(context.loaded_skills),
                     "governed_capability_ids": list(self._governed_capability_ids),
                     "capability_results": [
-                        item.model_dump(mode="json")
-                        for item in self._capability_results
+                        item.model_dump(mode="json") for item in self._capability_results
                     ],
                     "warning_codes": list(self._warning_codes),
                     "document_focused": False,
@@ -695,19 +686,15 @@ class ProductionAgentHarness(OrchestrationSupportMixin):
             document_focused=document_focused,
             retrieval_disabled=route_decision.route is RouteKind.QUICK,
         )
-        effective_user_message, directive_response = (
-            await self._prepare_initial_runtime_directives(
-                agent=agent_session.agent,
-                budget=budget,
-                user_message=user_message,
-                stream_callback=stream_callback,
-            )
+        effective_user_message, directive_response = await self._prepare_initial_runtime_directives(
+            agent=agent_session.agent,
+            budget=budget,
+            user_message=user_message,
+            stream_callback=stream_callback,
         )
         if directive_response is not None:
             return directive_response
-        answer_node = await governance.checkpoint_persisted(
-            governance.answer_capability()
-        )
+        answer_node = await governance.checkpoint_persisted(governance.answer_capability())
 
         skill_metadata = self._skill_metadata(self._agent_skills)
         output_contract_retries = 0
@@ -737,29 +724,27 @@ class ProductionAgentHarness(OrchestrationSupportMixin):
                 budget=budget,
             )
             try:
-                stream_result, output_contract_retries = (
-                    await project_with_output_protocol_repair(
-                        session=agent_session,
-                        publish=lambda kind, data: self._emit(stream_callback, kind, data),
-                        budget=budget,
-                        observer=self._attempt_repair_observer,
-                        user_message=attachment_projector.user_message(effective_user_message),
-                        wall_clock_seconds=self._execution_budget.wall_clock_seconds,
-                        max_output_characters=self._config.max_output_characters,
-                        park_approvals=park_approvals,
-                        evidence_available=citation_scope.segment_has_evidence,
-                        public_text_transform=citation_scope.normalize_public_text,
-                        memory_guard=turn_toolkit.memory_guard,
-                        skill_metadata=skill_metadata,
-                        search_results=search_results,
-                        lifecycle=self._run_lifecycle,
-                        timeout_error_factory=lambda: RuntimeBudgetExceededError(
-                            "RUNTIME_WALL_CLOCK_EXCEEDED"
-                        ),
-                        tool_result_observer=observe_tool_result,
-                        model_boundary_observer=react_boundaries.before_model,
-                        safe_boundary_observer=apply_directives_after_tool,
-                    )
+                stream_result, output_contract_retries = await project_with_output_protocol_repair(
+                    session=agent_session,
+                    publish=lambda kind, data: self._emit(stream_callback, kind, data),
+                    budget=budget,
+                    observer=self._attempt_repair_observer,
+                    user_message=attachment_projector.user_message(effective_user_message),
+                    wall_clock_seconds=self._execution_budget.wall_clock_seconds,
+                    max_output_characters=self._config.max_output_characters,
+                    park_approvals=park_approvals,
+                    evidence_available=citation_scope.segment_has_evidence,
+                    public_text_transform=citation_scope.normalize_public_text,
+                    memory_guard=turn_toolkit.memory_guard,
+                    skill_metadata=skill_metadata,
+                    search_results=search_results,
+                    lifecycle=self._run_lifecycle,
+                    timeout_error_factory=lambda: RuntimeBudgetExceededError(
+                        "RUNTIME_WALL_CLOCK_EXCEEDED"
+                    ),
+                    tool_result_observer=observe_tool_result,
+                    model_boundary_observer=react_boundaries.before_model,
+                    safe_boundary_observer=apply_directives_after_tool,
                 )
             except RuntimeDirectiveEmergency as emergency:
                 await governance.complete_persisted(answer_node)

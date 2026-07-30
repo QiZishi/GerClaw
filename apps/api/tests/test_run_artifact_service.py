@@ -51,11 +51,7 @@ class _Repository:
     ) -> RunArtifact | None:
         del for_update
         artifact = self.artifacts.get(artifact_id)
-        if (
-            artifact is None
-            or artifact.tenant_id != tenant_id
-            or artifact.actor_id != actor_id
-        ):
+        if artifact is None or artifact.tenant_id != tenant_id or artifact.actor_id != actor_id:
             return None
         return artifact
 

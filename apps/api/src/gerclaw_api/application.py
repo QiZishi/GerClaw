@@ -298,9 +298,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         )
 
     @app.exception_handler(RunResumeDataError)
-    async def run_resume_data_error(
-        _request: Request, _error: RunResumeDataError
-    ) -> JSONResponse:
+    async def run_resume_data_error(_request: Request, _error: RunResumeDataError) -> JSONResponse:
         return JSONResponse(
             {
                 "error": {

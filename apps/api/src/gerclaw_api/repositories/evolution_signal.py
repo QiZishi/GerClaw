@@ -117,9 +117,7 @@ class SqlAlchemyEvolutionSignalRepository:
             duration_ms = max(0, int((occurred_at - run.started_at).total_seconds() * 1_000))
         raw_error = trace.error_code.upper() if trace is not None and trace.error_code else None
         error_code = (
-            raw_error
-            if raw_error is not None and _ERROR_CODE.fullmatch(raw_error)
-            else None
+            raw_error if raw_error is not None and _ERROR_CODE.fullmatch(raw_error) else None
         )
         if error_code not in CHAT_ERROR_CODES:
             error_code = (
@@ -161,10 +159,8 @@ class SqlAlchemyEvolutionSignalRepository:
                 "updated_at": func.now(),
             },
             where=and_(
-                statement.excluded.occurred_at
-                >= EvolutionSignalRecord.occurred_at,
-                statement.excluded.feedback_revision
-                >= EvolutionSignalRecord.feedback_revision,
+                statement.excluded.occurred_at >= EvolutionSignalRecord.occurred_at,
+                statement.excluded.feedback_revision >= EvolutionSignalRecord.feedback_revision,
             ),
         )
         await self._session.execute(statement)

@@ -156,8 +156,4 @@ def render_core_profile(profile: dict[str, JsonValue], *, max_characters: int = 
         sort_keys=True,
         separators=(",", ":"),
     )
-    return (
-        "<untrusted-user-memory>\n"
-        f"{body}\n"
-        "</untrusted-user-memory>"
-    )
+    return f"<untrusted-user-memory>\n{body}\n</untrusted-user-memory>"

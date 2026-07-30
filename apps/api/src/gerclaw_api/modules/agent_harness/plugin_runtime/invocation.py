@@ -70,10 +70,5 @@ class GovernedCapabilityRuntime:
     def _require_supported_schema(self, capability_id: str) -> None:
         manifest = self._catalog.resolve(capability_id)
         input_schema, output_schema = capability_contract_schemas()
-        if (
-            manifest.input_schema != input_schema
-            or manifest.output_schema != output_schema
-        ):
-            raise PluginRuntimeError(
-                f"CAPABILITY_SCHEMA_UNSUPPORTED:{manifest.capability_id}"
-            )
+        if manifest.input_schema != input_schema or manifest.output_schema != output_schema:
+            raise PluginRuntimeError(f"CAPABILITY_SCHEMA_UNSUPPORTED:{manifest.capability_id}")

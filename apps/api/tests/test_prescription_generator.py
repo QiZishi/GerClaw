@@ -389,9 +389,7 @@ async def test_generator_keeps_evidence_review_medication_precaution(
 ) -> None:
     content = _content().model_copy(
         update={
-            "medication": _content().medication.model_copy(
-                update={"precautions": (precaution,)}
-            )
+            "medication": _content().medication.model_copy(update={"precautions": (precaution,)})
         }
     )
 

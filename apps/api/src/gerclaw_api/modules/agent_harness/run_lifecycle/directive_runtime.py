@@ -215,9 +215,7 @@ class RuntimeDirectiveCoordinator:
                 ),
             )
             selected.extend(fresh)
-        risk_codes = tuple(
-            self._risk_classifier(tuple(item.instruction for item in selected))
-        )
+        risk_codes = tuple(self._risk_classifier(tuple(item.instruction for item in selected)))
         return (
             tuple(selected),
             boundary_id,

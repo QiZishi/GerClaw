@@ -941,15 +941,9 @@ async def test_production_module_applies_low_risk_presentation_evolution_online(
             category="presentation",
             tools="  []",
             parameters=(
-                "  text:\n"
-                "    type: string\n"
-                "    description: 需要整理的原始内容\n"
-                "    maxLength: 100"
+                "  text:\n    type: string\n    description: 需要整理的原始内容\n    maxLength: 100"
             ),
-            instructions=(
-                "# 工作流\n\n保留原意。\n不添加新事实。\n"
-                "使用简短句子。\n使用易读分段。"
-            ),
+            instructions=("# 工作流\n\n保留原意。\n不添加新事实。\n使用简短句子。\n使用易读分段。"),
         ),
         origin="text",
     )
@@ -1110,10 +1104,7 @@ def test_skill_evolution_policy_allows_bounded_retrieval_but_not_schema_changes(
             category="retrieval",
             tools="  - search_knowledge",
             parameters=(
-                "  query:\n"
-                "    type: string\n"
-                "    description: 查找关键词\n"
-                "    maxLength: 100"
+                "  query:\n    type: string\n    description: 查找关键词\n    maxLength: 100"
             ),
             instructions=(
                 "# 工作流\n\n使用本地知识库。\n按用户提供的关键词检索。\n"
@@ -1161,10 +1152,7 @@ def test_skill_evolution_policy_rejects_free_text_synonym_bypasses(
             description="在不新增事实的前提下调整已有内容的易读格式",
             category="presentation",
             tools="  []",
-            instructions=(
-                "# 工作流\n\n保留原意。\n不添加新事实。\n"
-                "使用简短句子。\n使用易读分段。"
-            ),
+            instructions=("# 工作流\n\n保留原意。\n不添加新事实。\n使用简短句子。\n使用易读分段。"),
         ),
         source="custom",
         origin="text",

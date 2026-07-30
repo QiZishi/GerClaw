@@ -280,9 +280,7 @@ async def test_terminal_run_and_feedback_reconcile_one_real_signal(
     await app.state.evolution_signal_collector.wait_pending()
 
     async with app.state.database.session() as session:
-        record_count = await session.scalar(
-            select(func.count()).select_from(EvolutionSignalRecord)
-        )
+        record_count = await session.scalar(select(func.count()).select_from(EvolutionSignalRecord))
         record = await session.scalar(select(EvolutionSignalRecord))
         assert record_count == 1
         assert record is not None

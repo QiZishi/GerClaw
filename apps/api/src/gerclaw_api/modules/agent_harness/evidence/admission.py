@@ -67,11 +67,7 @@ class EvidenceAdmissionPolicy:
     def admit(self, record: EvidenceRecord) -> EvidenceRecord:
         """Reject unusable records at the final citation admission boundary."""
 
-        if (
-            record.status == "unavailable"
-            or record.locator is None
-            or record.adopted_text is None
-        ):
+        if record.status == "unavailable" or record.locator is None or record.adopted_text is None:
             raise EvidenceAdmissionError("evidence is unavailable")
         return record
 
@@ -106,8 +102,7 @@ class EvidenceAdmissionPolicy:
                     locator=locator,
                     adopted_text=adopted_text,
                     applicability=(
-                        "经本轮检索判定与当前请求相关, "
-                        "仍需结合患者个体情况和专业人员复核。"
+                        "经本轮检索判定与当前请求相关, 仍需结合患者个体情况和专业人员复核。"
                     ),
                 )
             )
@@ -131,14 +126,11 @@ class EvidenceAdmissionPolicy:
         seen_ids: set[str] = set()
         seen_text: set[str] = set()
         for candidate in candidates:
-            normalized_text = _WHITESPACE.sub(
-                " ", candidate.record.adopted_text or ""
-            ).strip().casefold()
+            normalized_text = (
+                _WHITESPACE.sub(" ", candidate.record.adopted_text or "").strip().casefold()
+            )
             text_fingerprint = hashlib.sha256(normalized_text.encode("utf-8")).hexdigest()
-            if (
-                candidate.record.evidence_id in seen_ids
-                or text_fingerprint in seen_text
-            ):
+            if candidate.record.evidence_id in seen_ids or text_fingerprint in seen_text:
                 continue
             admitted.append(candidate)
             seen_ids.add(candidate.record.evidence_id)

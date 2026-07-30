@@ -33,8 +33,7 @@ class EvolutionSignalProjector:
             source.run_id.bytes,
         )
         skill_ids = tuple(
-            f"skill_{self._digest(b'skill:', item.encode('utf-8'))}"
-            for item in source.skill_ids
+            f"skill_{self._digest(b'skill:', item.encode('utf-8'))}" for item in source.skill_ids
         )
         return EvolutionSignal(
             run_fingerprint=fingerprint,

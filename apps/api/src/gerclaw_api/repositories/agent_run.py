@@ -370,9 +370,7 @@ class SqlAlchemyAgentRunRepository:
             .with_for_update()
             .execution_options(populate_existing=True)
         )
-        directives = list(
-            (await self._session.scalars(statement)).all()
-        )
+        directives = list((await self._session.scalars(statement)).all())
         for directive in directives:
             directive.status = "pending" if successor_run_id is not None else "pending_next_run"
             directive.successor_run_id = successor_run_id

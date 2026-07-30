@@ -415,9 +415,7 @@ async def test_plan_node_transition_expands_optional_finalize_audit_atomically()
         base.model_dump(mode="json")
         | {
             "dynamic_plan": dynamic_plan.model_dump(mode="json"),
-            "plan_execution": PlanExecutionSnapshot.initial(dynamic_plan).model_dump(
-                mode="json"
-            ),
+            "plan_execution": PlanExecutionSnapshot.initial(dynamic_plan).model_dump(mode="json"),
         }
     )
     created = await service.create_run(
@@ -454,16 +452,14 @@ async def test_plan_node_transition_expands_optional_finalize_audit_atomically()
         fencing_token=7,
     )
 
-    assert [
-        (event.node_id, event.status)
-        for event in repository.plan_node_events[-2:]
-    ] == [
+    assert [(event.node_id, event.status) for event in repository.plan_node_events[-2:]] == [
         ("optional_one", "skipped"),
         ("optional_two", "skipped"),
     ]
-    assert PersistedRunPlan.model_validate(
-        repository.runs[created.id].plan
-    ).plan_execution == finalized
+    assert (
+        PersistedRunPlan.model_validate(repository.runs[created.id].plan).plan_execution
+        == finalized
+    )
 
 
 @pytest.mark.asyncio
@@ -502,9 +498,7 @@ async def test_capability_result_commits_atomically_with_node_completion() -> No
         | {
             "capability_selection": selection.model_dump(mode="json"),
             "dynamic_plan": dynamic_plan.model_dump(mode="json"),
-            "plan_execution": PlanExecutionSnapshot.initial(dynamic_plan).model_dump(
-                mode="json"
-            ),
+            "plan_execution": PlanExecutionSnapshot.initial(dynamic_plan).model_dump(mode="json"),
         }
     )
     created = await service.create_run(
@@ -549,10 +543,7 @@ async def test_capability_result_commits_atomically_with_node_completion() -> No
         actor_id=ACTOR,
     )
     interrupted = PersistedRunPlan.model_validate(repository.runs[created.id].plan)
-    assert (
-        interrupted.effective_plan_execution().statuses["capability"]
-        is PlanNodeStatus.COMPLETED
-    )
+    assert interrupted.effective_plan_execution().statuses["capability"] is PlanNodeStatus.COMPLETED
     assert interrupted.capability_results == (result,)
 
 
@@ -592,9 +583,7 @@ async def test_selected_owner_node_cannot_complete_without_durable_result() -> N
         | {
             "capability_selection": selection.model_dump(mode="json"),
             "dynamic_plan": dynamic_plan.model_dump(mode="json"),
-            "plan_execution": PlanExecutionSnapshot.initial(dynamic_plan).model_dump(
-                mode="json"
-            ),
+            "plan_execution": PlanExecutionSnapshot.initial(dynamic_plan).model_dump(mode="json"),
         }
     )
     created = await service.create_run(
@@ -1145,10 +1134,7 @@ async def test_interruption_normalizes_running_plan_node_for_retry(
     assert interrupted.status is AgentRunStatus.INTERRUPTED
     assert normalized.statuses[node_id] is PlanNodeStatus.FAILED
     assert normalized.attempts[node_id] == 1
-    assert (
-        normalized.error_codes[node_id]
-        == "RUN_INTERRUPTED_BEFORE_NODE_COMMIT"
-    )
+    assert normalized.error_codes[node_id] == "RUN_INTERRUPTED_BEFORE_NODE_COMMIT"
     assert [
         (event.status, event.attempt, event.error_code)
         for event in repository.plan_node_events[-2:]
@@ -1218,10 +1204,7 @@ async def test_interruption_reopens_completed_node_without_durable_output() -> N
     stored = PersistedRunPlan.model_validate(repository.runs[created.id].plan)
     normalized = stored.effective_plan_execution()
     assert normalized.statuses[node_id] is PlanNodeStatus.FAILED
-    assert (
-        normalized.error_codes[node_id]
-        == "RUN_INTERRUPTED_BEFORE_OUTPUT_COMMIT"
-    )
+    assert normalized.error_codes[node_id] == "RUN_INTERRUPTED_BEFORE_OUTPUT_COMMIT"
     retry = DynamicPlanExecutor(plan.dynamic_plan, snapshot=normalized)
     assert retry.start_capability(answer.capability) == node_id
     assert retry.snapshot().attempts[node_id] == 2

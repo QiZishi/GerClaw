@@ -130,9 +130,7 @@ async def test_reconcile_tracks_current_value_and_append_only_revisions() -> Non
 
     assert (liked.revision, disliked.revision, cleared.revision) == (1, 2, 3)
     assert [item.value for item in repository.revisions] == [1, -1, 0]
-    assert await service.get(
-        repository.run.id, tenant_id=TENANT, actor_id=ACTOR
-    ) == cleared
+    assert await service.get(repository.run.id, tenant_id=TENANT, actor_id=ACTOR) == cleared
 
 
 @pytest.mark.asyncio

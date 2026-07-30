@@ -614,16 +614,12 @@ class Settings(BaseSettings):
             < self.agent_context_trigger_ratio
             < self.agent_context_hard_stop_ratio
         ):
-            raise ValueError(
-                "context ratios must satisfy reserve < soft trigger < hard stop"
-            )
+            raise ValueError("context ratios must satisfy reserve < soft trigger < hard stop")
         if (
             self.evolution_signal_max_concurrent_collections
             > self.evolution_signal_max_pending_collections
         ):
-            raise ValueError(
-                "evolution signal concurrency cannot exceed the pending-task limit"
-            )
+            raise ValueError("evolution signal concurrency cannot exceed the pending-task limit")
 
         if self.app_env == "production":
             if not {

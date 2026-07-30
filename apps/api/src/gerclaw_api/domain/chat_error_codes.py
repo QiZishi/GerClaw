@@ -31,9 +31,7 @@ CHAT_ERROR_CODE_BY_EXCEPTION: dict[str, str] = {
     "SkillNotFoundError": "CHAT_SKILL_UNAVAILABLE",
     "SkillDisabledError": "CHAT_SKILL_UNAVAILABLE",
     "CorruptSkillError": "CHAT_SKILL_UNAVAILABLE",
-    "ChatCancellationFinalizationError": (
-        "CHAT_CANCELLATION_FINALIZATION_FAILED"
-    ),
+    "ChatCancellationFinalizationError": ("CHAT_CANCELLATION_FINALIZATION_FAILED"),
 }
 CHAT_FALLBACK_ERROR_CODE = "CHAT_EXECUTION_FAILED"
 CHAT_CANCELLATION_ERROR_CODE = "CHAT_CANCELLED"

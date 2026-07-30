@@ -300,15 +300,9 @@ class ConversationService:
             role=cast(Literal["user", "assistant"], message.role),
             text=self._message_text(message),
             citations=citations,
-            answer_group_run_id=(
-                answer_version.run_id if answer_version is not None else None
-            ),
-            answer_version_id=(
-                answer_version.id if answer_version is not None else None
-            ),
-            answer_version=(
-                answer_version.version if answer_version is not None else None
-            ),
+            answer_group_run_id=(answer_version.run_id if answer_version is not None else None),
+            answer_version_id=(answer_version.id if answer_version is not None else None),
+            answer_version=(answer_version.version if answer_version is not None else None),
             created_at=message.created_at,
         )
 

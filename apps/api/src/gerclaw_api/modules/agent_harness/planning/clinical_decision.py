@@ -23,9 +23,7 @@ from gerclaw_api.modules.agent_harness.planning.contracts import (
 )
 
 _DIAGNOSTIC_INTENT = re.compile(r"什么原因|可能是什么|鉴别|诊断|怎么回事")
-_TREATMENT_INTENT = re.compile(
-    r"用药|处方|治疗|停药|换药|改药|剂量|加药|减药|药物调整"
-)
+_TREATMENT_INTENT = re.compile(r"用药|处方|治疗|停药|换药|改药|剂量|加药|减药|药物调整")
 
 
 class TurnClinicalDecision(BaseModel):
@@ -128,8 +126,7 @@ class ClinicalDecisionCoordinator:
                     "药物过敏史(包括明确无药物过敏)",
                     has_category("allergy")
                     or any(
-                        fact.category == "negative_evidence"
-                        and "过敏" in str(fact.value)
+                        fact.category == "negative_evidence" and "过敏" in str(fact.value)
                         for fact in usable
                     ),
                     ("过敏",),
@@ -148,9 +145,7 @@ class ClinicalDecisionCoordinator:
             for question, satisfied, markers in prerequisites:
                 if satisfied:
                     questions = [
-                        item
-                        for item in questions
-                        if not any(marker in item for marker in markers)
+                        item for item in questions if not any(marker in item for marker in markers)
                     ]
                 elif question not in questions:
                     questions.append(question)
@@ -169,8 +164,7 @@ class ClinicalDecisionCoordinator:
             (
                 fact
                 for fact in reversed(state.facts)
-                if fact.category in {"chief_complaint", "symptom"}
-                and fact.status != "conflicted"
+                if fact.category in {"chief_complaint", "symptom"} and fact.status != "conflicted"
             ),
             None,
         )

@@ -163,9 +163,7 @@ class SkillEvolutionDecision(BaseModel):
     @field_validator("reason_codes")
     @classmethod
     def validate_reason_codes(cls, value: tuple[str, ...]) -> tuple[str, ...]:
-        if any(
-            len(code) > 100 or not re.fullmatch(r"SKILL_[A-Z0-9_]+", code) for code in value
-        ):
+        if any(len(code) > 100 or not re.fullmatch(r"SKILL_[A-Z0-9_]+", code) for code in value):
             raise ValueError("Skill evolution reason codes must be stable content-free codes")
         return value
 

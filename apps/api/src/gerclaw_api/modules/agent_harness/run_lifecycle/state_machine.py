@@ -125,9 +125,7 @@ class AgentRunStateMachine:
                     else current.interrupted_at
                 ),
                 "completed_at": (
-                    (occurred_at or datetime.now(UTC))
-                    if target in TERMINAL_RUN_STATUSES
-                    else None
+                    (occurred_at or datetime.now(UTC)) if target in TERMINAL_RUN_STATUSES else None
                 ),
             }
         )

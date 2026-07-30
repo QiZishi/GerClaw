@@ -254,7 +254,9 @@ class ChatService:
                 "resume and controlled successor state are mutually exclusive"
             )
         frozen_source = (
-            resume_state if resume_state is not None else successor_state.source
+            resume_state
+            if resume_state is not None
+            else successor_state.source
             if successor_state is not None
             else None
         )
@@ -313,10 +315,7 @@ class ChatService:
             )
 
         async def wait_for_replay() -> AgentResponse:
-            deadline = (
-                time.monotonic()
-                + self._settings.chat_idempotent_replay_wait_seconds
-            )
+            deadline = time.monotonic() + self._settings.chat_idempotent_replay_wait_seconds
             while True:
                 trace = await self._traces.get_trace(identity.tenant_id, trace_id)
                 if trace.status == TraceStatus.COMPLETED.value:
@@ -332,9 +331,7 @@ class ChatService:
                     )
                 remaining = deadline - time.monotonic()
                 if remaining <= 0:
-                    raise ChatReplayUnavailableError(
-                        "running chat trace did not become replayable"
-                    )
+                    raise ChatReplayUnavailableError("running chat trace did not become replayable")
                 await asyncio.sleep(
                     min(
                         self._settings.agent_run_stream_poll_interval_seconds,
@@ -468,22 +465,19 @@ class ChatService:
                     "controlled successor identity does not match its frozen source"
                 )
         frozen_source = (
-            resume_state if resume_state is not None else successor_state.source
+            resume_state
+            if resume_state is not None
+            else successor_state.source
             if successor_state is not None
             else None
         )
 
         async def interruption_requested() -> bool:
             return bool(
-                (
-                    cancellation_requested is not None
-                    and await cancellation_requested()
-                )
-                or (
-                    steering_requested is not None
-                    and await steering_requested()
-                )
+                (cancellation_requested is not None and await cancellation_requested())
+                or (steering_requested is not None and await steering_requested())
             )
+
         conversation = await self._conversation.ensure_session(
             payload.session_id,
             tenant_id=identity.tenant_id,
@@ -717,9 +711,7 @@ class ChatService:
             projector = UserMessageClinicalProjector(self._clinical_state_reducer)
             for directive in recent_directives:
                 directive_risk_codes = tuple(detect_high_risk(directive.instruction))
-                if not (
-                    directive_risk_codes or is_medical_message(directive.instruction)
-                ):
+                if not (directive_risk_codes or is_medical_message(directive.instruction)):
                     continue
                 clinical_state = projector.project(
                     clinical_state,
@@ -795,9 +787,7 @@ class ChatService:
             for item in capability_selection.selected
             if item.capability_id in planned_capabilities
         ]
-        completed_capability_ids = {
-            item.capability_id for item in capability_results
-        }
+        completed_capability_ids = {item.capability_id for item in capability_results}
         selected_owner_capabilities = [
             item
             for item in selected_owner_capabilities
@@ -996,8 +986,7 @@ class ChatService:
             return tuple(
                 item
                 for item in restored
-                if successor_state is None
-                or item.id != successor_state.directive_id
+                if successor_state is None or item.id != successor_state.directive_id
             )
 
         async def claim_runtime_directives(
@@ -1021,11 +1010,7 @@ class ChatService:
             directive_ids: tuple[uuid.UUID, ...],
             boundary_id: str,
         ) -> None:
-            if (
-                self._directive_journal is None
-                or self._active_run_id is None
-                or not directive_ids
-            ):
+            if self._directive_journal is None or self._active_run_id is None or not directive_ids:
                 return
             await self._directive_journal.mark_directives_applied(
                 self._active_run_id,
@@ -1076,9 +1061,7 @@ class ChatService:
                     public_operation_id=rejected_attempt.public_operation_id,
                     step_id=rejected_attempt.step_id,
                     checkpoint_id=checkpoint_id,
-                    expected_current_attempt_id=(
-                        rejected_attempt.expected_current_attempt_id
-                    ),
+                    expected_current_attempt_id=(rejected_attempt.expected_current_attempt_id),
                 ),
                 tenant_id=identity.tenant_id,
                 actor_id=identity.actor_id,
@@ -1097,9 +1080,7 @@ class ChatService:
 
         async def persist_plan_execution(snapshot: PlanExecutionSnapshot) -> None:
             if self._run_journal is None or self._active_run_id is None:
-                raise UnsupportedAgentContextError(
-                    "plan execution persistence is unavailable"
-                )
+                raise UnsupportedAgentContextError("plan execution persistence is unavailable")
             await self._run_journal.update_plan_execution(
                 self._active_run_id,
                 snapshot,
@@ -1110,9 +1091,7 @@ class ChatService:
 
         async def invoke_owner_capability(capability_id: str) -> CapabilityResult:
             if self._capability_runtime is None:
-                raise UnsupportedAgentContextError(
-                    "governed capability owner is unavailable"
-                )
+                raise UnsupportedAgentContextError("governed capability owner is unavailable")
             return await self._capability_runtime.invoke(
                 capability_id,
                 {
@@ -1128,9 +1107,7 @@ class ChatService:
             result: CapabilityResult,
         ) -> None:
             if self._run_journal is None or self._active_run_id is None:
-                raise UnsupportedAgentContextError(
-                    "capability result persistence is unavailable"
-                )
+                raise UnsupportedAgentContextError("capability result persistence is unavailable")
             await self._run_journal.update_plan_execution(
                 self._active_run_id,
                 snapshot,
@@ -1511,8 +1488,7 @@ class ChatService:
                 tuple(
                     item
                     for item in raw_warning_codes
-                    if isinstance(item, str)
-                    and item == "OPTIONAL_CAPABILITY_FAILED"
+                    if isinstance(item, str) and item == "OPTIONAL_CAPABILITY_FAILED"
                 )
                 if isinstance(raw_warning_codes, list)
                 else ()

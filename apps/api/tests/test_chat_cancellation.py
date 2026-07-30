@@ -115,10 +115,12 @@ async def test_control_redelivery_interrupts_a_task_that_swallows_the_first_sign
     await registry.register(task=task, **key)
     await registry.request_steer(**key)
     await asyncio.wait_for(first_signal.wait(), timeout=1)
-    result = (await asyncio.wait_for(
-        asyncio.gather(task, return_exceptions=True),
-        timeout=2,
-    ))[0]
+    result = (
+        await asyncio.wait_for(
+            asyncio.gather(task, return_exceptions=True),
+            timeout=2,
+        )
+    )[0]
 
     assert isinstance(result, asyncio.CancelledError)
     await registry.unregister(task=task, **key)

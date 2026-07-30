@@ -620,8 +620,7 @@ class EvidenceBoundPrescriptionGenerator:
         fields = list(uncited_fields)
         if not actionable_medication_allowed:
             fields.extend(
-                recommendation.content
-                for recommendation in draft.medication.recommendations
+                recommendation.content for recommendation in draft.medication.recommendations
             )
         for field in fields:
             if classifier.classify(
@@ -689,10 +688,6 @@ class EvidenceBoundPrescriptionGenerator:
             ),
             medication_fact_ids=medication_fact_ids,
             uncertainties=uncertainties,
-            monitoring_conditions=(
-                "按章节记录症状、功能、用药反应和相关检查变化",
-            ),
-            follow_up_conditions=(
-                "由医生结合完整病史和检查复核；出现红旗症状立即就医",
-            ),
+            monitoring_conditions=("按章节记录症状、功能、用药反应和相关检查变化",),
+            follow_up_conditions=("由医生结合完整病史和检查复核；出现红旗症状立即就医",),
         )

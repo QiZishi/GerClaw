@@ -57,10 +57,7 @@ class DifferentialCandidate(BaseModel):
             for right in groups[index + 1 :]
         ):
             raise ValueError("one fact cannot have conflicting roles in one candidate")
-        if (
-            self.priority is not DifferentialPriority.MUST_NOT_MISS
-            and not self.supporting_fact_ids
-        ):
+        if self.priority is not DifferentialPriority.MUST_NOT_MISS and not self.supporting_fact_ids:
             raise ValueError("non-safety differential direction requires supporting evidence")
         if (
             self.priority is DifferentialPriority.MUST_NOT_MISS
@@ -107,9 +104,7 @@ class C3DifferentialValidator:
             )
         }
         if missing := referenced - facts.keys():
-            raise ClinicalStateError(
-                f"DIFFERENTIAL_FACT_NOT_FOUND:{','.join(sorted(missing))}"
-            )
+            raise ClinicalStateError(f"DIFFERENTIAL_FACT_NOT_FOUND:{','.join(sorted(missing))}")
         unsafe_support = {
             fact_id
             for candidate in assessment.candidates

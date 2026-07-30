@@ -169,6 +169,7 @@ class ChatRunJournal(Protocol):
     ) -> AgentRunRead:
         """Apply a fenced transition against the latest durable revision."""
 
+
 class RunDirectiveJournal(Protocol):
     """Optional execution-time directive boundary kept separate from base Run journaling."""
 
@@ -320,9 +321,7 @@ class DatabaseChatRunJournal:
         limit: int,
     ) -> tuple[RunDirectiveRead, ...]:
         async with self._database.session() as session:
-            return await RunDirectiveService(
-                SqlAlchemyRunDirectiveRepository(session)
-            ).claim_batch(
+            return await RunDirectiveService(SqlAlchemyRunDirectiveRepository(session)).claim_batch(
                 run_id,
                 claim,
                 tenant_id=tenant_id,
@@ -602,9 +601,7 @@ class DatabaseChatRunJournal:
             "answer_version": answer.version,
         }
         terminal_status = (
-            AgentRunStatus.COMPLETED_WITH_WARNINGS
-            if warnings
-            else AgentRunStatus.COMPLETED
+            AgentRunStatus.COMPLETED_WITH_WARNINGS if warnings else AgentRunStatus.COMPLETED
         )
         run, events = await AgentRunService(SqlAlchemyAgentRunRepository(session)).commit_attempt(
             attempt_id,

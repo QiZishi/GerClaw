@@ -1253,8 +1253,7 @@ async def test_immediate_steer_replaces_worker_with_frozen_context_successor(
         )
         directive = await session.scalar(
             select(RunDirective).where(
-                RunDirective.idempotency_key
-                == "directive-immediate-steer-integration"
+                RunDirective.idempotency_key == "directive-immediate-steer-integration"
             )
         )
         assert source_run is not None
@@ -1278,9 +1277,7 @@ async def test_immediate_steer_replaces_worker_with_frozen_context_successor(
             .where(Message.trace_id == f"directive_{directive.id.hex}")
         )
         run_count = await session.scalar(
-            select(func.count())
-            .select_from(AgentRun)
-            .where(AgentRun.conversation_id == session_id)
+            select(func.count()).select_from(AgentRun).where(AgentRun.conversation_id == session_id)
         )
 
     assert source_run.status == AgentRunStatus.INTERRUPTED.value
@@ -1296,8 +1293,6 @@ async def test_immediate_steer_replaces_worker_with_frozen_context_successor(
     stale_resume = await client.post(f"/api/v1/runs/{source_run.id}/resume")
     assert stale_resume.status_code == 409
     assert stale_resume.json()["error"]["code"] == "RUN_RESOURCE_CONFLICT"
-    recoverable = await client.get(
-        f"/api/v1/conversations/{session_id}/recoverable-run"
-    )
+    recoverable = await client.get(f"/api/v1/conversations/{session_id}/recoverable-run")
     assert recoverable.status_code == 200
     assert recoverable.json()["run"] is None

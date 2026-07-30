@@ -81,11 +81,7 @@ class _Repository:
     ) -> RunDirective | None:
         del for_update
         directive = self.directives.get(directive_id)
-        if (
-            directive is None
-            or directive.tenant_id != tenant_id
-            or directive.actor_id != actor_id
-        ):
+        if directive is None or directive.tenant_id != tenant_id or directive.actor_id != actor_id:
             return None
         return directive
 
@@ -156,7 +152,8 @@ class _Repository:
             for item in self.directives.values()
             if item.tenant_id == tenant_id
             and item.actor_id == actor_id
-            and item.status in {
+            and item.status
+            in {
                 RunDirectiveStatus.PENDING.value,
                 RunDirectiveStatus.CLAIMED.value,
             }
@@ -164,8 +161,7 @@ class _Repository:
                 item.successor_run_id == run_id
                 or (
                     item.successor_run_id is None
-                    and
-                    item.target_run_id == run_id
+                    and item.target_run_id == run_id
                     and item.mode == RunDirectiveMode.QUEUE_FOR_NEXT_BOUNDARY.value
                 )
             )
@@ -195,8 +191,7 @@ class _Repository:
                     or (
                         item.successor_run_id is None
                         and item.target_run_id == source_run_id
-                        and item.mode
-                        == RunDirectiveMode.QUEUE_FOR_NEXT_BOUNDARY.value
+                        and item.mode == RunDirectiveMode.QUEUE_FOR_NEXT_BOUNDARY.value
                     )
                 )
             ):
@@ -944,8 +939,7 @@ async def test_successor_input_atomically_applies_without_duplicate_message() ->
     assert transferred.claimed_by_fencing_token is None
     assert transferred.claim_boundary_id is None
     assert all(
-        repository.directives[item.id].successor_run_id == successor.id
-        for item in bulk_queued
+        repository.directives[item.id].successor_run_id == successor.id for item in bulk_queued
     )
     assert late_queued.successor_run_id == successor.id
     assert late_queued.status is RunDirectiveStatus.PENDING

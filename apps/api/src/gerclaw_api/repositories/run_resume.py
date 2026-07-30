@@ -175,9 +175,7 @@ class SqlAlchemyRunResumeRepository:
                     RunDirective.tenant_id == tenant_id,
                     RunDirective.actor_id == actor_id,
                     RunDirective.mode == "interrupt_and_steer",
-                    RunDirective.status.in_(
-                        ("pending", "pending_next_run", "claimed", "applied")
-                    ),
+                    RunDirective.status.in_(("pending", "pending_next_run", "claimed", "applied")),
                 )
                 .order_by(RunDirective.sequence.desc())
                 .limit(1)

@@ -129,9 +129,7 @@ class ChatTurnCoordinator:
                 except asyncio.CancelledError as cancellation_error:
                     if interruption_acknowledged is not None:
                         interruption_acknowledged()
-                    steered = (
-                        steering_requested is not None and await steering_requested()
-                    )
+                    steered = steering_requested is not None and await steering_requested()
                     cancellation_persisted = await finalize_failure(
                         TraceStatus.CANCELLED,
                         "CHAT_STEERED" if steered else "CHAT_CANCELLED",
@@ -154,8 +152,7 @@ class ChatTurnCoordinator:
                     # The durable user intent remains authoritative: never
                     # turn a requested stop/steer into a failed Run.
                     cancelled = (
-                        cancellation_requested is not None
-                        and await cancellation_requested()
+                        cancellation_requested is not None and await cancellation_requested()
                     )
                     steered = (
                         not cancelled
@@ -217,9 +214,7 @@ class ChatTurnCoordinator:
             if owns_trace_execution and not failure_handled:
                 if interruption_acknowledged is not None:
                     interruption_acknowledged()
-                steered = (
-                    steering_requested is not None and await steering_requested()
-                )
+                steered = steering_requested is not None and await steering_requested()
                 cancellation_persisted = await finalize_failure(
                     TraceStatus.CANCELLED,
                     "CHAT_STEERED" if steered else "CHAT_CANCELLED",

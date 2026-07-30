@@ -17,9 +17,7 @@ from gerclaw_api.config import Settings
 
 TEST_JWT_SECRET = "tests-only-jwt-secret-that-is-longer-than-32-characters"
 TEST_GUEST_IDENTITY_SECRET = "tests-only-guest-identity-secret-longer-than-32-characters"
-TEST_EVOLUTION_SIGNAL_SECRET = (
-    "tests-only-evolution-signal-secret-longer-than-32-characters"
-)
+TEST_EVOLUTION_SIGNAL_SECRET = "tests-only-evolution-signal-secret-longer-than-32-characters"
 TEST_DATA_KEY = "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA="
 
 

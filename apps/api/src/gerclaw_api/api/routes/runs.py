@@ -203,10 +203,7 @@ async def stream_run_events(
                 cursor = event.sequence
                 yield _encode_run_event(event, trace_id=current.trace_id)
                 last_heartbeat = time.monotonic()
-            if (
-                current.status in RUN_EVENT_CLOSED_STATUSES
-                and cursor >= current.last_sequence
-            ):
+            if current.status in RUN_EVENT_CLOSED_STATUSES and cursor >= current.last_sequence:
                 return
             now = time.monotonic()
             if now - last_heartbeat >= heartbeat_interval:
@@ -242,11 +239,7 @@ def _encode_run_event(event: RunEventRead, *, trace_id: str) -> str:
                 }
             )
             return encode_sse("cancelled", cancelled, sequence=event.sequence)
-        code = (
-            "CHAT_RUN_INTERRUPTED"
-            if event.status == "interrupted"
-            else "CHAT_EXECUTION_FAILED"
-        )
+        code = "CHAT_RUN_INTERRUPTED" if event.status == "interrupted" else "CHAT_EXECUTION_FAILED"
         message = (
             "服务执行中断, 可刷新后恢复。"
             if event.status == "interrupted"
@@ -346,9 +339,7 @@ async def queue_run_directive(
         tenant_id=identity.tenant_id,
         actor_id=identity.actor_id,
         wait_seconds=request.app.state.settings.agent_directive_trace_wait_seconds,
-        poll_interval_seconds=(
-            request.app.state.settings.agent_run_stream_poll_interval_seconds
-        ),
+        poll_interval_seconds=(request.app.state.settings.agent_run_stream_poll_interval_seconds),
     )
     return RunDirectivePublicRead.from_internal(directive)
 

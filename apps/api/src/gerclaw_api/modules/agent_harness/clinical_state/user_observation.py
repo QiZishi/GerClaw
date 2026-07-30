@@ -20,9 +20,7 @@ _MEDICATION_REPORT = re.compile(
     r"(?:正在|目前|现在)(?:吃|服用|使用)|现用药|当前用药(?:是|为|有|包括|:)"
     r"|服用.{0,30}(?:mg|g|毫克|片|粒|每日|每天)"
 )
-_SYMPTOM = re.compile(
-    r"头晕|乏力|胸痛|呼吸困难|气短|晕厥|发热|咳嗽|疼痛|腹泻|呕吐|水肿|失眠|心悸"
-)
+_SYMPTOM = re.compile(r"头晕|乏力|胸痛|呼吸困难|气短|晕厥|发热|咳嗽|疼痛|腹泻|呕吐|水肿|失眠|心悸")
 _HISTORY = re.compile(r"(?:患有|确诊过|有).{0,30}(?:病史|高血压|糖尿病|冠心病|肾病|肝病)")
 _TIMELINE = re.compile(r"(?:持续|已经|近|最近).{0,12}(?:天|周|月|年|小时)")
 
@@ -83,9 +81,7 @@ class UserMessageClinicalProjector:
         if _MEDICATION_REPORT.search(message):
             semantic_facts.append(("medication", "medication:current_list", message))
         if _SYMPTOM.search(message):
-            semantic_facts.append(
-                ("symptom", f"{message_fact_id}:symptom", message)
-            )
+            semantic_facts.append(("symptom", f"{message_fact_id}:symptom", message))
         if _HISTORY.search(message):
             semantic_facts.append(("history", f"{message_fact_id}:history", message))
         if _TIMELINE.search(message):

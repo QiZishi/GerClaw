@@ -232,9 +232,7 @@ def test_every_core_component_has_a_candidate_non_writable_charter() -> None:
 
 def test_offline_object_kinds_have_controller_owned_required_charters() -> None:
     offline_kinds = {
-        rule.object_kind
-        for rule in OBJECT_RULES
-        if rule.update_policy == "offline_proposal_only"
+        rule.object_kind for rule in OBJECT_RULES if rule.update_policy == "offline_proposal_only"
     }
     known_charters = {
         evaluator_id

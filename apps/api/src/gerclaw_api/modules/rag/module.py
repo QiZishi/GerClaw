@@ -129,8 +129,7 @@ class HybridRAGModule:
         valid = [
             candidate
             for candidate in candidates
-            if math.isfinite(candidate.hybrid_score)
-            and 0 <= candidate.hybrid_score <= 1
+            if math.isfinite(candidate.hybrid_score) and 0 <= candidate.hybrid_score <= 1
         ]
         valid.sort(
             key=lambda candidate: (
@@ -167,9 +166,7 @@ class HybridRAGModule:
                 "chunk_index": chunk.chunk_index,
                 "total_chunks": chunk.total_chunks,
                 "hybrid_score": round(candidate.hybrid_score, 8),
-                "rerank_score": (
-                    round(rerank_score, 8) if rerank_score is not None else None
-                ),
+                "rerank_score": (round(rerank_score, 8) if rerank_score is not None else None),
             }
         ).model_dump(mode="json")
         return RetrievalResult(

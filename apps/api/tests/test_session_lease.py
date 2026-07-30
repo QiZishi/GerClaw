@@ -113,14 +113,17 @@ async def test_recovery_guard_and_worker_lease_exclude_each_other() -> None:
                 pytest.fail("worker must not enter during orphan reconciliation")
     assert recovery_key not in redis.values
 
-    async with lease.acquire(
-        tenant_id="tenant_public0001",
-        session_id=session_id,
-        fencing_token=3,
-    ), lease.recover_orphan(
-        tenant_id="tenant_public0001",
-        session_id=session_id,
-    ) as owns_recovery:
+    async with (
+        lease.acquire(
+            tenant_id="tenant_public0001",
+            session_id=session_id,
+            fencing_token=3,
+        ),
+        lease.recover_orphan(
+            tenant_id="tenant_public0001",
+            session_id=session_id,
+        ) as owns_recovery,
+    ):
         assert not owns_recovery
 
 

@@ -92,9 +92,7 @@ def test_c3_rejects_missing_references_and_conflicted_support() -> None:
         validator.validate(ClinicalState(), missing)
 
     conflicted = ClinicalState(
-        facts=(
-            _fact("medication_dose", "medication", "剂量存在冲突", status="conflicted"),
-        ),
+        facts=(_fact("medication_dose", "medication", "剂量存在冲突", status="conflicted"),),
         conflicts=("medication_dose",),
     )
     conflicted_assessment = DifferentialAssessment(

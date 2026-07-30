@@ -188,9 +188,7 @@ class ControlledSuccessorState(BaseModel):
     model_config = ConfigDict(extra="forbid", frozen=True)
 
     source_run_id: uuid.UUID
-    source_trace_id: str = Field(
-        pattern=r"^trace_[A-Za-z0-9][A-Za-z0-9_.:-]{7,57}$"
-    )
+    source_trace_id: str = Field(pattern=r"^trace_[A-Za-z0-9][A-Za-z0-9_.:-]{7,57}$")
     directive_id: uuid.UUID
     source: FrozenRunState
 

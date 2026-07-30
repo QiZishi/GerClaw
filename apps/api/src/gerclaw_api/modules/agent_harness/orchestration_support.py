@@ -72,9 +72,7 @@ class OrchestrationSupportMixin:
         return bounded_events(
             events,
             wall_clock_seconds=self._execution_budget.wall_clock_seconds,
-            timeout_error_factory=lambda: RuntimeBudgetExceededError(
-                "RUNTIME_WALL_CLOCK_EXCEEDED"
-            ),
+            timeout_error_factory=lambda: RuntimeBudgetExceededError("RUNTIME_WALL_CLOCK_EXCEEDED"),
         )
 
     async def _persist_approval_requests(

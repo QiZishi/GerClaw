@@ -275,10 +275,9 @@ class ChatCancellationRegistry:
 
     async def _read_intent(self, key: TaskKey) -> ChatControlIntent | None:
         try:
-            cancel_requested, steer_requested = await self._redis.exists(
-                self._request_key(*key, intent=ChatControlIntent.CANCEL)
-            ), await self._redis.exists(
-                self._request_key(*key, intent=ChatControlIntent.STEER)
+            cancel_requested, steer_requested = (
+                await self._redis.exists(self._request_key(*key, intent=ChatControlIntent.CANCEL)),
+                await self._redis.exists(self._request_key(*key, intent=ChatControlIntent.STEER)),
             )
         except Exception as error:
             raise ChatCancellationUnavailable(

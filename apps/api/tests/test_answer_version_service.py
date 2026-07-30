@@ -97,8 +97,7 @@ class _Repository:
             (
                 version
                 for version in self.versions
-                if version.run_id == run_id
-                and version.assistant_message_id == assistant_message_id
+                if version.run_id == run_id and version.assistant_message_id == assistant_message_id
             ),
             None,
         )
@@ -108,11 +107,7 @@ class _Repository:
         producer_run_id: uuid.UUID,
     ) -> AnswerVersion | None:
         return next(
-            (
-                version
-                for version in self.versions
-                if version.producer_run_id == producer_run_id
-            ),
+            (version for version in self.versions if version.producer_run_id == producer_run_id),
             None,
         )
 
@@ -246,9 +241,9 @@ async def test_register_preserves_history_and_moves_current_pointer() -> None:
     assert repository.versions[0].is_current is False
     assert repository.versions[1].is_current is True
     assert repository.run.current_answer_version_id == second.id
-    assert len(await service.list_versions(
-        repository.run.id, tenant_id=TENANT, actor_id=ACTOR
-    )) == 2
+    assert (
+        len(await service.list_versions(repository.run.id, tenant_id=TENANT, actor_id=ACTOR)) == 2
+    )
 
 
 @pytest.mark.asyncio

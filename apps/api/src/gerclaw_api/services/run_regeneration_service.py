@@ -71,9 +71,7 @@ class RunRegenerationService:
                 AgentRunStatus.COMPLETED,
                 AgentRunStatus.COMPLETED_WITH_WARNINGS,
             }:
-                raise RunRegenerationConflictError(
-                    "only completed runs can be regenerated"
-                )
+                raise RunRegenerationConflictError("only completed runs can be regenerated")
             if (
                 source.current_version is None
                 or source.current_version.id != expected_version_id
@@ -117,8 +115,7 @@ class RunRegenerationService:
         if expected_images is None and plan.get("uploaded_image_count") == 0:
             expected_images = []
         actual_images = [
-            image_fingerprint(image.media_type, image.base64)
-            for image in request.images
+            image_fingerprint(image.media_type, image.base64) for image in request.images
         ]
         if (
             expected_workflow != request.workflow.value

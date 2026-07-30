@@ -92,9 +92,7 @@ class DeterministicRouter:
         return RouteDecision(
             route=RouteKind.STANDARD,
             reason_code=(
-                "medical_request"
-                if routing_input.medical_content
-                else "bounded_general_request"
+                "medical_request" if routing_input.medical_content else "bounded_general_request"
             ),
             required_capabilities=required_capabilities,
         )

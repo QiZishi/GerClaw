@@ -120,9 +120,7 @@ class AgentResponse(BaseModel):
                 raise ValueError("evidence-unavailable clarification requires an explicit notice")
             if self.structured.get("model_invoked") is not False:
                 raise ValueError("evidence-unavailable clarification must not use model output")
-        clinical_clarification = (
-            self.structured.get("response_kind") == "clinical_clarification"
-        )
+        clinical_clarification = self.structured.get("response_kind") == "clinical_clarification"
         if clinical_clarification:
             if self.citations:
                 raise ValueError("clinical clarification must not claim citations")

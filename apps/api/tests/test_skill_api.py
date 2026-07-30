@@ -175,7 +175,9 @@ async def test_skill_evolution_rolls_back_before_recording_failure_trace(
         scopes=frozenset({"skill:write"}),
     )
     request = SimpleNamespace(
-        app=SimpleNamespace(state=SimpleNamespace(settings=SimpleNamespace(max_events_per_trace=20)))
+        app=SimpleNamespace(
+            state=SimpleNamespace(settings=SimpleNamespace(max_events_per_trace=20))
+        )
     )
 
     async def no_rate_limit(*_args: Any, **_kwargs: Any) -> None:

@@ -88,9 +88,7 @@ class RunDirectiveService:
                 actor_id=actor_id,
             )
             candidate_successor_id = (
-                bound_steer.successor_run_id
-                if bound_steer is not None
-                else None
+                bound_steer.successor_run_id if bound_steer is not None else None
             )
             if candidate_successor_id is not None:
                 successor = await self._owned_run(
@@ -261,9 +259,7 @@ class RunDirectiveService:
             if run_status is AgentRunStatus.INTERRUPTED:
                 return
             if run_status in TERMINAL_RUN_STATUSES or run_status is AgentRunStatus.WAITING_FOR_USER:
-                raise RunDirectiveConflictError(
-                    "target run cannot start a controlled successor"
-                )
+                raise RunDirectiveConflictError("target run cannot start a controlled successor")
             remaining = deadline - time.monotonic()
             if remaining <= 0:
                 raise RunDirectiveConflictError(
@@ -429,9 +425,7 @@ class RunDirectiveService:
             actor_id=actor_id,
             for_update=True,
         )
-        if (
-            directive.successor_run_id or directive.target_run_id
-        ) not in locked_runs:
+        if (directive.successor_run_id or directive.target_run_id) not in locked_runs:
             await self._repository.rollback()
             raise RunDirectiveConflictError("directive execution target changed")
         successor = locked_runs[successor_run_id]
@@ -511,17 +505,13 @@ class RunDirectiveService:
                 return result
             if directive.successor_run_id != successor_run_id:
                 await self._repository.rollback()
-                raise RunDirectiveConflictError(
-                    "directive already has a different successor"
-                )
+                raise RunDirectiveConflictError("directive already has a different successor")
         if RunDirectiveStatus(directive.status) not in {
             RunDirectiveStatus.PENDING,
             RunDirectiveStatus.PENDING_NEXT_RUN,
         }:
             await self._repository.rollback()
-            raise RunDirectiveConflictError(
-                "controlled successor directive is no longer pending"
-            )
+            raise RunDirectiveConflictError("controlled successor directive is no longer pending")
         now = datetime.now(UTC)
         await self._repository.transfer_consumable(
             source.id,
@@ -601,9 +591,7 @@ class RunDirectiveService:
                     continue
                 if (directive.claimed_by_fencing_token or 0) >= claim.fencing_token:
                     await self._repository.rollback()
-                    raise RunDirectiveConflictError(
-                        "directive is owned by another boundary"
-                    )
+                    raise RunDirectiveConflictError("directive is owned by another boundary")
             directive.status = RunDirectiveStatus.CLAIMED.value
             directive.claimed_by_fencing_token = claim.fencing_token
             directive.claim_boundary_id = claim.boundary_id

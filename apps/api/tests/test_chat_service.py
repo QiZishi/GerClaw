@@ -633,9 +633,7 @@ class _RunJournal:
             created_at=datetime.now(UTC),
         )
         terminal_status = (
-            AgentRunStatus.COMPLETED_WITH_WARNINGS
-            if warnings
-            else AgentRunStatus.COMPLETED
+            AgentRunStatus.COMPLETED_WITH_WARNINGS if warnings else AgentRunStatus.COMPLETED
         )
         self.completion_warnings = warnings
         self.events.append(
@@ -779,9 +777,7 @@ class _DirectiveJournal:
         fencing_token: int,
     ) -> RunDirectiveRead:
         del tenant_id, actor_id
-        self.successor_bindings.append(
-            (directive_id, successor_run_id, fencing_token)
-        )
+        self.successor_bindings.append((directive_id, successor_run_id, fencing_token))
         now = datetime.now(UTC)
         return RunDirectiveRead(
             id=directive_id,
@@ -1076,10 +1072,7 @@ async def test_owned_turn_streams_only_after_durable_success(unit_settings: Sett
     assert run_journal.answer_message_ids
     assert run_journal.events[-1].event_type == "done"
     assert run_journal.transitions == [AgentRunStatus.COMPLETED]
-    assert [
-        snapshot.statuses["quick_answer"]
-        for snapshot in run_journal.plan_executions
-    ] == [
+    assert [snapshot.statuses["quick_answer"] for snapshot in run_journal.plan_executions] == [
         PlanNodeStatus.RUNNING,
         PlanNodeStatus.COMPLETED,
     ]
@@ -1270,9 +1263,7 @@ async def test_owner_runtime_is_never_invoked_without_durable_run_journal(
 
     assert response.text
     assert runtime.calls == []
-    assert response.structured["warning_codes"] == [
-        "OPTIONAL_CAPABILITY_FAILED"
-    ]
+    assert response.structured["warning_codes"] == ["OPTIONAL_CAPABILITY_FAILED"]
 
 
 @pytest.mark.asyncio
@@ -1311,15 +1302,10 @@ async def test_invalid_protocol_attempt_is_rejected_and_replaced_in_place(
 
     assert model.calls == 2
     assert run_journal.attempt_count == 2
-    assert [item.error_code for item in run_journal.rejected_attempts] == [
-        "answer_protocol_markup"
-    ]
+    assert [item.error_code for item in run_journal.rejected_attempts] == ["answer_protocol_markup"]
     assert "<invoke" not in response.text
     assert "固定起床时间" in response.text
-    assert all(
-        "<invoke" not in str(cast(Any, event).data.get("content", ""))
-        for event in events
-    )
+    assert all("<invoke" not in str(cast(Any, event).data.get("content", "")) for event in events)
     assert run_journal.transitions == [AgentRunStatus.COMPLETED]
 
 
@@ -1428,10 +1414,7 @@ async def test_applied_medical_directive_is_projected_into_next_clinical_state(
     directive_facts = [
         fact
         for fact in persisted.facts
-        if any(
-            item.source_id == f"message:{directive_id}"
-            for item in fact.provenance
-        )
+        if any(item.source_id == f"message:{directive_id}" for item in fact.provenance)
     ]
     assert directive_facts
     assert any(fact.category == "symptom" for fact in directive_facts)
@@ -1681,9 +1664,7 @@ async def test_durable_steer_invalidates_attempt_without_publishing_cancel_or_fa
     assert events == []
     assert run_journal.answer_message_ids == []
     assert run_journal.transitions == [AgentRunStatus.INTERRUPTED]
-    assert [item.error_code for item in run_journal.rejected_attempts] == [
-        "chat_steered"
-    ]
+    assert [item.error_code for item in run_journal.rejected_attempts] == ["chat_steered"]
     assert run_journal.rejected_attempts[0].repair_action == "start_controlled_successor"
 
 
@@ -1999,15 +1980,11 @@ async def test_controlled_successor_reuses_frozen_assets_but_replans_new_instruc
     )
     source_request = source_journal.start_requests[0]
     frozen = FrozenRunState(
-        snapshot=PersistedContextSnapshot.model_validate(
-            source_request.context_snapshot
-        ),
+        snapshot=PersistedContextSnapshot.model_validate(source_request.context_snapshot),
         plan=PersistedRunPlan.model_validate(source_request.plan),
     )
     new_instruction = "请改为只给我三条最重要的安排。"
-    successor_payload = source_payload.model_copy(
-        update={"message": new_instruction}
-    )
+    successor_payload = source_payload.model_copy(update={"message": new_instruction})
     mutable_memory = _MemoryFacade()
     successor_conversation = _ConversationFacade(session_id)
     successor_journal = _RunJournal()
@@ -2052,9 +2029,7 @@ async def test_controlled_successor_reuses_frozen_assets_but_replans_new_instruc
     )
 
     successor_request = successor_journal.start_requests[0]
-    successor_snapshot = PersistedContextSnapshot.model_validate(
-        successor_request.context_snapshot
-    )
+    successor_snapshot = PersistedContextSnapshot.model_validate(successor_request.context_snapshot)
     successor_plan = PersistedRunPlan.model_validate(successor_request.plan)
     assert successor_conversation.user_text == new_instruction
     assert mutable_memory.short_term_sessions == []

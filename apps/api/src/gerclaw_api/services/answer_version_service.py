@@ -66,9 +66,7 @@ class AnswerVersionService:
         if producer_run is None or message.trace_id != producer_run.trace_id:
             await self._repository.rollback()
             raise AnswerVersionNotFoundError(str(producer_run_id))
-        existing = await self._repository.get_by_message(
-            run.id, request.assistant_message_id
-        )
+        existing = await self._repository.get_by_message(run.id, request.assistant_message_id)
         if existing is not None:
             result = self.to_public(existing, message)
             await self._repository.rollback()
@@ -78,12 +76,8 @@ class AnswerVersionService:
         if not self._current_pointer_is_consistent(run, current):
             await self._repository.rollback()
             raise AnswerVersionDataError("run current answer pointer is inconsistent")
-        if (
-            request.expected_current_version_id is not None
-            and (
-                current is None
-                or current.id != request.expected_current_version_id
-            )
+        if request.expected_current_version_id is not None and (
+            current is None or current.id != request.expected_current_version_id
         ):
             await self._repository.rollback()
             raise AnswerVersionConflictError("current answer version changed")

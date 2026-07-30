@@ -116,25 +116,17 @@ class RunResumeService:
         )
         if controlled_successor_id is not None and controlled_directive_id is None:
             await self._repository.rollback()
-            raise RunResumeConflictError(
-                "run was replaced by a controlled successor"
-            )
+            raise RunResumeConflictError("run was replaced by a controlled successor")
         active_steer_id = await self._repository.get_active_steer_directive_id(
             run_id,
             tenant_id=tenant_id,
             actor_id=actor_id,
         )
-        if (
-            active_steer_id is not None
-            and active_steer_id != controlled_directive_id
-        ) or (
-            controlled_directive_id is not None
-            and active_steer_id != controlled_directive_id
+        if (active_steer_id is not None and active_steer_id != controlled_directive_id) or (
+            controlled_directive_id is not None and active_steer_id != controlled_directive_id
         ):
             await self._repository.rollback()
-            raise RunResumeConflictError(
-                "run is reserved for a controlled successor"
-            )
+            raise RunResumeConflictError("run is reserved for a controlled successor")
         if record.input_message.role != "user":
             await self._repository.rollback()
             raise RunResumeDataError("stored Run identity is invalid")
@@ -142,14 +134,11 @@ class RunResumeService:
         persisted_trace_id = record.run.trace_id
         try:
             text_blocks = [
-                _StoredTextBlock.model_validate(item)
-                for item in record.input_message.content
+                _StoredTextBlock.model_validate(item) for item in record.input_message.content
             ]
             message = "\n".join(block.text for block in text_blocks).strip()
             state = FrozenRunState(
-                snapshot=PersistedContextSnapshot.model_validate(
-                    record.run.context_snapshot
-                ),
+                snapshot=PersistedContextSnapshot.model_validate(record.run.context_snapshot),
                 plan=PersistedRunPlan.model_validate(record.run.plan),
             )
             self._validate_frozen_identity(
@@ -175,9 +164,7 @@ class RunResumeService:
                 channel="web",
                 workflow=plan.workflow,
                 regenerate_from_run_id=plan.regenerate_from_run_id,
-                expected_current_answer_version_id=(
-                    plan.expected_current_answer_version_id
-                ),
+                expected_current_answer_version_id=(plan.expected_current_answer_version_id),
             )
         except (TypeError, ValueError) as error:
             await self._repository.rollback()
@@ -234,8 +221,7 @@ class RunResumeService:
                 image.sha256 != stored.sha256
                 or image.evidence_id != stored.evidence_id
                 or image.size_bytes != stored.size_bytes
-                or image_fingerprint(image.media_type, image.base64)
-                != expected_fingerprint
+                or image_fingerprint(image.media_type, image.base64) != expected_fingerprint
             ):
                 raise ValueError("stored image integrity validation failed")
             images.append(image)

@@ -149,9 +149,7 @@ def _validate_owner_evidence(
             raise MemoryEvidenceError(f"memory statement does not support detail field: {field}")
     if occurred_at is not None:
         normalized = (
-            occurred_at
-            if occurred_at.tzinfo is not None
-            else occurred_at.replace(tzinfo=UTC)
+            occurred_at if occurred_at.tzinfo is not None else occurred_at.replace(tzinfo=UTC)
         )
         date = normalized.astimezone(UTC).date()
         date_aliases = (
@@ -1040,16 +1038,10 @@ class ProductionMemoryModule:
         details["source"] = "user_explicit_update"
         details.pop("conflict_previous", None)
         next_occurred_at = (
-            request.occurred_at
-            if "occurred_at" in request.model_fields_set
-            else fact.occurred_at
+            request.occurred_at if "occurred_at" in request.model_fields_set else fact.occurred_at
         )
         public_details = MemoryFactDetails.model_validate(
-            {
-                key: value
-                for key, value in details.items()
-                if key in MemoryFactDetails.model_fields
-            }
+            {key: value for key, value in details.items() if key in MemoryFactDetails.model_fields}
         )
         entity = details.get("entity")
         if not isinstance(entity, str):

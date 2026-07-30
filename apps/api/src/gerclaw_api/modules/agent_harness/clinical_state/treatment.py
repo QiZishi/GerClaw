@@ -38,12 +38,8 @@ class TreatmentContext(BaseModel):
     comorbidity_fact_ids: tuple[str, ...] = Field(default=(), max_length=50)
     test_fact_ids: tuple[str, ...] = Field(default=(), max_length=50)
     uncertainties: tuple[BoundedClinicalText, ...] = Field(default=(), max_length=100)
-    monitoring_conditions: tuple[BoundedClinicalText, ...] = Field(
-        default=(), max_length=50
-    )
-    follow_up_conditions: tuple[BoundedClinicalText, ...] = Field(
-        default=(), max_length=50
-    )
+    monitoring_conditions: tuple[BoundedClinicalText, ...] = Field(default=(), max_length=50)
+    follow_up_conditions: tuple[BoundedClinicalText, ...] = Field(default=(), max_length=50)
     clinician_review_required: Literal[True] = True
 
     @model_validator(mode="after")

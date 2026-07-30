@@ -80,10 +80,14 @@ class SqlAlchemyTraceRepository:
     async def get_trace(
         self, tenant_id: str, trace_id: str, *, for_update: bool = False
     ) -> ExecutionTrace | None:
-        statement = select(ExecutionTrace).where(
-            ExecutionTrace.tenant_id == tenant_id,
-            ExecutionTrace.trace_id == trace_id,
-        ).execution_options(populate_existing=True)
+        statement = (
+            select(ExecutionTrace)
+            .where(
+                ExecutionTrace.tenant_id == tenant_id,
+                ExecutionTrace.trace_id == trace_id,
+            )
+            .execution_options(populate_existing=True)
+        )
         if for_update:
             statement = statement.with_for_update()
         return cast(ExecutionTrace | None, await self._session.scalar(statement))

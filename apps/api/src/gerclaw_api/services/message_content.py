@@ -37,9 +37,7 @@ def read_message_text(message: Message) -> str:
 
 def read_message_citations(message: Message) -> tuple[Citation, ...]:
     try:
-        citations = _CITATIONS.validate_python(
-            message.message_metadata.get("citations", [])
-        )
+        citations = _CITATIONS.validate_python(message.message_metadata.get("citations", []))
     except ValidationError as error:
         raise StoredMessageContentError("stored message citations are invalid") from error
     return tuple(citations[:50])

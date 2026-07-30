@@ -152,9 +152,7 @@ class SqlAlchemyAnswerVersionRepository:
         self,
         producer_run_id: uuid.UUID,
     ) -> AnswerVersion | None:
-        statement = select(AnswerVersion).where(
-            AnswerVersion.producer_run_id == producer_run_id
-        )
+        statement = select(AnswerVersion).where(AnswerVersion.producer_run_id == producer_run_id)
         return cast(AnswerVersion | None, await self._session.scalar(statement))
 
     async def get_version(

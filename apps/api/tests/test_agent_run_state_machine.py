@@ -22,11 +22,7 @@ def _state(status: AgentRunStatus = AgentRunStatus.RUNNING) -> RunLifecycleState
         status=status,
         revision=3,
         fencing_token=17,
-        interrupted_at=(
-            datetime.now(UTC)
-            if status is AgentRunStatus.INTERRUPTED
-            else None
-        ),
+        interrupted_at=(datetime.now(UTC) if status is AgentRunStatus.INTERRUPTED else None),
         completed_at=(
             datetime.now(UTC)
             if status

@@ -62,22 +62,13 @@ class DynamicPlan(BaseModel):
             raise ValueError("plan node ids must be unique")
         known = set(ids)
         referenced = {
-            reference
-            for node in self.nodes
-            for reference in (*node.dependencies, *node.fallback)
+            reference for node in self.nodes for reference in (*node.dependencies, *node.fallback)
         }
         if unknown := referenced - known:
             raise ValueError(f"plan references unknown nodes: {sorted(unknown)}")
         node_by_id = {node.node_id: node for node in self.nodes}
-        fallback_target_ids = {
-            fallback_id
-            for node in self.nodes
-            for fallback_id in node.fallback
-        }
-        if any(
-            node_by_id[fallback_id].required
-            for fallback_id in fallback_target_ids
-        ):
+        fallback_target_ids = {fallback_id for node in self.nodes for fallback_id in node.fallback}
+        if any(node_by_id[fallback_id].required for fallback_id in fallback_target_ids):
             raise ValueError("plan fallback target must be optional")
         if any(
             dependency in fallback_target_ids
@@ -90,9 +81,7 @@ class DynamicPlan(BaseModel):
             for fallback_id in node.fallback:
                 owner = fallback_owners.setdefault(fallback_id, node.node_id)
                 if owner != node.node_id:
-                    raise ValueError(
-                        "plan fallback node must have exactly one source owner"
-                    )
+                    raise ValueError("plan fallback node must have exactly one source owner")
         references = {
             node.node_id: set((*node.dependencies, *node.fallback)) for node in self.nodes
         }

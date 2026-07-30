@@ -200,9 +200,7 @@ def test_dynamic_plan_executor_retries_failed_node_from_serialized_checkpoint() 
 
     node_id = executor.start_capability("answer.quick")
     executor.fail(node_id, "MODEL_OUTPUT_SCHEMA_INVALID")
-    failed = PlanExecutionSnapshot.model_validate(
-        executor.snapshot().model_dump(mode="json")
-    )
+    failed = PlanExecutionSnapshot.model_validate(executor.snapshot().model_dump(mode="json"))
 
     restored = DynamicPlanExecutor(plan, snapshot=failed)
     assert restored.start_capability("answer.quick") == node_id
@@ -237,9 +235,7 @@ def test_dynamic_plan_executor_completes_required_node_through_declared_fallback
     executor = DynamicPlanExecutor(plan)
 
     primary = executor.start_capability("evidence.retrieve")
-    assert executor.fail(primary, "EVIDENCE_PROVIDER_UNAVAILABLE") == (
-        "local_fallback",
-    )
+    assert executor.fail(primary, "EVIDENCE_PROVIDER_UNAVAILABLE") == ("local_fallback",)
     fallback = executor.start_fallback(primary)
     executor.complete(fallback)
     snapshot = executor.finalize()
@@ -929,9 +925,7 @@ def test_plan_transition_rejects_dependency_and_required_checkpoint_bypasses() -
                 },
                 "attempts": {
                     **initial.attempts,
-                    "required_action": (
-                        0 if illegal_status is PlanNodeStatus.SKIPPED else 1
-                    ),
+                    "required_action": (0 if illegal_status is PlanNodeStatus.SKIPPED else 1),
                 },
             }
         )

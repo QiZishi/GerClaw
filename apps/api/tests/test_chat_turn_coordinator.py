@@ -54,6 +54,7 @@ class _Lease:
         self.calls.append((tenant_id, session_id, fencing_token))
         yield SimpleNamespace(fencing_token=fencing_token)
 
+
 class _BusyLease(_Lease):
     @asynccontextmanager
     async def acquire(self, *, tenant_id: str, session_id: uuid.UUID, fencing_token: int):

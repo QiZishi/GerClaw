@@ -183,9 +183,7 @@ async def test_plan_node_transitions_are_fenced_persisted_and_append_audited(
     payload = ChatRequest(session_id=session_id, message="计划节点持久化测试")
     trace_id = "trace_plan_node_integration_0001"
     async with app.state.database.session() as session:
-        conversation_service = ConversationService(
-            SqlAlchemyConversationRepository(session)
-        )
+        conversation_service = ConversationService(SqlAlchemyConversationRepository(session))
         conversation = await conversation_service.require_session(
             session_id,
             tenant_id=TENANT,
@@ -273,8 +271,7 @@ async def test_plan_node_transitions_are_fenced_persisted_and_append_audited(
     assert running.statuses[node_id].value == "running"
     assert completed.statuses[node_id].value == "completed"
     assert [
-        (event.node_id, event.attempt, event.status, event.fencing_token)
-        for event in events
+        (event.node_id, event.attempt, event.status, event.fencing_token) for event in events
     ] == [
         (node_id, 1, "running", 23),
         (node_id, 1, "completed", 23),
@@ -323,9 +320,7 @@ async def test_capability_result_and_completion_commit_atomically_in_postgres(
         )
     )
     async with app.state.database.session() as session:
-        conversation_service = ConversationService(
-            SqlAlchemyConversationRepository(session)
-        )
+        conversation_service = ConversationService(SqlAlchemyConversationRepository(session))
         conversation = await conversation_service.require_session(
             session_id,
             tenant_id=TENANT,
@@ -351,9 +346,9 @@ async def test_capability_result_and_completion_commit_atomically_in_postgres(
             | {
                 "capability_selection": selection.model_dump(mode="json"),
                 "dynamic_plan": dynamic_plan.model_dump(mode="json"),
-                "plan_execution": PlanExecutionSnapshot.initial(
-                    dynamic_plan
-                ).model_dump(mode="json"),
+                "plan_execution": PlanExecutionSnapshot.initial(dynamic_plan).model_dump(
+                    mode="json"
+                ),
             }
         )
         service = AgentRunService(SqlAlchemyAgentRunRepository(session))
@@ -418,10 +413,7 @@ async def test_capability_result_and_completion_commit_atomically_in_postgres(
     stored_plan = PersistedRunPlan.model_validate(stored.plan)
     assert stored_plan.plan_execution == completed
     assert stored_plan.capability_results == (result,)
-    assert [
-        (event.node_id, event.status, event.fencing_token)
-        for event in events
-    ] == [
+    assert [(event.node_id, event.status, event.fencing_token) for event in events] == [
         (node_id, "running", 29),
         (node_id, "completed", 29),
     ]
@@ -772,14 +764,8 @@ async def test_explicit_resume_adopts_interrupted_run_and_completes_it(
     assert resumed is not None and resumed.status == "completed"
     assert resumed.current_answer_version_id is not None
     resumed_plan = PersistedRunPlan.model_validate(resumed.plan)
-    assert (
-        resumed_plan.effective_plan_execution().statuses[in_flight_node_id].value
-        == "failed"
-    )
-    assert [
-        (event.status, event.error_code)
-        for event in node_events
-    ] == [
+    assert resumed_plan.effective_plan_execution().statuses[in_flight_node_id].value == "failed"
+    assert [(event.status, event.error_code) for event in node_events] == [
         ("running", None),
         ("failed", "RUN_INTERRUPTED_BEFORE_NODE_COMMIT"),
     ]

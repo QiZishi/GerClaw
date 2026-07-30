@@ -349,15 +349,12 @@ class AgentRunService:
                     raise PlanningError("PLAN_CAPABILITY_RESULT_TRANSITION_INVALID")
                 transition = transitions[0]
                 node = next(
-                    item
-                    for item in plan.dynamic_plan.nodes
-                    if item.node_id == transition.node_id
+                    item for item in plan.dynamic_plan.nodes if item.node_id == transition.node_id
                 )
                 if (
                     transition.status is not PlanNodeStatus.COMPLETED
                     or node.capability != capability_result.capability_id
-                    or capability_result.capability_id
-                    not in plan.capability_selection.ids
+                    or capability_result.capability_id not in plan.capability_selection.ids
                     or any(
                         item.capability_id == capability_result.capability_id
                         for item in capability_results
@@ -366,17 +363,12 @@ class AgentRunService:
                     raise PlanningError("PLAN_CAPABILITY_RESULT_TRANSITION_INVALID")
                 capability_results = (*capability_results, capability_result)
             selected_capability_ids = set(plan.capability_selection.ids)
-            node_by_id = {
-                node.node_id: node
-                for node in plan.dynamic_plan.nodes
-            }
+            node_by_id = {node.node_id: node for node in plan.dynamic_plan.nodes}
             if any(
-                node_by_id[transition.node_id].capability
-                in selected_capability_ids
+                node_by_id[transition.node_id].capability in selected_capability_ids
                 and transition.status is PlanNodeStatus.COMPLETED
                 and not any(
-                    result.capability_id
-                    == node_by_id[transition.node_id].capability
+                    result.capability_id == node_by_id[transition.node_id].capability
                     for result in capability_results
                 )
                 for transition in transitions
@@ -651,9 +643,7 @@ class AgentRunService:
                         AgentRunStatus.CANCELLED: _CANCELLED_NODE_ERROR_CODE,
                         AgentRunStatus.INTERRUPTED: _INTERRUPTED_NODE_ERROR_CODE,
                     }[target],
-                    reopen_uncommitted_completed=(
-                        target is AgentRunStatus.INTERRUPTED
-                    ),
+                    reopen_uncommitted_completed=(target is AgentRunStatus.INTERRUPTED),
                     occurred_at=occurred_at,
                 )
             run.status = updated.status.value
@@ -835,14 +825,13 @@ class AgentRunService:
                         current,
                         updated,
                     )
-            )
+                )
             elif (
                 reopen_uncommitted_completed
                 and previous_status is PlanNodeStatus.COMPLETED
                 and node.capability not in _RECONSTRUCTABLE_CAPABILITIES
                 and not any(
-                    result.capability_id == node.capability
-                    for result in plan.capability_results
+                    result.capability_id == node.capability for result in plan.capability_results
                 )
             ):
                 statuses = dict(current.statuses)
@@ -870,9 +859,7 @@ class AgentRunService:
             current = updated
         if not transitions:
             return
-        run.plan = plan.model_copy(update={"plan_execution": current}).model_dump(
-            mode="json"
-        )
+        run.plan = plan.model_copy(update={"plan_execution": current}).model_dump(mode="json")
         transitioned_at = occurred_at or datetime.now(UTC)
         for transition in transitions:
             await self._repository.add_plan_node_event(

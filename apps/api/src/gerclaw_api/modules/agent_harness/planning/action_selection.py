@@ -60,11 +60,7 @@ class SAVIActionSelector:
             )
         if selected.score < self._minimum_score:
             answer = next(
-                (
-                    item
-                    for item in ranked
-                    if item.candidate.kind is ActionKind.ANSWER
-                ),
+                (item for item in ranked if item.candidate.kind is ActionKind.ANSWER),
                 None,
             )
             return ActionSelection(

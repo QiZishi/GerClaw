@@ -64,9 +64,7 @@ _NEGATED_PREFIX = re.compile(
     r"(?:自行|擅自|立即|直接|随意|轻易|应|要|可|建议|考虑)?"
     r"[^，,。；;\n]{0,6}$"
 )
-_CONDITIONAL_PREFIX = re.compile(
-    r"(?:涉及|如需|若需|是否|由医生决定是否)[^，,。；;\n]{0,10}$"
-)
+_CONDITIONAL_PREFIX = re.compile(r"(?:涉及|如需|若需|是否|由医生决定是否)[^，,。；;\n]{0,10}$")
 
 
 class MedicationActionClassifier:
@@ -97,9 +95,7 @@ class MedicationActionClassifier:
         actions: list[MedicationAction] = []
         for kind, pattern in _ACTION_PATTERNS:
             for match in pattern.finditer(clause):
-                if MedicationActionClassifier._is_guardrail(
-                    clause, match.start(), match.end()
-                ):
+                if MedicationActionClassifier._is_guardrail(clause, match.start(), match.end()):
                     continue
                 actions.append(
                     MedicationAction(

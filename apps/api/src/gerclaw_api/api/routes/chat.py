@@ -194,9 +194,7 @@ async def steer_chat(
 
     await _enforce_rate_limit(request, identity)
     settings = request.app.state.settings
-    directive_service = RunDirectiveService(
-        SqlAlchemyRunDirectiveRepository(session)
-    )
+    directive_service = RunDirectiveService(SqlAlchemyRunDirectiveRepository(session))
     directive = await directive_service.steer_for_trace(
         trace_id,
         payload,
@@ -227,17 +225,13 @@ async def steer_chat(
         wait_seconds=settings.agent_steer_interruption_wait_seconds,
         poll_interval_seconds=settings.agent_run_stream_poll_interval_seconds,
     )
-    source = await RunResumeService(
-        SqlAlchemyRunResumeRepository(session)
-    ).prepare(
+    source = await RunResumeService(SqlAlchemyRunResumeRepository(session)).prepare(
         directive.target_run_id,
         tenant_id=identity.tenant_id,
         actor_id=identity.actor_id,
         controlled_directive_id=directive.id,
     )
-    successor_request = source.request.model_copy(
-        update={"message": directive.instruction}
-    )
+    successor_request = source.request.model_copy(update={"message": directive.instruction})
     if successor_request.loaded_skills:
         authorize_scope(identity, "skill:execute")
     stable_suffix = directive.id.hex
@@ -592,21 +586,15 @@ async def _stream_chat(
                     catalog=capability_catalog,
                     handlers={
                         CapabilityEntrypoint.CGA_ASSESSMENT: invoke_cga,
-                        CapabilityEntrypoint.MEDICATION_REVIEW_INTAKE: (
-                            invoke_medication_review
-                        ),
-                        CapabilityEntrypoint.FIVE_PRESCRIPTION_INTAKE: (
-                            invoke_five_prescription
-                        ),
+                        CapabilityEntrypoint.MEDICATION_REVIEW_INTAKE: (invoke_medication_review),
+                        CapabilityEntrypoint.FIVE_PRESCRIPTION_INTAKE: (invoke_five_prescription),
                         CapabilityEntrypoint.RUN_ARTIFACT: invoke_artifact_workspace,
                     },
                 )
                 run_journal = DatabaseChatRunJournal(
                     database,
                     completion_session=database_session,
-                    evolution_signal_collector=(
-                        request.app.state.evolution_signal_collector
-                    ),
+                    evolution_signal_collector=(request.app.state.evolution_signal_collector),
                 )
                 service = ChatService(
                     settings=effective_settings,
@@ -665,12 +653,10 @@ async def _stream_chat(
                                 actor_id=identity.actor_id,
                                 trace_id=trace_id,
                             ),
-                            interruption_acknowledged=lambda: (
-                                registry.acknowledge_control(
-                                    tenant_id=identity.tenant_id,
-                                    actor_id=identity.actor_id,
-                                    trace_id=trace_id,
-                                )
+                            interruption_acknowledged=lambda: registry.acknowledge_control(
+                                tenant_id=identity.tenant_id,
+                                actor_id=identity.actor_id,
+                                trace_id=trace_id,
                             ),
                             resume_state=resume_state,
                             successor_state=successor_state,
