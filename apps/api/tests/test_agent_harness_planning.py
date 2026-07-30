@@ -374,6 +374,120 @@ def test_plan_execution_uses_next_fallback_after_previous_fallback_fails() -> No
     )
 
 
+def test_plan_execution_serializes_fallbacks_and_preserves_recovery_on_finalize() -> None:
+    plan = DynamicPlan(
+        nodes=(
+            PlanNode(
+                node_id="primary",
+                capability="primary.run",
+                public_summary="正在执行主要路径",
+                fallback=("fallback_one", "fallback_two"),
+            ),
+            PlanNode(
+                node_id="fallback_one",
+                required=False,
+                capability="fallback.one",
+                public_summary="正在执行第一备用路径",
+            ),
+            PlanNode(
+                node_id="fallback_two",
+                required=False,
+                capability="fallback.two",
+                public_summary="正在执行第二备用路径",
+            ),
+        )
+    )
+    executor = DynamicPlanExecutor(plan)
+    primary = executor.start_capability("primary.run")
+    executor.fail(primary, "PRIMARY_UNAVAILABLE")
+    before_finalize = executor.snapshot()
+
+    with pytest.raises(PlanningError, match="PLAN_REQUIRED_NODE_INCOMPLETE"):
+        executor.finalize()
+    assert executor.snapshot() == before_finalize
+
+    first = executor.start_fallback(primary)
+    assert executor.failover_candidates(primary) == ()
+    with pytest.raises(PlanningError, match="PLAN_FALLBACK_UNAVAILABLE"):
+        executor.start_fallback(primary)
+    executor.complete(first)
+    assert executor.failover_candidates(primary) == ()
+    with pytest.raises(PlanningError, match="PLAN_FALLBACK_UNAVAILABLE"):
+        executor.start_fallback(primary)
+    with pytest.raises(PlanningError, match="PLAN_CAPABILITY_NOT_PENDING"):
+        executor.start_capability("primary.run")
+
+
+def test_plan_transition_rejects_fallback_checkpoint_bypass_and_nonserial_history() -> None:
+    plan = DynamicPlan(
+        nodes=(
+            PlanNode(
+                node_id="primary",
+                capability="primary.run",
+                public_summary="正在执行主要路径",
+                fallback=("fallback_one", "fallback_two"),
+            ),
+            PlanNode(
+                node_id="fallback_one",
+                required=False,
+                capability="fallback.one",
+                public_summary="正在执行第一备用路径",
+            ),
+            PlanNode(
+                node_id="fallback_two",
+                required=False,
+                capability="fallback.two",
+                public_summary="正在执行第二备用路径",
+            ),
+        )
+    )
+    executor = DynamicPlanExecutor(plan)
+    primary = executor.start_capability("primary.run")
+    executor.fail(primary, "PRIMARY_UNAVAILABLE")
+    failed_primary = executor.snapshot()
+    bypassed = failed_primary.model_copy(
+        update={
+            "statuses": {
+                **failed_primary.statuses,
+                "fallback_one": PlanNodeStatus.COMPLETED,
+            },
+            "attempts": {
+                **failed_primary.attempts,
+                "fallback_one": 1,
+            },
+            "fallbacks_used": {"primary": ("fallback_one",)},
+        }
+    )
+
+    with pytest.raises(PlanningError, match="PLAN_EXECUTION_FALLBACK_MISMATCH"):
+        validate_plan_execution_transition(plan, failed_primary, bypassed)
+
+    for nonserial_status in (
+        PlanNodeStatus.RUNNING,
+        PlanNodeStatus.COMPLETED,
+    ):
+        nonserial = PlanExecutionSnapshot(
+            plan_fingerprint=failed_primary.plan_fingerprint,
+            statuses={
+                "primary": PlanNodeStatus.FAILED,
+                "fallback_one": nonserial_status,
+                "fallback_two": PlanNodeStatus.FAILED,
+            },
+            attempts={
+                "primary": 1,
+                "fallback_one": 1,
+                "fallback_two": 1,
+            },
+            error_codes={
+                "primary": "PRIMARY_UNAVAILABLE",
+                "fallback_two": "SECOND_FALLBACK_UNAVAILABLE",
+            },
+            fallbacks_used={"primary": ("fallback_one", "fallback_two")},
+        )
+        with pytest.raises(PlanningError, match="PLAN_EXECUTION_FALLBACK_MISMATCH"):
+            DynamicPlanExecutor(plan, snapshot=nonserial)
+
+
 def test_plan_execution_attempt_limit_stops_before_running_and_failed_needs_error() -> None:
     plan = _planner().build(PlanRequest(route=RouteKind.QUICK))
     initial = PlanExecutionSnapshot.initial(plan)

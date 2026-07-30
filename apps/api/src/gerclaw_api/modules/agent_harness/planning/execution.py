@@ -128,6 +128,10 @@ class PlanExecutionSnapshot(BaseModel):
                 }
                 for fallback_id in fallback_ids
             )
+            or any(
+                self.statuses[fallback_id] is not PlanNodeStatus.FAILED
+                for fallback_id in fallback_ids[:-1]
+            )
             for source_id, fallback_ids in self.fallbacks_used.items()
         ):
             raise PlanningError("PLAN_EXECUTION_FALLBACK_MISMATCH")
@@ -216,13 +220,24 @@ def validate_plan_execution_transition(
         source = next(iter(changed_fallbacks))
         before = current.fallbacks_used.get(source, ())
         after = updated.fallbacks_used.get(source, ())
-        if not after and source == node_id:
+        if (
+            not after
+            and source == node_id
+            and current.statuses[source] is PlanNodeStatus.FAILED
+            and status is PlanNodeStatus.RUNNING
+            and all(
+                current.statuses[fallback_id] is PlanNodeStatus.FAILED
+                for fallback_id in before
+            )
+        ):
             pass
         elif (
             len(after) == len(before) + 1
             and after[:-1] == before
             and after[-1] == node_id
             and current.statuses[source] is PlanNodeStatus.FAILED
+            and previous_status is PlanNodeStatus.PENDING
+            and status is PlanNodeStatus.RUNNING
         ):
             fallback_for_node_id = source
         else:
@@ -253,6 +268,7 @@ def validate_plan_execution_transition(
     elif previous_status is PlanNodeStatus.PENDING and status is PlanNodeStatus.COMPLETED:
         allowed = (
             not node.required
+            and not changed_fallbacks
             and attempt == current_attempt + 1
             and node_id not in updated.error_codes
             and all(
@@ -307,6 +323,7 @@ class DynamicPlanExecutor:
                 if item.capability == capability
                 and self._statuses[item.node_id]
                 in {PlanNodeStatus.PENDING, PlanNodeStatus.FAILED}
+                and not self._satisfied(item.node_id)
             ),
             None,
         )
@@ -362,15 +379,19 @@ class DynamicPlanExecutor:
         if self._statuses.get(failed_node_id) is not PlanNodeStatus.FAILED:
             return ()
         node = self._node(failed_node_id)
-        already_used = set(self._fallbacks_used.get(failed_node_id, ()))
-        return tuple(
-            fallback_id
-            for fallback_id in node.fallback
-            if fallback_id not in already_used
-            if self._statuses[fallback_id]
-            in {PlanNodeStatus.PENDING, PlanNodeStatus.FAILED}
-            and all(self._satisfied(item) for item in self._node(fallback_id).dependencies)
-        )
+        used = self._fallbacks_used.get(failed_node_id, ())
+        if used and self._statuses[used[-1]] is not PlanNodeStatus.FAILED:
+            return ()
+        if len(used) >= len(node.fallback):
+            return ()
+        fallback_id = node.fallback[len(used)]
+        if self._statuses[fallback_id] is not PlanNodeStatus.PENDING:
+            return ()
+        if not all(
+            self._satisfied(item) for item in self._node(fallback_id).dependencies
+        ):
+            return ()
+        return (fallback_id,)
 
     def complete_optional_capability(self, capability: str) -> bool:
         """Complete one actually observed optional capability, at most once."""
@@ -405,7 +426,6 @@ class DynamicPlanExecutor:
                 self._statuses[node.node_id] = PlanNodeStatus.SKIPPED
 
     def finalize(self) -> PlanExecutionSnapshot:
-        self.skip_optional()
         incomplete = [
             node.node_id
             for node in self._plan.nodes
@@ -413,6 +433,7 @@ class DynamicPlanExecutor:
         ]
         if incomplete:
             raise PlanningError(f"PLAN_REQUIRED_NODE_INCOMPLETE:{','.join(incomplete)}")
+        self.skip_optional()
         return self.snapshot()
 
     def snapshot(self) -> PlanExecutionSnapshot:
