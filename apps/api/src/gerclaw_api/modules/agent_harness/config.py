@@ -1,6 +1,6 @@
 """Single resolved configuration boundary for Agent Harness components."""
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 from gerclaw_api.config import Settings
 
@@ -20,6 +20,7 @@ class ResolvedHarnessConfig(BaseModel):
     approval_ttl_seconds: int = Field(ge=60, le=86_400)
     context_trigger_ratio: float = Field(gt=0, lt=1)
     context_reserve_ratio: float = Field(gt=0, lt=1)
+    context_evidence_reserve_tokens: int = Field(default=4_096, ge=256, le=32_768)
     quick_route_max_characters: int = Field(default=160, ge=1, le=1_000)
     deep_route_min_characters: int = Field(default=1_200, ge=100, le=4_000)
     deep_route_attachment_count: int = Field(default=2, ge=1, le=20)
@@ -28,6 +29,12 @@ class ResolvedHarnessConfig(BaseModel):
     model_input_overhead_tokens: int = Field(default=1_024, ge=128, le=8_192)
     image_input_estimate_tokens: int = Field(default=1_024, ge=128, le=16_384)
     savi_minimum_score: int = Field(default=1, ge=-12, le=12)
+
+    @model_validator(mode="after")
+    def validate_context_ratios(self) -> "ResolvedHarnessConfig":
+        if self.context_reserve_ratio >= self.context_trigger_ratio:
+            raise ValueError("context reserve ratio must be lower than trigger ratio")
+        return self
 
     @classmethod
     def from_settings(cls, settings: Settings) -> "ResolvedHarnessConfig":
@@ -44,6 +51,7 @@ class ResolvedHarnessConfig(BaseModel):
             approval_ttl_seconds=settings.agent_approval_ttl_seconds,
             context_trigger_ratio=settings.agent_context_trigger_ratio,
             context_reserve_ratio=settings.agent_context_reserve_ratio,
+            context_evidence_reserve_tokens=(settings.agent_context_evidence_reserve_tokens),
             quick_route_max_characters=settings.agent_quick_route_max_characters,
             deep_route_min_characters=settings.agent_deep_route_min_characters,
             deep_route_attachment_count=settings.agent_deep_route_attachment_count,

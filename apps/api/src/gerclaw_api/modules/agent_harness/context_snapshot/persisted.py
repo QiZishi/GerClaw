@@ -46,23 +46,21 @@ class PersistedContextSnapshot(BaseModel):
 
     model_config = ConfigDict(extra="forbid", frozen=True)
 
-    schema_version: Literal["context-snapshot-v1"] = "context-snapshot-v1"
+    schema_version: Literal["context-snapshot-v2"] = "context-snapshot-v2"
     input_message_id: uuid.UUID
     agent_context: AgentContext
     prompt_policy_ids: tuple[str, ...] = Field(default=(), max_length=20)
     tool_contracts: tuple[FrozenToolContract, ...] = Field(default=(), max_length=100)
     skill_definitions: tuple[SkillDefinition, ...] = Field(default=(), max_length=20)
-    uploaded_documents: tuple[UploadedDocumentContext, ...] = Field(
-        default=(), max_length=10
-    )
+    uploaded_documents: tuple[UploadedDocumentContext, ...] = Field(default=(), max_length=10)
 
     @model_validator(mode="after")
     def validate_asset_identity(self) -> PersistedContextSnapshot:
+        if self.agent_context.projection is None:
+            raise ValueError("snapshot is missing its frozen context projection")
         if self.prompt_policy_ids != self.agent_context.system_instructions:
             raise ValueError("snapshot Prompt policy ids do not match Agent context")
-        if tuple(item.name for item in self.tool_contracts) != (
-            self.agent_context.tool_names
-        ):
+        if tuple(item.name for item in self.tool_contracts) != (self.agent_context.tool_names):
             raise ValueError("snapshot tool contracts do not match Agent context")
         skill_ids = tuple(item.skill_id for item in self.skill_definitions)
         if skill_ids != tuple(self.agent_context.loaded_skills):
@@ -83,9 +81,7 @@ class PersistedRunPlan(BaseModel):
     loaded_skill_ids: tuple[SkillId, ...] = Field(default=(), max_length=20)
     requested_capability_count: int = Field(default=0, ge=0, le=20)
     requested_capability_ids: tuple[str, ...] = Field(default=(), max_length=20)
-    capability_selection: CapabilitySelection = Field(
-        default_factory=CapabilitySelection
-    )
+    capability_selection: CapabilitySelection = Field(default_factory=CapabilitySelection)
     capability_results: tuple[CapabilityResult, ...] = Field(default=(), max_length=20)
     uploaded_document_count: int = Field(ge=0, le=10)
     uploaded_document_ids: tuple[uuid.UUID, ...] = Field(default=(), max_length=10)
@@ -123,9 +119,7 @@ class PersistedRunPlan(BaseModel):
             raise ValueError("run plan counts do not match stored identifiers")
         if len(set(self.loaded_skill_ids)) != len(self.loaded_skill_ids):
             raise ValueError("run plan contains duplicate Skill ids")
-        if len(set(self.requested_capability_ids)) != len(
-            self.requested_capability_ids
-        ):
+        if len(set(self.requested_capability_ids)) != len(self.requested_capability_ids):
             raise ValueError("run plan contains duplicate capability ids")
         if len(set(self.uploaded_document_ids)) != len(self.uploaded_document_ids):
             raise ValueError("run plan contains duplicate document ids")
@@ -143,10 +137,7 @@ class PersistedRunPlan(BaseModel):
         ):
             raise ValueError("run plan workflow metadata is inconsistent")
         selected_ids = self.capability_selection.ids
-        if any(
-            result.capability_id not in selected_ids
-            for result in self.capability_results
-        ):
+        if any(result.capability_id not in selected_ids for result in self.capability_results):
             raise ValueError("capability result is not part of the frozen selection")
         return self
 

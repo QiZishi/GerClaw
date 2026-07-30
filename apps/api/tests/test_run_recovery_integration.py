@@ -18,6 +18,7 @@ from gerclaw_api.modules.agent_harness.clinical_state import ClinicalState
 from gerclaw_api.modules.agent_harness.config import ResolvedHarnessConfig
 from gerclaw_api.modules.agent_harness.context_snapshot import (
     AgentContext,
+    ContextProjectionManifest,
     FrozenToolContract,
     PersistedContextSnapshot,
     PersistedRunPlan,
@@ -96,14 +97,28 @@ def _frozen_run_material(
             "no_raw_chain_of_thought_v1",
         ),
         tool_names=("search_knowledge", "search_memory"),
+        projection=ContextProjectionManifest(
+            model_context_tokens=32_768,
+            trigger_tokens=27_852,
+            target_tokens=21_299,
+            output_reserve_tokens=2_048,
+            estimated_tokens_before=1_024,
+            estimated_tokens_after=1_024,
+            history_budget_tokens=0,
+            history_message_count=0,
+            retained_history_message_count=0,
+            compression_state="not_needed",
+            compression_strategy="none",
+            source_hash="0" * 64,
+            sections=(),
+        ),
     )
     snapshot = PersistedContextSnapshot(
         input_message_id=input_message_id,
         agent_context=context,
         prompt_policy_ids=context.system_instructions,
         tool_contracts=tuple(
-            FrozenToolContract(name=name, version="1.0.0")
-            for name in context.tool_names
+            FrozenToolContract(name=name, version="1.0.0") for name in context.tool_names
         ),
     )
     plan = PersistedRunPlan(
@@ -186,9 +201,7 @@ async def test_recovery_interrupts_only_runs_without_cross_replica_lease(
 
     async def create_run(session_id: uuid.UUID, trace_id: str, fence: int) -> uuid.UUID:
         async with app.state.database.session() as session:
-            conversation_service = ConversationService(
-                SqlAlchemyConversationRepository(session)
-            )
+            conversation_service = ConversationService(SqlAlchemyConversationRepository(session))
             conversation = await conversation_service.require_session(
                 session_id,
                 tenant_id=TENANT,
@@ -202,9 +215,7 @@ async def test_recovery_interrupts_only_runs_without_cross_replica_lease(
                 text="恢复测试",
                 channel="web",
             )
-            run = await AgentRunService(
-                SqlAlchemyAgentRunRepository(session)
-            ).create_run(
+            run = await AgentRunService(SqlAlchemyAgentRunRepository(session)).create_run(
                 AgentRunCreate(
                     conversation_id=session_id,
                     input_message_id=message.id,
@@ -246,11 +257,7 @@ async def test_recovery_interrupts_only_runs_without_cross_replica_lease(
         orphan = await session.get(AgentRun, orphan_run_id)
         active = await session.get(AgentRun, active_run_id)
         orphan_events = list(
-            (
-                await session.scalars(
-                    select(RunEvent).where(RunEvent.run_id == orphan_run_id)
-                )
-            ).all()
+            (await session.scalars(select(RunEvent).where(RunEvent.run_id == orphan_run_id))).all()
         )
     assert interrupted_count == 1
     assert orphan is not None and orphan.status == "interrupted"
@@ -278,9 +285,7 @@ async def test_recovery_guard_closes_lease_check_to_interrupt_window(
         await client.post("/api/v1/sessions", json={"session_id": str(session_id)})
     ).status_code == 201
     async with app.state.database.session() as session:
-        conversation_service = ConversationService(
-            SqlAlchemyConversationRepository(session)
-        )
+        conversation_service = ConversationService(SqlAlchemyConversationRepository(session))
         conversation = await conversation_service.require_session(
             session_id,
             tenant_id=TENANT,
@@ -294,9 +299,7 @@ async def test_recovery_guard_closes_lease_check_to_interrupt_window(
             text="恢复互斥测试",
             channel="web",
         )
-        run = await AgentRunService(
-            SqlAlchemyAgentRunRepository(session)
-        ).create_run(
+        run = await AgentRunService(SqlAlchemyAgentRunRepository(session)).create_run(
             AgentRunCreate(
                 conversation_id=session_id,
                 input_message_id=message.id,
@@ -376,9 +379,7 @@ async def test_explicit_resume_adopts_interrupted_run_and_completes_it(
         uploaded_image_count=0,
     )
     async with app.state.database.session() as session:
-        conversation_service = ConversationService(
-            SqlAlchemyConversationRepository(session)
-        )
+        conversation_service = ConversationService(SqlAlchemyConversationRepository(session))
         conversation = await conversation_service.require_session(
             session_id,
             tenant_id=TENANT,
@@ -442,9 +443,7 @@ async def test_explicit_resume_adopts_interrupted_run_and_completes_it(
         run_id = run.id
 
     monkeypatch.setattr(chat_service_module, "ProductionAgentHarness", _ResumeHarness)
-    recoverable = await client.get(
-        f"/api/v1/conversations/{session_id}/recoverable-run"
-    )
+    recoverable = await client.get(f"/api/v1/conversations/{session_id}/recoverable-run")
     assert recoverable.status_code == 200, recoverable.text
     assert recoverable.json()["run"]["id"] == str(run_id)
     response = await client.post(f"/api/v1/runs/{run_id}/resume")
@@ -457,9 +456,7 @@ async def test_explicit_resume_adopts_interrupted_run_and_completes_it(
         events = list(
             (
                 await session.scalars(
-                    select(RunEvent)
-                    .where(RunEvent.run_id == run_id)
-                    .order_by(RunEvent.sequence)
+                    select(RunEvent).where(RunEvent.run_id == run_id).order_by(RunEvent.sequence)
                 )
             ).all()
         )
@@ -476,9 +473,7 @@ async def test_explicit_resume_adopts_interrupted_run_and_completes_it(
     assert "event: done" in replay_stream.text
     assert f'"run_id":"{run_id}"' in replay_stream.text
     assert f'"sequence":{events[-1].sequence}' in replay_stream.text
-    no_longer_recoverable = await client.get(
-        f"/api/v1/conversations/{session_id}/recoverable-run"
-    )
+    no_longer_recoverable = await client.get(f"/api/v1/conversations/{session_id}/recoverable-run")
     assert no_longer_recoverable.json()["run"] is None
     replayed_resume = await client.post(f"/api/v1/runs/{run_id}/resume")
     assert replayed_resume.status_code == 409
@@ -535,9 +530,7 @@ async def test_explicit_resume_reuses_source_input_for_interrupted_regeneration(
         uploaded_image_count=0,
     )
     async with app.state.database.session() as session:
-        conversation_service = ConversationService(
-            SqlAlchemyConversationRepository(session)
-        )
+        conversation_service = ConversationService(SqlAlchemyConversationRepository(session))
         old_fence = await conversation_service.next_fencing_token()
         await TraceService(SqlAlchemyTraceRepository(session)).start_trace(
             TraceStartRequest(
@@ -548,9 +541,7 @@ async def test_explicit_resume_reuses_source_input_for_interrupted_regeneration(
                     "feature": "medical_chat",
                     "module": "agent_harness",
                     "operation": "process_message",
-                    "request_fingerprint": _fingerprint(
-                        regeneration, app.state.settings
-                    ),
+                    "request_fingerprint": _fingerprint(regeneration, app.state.settings),
                     "workflow": workflow.workflow_id.value,
                     "workflow_version": workflow.version,
                     "workflow_owner_module": workflow.owner_module,

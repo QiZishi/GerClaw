@@ -6,7 +6,7 @@ import uuid
 from datetime import UTC, datetime
 from typing import Protocol, cast
 
-from sqlalchemy import select, text
+from sqlalchemy import or_, select, text
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -195,10 +195,19 @@ class SqlAlchemyConversationRepository:
     ) -> list[Message]:
         statement = (
             select(Message)
+            .outerjoin(
+                AnswerVersion,
+                AnswerVersion.assistant_message_id == Message.id,
+            )
             .where(
                 Message.tenant_id == tenant_id,
                 Message.session_id == session_id,
                 Message.role.in_(("user", "assistant")),
+                or_(
+                    Message.role != "assistant",
+                    AnswerVersion.id.is_(None),
+                    AnswerVersion.is_current.is_(True),
+                ),
             )
             .order_by(Message.created_at.desc(), Message.id.desc())
             .limit(limit)

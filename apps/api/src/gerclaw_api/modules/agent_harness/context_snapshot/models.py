@@ -2,7 +2,7 @@
 
 from typing import Annotated, Literal, Protocol
 
-from pydantic import BaseModel, ConfigDict, Field, StringConstraints
+from pydantic import BaseModel, ConfigDict, Field, StringConstraints, model_validator
 
 from gerclaw_api.modules.agent_harness.clinical_state import ClinicalState
 from gerclaw_api.modules.contracts import ExecutionContext
@@ -22,6 +22,73 @@ class ConversationHistoryMessage(BaseModel):
     text: str = Field(min_length=1, max_length=50_000)
 
 
+class ContextSourceBudget(BaseModel):
+    """Content-free token accounting for one model-visible context source."""
+
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    source: Literal[
+        "system_tools",
+        "current_input",
+        "profile",
+        "clinical_state",
+        "skills",
+        "documents",
+        "capability_results",
+        "plan",
+        "history",
+        "history_summary",
+        "images",
+        "evidence_reserve",
+    ]
+    policy: Literal["required", "compressible", "bounded_reserve"]
+    estimated_tokens: int = Field(ge=0, le=1_000_000)
+
+
+class ContextProjectionManifest(BaseModel):
+    """Auditable, content-free record of pre-model context window management."""
+
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    schema_version: Literal["context-projection-v1"] = "context-projection-v1"
+    projection_mode: Literal["model_call", "deterministic_short_circuit"] = "model_call"
+    model_context_tokens: int = Field(ge=1, le=10_000_000)
+    trigger_tokens: int = Field(ge=1, le=10_000_000)
+    target_tokens: int = Field(ge=1, le=10_000_000)
+    output_reserve_tokens: int = Field(ge=1, le=1_000_000)
+    estimated_tokens_before: int = Field(ge=0, le=10_000_000)
+    estimated_tokens_after: int = Field(ge=0, le=10_000_000)
+    history_budget_tokens: int = Field(ge=0, le=10_000_000)
+    history_message_count: int = Field(ge=0, le=200)
+    retained_history_message_count: int = Field(ge=0, le=200)
+    compression_state: Literal["not_needed", "compressed"]
+    compression_strategy: Literal[
+        "none",
+        "agentscope-medical-summary-v1",
+        "deterministic-extractive-v1",
+    ]
+    source_hash: str = Field(pattern=r"^[a-f0-9]{64}$")
+    sections: tuple[ContextSourceBudget, ...] = Field(max_length=20)
+
+    @model_validator(mode="after")
+    def validate_projection(self) -> "ContextProjectionManifest":
+        if not self.target_tokens <= self.trigger_tokens <= self.model_context_tokens:
+            raise ValueError("context projection thresholds are inconsistent")
+        if (
+            self.projection_mode == "model_call"
+            and self.estimated_tokens_after > self.trigger_tokens
+        ):
+            raise ValueError("projected context still exceeds its trigger")
+        if self.retained_history_message_count > self.history_message_count:
+            raise ValueError("retained history count exceeds source count")
+        sources = [item.source for item in self.sections]
+        if len(sources) != len(set(sources)):
+            raise ValueError("context projection contains duplicate sources")
+        if (self.compression_state == "not_needed") != (self.compression_strategy == "none"):
+            raise ValueError("context compression state and strategy disagree")
+        return self
+
+
 class AgentContext(BaseModel):
     """Validated context snapshot assembled before entering the ReAct loop."""
 
@@ -39,9 +106,8 @@ class AgentContext(BaseModel):
     clinical_state: ClinicalState = Field(default_factory=ClinicalState)
     loaded_skills: tuple[BoundedReference, ...] = Field(default=(), max_length=50)
     uploaded_files: tuple[BoundedReference, ...] = Field(default=(), max_length=20)
-    conversation_history: tuple[ConversationHistoryMessage, ...] = Field(
-        default=(), max_length=200
-    )
+    conversation_history: tuple[ConversationHistoryMessage, ...] = Field(default=(), max_length=200)
+    projection: ContextProjectionManifest | None = None
 
 
 class ContextSnapshotError(RuntimeError):

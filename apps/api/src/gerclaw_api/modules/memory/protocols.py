@@ -115,3 +115,6 @@ class MemoryModule(Protocol):
         self, messages: list[MemoryMessage], max_tokens: int
     ) -> list[MemoryMessage]:
         """Compress context while preserving clinically relevant evidence."""
+
+    async def get_context_summary(self) -> str:
+        """Return the validated encrypted session summary without mutating it."""

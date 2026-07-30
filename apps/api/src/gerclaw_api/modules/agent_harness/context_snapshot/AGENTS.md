@@ -23,6 +23,17 @@ reasoning, or unbounded history. Unknown and absent data must remain distinguish
 - Unknown, absent, negative, and conflicted clinical facts remain distinct.
 - Schema or identity mismatch fails closed with a stable resume-data error; it must never
   fall back to "use whatever is current".
+- Context capacity is decided before a model side effect from a complete, content-free
+  inventory. Current input, safety policy, ClinicalState, tool contracts, selected Skill
+  versions, plan, document projection, image cost, and evidence/output reserves are required
+  inputs. Only conversation history and its prior summary are compressible.
+- Emergency is a deterministic pre-model safety short-circuit. Context accounting must never
+  turn a model-window overflow into a blocker for its 120/emergency-care response.
+- Compression must preserve recent turns verbatim and retain clinically critical user
+  excerpts without converting them into diagnoses. A model compression failure must use the
+  deterministic extractive fallback, never silently drop all history or fabricate a summary.
+- `source_hash`, strategy, before/after estimates, source budgets, and retained message counts
+  are frozen in `context-projection-v1`. Resume must reuse that projection.
 
 Consumers may depend on these models; this package depends only on public domain contracts.
 Run context, Harness, Chat, and recovery tests after changes.

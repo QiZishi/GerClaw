@@ -42,23 +42,15 @@ def compose_context_snapshot(
 
     if inputs.preassembled is not None:
         if inputs.preassembled.execution != inputs.execution:
-            raise ContextSnapshotError(
-                "persisted Agent context does not match execution identity"
-            )
+            raise ContextSnapshotError("persisted Agent context does not match execution identity")
         if tuple(inputs.preassembled.loaded_skills) != inputs.loaded_skills:
-            raise ContextSnapshotError(
-                "persisted Agent context does not match frozen Skills"
-            )
+            raise ContextSnapshotError("persisted Agent context does not match frozen Skills")
         if tuple(inputs.preassembled.uploaded_files) != inputs.uploaded_files:
-            raise ContextSnapshotError(
-                "persisted Agent context does not match frozen documents"
-            )
+            raise ContextSnapshotError("persisted Agent context does not match frozen documents")
         return inputs.preassembled
 
     tool_names = (
-        []
-        if inputs.companion or inputs.quick_route
-        else ["search_knowledge", "search_memory"]
+        [] if inputs.companion or inputs.quick_route else ["search_knowledge", "search_memory"]
     )
     if not inputs.companion and not inputs.quick_route and inputs.search_available:
         tool_names.append("web_search")
@@ -77,9 +69,7 @@ def compose_context_snapshot(
         ),
         tool_names=tuple(tool_names),
         profile_ref=(
-            f"health_profile:v{inputs.profile_version}"
-            if inputs.profile_version
-            else None
+            f"health_profile:v{inputs.profile_version}" if inputs.profile_version else None
         ),
         profile_context=inputs.profile_context,
         profile_version=inputs.profile_version,

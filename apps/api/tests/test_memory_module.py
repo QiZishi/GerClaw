@@ -1105,6 +1105,14 @@ class _CompressionModel(ChatModelBase):
         raise AssertionError((model_name, messages, tools, tool_choice, kwargs))
 
 
+class _UnavailableCompressionModel(_CompressionModel):
+    async def generate_structured_output(
+        self, messages: list[Msg], structured_model: object, **kwargs: Any
+    ) -> StructuredResponse:
+        del messages, structured_model, kwargs
+        raise RuntimeError("compression provider unavailable")
+
+
 @pytest.mark.asyncio
 async def test_agentscope_compressor_preserves_existing_or_generates_medical_summary() -> None:
     messages = [
@@ -1130,6 +1138,26 @@ async def test_agentscope_compressor_preserves_existing_or_generates_medical_sum
         )
 
 
+@pytest.mark.asyncio
+async def test_context_compression_provider_failure_uses_extractive_fallback() -> None:
+    messages = [
+        MemoryMessage(role="user", content=[{"type": "text", "text": "我对青霉素过敏。"}]),
+        MemoryMessage(role="assistant", content=[{"type": "text", "text": "请医生核验。"}]),
+    ] * 8
+
+    result = await AgentScopeContextCompressor(
+        _UnavailableCompressionModel(high_tokens=True)
+    ).compress(
+        messages,
+        session_id=str(uuid.uuid4()),
+        max_tokens=30,
+    )
+
+    assert result.compressed is True
+    assert "青霉素过敏" in result.summary
+    assert all("诊断为" not in item.text() for item in result.messages)
+
+
 class _Extractor:
     def __init__(self, facts: list[tuple[ExtractedMemoryFact, str]]) -> None:
         self.facts = facts
@@ -1143,6 +1171,7 @@ class _Extractor:
 class _Compressor:
     def __init__(self, *, compressed: bool = False) -> None:
         self.compressed = compressed
+        self.calls = 0
 
     async def compress(
         self,
@@ -1152,6 +1181,7 @@ class _Compressor:
         max_tokens: int,
         existing_summary: str = "",
     ) -> CompressionResult:
+        self.calls += 1
         del session_id, max_tokens
         summary = "新摘要" if self.compressed else existing_summary
         projected = list(messages)
@@ -2038,7 +2068,6 @@ async def test_memory_short_term_compression_decision_and_adapter_fail_closed() 
             uuid.uuid4(),
             MemoryFactDecisionRequest(expected_revision=1, decision="reject"),
         )
-
     profile = await module.read_profile()
     assert profile.facts[0].statement
     rendered, version, refs = await module.core_profile_context()
@@ -2103,6 +2132,33 @@ async def test_memory_short_term_compression_decision_and_adapter_fail_closed() 
         await invalid_write.add([], user_id="other")
     with pytest.raises(AgentScopeMemoryAdapterError):
         invalid_write.raise_if_failed()
+
+
+@pytest.mark.asyncio
+async def test_memory_compression_reuses_encrypted_source_hash_projection() -> None:
+    repository = _Repository(user_id=uuid.uuid4(), session_id=uuid.uuid4())
+    compressor = _Compressor(compressed=True)
+    module = _module(
+        repository,
+        _Extractor([]),
+        _VectorStore(),
+        compressor=compressor,
+    )
+    messages = [
+        MemoryMessage(
+            role="user",
+            content=[{"type": "text", "text": "我对青霉素过敏"}],
+        )
+    ]
+
+    first = await module.compress_context(messages, max_tokens=100)
+    second = await module.compress_context(messages, max_tokens=100)
+
+    assert first == second
+    assert compressor.calls == 1
+    stored = cast(dict[str, object], repository.session.context_summary)
+    assert len(cast(str, stored["source_hash"])) == 64
+    assert isinstance(stored["projection"], list)
 
 
 @pytest.mark.asyncio

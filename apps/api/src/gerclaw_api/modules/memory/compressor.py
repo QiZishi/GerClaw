@@ -4,6 +4,9 @@
 
 from __future__ import annotations
 
+import hashlib
+import json
+import re
 from dataclasses import dataclass
 
 from agentscope.agent import Agent, ContextConfig
@@ -22,6 +25,15 @@ _COMPRESSION_INSTRUCTIONS = HintBlock(
     ),
     source="system",
 )
+_FALLBACK_SEGMENT = re.compile(r"[^。！？!?\n]+(?:[。！？!?]+|\n+|$)")
+_FALLBACK_CRITICAL = re.compile(
+    r"过敏|药|剂量|停用|血压|血糖|心率|胸痛|呼吸困难|意识|偏瘫|"
+    r"出血|自伤|跌倒|检查|化验|手术|住院|急诊|否认|没有|不"
+)
+
+
+def _estimate_tokens(*values: str) -> int:
+    return sum(max(1, (len(value.encode("utf-8")) + 2) // 3) for value in values if value)
 
 
 class MedicalContextSummary(BaseModel):
@@ -69,6 +81,28 @@ class CompressionResult:
     messages: list[MemoryMessage]
     summary: str
     compressed: bool
+
+
+def compression_source_hash(
+    messages: list[MemoryMessage],
+    *,
+    max_tokens: int,
+) -> str:
+    """Hash exact source messages and budget for encrypted projection reuse."""
+
+    payload = {
+        "schema_version": "medical-context-compression-v1",
+        "max_tokens": max_tokens,
+        "messages": [item.model_dump(mode="json") for item in messages],
+    }
+    return hashlib.sha256(
+        json.dumps(
+            payload,
+            ensure_ascii=False,
+            sort_keys=True,
+            separators=(",", ":"),
+        ).encode("utf-8")
+    ).hexdigest()
 
 
 def _to_agent_message(message: MemoryMessage) -> Msg | None:
@@ -152,7 +186,14 @@ class AgentScopeContextCompressor:
                 summary_template=_SUMMARY_TEMPLATE,
             ),
         )
-        await agent.compress_context(instructions=_COMPRESSION_INSTRUCTIONS)
+        try:
+            await agent.compress_context(instructions=_COMPRESSION_INSTRUCTIONS)
+        except Exception:
+            return self._deterministic_fallback(
+                messages,
+                max_tokens=max_tokens,
+                existing_summary=existing_summary,
+            )
         summary = agent.state.summary
         if not isinstance(summary, str) or not summary.strip():
             raise RuntimeError("AgentScope context compression did not produce a summary")
@@ -161,4 +202,64 @@ class AgentScopeContextCompressor:
             projected_message = _from_agent_message(message)
             if projected_message is not None:
                 projected.append(projected_message)
+        return CompressionResult(projected, summary, True)
+
+    @staticmethod
+    def _deterministic_fallback(
+        messages: list[MemoryMessage],
+        *,
+        max_tokens: int,
+        existing_summary: str,
+    ) -> CompressionResult:
+        """Fail safely without a second provider call or invented facts."""
+
+        text_messages = [item for item in messages if item.role in {"user", "assistant"}]
+        retained: list[MemoryMessage] = []
+        retained_tokens = 0
+        retained_budget = max_tokens * 3 // 5
+        for message in reversed(text_messages):
+            text = message.text()
+            if len(retained) >= 6:
+                break
+            message_tokens = _estimate_tokens(text)
+            if retained_tokens + message_tokens > retained_budget:
+                break
+            retained.append(message)
+            retained_tokens += message_tokens
+        retained.reverse()
+        older = text_messages[: len(text_messages) - len(retained)]
+        remaining = max(0, max_tokens - retained_tokens)
+        candidates: list[tuple[int, int, str]] = []
+        if existing_summary:
+            candidates.append((2, -1, f"[既有摘要，待核验]\n{existing_summary.strip()}"))
+        for index, message in enumerate(older):
+            label = "用户原文" if message.role == "user" else "历史助手内容，待核验"
+            for raw_segment in _FALLBACK_SEGMENT.findall(message.text()):
+                segment = raw_segment.strip()
+                if not segment:
+                    continue
+                priority = (
+                    0
+                    if message.role == "user" and _FALLBACK_CRITICAL.search(segment)
+                    else 1
+                    if message.role == "user"
+                    else 2
+                )
+                candidates.append((priority, index, f"[{label}] {segment}"))
+        selected: list[tuple[int, str]] = []
+        used = 0
+        for _priority, order, excerpt in sorted(candidates, key=lambda item: (item[0], -item[1])):
+            excerpt_tokens = _estimate_tokens(excerpt)
+            if used + excerpt_tokens > remaining:
+                continue
+            selected.append((order, excerpt))
+            used += excerpt_tokens
+        selected.sort(key=lambda item: item[0])
+        summary = "\n".join(excerpt for _order, excerpt in selected)
+        if not summary:
+            summary = "[上下文已压缩；较早内容未能安全纳入，请在需要时让用户重新确认。]"
+        projected = [
+            MemoryMessage(role="system", content=[{"type": "text", "text": summary}]),
+            *retained,
+        ]
         return CompressionResult(projected, summary, True)

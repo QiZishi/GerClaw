@@ -7,10 +7,16 @@ from gerclaw_api.modules.agent_harness.context_snapshot.composition import (
     ContextSnapshotInputs,
     compose_context_snapshot,
 )
+from gerclaw_api.modules.agent_harness.context_snapshot.lifecycle import (
+    ContextWindowManager,
+    estimate_context_tokens,
+)
 from gerclaw_api.modules.agent_harness.context_snapshot.models import (
     AgentContext,
+    ContextProjectionManifest,
     ContextSnapshotAssembler,
     ContextSnapshotError,
+    ContextSourceBudget,
     ConversationHistoryMessage,
     ProductionContextSnapshotAssembler,
 )
@@ -26,9 +32,12 @@ from gerclaw_api.modules.agent_harness.context_snapshot.uploaded_input import (
 
 __all__ = [
     "AgentContext",
+    "ContextProjectionManifest",
     "ContextSnapshotAssembler",
     "ContextSnapshotError",
     "ContextSnapshotInputs",
+    "ContextSourceBudget",
+    "ContextWindowManager",
     "ConversationHistoryMessage",
     "FrozenRunState",
     "FrozenToolContract",
@@ -37,5 +46,6 @@ __all__ = [
     "ProductionContextSnapshotAssembler",
     "UploadedInputProjector",
     "compose_context_snapshot",
+    "estimate_context_tokens",
     "render_untrusted_clinical_state",
 ]

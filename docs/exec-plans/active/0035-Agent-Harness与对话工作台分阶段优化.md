@@ -8,7 +8,9 @@
 
 在不推倒现有 AgentScope、Runtime、Memory、RAG、Search、Skill、Workflow 和会话事实源的前提下，分阶段完成 Harness 模块化、Run 状态机、临床状态与动态规划、证据/能力治理、对话工作台重构、隔离离线演化和最终回归。
 
-GerClaw 保持老年医学定位。眼科病灶定位不在本计划范围。在线请求不得自动修改 Prompt、Memory、Skill、路由、代码或安全门。
+GerClaw 保持老年医学定位。眼科病灶定位不在本计划范围。普通授权请求继续执行 Memory 在线
+CRUD 和低风险 Skill 内容演进；反馈信号不得自动修改 Prompt、危险 Skill、路由、代码、安全门或
+Memory/Skill 的治理机制。
 
 每一阶段必须是独立变更集，完成相关测试、真实 GUI 审阅和 Conventional Commit 后才能进入下一阶段。阶段内只跑相关测试；阶段 7 才跑全量回归。
 
@@ -772,7 +774,7 @@ Agents SDK、HL7 FHIR、Mem0、Agent Skills、A-Evolve、GEPA 和 Adaptive Auto-
 | Routing | 核心符合 | Emergency 在首次模型调用前覆盖 Quick，继续冻结这条优先级 |
 | Planning | 核心符合 | DAG、依赖和预算存在；能力节点必须在 Run 建立后执行并持久化节点状态 |
 | ClinicalState | 核心符合 | provenance、unknown、conflict 和 confirmed 分离仍成立；补红旗生命周期测试 |
-| Context Snapshot | **P1 已修复** | 已增加 `context-snapshot-v1`/`run-plan-v1`，恢复消费加密冻结上下文，不再重读当前历史、Profile、Memory、Skill 或文档 |
+| Context Snapshot | **P1 已修复并加强** | 已升级 `context-snapshot-v2`/`context-projection-v1`/`run-plan-v1`；恢复消费加密冻结上下文，模型前统一盘点各来源并提前压缩，不再重读当前历史、Profile、Memory、Skill 或文档 |
 | Run Lifecycle | **P1 已修复** | `interrupted` 已从真正终态集合移除，并使用独立 `interrupted_at`；恢复仍受 fencing 约束 |
 | Evidence/Citation | **P1 已修复** | 已按同一 claim/segment 校验 admitted marker，并绑定 source、locator 和 adopted text hash；任意 citation 不再解锁其他临床句子 |
 | Plugin Runtime | **P1 已修复** | Manifest schema 已与 owner adapter 的 Pydantic 合同绑定，并在 owner 调用前后及运行时 schema 漂移时 fail closed |
@@ -796,13 +798,31 @@ Agents SDK、HL7 FHIR、Mem0、Agent Skills、A-Evolve、GEPA 和 Adaptive Auto-
   Ruff/Mypy 通过。
 - Run Lifecycle interruption 语义：`d9b14dc`。迁移 upgrade → downgrade → upgrade、数据库
   constraint、56 项定向测试、前端契约、Ruff/Mypy/ESLint/tsc 通过。
-- Context Snapshot：已实现不可变 `AgentContext`、严格 `PersistedContextSnapshot`、
+- Context Snapshot：已实现不可变 `AgentContext`、严格 `PersistedContextSnapshot` v2、
   `PersistedRunPlan` 和 `FrozenRunState`。快照包含模型可见历史、Profile/Memory 版本与引用、
   ClinicalState、精确 Skill 定义、解析文档、版本化 Prompt policy、工具合同版本、能力结果、路由、
   DAG、SAVI/C3 决策、工作流、配置和预算。Resume 重新校验当前主体授权与
   tenant/actor/session/trace/input identity，使用原 Trace request id，复用附件哈希，不新增用户消息；
   legacy/未知 schema、跨主体或合同漂移 fail closed，禁止回退到当前可变环境。定向单元测试
   96/96、真实 PostgreSQL/Redis Chat + 恢复集成测试 18/18、Ruff/Mypy 和 800 行结构门禁通过。
+- Context Lifecycle：按用户追加要求，不再把“有快照”视为上下文管理完成。新增模型调用前 12 类
+  content-free inventory，统一计算 system/tool、当前输入、Profile、ClinicalState、Skill、文档、
+  能力结果、Plan、图片、证据预留、历史摘要和输出预留；固定输入超窗 fail closed，历史在
+  `context_trigger_ratio` 前按剩余窗口和 `memory_context_budget_ratio` 动态压缩。AgentScope 医疗
+  摘要失败时只做确定性原文摘录，最近轮次保留原文，用户的过敏/用药/生命体征/红旗/否认/待确认
+  片段优先，历史助手内容标为待核验。加密 session summary 保存 `source_hash` + projection，相同
+  source/budget 复用；Snapshot 冻结 before/after Token、策略和来源清单。Conversation 与 Memory
+  两条历史查询均排除非 current AnswerVersion，防止重生成废弃回答再次注入。执行失败先 rollback
+  摘要、Memory、assistant 和成功终态，再独立写失败事实；服务中断恢复公开“已恢复执行”并继续同一
+  Snapshot，用户主动停止则为不可恢复 `cancelled`，继续必须发起新 Run，禁止复用不完整流式正文。
+  Token 估算按 UTF-8 三字节上界处理中文，确定性摘录也按同一 Token 预算约束；若模型摘要仍超过动态
+  history budget，会再进入确定性摘录而不是带着超窗上下文继续。Emergency 使用
+  `deterministic_short_circuit` 投影，只记清单而不受模型窗口阻断，保证超长红旗输入仍先提示
+  120/急诊。聚焦测试 218/218、Ruff、Mypy
+  15 个相关源文件、真实 PostgreSQL/Redis/Qdrant Chat + 恢复 18/18 通过；其中重生成测试同时验证
+  Conversation 与 Memory 两条查询只返回 current AnswerVersion。首次宿主机集成命令误用 `.env` 的
+  容器主机名 `redis`，18 项在 fixture setup 真实失败；改用测试专用 `127.0.0.1` URL 后 18/18 通过，
+  该失败未被记作产品通过。
 
 - Evidence/Citation：模型 `[E#]/[W#]` 在任何 SSE 公开前按稳定位置转成服务端 `[C#]`；
   `SafeSentenceBuffer` 只允许同一临床句中的有效 marker 支持该句，终态 `ClaimEvidenceAudit` 保存逐主张
@@ -841,6 +861,9 @@ Agents SDK、HL7 FHIR、Mem0、Agent Skills、A-Evolve、GEPA 和 Adaptive Auto-
 - `clinical_state`：未知不能变阴性，冲突不能被模型自行覆盖，模型推测不能升级为 confirmed fact。
 - `context_snapshot`：必须版本化、actor-scoped、可序列化且足以重放；输入/历史引用、Memory/Profile/Skill
   版本、工具和 Prompt 版本、临床状态、计划和当前有效回答选择不能被恢复时的当前环境或 Memory/Skill 覆盖。
+  每次模型调用前必须盘点所有上下文来源，提前感知窗口压力；只允许压缩旧历史/摘要，当前输入、安全规则、
+  ClinicalState、工具合同、当前 Skill 版本、计划、文档和证据/输出预留不得静默删除。压缩必须有
+  `source_hash`、before/after 预算、确定性降级和反例测试。
 - `run_lifecycle`：真正终态不得有出边；若 `interrupted` 可恢复就不是终态。fencing、单调事件、唯一终态、
   取消/恢复幂等、旧 worker 禁写终态和非致命失败保留正文不可修改。
 - `evidence`：每项医学主张必须绑定实际采用文本、locator、来源、状态和适用范围；“存在任意证据”不能

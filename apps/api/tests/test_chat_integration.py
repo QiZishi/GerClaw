@@ -30,6 +30,7 @@ from gerclaw_api.repositories.conversation import (
     ConversationConflictError,
     SqlAlchemyConversationRepository,
 )
+from gerclaw_api.repositories.memory import SqlAlchemyMemoryRepository
 from gerclaw_api.services import chat_service as chat_service_module
 from gerclaw_api.services.agent_run_service import AgentRunService
 from gerclaw_api.services.conversation_service import (
@@ -52,11 +53,11 @@ def _fake_agent_context(kwargs: dict[str, object]) -> AgentContext:
     if isinstance(preassembled, AgentContext):
         return preassembled
     documents = kwargs.get("uploaded_documents")
-    document_ids = tuple(
-        str(item.document_id)
-        for item in documents
-        if hasattr(item, "document_id")
-    ) if isinstance(documents, list) else ()
+    document_ids = (
+        tuple(str(item.document_id) for item in documents if hasattr(item, "document_id"))
+        if isinstance(documents, list)
+        else ()
+    )
     loaded_skill_ids = kwargs.get("loaded_skill_ids")
     return AgentContext(
         execution=kwargs["execution"],
@@ -67,16 +68,10 @@ def _fake_agent_context(kwargs: dict[str, object]) -> AgentContext:
         ),
         tool_names=(),
         clinical_state=kwargs.get("clinical_state", {}),
-        loaded_skills=(
-            tuple(loaded_skill_ids)
-            if isinstance(loaded_skill_ids, list)
-            else ()
-        ),
+        loaded_skills=(tuple(loaded_skill_ids) if isinstance(loaded_skill_ids, list) else ()),
         uploaded_files=document_ids,
         conversation_history=(
-            tuple(kwargs["history"])
-            if isinstance(kwargs.get("history"), list)
-            else ()
+            tuple(kwargs["history"]) if isinstance(kwargs.get("history"), list) else ()
         ),
     )
 
@@ -510,17 +505,13 @@ async def test_chat_missing_evidence_persists_safe_clarification_without_bad_cas
         assert run is not None
         answer_versions = list(
             (
-                await session.scalars(
-                    select(AnswerVersion).where(AnswerVersion.run_id == run.id)
-                )
+                await session.scalars(select(AnswerVersion).where(AnswerVersion.run_id == run.id))
             ).all()
         )
         run_events = list(
             (
                 await session.scalars(
-                    select(RunEvent)
-                    .where(RunEvent.run_id == run.id)
-                    .order_by(RunEvent.sequence)
+                    select(RunEvent).where(RunEvent.run_id == run.id).order_by(RunEvent.sequence)
                 )
             ).all()
         )
@@ -529,9 +520,7 @@ async def test_chat_missing_evidence_persists_safe_clarification_without_bad_cas
     assert run.status == "completed"
     assert run.current_answer_version_id == answer_versions[0].id
     assert answer_versions[0].is_current is True
-    assert [event.sequence for event in run_events] == list(
-        range(1, len(run_events) + 1)
-    )
+    assert [event.sequence for event in run_events] == list(range(1, len(run_events) + 1))
     assert run_events[-1].status == "completed"
     terminal_events = [
         event
@@ -804,9 +793,7 @@ async def test_run_api_replays_and_reconciles_owned_resources(
     replay = await client.get(
         f"/api/v1/runs/{run_id}/events?after_sequence={sequences[0]}&limit=100"
     )
-    assert all(
-        event["sequence"] > sequences[0] for event in replay.json()["events"]
-    )
+    assert all(event["sequence"] > sequences[0] for event in replay.json()["events"])
 
     versions = await client.get(f"/api/v1/runs/{run_id}/answer-versions")
     assert versions.status_code == 200, versions.text
@@ -879,9 +866,7 @@ async def test_run_api_replays_and_reconciles_owned_resources(
         headers={"Authorization": f"Bearer {other_token}"},
     )
     assert hidden.status_code == 404
-    deleted = await client.delete(
-        f"/api/v1/artifacts/{artifact['id']}?expected_revision=2"
-    )
+    deleted = await client.delete(f"/api/v1/artifacts/{artifact['id']}?expected_revision=2")
     assert deleted.status_code == 200, deleted.text
     assert (await client.get(f"/api/v1/artifacts/{artifact['id']}")).status_code == 404
 
@@ -953,17 +938,31 @@ async def test_regeneration_replaces_current_version_without_duplicate_user_mess
             )
         )
         refreshed_source = await session.get(AgentRun, source_run_id)
+        conversation_context = await SqlAlchemyConversationRepository(session).list_messages(
+            session_id,
+            tenant_id=TENANT,
+            limit=20,
+        )
+        memory_context = await SqlAlchemyMemoryRepository(session).list_messages(
+            session_id,
+            tenant_id=TENANT,
+            limit=20,
+        )
     assert len(versions) == 2
     assert [version.is_current for version in versions] == [False, True]
     assert versions[1].producer_run_id == replacement_run.id
     assert refreshed_source is not None
     assert refreshed_source.current_answer_version_id == versions[1].id
     assert user_messages == 1
+    assert [item.id for item in conversation_context if item.role == "assistant"] == [
+        versions[1].assistant_message_id
+    ]
+    assert [item.id for item in memory_context if item.role == "assistant"] == [
+        versions[1].assistant_message_id
+    ]
     history = await client.get(f"/api/v1/sessions/{session_id}/messages")
     assert history.status_code == 200, history.text
-    assistant_history = [
-        item for item in history.json()["messages"] if item["role"] == "assistant"
-    ]
+    assistant_history = [item for item in history.json()["messages"] if item["role"] == "assistant"]
     assert len(assistant_history) == 1
     assert assistant_history[0]["answer_group_run_id"] == str(source_run_id)
     assert assistant_history[0]["answer_version_id"] == str(versions[1].id)
@@ -1020,9 +1019,7 @@ async def test_slow_regeneration_cannot_replace_a_newer_current_version(
     assert "event: done" in source.text
     async with app.state.database.session() as session:
         source_run = await session.scalar(
-            select(AgentRun).where(
-                AgentRun.trace_id == "trace_regeneration_race_source_0001"
-            )
+            select(AgentRun).where(AgentRun.trace_id == "trace_regeneration_race_source_0001")
         )
         assert source_run is not None
         assert source_run.current_answer_version_id is not None
@@ -1092,9 +1089,7 @@ async def test_slow_regeneration_cannot_replace_a_newer_current_version(
         )
         refreshed_source = await session.get(AgentRun, source_run_id)
         stale_run = await session.scalar(
-            select(AgentRun).where(
-                AgentRun.trace_id == "trace_regeneration_race_stale_0001"
-            )
+            select(AgentRun).where(AgentRun.trace_id == "trace_regeneration_race_stale_0001")
         )
 
     assert len(versions) == 2
@@ -1145,8 +1140,6 @@ async def test_run_cancel_endpoint_fences_and_notifies_active_worker(
     assert "event: done" not in chat.text
     replay = await client.get(f"/api/v1/runs/{run_id}/events?limit=100")
     terminal_events = [
-        event
-        for event in replay.json()["events"]
-        if event["event_type"] == "run.status"
+        event for event in replay.json()["events"] if event["event_type"] == "run.status"
     ]
     assert [event["status"] for event in terminal_events] == ["cancelled"]

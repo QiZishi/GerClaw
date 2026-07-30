@@ -14,7 +14,10 @@ from typing import cast
 from pydantic import TypeAdapter, ValidationError
 
 from gerclaw_api.database.models import MemoryFact, MemoryFactRevision, Message
-from gerclaw_api.modules.memory.compressor import AgentScopeContextCompressor
+from gerclaw_api.modules.memory.compressor import (
+    AgentScopeContextCompressor,
+    compression_source_hash,
+)
 from gerclaw_api.modules.memory.extractor import RealMemoryExtractor, evidence_has_negation
 from gerclaw_api.modules.memory.models import (
     HealthProfileRead,
@@ -30,6 +33,7 @@ from gerclaw_api.modules.memory.models import (
 from gerclaw_api.modules.memory.profile import empty_profile, rebuild_profile, render_core_profile
 from gerclaw_api.modules.memory.protocols import (
     MemoryAccessLevel,
+    MemoryCategory,
     MemoryFactView,
     MemoryMessage,
     MemoryType,
@@ -51,13 +55,12 @@ from gerclaw_api.security import JsonValue
 _PROFILE = TypeAdapter(dict[str, JsonValue])
 _MEMORY_TYPE: TypeAdapter[MemoryType] = TypeAdapter(MemoryType)
 _MEMORY_ACCESS_LEVEL: TypeAdapter[MemoryAccessLevel] = TypeAdapter(MemoryAccessLevel)
+_MEMORY_CATEGORIES: TypeAdapter[list[MemoryCategory]] = TypeAdapter(list[MemoryCategory])
 _OPTIONAL_DATETIME: TypeAdapter[datetime | None] = TypeAdapter(datetime | None)
 _FLOAT: TypeAdapter[float] = TypeAdapter(float)
 _LOGGER = logging.getLogger("gerclaw.memory")
 _TRANSIENT_CATEGORIES = frozenset({"medication", "vital_sign", "assessment"})
-_DIFFERENTIAL_HYPOTHESIS = re.compile(
-    r"(?:可能|怀疑|疑似|鉴别|考虑|待排|不能排除|也许|或许|倾向)"
-)
+_DIFFERENTIAL_HYPOTHESIS = re.compile(r"(?:可能|怀疑|疑似|鉴别|考虑|待排|不能排除|也许|或许|倾向)")
 
 
 class MemoryDataError(RuntimeError):
@@ -126,22 +129,24 @@ def _revision_snapshot(fact: MemoryFact) -> dict[str, JsonValue]:
 def _fact_view(fact: MemoryFact, *, relevance_score: float | None = None) -> MemoryFactView:
     try:
         details = _PROFILE.validate_python(fact.details)
-        return MemoryFactView(
-            id=fact.id,
-            category=fact.category,
-            memory_type=fact.memory_type,
-            status=fact.status,
-            access_level=fact.access_level or "standard",
-            statement=fact.statement,
-            details=details,
-            confidence=fact.confidence,
-            revision=fact.revision,
-            source_trace_id=fact.source_trace_id,
-            occurred_at=fact.occurred_at,
-            confirmed_at=fact.confirmed_at,
-            expires_at=getattr(fact, "expires_at", None),
-            updated_at=fact.updated_at,
-            relevance_score=relevance_score,
+        return MemoryFactView.model_validate(
+            {
+                "id": fact.id,
+                "category": fact.category,
+                "memory_type": fact.memory_type,
+                "status": fact.status,
+                "access_level": fact.access_level or "standard",
+                "statement": fact.statement,
+                "details": details,
+                "confidence": fact.confidence,
+                "revision": fact.revision,
+                "source_trace_id": fact.source_trace_id,
+                "occurred_at": fact.occurred_at,
+                "confirmed_at": fact.confirmed_at,
+                "expires_at": getattr(fact, "expires_at", None),
+                "updated_at": fact.updated_at,
+                "relevance_score": relevance_score,
+            }
         )
     except ValidationError as error:
         raise MemoryDataError("stored memory fact is invalid") from error
@@ -163,21 +168,23 @@ def _revision_view(revision: MemoryFactRevision) -> MemoryFactRevisionRead:
 
     try:
         snapshot = _PROFILE.validate_python(revision.snapshot)
-        return MemoryFactRevisionRead(
-            revision=revision.revision,
-            category=snapshot["category"],
-            memory_type=snapshot["memory_type"],
-            status=snapshot["status"],
-            access_level=snapshot.get("access_level", "standard"),
-            statement=snapshot["statement"],
-            details=snapshot["details"],
-            confidence=snapshot["confidence"],
-            source_trace_id=snapshot.get("source_trace_id"),
-            occurred_at=snapshot.get("occurred_at"),
-            confirmed_at=snapshot.get("confirmed_at"),
-            expires_at=snapshot.get("expires_at"),
-            updated_at=snapshot.get("updated_at"),
-            recorded_at=revision.created_at,
+        return MemoryFactRevisionRead.model_validate(
+            {
+                "revision": revision.revision,
+                "category": snapshot["category"],
+                "memory_type": snapshot["memory_type"],
+                "status": snapshot["status"],
+                "access_level": snapshot.get("access_level", "standard"),
+                "statement": snapshot["statement"],
+                "details": snapshot["details"],
+                "confidence": snapshot["confidence"],
+                "source_trace_id": snapshot.get("source_trace_id"),
+                "occurred_at": snapshot.get("occurred_at"),
+                "confirmed_at": snapshot.get("confirmed_at"),
+                "expires_at": snapshot.get("expires_at"),
+                "updated_at": snapshot.get("updated_at"),
+                "recorded_at": revision.created_at,
+            }
         )
     except (KeyError, TypeError, ValidationError) as error:
         raise MemoryDataError("stored memory fact revision is invalid") from error
@@ -259,7 +266,9 @@ class ProductionMemoryModule:
             if message.trace_id == self._trace_id:
                 continue
             try:
-                projected.append(MemoryMessage(role=message.role, content=message.content))
+                projected.append(
+                    MemoryMessage.model_validate({"role": message.role, "content": message.content})
+                )
             except ValidationError as error:
                 raise MemoryDataError("stored short-term memory is invalid") from error
         return projected
@@ -305,9 +314,7 @@ class ProductionMemoryModule:
             )
             now = datetime.now(UTC)
             confirmed = [
-                fact
-                for fact in confirmed
-                if _is_cross_session_recall_eligible(fact, now=now)
+                fact for fact in confirmed if _is_cross_session_recall_eligible(fact, now=now)
             ]
             if confirmed:
                 embedding = await self._embedding_model([normalized_query])
@@ -546,12 +553,14 @@ class ProductionMemoryModule:
         confirmed = [fact for fact in changed if fact.status == "confirmed"]
         if confirmed:
             vector_records = [
-                MemoryVectorRecord(
-                    id=fact.id,
-                    category=fact.category,
-                    status=fact.status,
-                    revision=fact.revision,
-                    statement=fact.statement,
+                MemoryVectorRecord.model_validate(
+                    {
+                        "id": fact.id,
+                        "category": fact.category,
+                        "status": fact.status,
+                        "revision": fact.revision,
+                        "statement": fact.statement,
+                    }
                 )
                 for fact in confirmed
             ]
@@ -589,7 +598,9 @@ class ProductionMemoryModule:
             confirmed_count=sum(fact.status == "confirmed" for fact in changed),
             pending_count=sum(fact.status in {"proposed", "pending"} for fact in changed),
             inactive_count=sum(fact.status == "inactive" for fact in changed),
-            categories=list(dict.fromkeys(fact.category for fact in changed)),
+            categories=_MEMORY_CATEGORIES.validate_python(
+                list(dict.fromkeys(fact.category for fact in changed))
+            ),
         )
 
     async def compress_context(
@@ -608,6 +619,15 @@ class ProductionMemoryModule:
         summary = raw_summary.get("text", "")
         if not isinstance(summary, str):
             raise MemoryDataError("stored session summary text is invalid")
+        source_hash = compression_source_hash(messages, max_tokens=max_tokens)
+        if raw_summary.get("source_hash") == source_hash:
+            raw_projection = raw_summary.get("projection")
+            if not isinstance(raw_projection, list):
+                raise MemoryDataError("stored session context projection is invalid")
+            try:
+                return [MemoryMessage.model_validate(item) for item in raw_projection]
+            except ValidationError as error:
+                raise MemoryDataError("stored session context projection is invalid") from error
         result = await self._compressor.compress(
             messages,
             session_id=str(self._session_id),
@@ -618,10 +638,28 @@ class ProductionMemoryModule:
             session.context_summary = {
                 "schema_version": 1,
                 "text": result.summary,
+                "source_hash": source_hash,
+                "projection": [item.model_dump(mode="json") for item in result.messages],
                 "updated_at": datetime.now(UTC).isoformat(),
             }
             await self._repository.flush()
         return result.messages
+
+    async def get_context_summary(self) -> str:
+        """Read the current encrypted summary for whole-context preflight."""
+
+        session = await self._repository.require_session(
+            self._session_id,
+            tenant_id=self._tenant_id,
+            actor_id=self._actor_id,
+        )
+        raw_summary = session.context_summary
+        if not isinstance(raw_summary, dict):
+            raise MemoryDataError("stored session summary is invalid")
+        summary = raw_summary.get("text", "")
+        if not isinstance(summary, str):
+            raise MemoryDataError("stored session summary text is invalid")
+        return summary
 
     async def core_profile_context(self) -> tuple[str, int, list[str]]:
         """Return a bounded prompt projection and opaque provenance IDs."""
@@ -636,11 +674,7 @@ class ProductionMemoryModule:
             statuses=["confirmed"],
             limit=200,
         )
-        eligible = [
-            fact
-            for fact in confirmed
-            if _is_cross_session_recall_eligible(fact, now=now)
-        ]
+        eligible = [fact for fact in confirmed if _is_cross_session_recall_eligible(fact, now=now)]
         return (
             render_core_profile(rebuild_profile(eligible)),
             profile.version,
@@ -656,12 +690,14 @@ class ProductionMemoryModule:
             user_id=self._user_id,
             limit=200,
         )
-        return HealthProfileRead(
-            schema_version=profile.schema_version,
-            version=profile.version,
-            cross_session_recall_enabled=profile.cross_session_recall_enabled,
-            profile=profile.profile,
-            facts=[_fact_view(fact) for fact in facts],
+        return HealthProfileRead.model_validate(
+            {
+                "schema_version": profile.schema_version,
+                "version": profile.version,
+                "cross_session_recall_enabled": profile.cross_session_recall_enabled,
+                "profile": profile.profile,
+                "facts": [_fact_view(fact) for fact in facts],
+            }
         )
 
     async def read_fact_history(self, fact_id: uuid.UUID, *, limit: int) -> MemoryFactHistoryRead:
@@ -738,18 +774,14 @@ class ProductionMemoryModule:
             and isinstance(conflict_previous, dict)
         ):
             try:
-                fact.memory_type = _MEMORY_TYPE.validate_python(
-                    conflict_previous["memory_type"]
-                )
+                fact.memory_type = _MEMORY_TYPE.validate_python(conflict_previous["memory_type"])
                 fact.status = "confirmed"
                 fact.access_level = _MEMORY_ACCESS_LEVEL.validate_python(
                     conflict_previous.get("access_level", "standard")
                 )
                 fact.statement = str(conflict_previous["statement"])
                 fact.details = _PROFILE.validate_python(conflict_previous["details"])
-                fact.confidence = _FLOAT.validate_python(
-                    conflict_previous["confidence"]
-                )
+                fact.confidence = _FLOAT.validate_python(conflict_previous["confidence"])
                 fact.occurred_at = _OPTIONAL_DATETIME.validate_python(
                     conflict_previous.get("occurred_at")
                 )
@@ -769,12 +801,14 @@ class ProductionMemoryModule:
         fact.revision += 1
         if fact.status == "confirmed":
             fact.confirmed_at = datetime.now(UTC)
-            record = MemoryVectorRecord(
-                id=fact.id,
-                category=fact.category,
-                status=fact.status,
-                revision=fact.revision,
-                statement=fact.statement,
+            record = MemoryVectorRecord.model_validate(
+                {
+                    "id": fact.id,
+                    "category": fact.category,
+                    "status": fact.status,
+                    "revision": fact.revision,
+                    "statement": fact.statement,
+                }
             )
             embedding = await self._embedding_model([fact.statement])
             tenant_namespace, user_namespace = memory_namespace(
@@ -816,9 +850,8 @@ class ProductionMemoryModule:
             user_id=self._user_id,
         )
         expected_version = 0 if existing is None else existing.version
-        if (
-            request.expected_profile_version != expected_version
-            or (existing is None and profile.version != 1)
+        if request.expected_profile_version != expected_version or (
+            existing is None and profile.version != 1
         ):
             raise MemoryConflictError("health profile version is stale")
         profile.cross_session_recall_enabled = request.enabled

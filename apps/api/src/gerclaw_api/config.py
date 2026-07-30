@@ -130,6 +130,11 @@ class Settings(BaseSettings):
     agent_approval_ttl_seconds: int = Field(default=900, ge=60, le=86_400)
     agent_context_trigger_ratio: float = Field(default=0.85, gt=0, lt=1)
     agent_context_reserve_ratio: float = Field(default=0.2, gt=0, lt=1)
+    agent_context_evidence_reserve_tokens: int = Field(
+        default=4_096,
+        ge=256,
+        le=32_768,
+    )
     agent_quick_route_max_characters: int = Field(default=160, ge=1, le=1_000)
     agent_deep_route_min_characters: int = Field(default=1_200, ge=100, le=4_000)
     agent_deep_route_attachment_count: int = Field(default=2, ge=1, le=20)
@@ -779,6 +784,10 @@ class Settings(BaseSettings):
                 continue
             if not all(value is not None for value in values):
                 raise ValueError(f"agent model slot {name} is partially configured")
+            assert url is not None
+            assert api_key is not None
+            assert model is not None
+            assert protocol is not None
             configured.append(
                 AgentModelConfig(
                     url=url,
@@ -801,4 +810,4 @@ class Settings(BaseSettings):
 def get_settings() -> Settings:
     """Load and cache process-wide settings."""
 
-    return Settings()
+    return Settings.model_validate({})

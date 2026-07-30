@@ -9,7 +9,7 @@ import time
 import uuid
 from collections.abc import Awaitable, Callable
 from datetime import UTC, datetime
-from typing import Any, Protocol, cast
+from typing import Any, Literal, Protocol, cast
 
 from gerclaw_api.auth import AuthContext
 from gerclaw_api.config import Settings
@@ -40,10 +40,12 @@ from gerclaw_api.modules.agent_harness.clinical_state import (
 )
 from gerclaw_api.modules.agent_harness.config import ResolvedHarnessConfig
 from gerclaw_api.modules.agent_harness.context_snapshot import (
+    ContextWindowManager,
     FrozenRunState,
     FrozenToolContract,
     PersistedContextSnapshot,
     PersistedRunPlan,
+    estimate_context_tokens,
 )
 from gerclaw_api.modules.agent_harness.planning import (
     ClinicalDecisionCoordinator,
@@ -73,6 +75,7 @@ from gerclaw_api.modules.document import DocumentService
 from gerclaw_api.modules.input_output import ProductionInputOutputModule
 from gerclaw_api.modules.memory.memory_module import ProductionMemoryModule
 from gerclaw_api.modules.memory.models import MemoryUpdateResult
+from gerclaw_api.modules.memory.protocols import MemoryMessage
 from gerclaw_api.modules.orchestration import (
     ChatCancellationFinalizationError,
     ChatReplayUnavailableError,
@@ -237,8 +240,7 @@ class ChatService:
             if (
                 payload.workflow is not resume_state.plan.workflow
                 or tuple(payload.loaded_skills) != resume_state.plan.loaded_skill_ids
-                or tuple(payload.uploaded_files)
-                != resume_state.plan.uploaded_document_ids
+                or tuple(payload.uploaded_files) != resume_state.plan.uploaded_document_ids
                 or len(payload.images) != resume_state.plan.uploaded_image_count
             ):
                 raise UnsupportedAgentContextError(
@@ -441,16 +443,10 @@ class ChatService:
             if resume_state is not None
             else DeterministicRouter(
                 RoutingPolicy(
-                    quick_max_characters=(
-                        resolved_harness_config.quick_route_max_characters
-                    ),
+                    quick_max_characters=(resolved_harness_config.quick_route_max_characters),
                     deep_min_characters=resolved_harness_config.deep_route_min_characters,
-                    deep_attachment_count=(
-                        resolved_harness_config.deep_route_attachment_count
-                    ),
-                    deep_capability_count=(
-                        resolved_harness_config.deep_route_capability_count
-                    ),
+                    deep_attachment_count=(resolved_harness_config.deep_route_attachment_count),
+                    deep_capability_count=(resolved_harness_config.deep_route_capability_count),
                 )
             ).decide(
                 RoutingInput(
@@ -482,9 +478,7 @@ class ChatService:
                 for skill_id in payload.loaded_skills
             ]
             skill_definitions = [item.definition for item in loaded_skills]
-            agent_skills = [
-                to_agentscope_skill(item.definition) for item in loaded_skills
-            ]
+            agent_skills = [to_agentscope_skill(item.definition) for item in loaded_skills]
         else:
             skill_definitions = []
             agent_skills = []
@@ -498,11 +492,7 @@ class ChatService:
             payload.loaded_skills[0] if len(payload.loaded_skills) == 1 else "unknown_skill"
         )
         fallback_skill_version = skill_versions.get(fallback_skill_id)
-        if (
-            resume_state is None
-            and self._skill_module is not None
-            and not emergency_route
-        ):
+        if resume_state is None and self._skill_module is not None and not emergency_route:
             await self._skill_module.replace_session_skills(
                 payload.session_id, payload.loaded_skills, commit=False
             )
@@ -530,6 +520,7 @@ class ChatService:
             )
         )
         memory_refs: list[str]
+        short_term: list[MemoryMessage] = []
         if resume_state is not None:
             frozen_context = resume_state.snapshot.agent_context
             history = list(frozen_context.conversation_history)
@@ -574,26 +565,15 @@ class ChatService:
                     str(payload.session_id),
                     max_turns=max(1, self._settings.agent_history_messages // 2),
                 )
-                compressed = await memory.compress_context(
-                    short_term,
-                    max_tokens=max(
-                        1,
-                        int(self._model.context_size * self._settings.memory_context_budget_ratio),
-                    ),
-                )
                 history = [
                     ConversationHistoryMessage(
                         role=cast(Any, message.role),
                         text=message.text(),
                     )
-                    for message in compressed
+                    for message in short_term
                     if message.role in {"user", "assistant"} and message.text()
                 ]
-                session_summary = "\n\n".join(
-                    message.text()
-                    for message in compressed
-                    if message.role == "system" and message.text()
-                )
+                session_summary = await memory.get_context_summary()
             profile_context, profile_version, memory_refs = await memory.core_profile_context()
         user_message_id = (
             resume_state.snapshot.input_message_id
@@ -659,9 +639,7 @@ class ChatService:
             if resume_state is not None
             else DeterministicPlanner(
                 execution_budget=execution_budget,
-                output_reserve_tokens=(
-                    resolved_harness_config.model_output_reserve_tokens
-                ),
+                output_reserve_tokens=(resolved_harness_config.model_output_reserve_tokens),
             ).build(
                 PlanRequest(
                     route=route_decision.route,
@@ -671,14 +649,15 @@ class ChatService:
                     selected_capabilities=planning_capabilities,
                     available_capabilities=planning_capabilities,
                     report_requested=requests_report(payload.message),
-                    selected_action=selected_action,
+                    selected_action=cast(
+                        Literal["ask", "exam", "answer"],
+                        selected_action,
+                    ),
                 )
             )
         )
         capability_results = (
-            list(resume_state.plan.capability_results)
-            if resume_state is not None
-            else []
+            list(resume_state.plan.capability_results) if resume_state is not None else []
         )
         planned_capabilities = {node.capability for node in dynamic_plan.nodes}
         selected_owner_capabilities = [
@@ -686,11 +665,7 @@ class ChatService:
             for item in capability_selection.selected
             if item.capability_id in planned_capabilities
         ]
-        if (
-            resume_state is None
-            and selected_owner_capabilities
-            and not emergency_route
-        ):
+        if resume_state is None and selected_owner_capabilities and not emergency_route:
             if self._capability_runtime is None:
                 raise UnsupportedAgentContextError("governed capability owners are unavailable")
             for selected_capability in selected_owner_capabilities:
@@ -727,6 +702,110 @@ class ChatService:
                 else []
             )
         )
+        context_projection = (
+            resume_state.snapshot.agent_context.projection if resume_state is not None else None
+        )
+        if resume_state is None:
+            context_manager = ContextWindowManager()
+            draft = context_manager.plan(
+                history=tuple(history),
+                session_summary=session_summary,
+                fixed_sections=(
+                    ("current_input", (payload.message,)),
+                    ("profile", (profile_context,)),
+                    ("clinical_state", (clinical_state.model_dump_json(),)),
+                    (
+                        "skills",
+                        tuple(item.source_markdown for item in skill_definitions),
+                    ),
+                    (
+                        "documents",
+                        tuple(item.content for item in uploaded_documents),
+                    ),
+                    (
+                        "capability_results",
+                        tuple(item.model_dump_json() for item in capability_results),
+                    ),
+                    (
+                        "plan",
+                        (
+                            dynamic_plan.model_dump_json(),
+                            clinical_decision.model_dump_json(),
+                        ),
+                    ),
+                ),
+                model_context_tokens=self._model.context_size,
+                trigger_ratio=resolved_harness_config.context_trigger_ratio,
+                reserve_ratio=resolved_harness_config.context_reserve_ratio,
+                output_reserve_tokens=(resolved_harness_config.model_output_reserve_tokens),
+                input_overhead_tokens=(resolved_harness_config.model_input_overhead_tokens),
+                image_count=len(payload.images),
+                image_estimate_tokens=(resolved_harness_config.image_input_estimate_tokens),
+                evidence_reserve_tokens=(
+                    0
+                    if emergency_route or companion
+                    else resolved_harness_config.context_evidence_reserve_tokens
+                ),
+                history_cap_tokens=max(
+                    1,
+                    int(self._model.context_size * self._settings.memory_context_budget_ratio),
+                ),
+                model_call_required=not emergency_route,
+            )
+            compression_strategy = "none"
+            if (
+                draft.compression_required
+                and memory_enabled
+                and memory is not None
+                and regeneration is None
+                and (short_term or session_summary)
+            ):
+                compressed = await memory.compress_context(
+                    short_term,
+                    max_tokens=max(1, draft.history_budget_tokens),
+                )
+                history = [
+                    ConversationHistoryMessage(
+                        role=cast(Any, message.role),
+                        text=message.text(),
+                    )
+                    for message in compressed
+                    if message.role in {"user", "assistant"} and message.text()
+                ]
+                session_summary = "\n\n".join(
+                    message.text()
+                    for message in compressed
+                    if message.role == "system" and message.text()
+                )
+                compression_strategy = "agentscope-medical-summary-v1"
+                if (
+                    estimate_context_tokens(
+                        session_summary,
+                        *(item.text for item in history),
+                    )
+                    > draft.history_budget_tokens
+                ):
+                    projected_history, session_summary = context_manager.compress_extractively(
+                        tuple(history),
+                        token_budget=draft.history_budget_tokens,
+                        existing_summary=session_summary,
+                    )
+                    history = list(projected_history)
+                    compression_strategy = "deterministic-extractive-v1"
+            elif draft.compression_required:
+                projected_history, session_summary = context_manager.compress_extractively(
+                    tuple(history),
+                    token_budget=draft.history_budget_tokens,
+                    existing_summary=session_summary,
+                )
+                history = list(projected_history)
+                compression_strategy = "deterministic-extractive-v1"
+            context_projection = context_manager.finalize(
+                draft,
+                history=tuple(history),
+                session_summary=session_summary,
+                strategy=compression_strategy,
+            )
         execution = (
             resume_state.snapshot.agent_context.execution
             if resume_state is not None
@@ -784,9 +863,7 @@ class ChatService:
             dynamic_plan=dynamic_plan,
             clinical_decision=clinical_decision,
             preassembled_context=(
-                resume_state.snapshot.agent_context
-                if resume_state is not None
-                else None
+                resume_state.snapshot.agent_context if resume_state is not None else None
             ),
         )
         context = await harness.assemble_context(
@@ -795,6 +872,7 @@ class ChatService:
             [] if emergency_route else payload.loaded_skills,
             [] if emergency_route else [str(item) for item in payload.uploaded_files],
         )
+        context = context.model_copy(update={"projection": context_projection})
         if resume_state is None:
             persisted_snapshot = PersistedContextSnapshot(
                 input_message_id=user_message_id,
@@ -807,9 +885,7 @@ class ChatService:
                     )
                     for tool_name in context.tool_names
                 ),
-                skill_definitions=(
-                    () if emergency_route else tuple(skill_definitions)
-                ),
+                skill_definitions=(() if emergency_route else tuple(skill_definitions)),
                 uploaded_documents=tuple(uploaded_documents),
             )
             persisted_plan = PersistedRunPlan(
@@ -823,8 +899,7 @@ class ChatService:
                 uploaded_document_ids=tuple(payload.uploaded_files),
                 uploaded_image_count=len(payload.images),
                 uploaded_image_fingerprints=tuple(
-                    image_fingerprint(image.media_type, image.base64)
-                    for image in payload.images
+                    image_fingerprint(image.media_type, image.base64) for image in payload.images
                 ),
                 workflow=workflow.workflow_id,
                 workflow_definition=workflow,
@@ -838,14 +913,10 @@ class ChatService:
                 resolved_config=resolved_harness_config,
                 execution_budget=execution_budget,
                 regenerate_from_run_id=(
-                    regeneration.source_run_id
-                    if regeneration is not None
-                    else None
+                    regeneration.source_run_id if regeneration is not None else None
                 ),
                 expected_current_answer_version_id=(
-                    regeneration.current_answer_version_id
-                    if regeneration is not None
-                    else None
+                    regeneration.current_answer_version_id if regeneration is not None else None
                 ),
             )
         else:

@@ -13,6 +13,7 @@ from gerclaw_api.modules.agent_harness.clinical_state import ClinicalState
 from gerclaw_api.modules.agent_harness.config import ResolvedHarnessConfig
 from gerclaw_api.modules.agent_harness.context_snapshot import (
     AgentContext,
+    ContextProjectionManifest,
     ConversationHistoryMessage,
     FrozenToolContract,
     PersistedContextSnapshot,
@@ -120,14 +121,28 @@ def _record() -> RunResumeRecord:
                 text="这是冻结的历史。",
             ),
         ),
+        projection=ContextProjectionManifest(
+            model_context_tokens=32_768,
+            trigger_tokens=27_852,
+            target_tokens=21_299,
+            output_reserve_tokens=2_048,
+            estimated_tokens_before=1_024,
+            estimated_tokens_after=1_024,
+            history_budget_tokens=1_000,
+            history_message_count=1,
+            retained_history_message_count=1,
+            compression_state="not_needed",
+            compression_strategy="none",
+            source_hash="0" * 64,
+            sections=(),
+        ),
     )
     snapshot = PersistedContextSnapshot(
         input_message_id=message_id,
         agent_context=context,
         prompt_policy_ids=context.system_instructions,
         tool_contracts=tuple(
-            FrozenToolContract(name=name, version="1.0.0")
-            for name in context.tool_names
+            FrozenToolContract(name=name, version="1.0.0") for name in context.tool_names
         ),
     )
     plan = PersistedRunPlan(
@@ -208,9 +223,10 @@ async def test_prepare_reconstructs_only_server_persisted_input() -> None:
     assert command.request.uploaded_files == []
     assert command.request.images == []
     assert command.request_id == record.trace.request_id
-    assert command.state.snapshot.agent_context.conversation_history[0].text == (
-        "这是冻结的历史。"
-    )
+    assert command.state.snapshot.agent_context.conversation_history[0].text == ("这是冻结的历史。")
+    projection = command.state.snapshot.agent_context.projection
+    assert projection is not None
+    assert projection.source_hash == "0" * 64
     assert repository.rollbacks == 1
 
 
@@ -245,10 +261,36 @@ async def test_prepare_rejects_non_interrupted_or_corrupt_material() -> None:
             tenant_id=TENANT,
             actor_id=ACTOR,
         )
+    record.run.status = "cancelled"
+    with pytest.raises(RunResumeConflictError):
+        await RunResumeService(repository).prepare(
+            record.run.id,
+            tenant_id=TENANT,
+            actor_id=ACTOR,
+        )
     record.run.status = "interrupted"
     record.run.plan = {**record.run.plan, "loaded_skill_count": 2}
     with pytest.raises(RunResumeDataError):
         await RunResumeService(repository).prepare(
+            record.run.id,
+            tenant_id=TENANT,
+            actor_id=ACTOR,
+        )
+
+
+@pytest.mark.asyncio
+async def test_prepare_rejects_legacy_snapshot_without_context_projection() -> None:
+    record = _record()
+    agent_context = dict(record.run.context_snapshot["agent_context"])
+    agent_context.pop("projection")
+    record.run.context_snapshot = {
+        **record.run.context_snapshot,
+        "schema_version": "context-snapshot-v1",
+        "agent_context": agent_context,
+    }
+
+    with pytest.raises(RunResumeDataError):
+        await RunResumeService(_Repository(record)).prepare(
             record.run.id,
             tenant_id=TENANT,
             actor_id=ACTOR,
@@ -278,6 +320,7 @@ async def test_prepare_rejects_cross_actor_or_unknown_snapshot_material() -> Non
             tenant_id=TENANT,
             actor_id=ACTOR,
         )
+
 
 @pytest.mark.asyncio
 async def test_prepare_hides_missing_or_foreign_run() -> None:

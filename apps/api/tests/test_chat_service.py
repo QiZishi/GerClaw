@@ -123,6 +123,9 @@ class _MemoryFacade:
         assert max_tokens > 0
         return messages
 
+    async def get_context_summary(self) -> str:
+        return ""
+
     async def core_profile_context(self) -> tuple[str, int, list[str]]:
         return "", 1, []
 
@@ -538,14 +541,8 @@ class _RunJournal:
             last_sequence=len(self.events),
             revision=revision,
             started_at=datetime.now(UTC),
-            interrupted_at=(
-                datetime.now(UTC)
-                if status is AgentRunStatus.INTERRUPTED
-                else None
-            ),
-            completed_at=(
-                datetime.now(UTC) if status in TERMINAL_RUN_STATUSES else None
-            ),
+            interrupted_at=(datetime.now(UTC) if status is AgentRunStatus.INTERRUPTED else None),
+            completed_at=(datetime.now(UTC) if status in TERMINAL_RUN_STATUSES else None),
         )
 
 
@@ -697,9 +694,7 @@ async def test_owned_turn_streams_only_after_durable_success(unit_settings: Sett
     assert "reasoning_summary" in event_types
     assert "text_delta" in event_types
     assert event_types[-1] == "done"
-    assert [cast(Any, event).sequence for event in events] == list(
-        range(1, len(events) + 1)
-    )
+    assert [cast(Any, event).sequence for event in events] == list(range(1, len(events) + 1))
     assert all(cast(Any, event).run_id == run_journal.run_id for event in events)
     assert conversation.user_text == "您好!"
     assert conversation.response is response
@@ -728,6 +723,14 @@ async def test_owned_turn_streams_only_after_durable_success(unit_settings: Sett
     dynamic_plan = cast(dict[str, Any], run_journal.start_requests[0].plan["dynamic_plan"])
     assert dynamic_plan["route"] == "quick"
     assert cast(list[dict[str, Any]], dynamic_plan["nodes"])[0]["capability"] == "answer.quick"
+    agent_context = cast(
+        dict[str, Any],
+        run_journal.start_requests[0].context_snapshot["agent_context"],
+    )
+    projection = cast(dict[str, Any], agent_context["projection"])
+    assert projection["schema_version"] == "context-projection-v1"
+    assert projection["estimated_tokens_after"] <= projection["trigger_tokens"]
+    assert projection["source_hash"]
     assert run_journal.start_requests[0].fencing_token == 17
     assert run_journal.answer_message_ids
     assert run_journal.events[-1].event_type == "done"

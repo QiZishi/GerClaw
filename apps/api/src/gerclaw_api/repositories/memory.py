@@ -6,11 +6,12 @@ import uuid
 from collections.abc import Sequence
 from typing import Protocol, cast
 
-from sqlalchemy import select
+from sqlalchemy import or_, select
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from gerclaw_api.database.models import (
+    AnswerVersion,
     ConversationSession,
     HealthProfile,
     MemoryFact,
@@ -163,10 +164,19 @@ class SqlAlchemyMemoryRepository:
     ) -> list[Message]:
         statement = (
             select(Message)
+            .outerjoin(
+                AnswerVersion,
+                AnswerVersion.assistant_message_id == Message.id,
+            )
             .where(
                 Message.tenant_id == tenant_id,
                 Message.session_id == session_id,
                 Message.role.in_(("user", "assistant", "system", "tool")),
+                or_(
+                    Message.role != "assistant",
+                    AnswerVersion.id.is_(None),
+                    AnswerVersion.is_current.is_(True),
+                ),
             )
             .order_by(Message.created_at.desc(), Message.id.desc())
             .limit(limit)
