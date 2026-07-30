@@ -439,6 +439,29 @@ async def test_partial_visible_stream_fails_closed_without_replay() -> None:
 
 
 @pytest.mark.asyncio
+async def test_private_checkpoint_retry_excludes_the_partial_provider() -> None:
+    models = [
+        _ScriptedModel("primary", [_Action("text", "私有片段"), _Action("raise_stream")]),
+        _ScriptedModel("backup1", [_Action("text", "完整备用回复")]),
+        _ScriptedModel("backup2", [_Action("text", "unused")]),
+    ]
+    router = _router(models)
+
+    with capture_model_attempts() as attempts:
+        with pytest.raises(PartialModelStreamError):
+            await _consume(router)
+        assert await _consume(router) == "完整备用回复"
+
+    assert [model.calls for model in models] == [1, 1, 0]
+    assert [(item.preference, item.outcome) for item in attempts] == [
+        ("primary", "started"),
+        ("primary", "failed_partial"),
+        ("backup1", "started"),
+        ("backup1", "succeeded"),
+    ]
+
+
+@pytest.mark.asyncio
 async def test_total_stream_deadline_falls_over_before_visible_output() -> None:
     models = [
         _ScriptedModel("primary", [_Action("sleep", "0.05")]),

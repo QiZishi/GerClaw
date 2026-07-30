@@ -20,6 +20,9 @@ from gerclaw_api.modules.agent_harness.run_lifecycle.errors import (
 from gerclaw_api.modules.agent_harness.run_lifecycle.public_answer import (
     project_public_answer,
 )
+from gerclaw_api.modules.agent_harness.run_lifecycle.step_repair import (
+    StepRepairDecision,
+)
 from gerclaw_api.modules.agent_harness.run_lifecycle.streaming import (
     validate_public_answer_text,
 )
@@ -32,12 +35,20 @@ AttemptRepairObserver = Callable[
     [str, tuple[str, ...], str, str, str],
     Awaitable[None],
 ]
+StepFailureClassifier = Callable[[Exception], StepRepairDecision | None]
 
 OUTPUT_PROTOCOL_REPAIR_INSTRUCTION = (
     "上一尝试把内部工具调用格式写进了回答。重新完成用户要求:"
     "不要复述、解释或输出 invoke、parameter、tool_call、function_call、"
     "final-clinical-state 等协议标签;"
     "如需工具必须使用已提供的正式工具接口, 否则直接用自然语言回答。"
+)
+OUTPUT_PROTOCOL_REPAIR = StepRepairDecision(
+    error_code="answer_protocol_markup",
+    field_paths=("answer.text",),
+    contract_version="chat-answer-v1",
+    checkpoint_id="chat.answer.pre_model.v1",
+    instruction=OUTPUT_PROTOCOL_REPAIR_INSTRUCTION,
 )
 
 
@@ -76,7 +87,7 @@ class RepairableAgentSession:
             base_context=base_context,
         )
 
-    def rebuild(self) -> None:
+    def rebuild(self, instruction: str = OUTPUT_PROTOCOL_REPAIR_INSTRUCTION) -> None:
         runtime_directives = [
             message
             for message in self.agent.state.context
@@ -88,7 +99,7 @@ class RepairableAgentSession:
                 *runtime_directives,
                 SystemMsg(
                     name="output_contract_repair",
-                    content=OUTPUT_PROTOCOL_REPAIR_INSTRUCTION,
+                    content=instruction,
                 ),
             ]
         )
@@ -118,32 +129,44 @@ def _project_answer_events(
 async def run_with_output_protocol_repair(
     *,
     run_attempt: AttemptRunner,
-    rebuild_agent: Callable[[], None],
+    rebuild_agent: Callable[[str], None],
     publish: BufferedEmitter,
     budget: RetryBudget,
     observer: AttemptRepairObserver | None,
+    classify_failure: StepFailureClassifier | None = None,
 ) -> tuple[AgentStreamResult, int]:
-    """Retry once from the pre-model checkpoint without exposing bad output."""
+    """Retry explicitly classified private failures without exposing bad output."""
 
-    for attempt_index in range(2):
+    repair_count = 0
+    seen_failures: set[tuple[str, tuple[str, ...], str, str]] = set()
+    while True:
         events: list[BufferedEvent] = []
         try:
             result = await run_attempt(_buffered_emitter(events))
             public_text = project_public_answer(result.text)
             validate_public_answer_text(public_text)
-        except AgentOutputProtocolError:
-            if attempt_index > 0:
+        except Exception as error:
+            decision = (
+                OUTPUT_PROTOCOL_REPAIR
+                if isinstance(error, AgentOutputProtocolError)
+                else classify_failure(error)
+                if classify_failure is not None
+                else None
+            )
+            if decision is None or decision.signature in seen_failures:
                 raise
+            seen_failures.add(decision.signature)
             budget.add_retry()
             if observer is not None:
                 await observer(
-                    "answer_protocol_markup",
-                    ("answer.text",),
-                    "chat-answer-v1",
-                    "retry_from_pre_model_checkpoint",
-                    "chat.answer.pre_model.v1",
+                    decision.error_code,
+                    decision.field_paths,
+                    decision.contract_version,
+                    decision.repair_action,
+                    decision.checkpoint_id,
                 )
-            rebuild_agent()
+            rebuild_agent(decision.instruction)
+            repair_count += 1
             continue
         projected_events = _project_answer_events(
             events,
@@ -152,8 +175,7 @@ async def run_with_output_protocol_repair(
         )
         for event_type, data in projected_events:
             await publish(event_type, data)
-        return replace(result, text=public_text), attempt_index
-    raise AssertionError("bounded output repair loop did not terminate")
+        return replace(result, text=public_text), repair_count
 
 
 async def project_with_output_protocol_repair(
@@ -162,6 +184,7 @@ async def project_with_output_protocol_repair(
     publish: BufferedEmitter,
     budget: RetryBudget,
     observer: AttemptRepairObserver | None,
+    classify_failure: StepFailureClassifier | None = None,
     **project_kwargs: Any,
 ) -> tuple[AgentStreamResult, int]:
     """Bind the generic repair loop to the AgentScope stream projector."""
@@ -180,4 +203,5 @@ async def project_with_output_protocol_repair(
         publish=publish,
         budget=budget,
         observer=observer,
+        classify_failure=classify_failure,
     )

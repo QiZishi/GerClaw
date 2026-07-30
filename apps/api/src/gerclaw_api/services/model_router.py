@@ -491,6 +491,16 @@ class FailoverChatModel(ChatModelBase):
             requires_tool_calling=bool(tools),
             requires_structured_output=False,
         )
+        captured = _ATTEMPT_CAPTURE.get() or []
+        partial_failures = {
+            attempt.preference for attempt in captured if attempt.outcome == "failed_partial"
+        }
+        if partial_failures:
+            candidates = tuple(
+                candidate
+                for candidate in candidates
+                if candidate.preference not in partial_failures
+            )
         for index, candidate in enumerate(candidates):
             _record(self._attempt(candidate, "started"))
             egress_handle = await _prepare_egress(candidate.preference, decision)
