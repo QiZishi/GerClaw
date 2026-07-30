@@ -101,10 +101,16 @@ def _evaluation(
     HumanApprovalVerifier,
 ]:
     baseline = _run("baseline", _BASE).model_copy(
-        update={"commit": frozen.proposal.base_commit}
+        update={
+            "commit": frozen.proposal.base_commit,
+            "frozen_manifest_sha256": frozen.frozen_manifest_sha256,
+        }
     )
     candidate = _run("candidate", _CANDIDATE).model_copy(
-        update={"commit": frozen.proposal.candidate_commit}
+        update={
+            "commit": frozen.proposal.candidate_commit,
+            "frozen_manifest_sha256": frozen.frozen_manifest_sha256,
+        }
     )
     report = PairedEvaluationGate().compare(frozen, baseline, candidate)
     attestation_authority = AttestationKeyring(

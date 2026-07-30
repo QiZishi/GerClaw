@@ -19,12 +19,28 @@ deletions, renames/copies, symlinks, submodules, path traversal, kind/path disgu
 state, a changed HEAD, and a forged freeze manifest fail closed. The governance manifest and
 all content digests are copied into `frozen-candidate-v1` outside the candidate worktree.
 
+Candidate execution is a separate trust boundary, not an ordinary subprocess. The paired runner
+accepts only the exact Docker executor and has no production local-execution fallback. The
+executor exports the evaluated commit from Git objects, records the archive digest, stages it in
+a controller-owned Docker volume, verifies that digest inside the container, and extracts it to
+read-only runtime source. It never mounts the live worktree, so ignored/untracked files, `.git`,
+and host-side transient edits cannot become evaluated code. The content-addressed preinstalled
+image runs with no network, read-only root and bundle volume, no capabilities or privilege
+escalation, an isolated tmpfs, non-root UID, bounded CPU/memory/PIDs/open files/output/time, and
+forced container/process-group/volume cleanup. Controller source, source repository, Docker
+socket, keys, sealed cases, release refs, audit logs, host environment, and Provider credentials
+remain invisible. Cleanup retries exact resource names and queries Docker to confirm their
+absence; failure becomes bounded operator-repair state rather than being silently swallowed.
+Each run binds the frozen manifest and exact execution-bundle digest.
+
 Paired evaluation consumes only bounded, content-free observations for the same cases and
 four mandatory slices (`normal`, `complex`, `high_risk`, `elderly`). A passed baseline case
 cannot fail, no individual case or slice may lose quality, real runtime paths must activate,
-and every component charter must pass. Baseline and candidate use the exact same runner,
-version, and evaluation-profile digest. Case IDs are opaque HMAC-style identifiers rather
-than descriptive labels. These public gates are not sufficient for release: an out-of-process
+and every applicable, actually executed component charter must pass. The paired gate derives
+the required Charter set from the affected object kinds; the runner never fabricates unrelated
+Charters as passing. Baseline and candidate use the exact same runner, version, and
+evaluation-profile digest. Case IDs are opaque HMAC-style identifiers rather than descriptive
+labels. These public gates are not sufficient for release: an out-of-process
 sealed evaluator signs the freeze digest, report digest, sealed case-set digest,
 Token/latency verdicts, runtime activation, and charter verdicts with a controller-only HMAC
 key. Neither sealed cases nor thresholds appear in the report.

@@ -10,6 +10,19 @@ copied into the production API image, or callable by the online Agent.
 - A familiar package or directory name is not availability proof. Missing or mismatched
   source is reported as `unavailable`; never substitute a local implementation.
 - Candidate worktrees, optimizer processes, and online signals are untrusted inputs.
+- Candidate code may execute only through the exact OS sandbox executor accepted by the
+  production runner; there is no same-UID/local subprocess fallback. The controller exports the
+  named commit with `git archive`, binds its digest into the run, copies it through a
+  controller-owned Docker volume, verifies the digest before extraction, and never mounts a live
+  worktree. Ignored/untracked files and `.git` therefore cannot enter execution. The sandbox uses
+  a content-addressed preinstalled image, read-only source, isolated tmpfs, no network,
+  capabilities or privilege escalation, bounded CPU/memory/PIDs/files/output/time, and
+  process-group/container/volume cleanup. Controller source, keys, sealed cases, audit storage,
+  release refs, Docker socket, and host credentials are never mounted or passed.
+- Container and volume cleanup is a verified terminal step. The controller retries exact-name
+  removal and confirms absence; an unconfirmed cleanup raises
+  `EVOLUTION_SANDBOX_CLEANUP_FAILED` for operator repair instead of reporting an ordinary
+  candidate failure.
 - Sealed cases, thresholds, attestation/approval keys, audit logs, release refs, and
   deployment credentials must live outside candidate-readable roots.
 - Every attestation key is authority-bound to one evaluator version, sealed case-set digest,
@@ -29,6 +42,9 @@ copied into the production API image, or callable by the online Agent.
 - Every unavailable result uses a bounded reason code and contains no raw subprocess output.
 - Never trust supplied paired-gate booleans; recompute every per-case/slice/charter gate from
   baseline and candidate observations before signing and again before promotion.
+- An evaluation declares only component charters it actually executed. The paired gate requires
+  the trusted charter set for every affected object kind; unaffected charters are not fabricated
+  as passing observations.
 - Promotion revalidates the frozen candidate, sealed gate, approval authority, approval
   freshness, and current signed release ledger. Release, ledger, immutable record, and consumed
   ticket refs move in one Git ref transaction; immutable-track approval cannot be disabled.

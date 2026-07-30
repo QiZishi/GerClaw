@@ -10,6 +10,7 @@ from types import MappingProxyType
 from gerclaw_api.modules.agent_harness.evolution_governance import (
     COMPONENT_CHARTERS,
     OBJECT_RULES,
+    REQUIRED_CHARTERS_BY_OBJECT_KIND,
     CandidateChange,
     CandidateProposal,
     EvolutionGovernanceError,
@@ -141,21 +142,9 @@ class CandidateFreezer:
         frozen: FrozenCandidate,
     ) -> None:
         repository.require_clean()
-        try:
-            self._governance.validate_candidate(frozen.proposal)
-        except EvolutionGovernanceError as error:
-            raise CandidateControlError(error.code) from error
+        self.assert_manifest(frozen)
         if repository.head() != frozen.proposal.candidate_commit:
             raise CandidateControlError("EVOLUTION_HEAD_CHANGED_AFTER_FREEZE")
-        if self.governance_digest() != frozen.governance_manifest_sha256:
-            raise CandidateControlError("EVOLUTION_GOVERNANCE_CHANGED_AFTER_FREEZE")
-        expected_manifest_digest = self._frozen_digest(
-            frozen.proposal,
-            frozen.repository_changes,
-            frozen.governance_manifest_sha256,
-        )
-        if expected_manifest_digest != frozen.frozen_manifest_sha256:
-            raise CandidateControlError("EVOLUTION_FROZEN_MANIFEST_INVALID")
         current = self._inspect_changes(
             repository,
             base_commit=frozen.proposal.base_commit,
@@ -172,6 +161,23 @@ class CandidateFreezer:
         if current != frozen.repository_changes:
             raise CandidateControlError("EVOLUTION_CONTENT_CHANGED_AFTER_FREEZE")
 
+    def assert_manifest(self, frozen: FrozenCandidate) -> None:
+        """Validate controller governance and the content-addressed freeze record."""
+
+        try:
+            self._governance.validate_candidate(frozen.proposal)
+        except EvolutionGovernanceError as error:
+            raise CandidateControlError(error.code) from error
+        if self.governance_digest() != frozen.governance_manifest_sha256:
+            raise CandidateControlError("EVOLUTION_GOVERNANCE_CHANGED_AFTER_FREEZE")
+        expected_manifest_digest = self._frozen_digest(
+            frozen.proposal,
+            frozen.repository_changes,
+            frozen.governance_manifest_sha256,
+        )
+        if expected_manifest_digest != frozen.frozen_manifest_sha256:
+            raise CandidateControlError("EVOLUTION_FROZEN_MANIFEST_INVALID")
+
     def governance_digest(self) -> str:
         payload = {
             "object_rules": [
@@ -182,6 +188,12 @@ class CandidateFreezer:
                 charter.model_dump(mode="json")
                 for charter in sorted(COMPONENT_CHARTERS, key=lambda item: item.component)
             ],
+            "required_charters_by_object_kind": {
+                object_kind: list(required)
+                for object_kind, required in sorted(
+                    REQUIRED_CHARTERS_BY_OBJECT_KIND.items()
+                )
+            },
         }
         return self._digest(payload)
 

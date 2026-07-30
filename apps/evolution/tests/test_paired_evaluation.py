@@ -123,6 +123,8 @@ def _run(
             "runner_id": "runner.unit",
             "runner_version": "runner-v1",
             "evaluation_profile_sha256": _PROFILE_DIGEST,
+            "frozen_manifest_sha256": "e" * 64,
+            "execution_bundle_sha256": ("5" if role == "baseline" else "6") * 64,
             "evaluated_at": _NOW,
             "cases": cases,
             "charters": charters,
@@ -299,7 +301,7 @@ def test_case_set_or_slice_mismatch_fails_closed() -> None:
         PairedEvaluationGate().compare(frozen, _run("baseline", _BASE), wrong_slice)
 
 
-def test_evaluation_requires_all_slices_and_all_component_charters() -> None:
+def test_evaluation_requires_all_slices_and_known_unique_component_charters() -> None:
     valid = _run("baseline", _BASE)
     missing_slice = (
         *valid.cases[:-1],
@@ -307,8 +309,37 @@ def test_evaluation_requires_all_slices_and_all_component_charters() -> None:
     )
     with pytest.raises(ValidationError, match="all required slices"):
         EvaluationRun.model_validate({**valid.model_dump(), "cases": missing_slice})
-    with pytest.raises(ValidationError, match="every component charter"):
-        EvaluationRun.model_validate({**valid.model_dump(), "charters": valid.charters[:-1]})
+    unknown = valid.charters[0].model_copy(update={"evaluator_id": "charter.unknown.v1"})
+    with pytest.raises(ValidationError, match="unique known controller charters"):
+        EvaluationRun.model_validate(
+            {**valid.model_dump(), "charters": (unknown, *valid.charters[1:])}
+        )
+
+
+def test_gate_requires_frozen_manifest_and_applicable_charter_binding() -> None:
+    frozen = _frozen()
+    baseline = _run("baseline", _BASE)
+    candidate = _run("candidate", _CANDIDATE)
+    forged_manifest = candidate.model_copy(
+        update={"frozen_manifest_sha256": "0" * 64}
+    )
+    with pytest.raises(
+        CandidateControlError,
+        match="EVOLUTION_RUN_FROZEN_MANIFEST_MISMATCH",
+    ):
+        PairedEvaluationGate().compare(frozen, baseline, forged_manifest)
+
+    without_routing = tuple(
+        item
+        for item in baseline.charters
+        if item.evaluator_id != "charter.routing.v1"
+    )
+    with pytest.raises(CandidateControlError, match="EVOLUTION_CHARTER_SCOPE_MISMATCH"):
+        PairedEvaluationGate().compare(
+            frozen,
+            baseline.model_copy(update={"charters": without_routing}),
+            candidate.model_copy(update={"charters": without_routing}),
+        )
 
 
 def test_valid_sealed_attestation_binds_freeze_report_and_trusted_key() -> None:

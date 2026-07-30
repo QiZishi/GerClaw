@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import subprocess
+import tarfile
 from datetime import UTC, datetime
 from pathlib import Path
 
@@ -205,3 +206,25 @@ def test_forged_frozen_manifest_digest_is_rejected(tmp_path: Path) -> None:
 
     with pytest.raises(CandidateControlError, match="EVOLUTION_FROZEN_MANIFEST_INVALID"):
         freezer.assert_unchanged(candidate, forged)
+
+
+def test_execution_archive_contains_only_named_commit_objects(tmp_path: Path) -> None:
+    repository, _commit = _base_repository(tmp_path)
+    (repository.root / ".gitignore").write_text(".env.runtime\n", encoding="utf-8")
+    _git(repository.root, "add", ".gitignore")
+    _git(repository.root, "commit", "-m", "ignore runtime probe")
+    (repository.root / ".env.runtime").write_text(
+        "COMMIT_EXTERNAL_BYTES=true\n",
+        encoding="utf-8",
+    )
+    repository.require_clean()
+    archive_path = tmp_path / "candidate.tar"
+
+    digest = repository.export_commit_archive(repository.head(), archive_path)
+
+    with tarfile.open(archive_path, mode="r:") as archive:
+        names = set(archive.getnames())
+    assert len(digest) == 64
+    assert ".env.runtime" not in names
+    assert ".git" not in names
+    assert _ROUTER in names

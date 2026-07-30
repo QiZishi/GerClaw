@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import builtins
+import hashlib
 import re
 import subprocess
 from dataclasses import dataclass
@@ -12,6 +13,7 @@ from gerclaw_evolution.contracts import CandidateControlError
 
 _WORKTREE_NAME = re.compile(r"^[a-z][a-z0-9-]{2,63}$")
 _OBJECT_ID = re.compile(r"^[a-f0-9]{40}$")
+_MAX_EXECUTION_ARCHIVE_BYTES = 512 * 1024 * 1024
 
 
 @dataclass(frozen=True, slots=True)
@@ -69,6 +71,53 @@ class GitRepository:
             self.bytes("merge-base", "--is-ancestor", base_commit, candidate_commit)
         except CandidateControlError as error:
             raise CandidateControlError("EVOLUTION_BASE_NOT_ANCESTOR") from error
+
+    def export_commit_archive(self, commit: str, destination: Path) -> str:
+        """Export only committed Git objects and return the archive SHA-256."""
+
+        if not _OBJECT_ID.fullmatch(commit):
+            raise CandidateControlError("EVOLUTION_GIT_OBJECT_INVALID")
+        parent = destination.parent
+        if (
+            destination.exists()
+            or destination.is_symlink()
+            or not parent.exists()
+            or not parent.is_dir()
+            or parent.is_symlink()
+        ):
+            raise CandidateControlError("EVOLUTION_EXECUTION_ARCHIVE_PATH_INVALID")
+        try:
+            result = subprocess.run(
+                (
+                    "git",
+                    "-C",
+                    str(self.root),
+                    "archive",
+                    "--format=tar",
+                    f"--output={destination}",
+                    commit,
+                ),
+                check=False,
+                stdin=subprocess.DEVNULL,
+                stdout=subprocess.DEVNULL,
+                stderr=subprocess.DEVNULL,
+                timeout=60,
+            )
+        except (OSError, subprocess.SubprocessError) as error:
+            raise CandidateControlError("EVOLUTION_GIT_UNAVAILABLE") from error
+        if result.returncode != 0:
+            raise CandidateControlError("EVOLUTION_GIT_COMMAND_FAILED")
+        try:
+            size = destination.stat().st_size
+            if not 0 < size <= _MAX_EXECUTION_ARCHIVE_BYTES or not destination.is_file():
+                raise CandidateControlError("EVOLUTION_EXECUTION_ARCHIVE_INVALID")
+            digest = hashlib.sha256()
+            with destination.open("rb") as archive:
+                for block in iter(lambda: archive.read(1024 * 1024), b""):
+                    digest.update(block)
+        except OSError as error:
+            raise CandidateControlError("EVOLUTION_EXECUTION_ARCHIVE_INVALID") from error
+        return digest.hexdigest()
 
     def resolve_ref(self, ref_name: str) -> str | None:
         self._validate_ref_name(ref_name)

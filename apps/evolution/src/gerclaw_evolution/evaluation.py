@@ -7,7 +7,10 @@ import json
 from datetime import datetime
 from typing import Literal
 
-from gerclaw_api.modules.agent_harness.evolution_governance import COMPONENT_CHARTERS
+from gerclaw_api.modules.agent_harness.evolution_governance import (
+    COMPONENT_CHARTERS,
+    REQUIRED_CHARTERS_BY_OBJECT_KIND,
+)
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
 from gerclaw_evolution.contracts import CandidateControlError, FrozenCandidate
@@ -55,6 +58,8 @@ class EvaluationRun(BaseModel):
     runner_id: str = Field(pattern=_ID)
     runner_version: str = Field(pattern=r"^[a-z0-9][a-z0-9_.-]{2,63}$")
     evaluation_profile_sha256: str = Field(pattern=r"^[a-f0-9]{64}$")
+    frozen_manifest_sha256: str = Field(pattern=r"^[a-f0-9]{64}$")
+    execution_bundle_sha256: str = Field(pattern=r"^[a-f0-9]{64}$")
     evaluated_at: datetime
     cases: tuple[EvaluationCaseObservation, ...] = Field(min_length=4, max_length=10_000)
     charters: tuple[CharterObservation, ...] = Field(min_length=1, max_length=30)
@@ -79,13 +84,16 @@ class EvaluationRun(BaseModel):
         }:
             raise ValueError("evaluation must cover all required slices")
         charter_ids = [item.evaluator_id for item in self.charters]
-        expected = {
+        known = {
             evaluator_id
             for charter in COMPONENT_CHARTERS
             for evaluator_id in charter.sealed_evaluator_ids
         }
-        if len(charter_ids) != len(set(charter_ids)) or set(charter_ids) != expected:
-            raise ValueError("evaluation must include every component charter exactly once")
+        if (
+            len(charter_ids) != len(set(charter_ids))
+            or not set(charter_ids).issubset(known)
+        ):
+            raise ValueError("evaluation charters must be unique known controller charters")
         return self
 
 
@@ -158,6 +166,11 @@ class PairedEvaluationGate:
         if candidate.role != "candidate" or candidate.commit != frozen.proposal.candidate_commit:
             raise CandidateControlError("EVOLUTION_CANDIDATE_IDENTITY_MISMATCH")
         if (
+            baseline.frozen_manifest_sha256 != frozen.frozen_manifest_sha256
+            or candidate.frozen_manifest_sha256 != frozen.frozen_manifest_sha256
+        ):
+            raise CandidateControlError("EVOLUTION_RUN_FROZEN_MANIFEST_MISMATCH")
+        if (
             baseline.runner_id != candidate.runner_id
             or baseline.runner_version != candidate.runner_version
             or baseline.evaluation_profile_sha256 != candidate.evaluation_profile_sha256
@@ -172,6 +185,19 @@ class PairedEvaluationGate:
             for case_id, observation in candidate_by_id.items()
         ):
             raise CandidateControlError("EVOLUTION_PAIRED_SLICE_MISMATCH")
+        baseline_charters = {item.evaluator_id for item in baseline.charters}
+        candidate_charters = {item.evaluator_id for item in candidate.charters}
+        required_charters: set[str] = set()
+        for change in frozen.repository_changes:
+            expected = REQUIRED_CHARTERS_BY_OBJECT_KIND.get(change.object_kind)
+            if expected is None:
+                raise CandidateControlError("EVOLUTION_CHARTER_SCOPE_UNKNOWN")
+            required_charters.update(expected)
+        if (
+            baseline_charters != candidate_charters
+            or not required_charters.issubset(candidate_charters)
+        ):
+            raise CandidateControlError("EVOLUTION_CHARTER_SCOPE_MISMATCH")
 
         no_passed_case_regressed = all(
             not baseline_by_id[case_id].passed or observation.passed

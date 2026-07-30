@@ -45,6 +45,12 @@ from gerclaw_evolution.release import (
     ReleaseVerifier,
     SignedReleaseRecord,
 )
+from gerclaw_evolution.runner import (
+    CaseIdentityAuthority,
+    RoutingRunnerProfile,
+    SubprocessRoutingPairedRunner,
+)
+from gerclaw_evolution.sandbox import CandidateExecutionResult, DockerCandidateExecutor
 from gerclaw_evolution.sources import (
     OFFICIAL_OPTIMIZER_PINS,
     OfficialOptimizerPin,
@@ -59,9 +65,12 @@ __all__ = [
     "AttestationKeyRecord",
     "AttestationKeyring",
     "CandidateControlError",
+    "CandidateExecutionResult",
     "CandidateFileBinding",
     "CandidateFreezeRequest",
     "CandidateFreezer",
+    "CaseIdentityAuthority",
+    "DockerCandidateExecutor",
     "EvaluationCaseObservation",
     "EvaluationRun",
     "FrozenCandidate",
@@ -84,8 +93,10 @@ __all__ = [
     "ReleaseVerificationKeyRecord",
     "ReleaseVerifier",
     "RepositoryAuthorityPolicy",
+    "RoutingRunnerProfile",
     "SealedEvaluatorProfile",
     "SealedGateAttestation",
     "SealedGatePayload",
     "SignedReleaseRecord",
+    "SubprocessRoutingPairedRunner",
 ]
