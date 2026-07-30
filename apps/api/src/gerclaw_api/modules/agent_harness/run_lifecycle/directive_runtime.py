@@ -18,6 +18,7 @@ DirectiveClaimer = Callable[[str, int], Awaitable[tuple[RunDirectiveRead, ...]]]
 DirectiveApplier = Callable[[tuple[uuid.UUID, ...], str], Awaitable[None]]
 DirectiveErrorFactory = Callable[[str], Exception]
 DirectiveRiskClassifier = Callable[[tuple[str, ...]], Sequence[str]]
+DirectiveContextPreparer = Callable[[Any, tuple[str, ...]], Awaitable[None]]
 
 
 class RuntimeDirectiveEmergency(Exception):
@@ -86,6 +87,7 @@ class RuntimeDirectiveCoordinator:
         preflight: DirectivePreflight,
         error_factory: DirectiveErrorFactory,
         risk_classifier: DirectiveRiskClassifier,
+        context_preparer: DirectiveContextPreparer | None = None,
         max_per_boundary: int,
         max_per_run: int,
         image_count: int,
@@ -96,6 +98,7 @@ class RuntimeDirectiveCoordinator:
         self._preflight = preflight
         self._error_factory = error_factory
         self._risk_classifier = risk_classifier
+        self._context_preparer = context_preparer
         self._max_per_boundary = max_per_boundary
         self._max_per_run = max_per_run
         self._image_count = image_count
@@ -114,8 +117,9 @@ class RuntimeDirectiveCoordinator:
         """Return the first model input with any eligible directives appended."""
 
         directives, boundary_id, claimed_ids, risk_codes = await self._consume(
+            agent=agent,
             budget=budget,
-            text_values=(user_message, *agent_text_values(agent)),
+            required_text_values=(user_message,),
             boundary_kind="before-model",
         )
         if not directives:
@@ -165,8 +169,9 @@ class RuntimeDirectiveCoordinator:
         boundary_kind: str,
     ) -> int:
         directives, boundary_id, claimed_ids, risk_codes = await self._consume(
+            agent=agent,
             budget=budget,
-            text_values=agent_text_values(agent),
+            required_text_values=(),
             boundary_kind=boundary_kind,
         )
         for directive in directives:
@@ -184,8 +189,9 @@ class RuntimeDirectiveCoordinator:
     async def _consume(
         self,
         *,
+        agent: Any,
         budget: DirectiveBudget,
-        text_values: tuple[str, ...],
+        required_text_values: tuple[str, ...],
         boundary_kind: str,
     ) -> tuple[
         tuple[RunDirectiveRead, ...],
@@ -197,7 +203,7 @@ class RuntimeDirectiveCoordinator:
             return (), "", (), ()
         self._boundary_sequence += 1
         boundary_id = f"{boundary_kind}-{self._boundary_sequence}"
-        selected = await self._restore_applied(budget=budget, text_values=text_values)
+        selected = await self._restore_applied()
         remaining = self._max_per_run - self._consumed_count
         claimed = (
             await self._claimer(boundary_id, min(self._max_per_boundary, remaining))
@@ -205,15 +211,22 @@ class RuntimeDirectiveCoordinator:
             else ()
         )
         fresh = [item for item in claimed if item.id not in self._seen_ids]
-        if fresh:
+        if selected or fresh:
+            directive_text = tuple(_render_directive(item) for item in (*selected, *fresh))
+            if self._context_preparer is not None:
+                await self._context_preparer(
+                    agent,
+                    (*required_text_values, *directive_text),
+                )
             self._ensure_budget(
                 budget=budget,
                 text_values=(
-                    *text_values,
-                    *(_render_directive(item) for item in selected),
-                    *(_render_directive(item) for item in fresh),
+                    *required_text_values,
+                    *agent_text_values(agent),
+                    *directive_text,
                 ),
             )
+        if fresh:
             selected.extend(fresh)
         risk_codes = tuple(self._risk_classifier(tuple(item.instruction for item in selected)))
         return (
@@ -223,12 +236,7 @@ class RuntimeDirectiveCoordinator:
             risk_codes,
         )
 
-    async def _restore_applied(
-        self,
-        *,
-        budget: DirectiveBudget,
-        text_values: tuple[str, ...],
-    ) -> list[RunDirectiveRead]:
+    async def _restore_applied(self) -> list[RunDirectiveRead]:
         if self._restored or self._loader is None:
             return []
         restored = [
@@ -238,10 +246,6 @@ class RuntimeDirectiveCoordinator:
         ]
         self._restored = True
         if restored:
-            self._ensure_budget(
-                budget=budget,
-                text_values=(*text_values, *(_render_directive(item) for item in restored)),
-            )
             self._seen_ids.update(item.id for item in restored)
             self._consumed_count += len(restored)
         return restored

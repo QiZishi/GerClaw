@@ -2,9 +2,12 @@
 
 from __future__ import annotations
 
-from collections.abc import Callable
+import asyncio
+from collections.abc import Awaitable, Callable
 from dataclasses import dataclass
 from typing import Any, Protocol
+
+from agentscope.message import UserMsg
 
 from gerclaw_api.modules.agent_harness.run_lifecycle.directive_runtime import (
     DirectiveBudget,
@@ -24,6 +27,32 @@ class BoundaryDecision(Protocol):
 BoundaryPreflight = Callable[..., BoundaryDecision]
 BoundaryErrorFactory = Callable[[str], Exception]
 AgentProvider = Callable[[], Any]
+ContextPreparer = Callable[[Any, tuple[str, ...]], Awaitable[None]]
+
+
+async def prepare_react_context(agent: Any, extra_text_values: tuple[str, ...]) -> None:
+    """Give AgentScope soft compression a bounded view of pending required input.
+
+    Compression failure is recoverable when the subsequent hard preflight
+    still fits; cancellation remains authoritative.
+    """
+
+    marker = None
+    if extra_text_values:
+        marker = UserMsg(
+            name="context_capacity_reserve",
+            content="\n\n".join(extra_text_values),
+        )
+        agent.state.context.append(marker)
+    try:
+        await agent.compress_context()
+    except asyncio.CancelledError:
+        raise
+    except Exception:
+        return
+    finally:
+        if marker is not None:
+            agent.state.context = [item for item in agent.state.context if item is not marker]
 
 
 class ReActBoundaryCoordinator:
@@ -35,12 +64,14 @@ class ReActBoundaryCoordinator:
         directives: RuntimeDirectiveCoordinator,
         model_preflight: BoundaryPreflight,
         tool_preflight: BoundaryPreflight,
+        context_preparer: ContextPreparer,
         error_factory: BoundaryErrorFactory,
         image_count: int,
     ) -> None:
         self._directives = directives
         self._model_preflight = model_preflight
         self._tool_preflight = tool_preflight
+        self._context_preparer = context_preparer
         self._error_factory = error_factory
         self._image_count = image_count
 
@@ -75,6 +106,7 @@ class BoundReActBoundaries:
             agent=agent,
             budget=self.budget,
         )
+        await self.coordinator._context_preparer(agent, ())
         decision = self.coordinator._model_preflight(
             usage=self.budget.snapshot(),
             text_values=agent_text_values(agent),
@@ -92,6 +124,10 @@ class BoundReActBoundaries:
         result_reserve_tokens: int,
     ) -> None:
         agent = self.agent_provider()
+        await self.coordinator._context_preparer(
+            agent,
+            (tool_name, tool_arguments),
+        )
         decision = self.coordinator._tool_preflight(
             usage=self.budget.snapshot(),
             text_values=(*agent_text_values(agent), tool_name, tool_arguments),

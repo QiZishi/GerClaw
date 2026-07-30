@@ -41,6 +41,7 @@ from gerclaw_api.modules.agent_harness.run_lifecycle import (
     AttemptRepairObserver,
     ProductionRunLifecycle,
     ReActBoundaryCoordinator,
+    prepare_react_context,
 )
 from gerclaw_api.modules.agent_harness.run_lifecycle.directive_runtime import (
     DirectiveApplier,
@@ -201,6 +202,7 @@ class ProductionHarnessCompositionSetup:
             preflight=self._turn_planning.check_model,
             error_factory=RuntimeBudgetExceededError,
             risk_classifier=lambda instructions: detect_high_risk("\n".join(instructions)),
+            context_preparer=prepare_react_context,
             max_per_boundary=self._config.max_directives_per_boundary,
             max_per_run=self._config.max_directives_per_run,
             image_count=len(self._uploaded_images),
@@ -209,6 +211,7 @@ class ProductionHarnessCompositionSetup:
             directives=self._runtime_directives,
             model_preflight=self._turn_planning.check_model,
             tool_preflight=self._turn_planning.check_tool,
+            context_preparer=prepare_react_context,
             error_factory=RuntimeBudgetExceededError,
             image_count=len(self._uploaded_images),
         )

@@ -57,14 +57,14 @@ class ModelBudgetPreflight:
             reason_code = "RUNTIME_MODEL_CALLS_EXCEEDED"
         elif usage.tool_calls + estimate.additional_tool_calls > self._budget.max_tool_calls:
             reason_code = "RUNTIME_TOOL_CALLS_EXCEEDED"
-        elif usage.input_tokens + estimate.estimated_input_tokens > self._budget.max_input_tokens:
-            reason_code = "RUNTIME_INPUT_TOKENS_EXCEEDED"
-        elif usage.output_tokens + estimate.output_reserve_tokens > self._budget.max_output_tokens:
-            reason_code = "RUNTIME_OUTPUT_TOKENS_EXCEEDED"
         elif estimate.estimated_input_tokens > self._hard_input_limit(
             estimate.output_reserve_tokens
         ):
             reason_code = "MODEL_CONTEXT_WINDOW_EXCEEDED"
+        elif usage.input_tokens + estimate.estimated_input_tokens > self._budget.max_input_tokens:
+            reason_code = "RUNTIME_INPUT_TOKENS_EXCEEDED"
+        elif usage.output_tokens + estimate.output_reserve_tokens > self._budget.max_output_tokens:
+            reason_code = "RUNTIME_OUTPUT_TOKENS_EXCEEDED"
         return BudgetPreflightDecision(
             allowed=reason_code == "MODEL_PREFLIGHT_ALLOWED",
             reason_code=reason_code,

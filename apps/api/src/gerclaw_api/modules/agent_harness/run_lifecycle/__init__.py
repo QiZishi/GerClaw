@@ -29,6 +29,7 @@ from gerclaw_api.modules.agent_harness.run_lifecycle.public_answer import (
 from gerclaw_api.modules.agent_harness.run_lifecycle.react_boundaries import (
     BoundReActBoundaries,
     ReActBoundaryCoordinator,
+    prepare_react_context,
 )
 from gerclaw_api.modules.agent_harness.run_lifecycle.state_machine import (
     AgentRunStateMachine,
@@ -69,6 +70,7 @@ __all__ = [
     "SafeSentenceBuffer",
     "UnsupportedAgentContextError",
     "bounded_events",
+    "prepare_react_context",
     "project_agent_stream",
     "project_public_answer",
     "project_with_output_protocol_repair",

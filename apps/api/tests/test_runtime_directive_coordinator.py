@@ -11,6 +11,9 @@ from gerclaw_api.domain.run_schemas import RunDirectiveRead, RunDirectiveStatus
 from gerclaw_api.modules.agent_harness.run_lifecycle.directive_runtime import (
     RuntimeDirectiveCoordinator,
 )
+from gerclaw_api.modules.agent_harness.run_lifecycle.react_boundaries import (
+    prepare_react_context,
+)
 from gerclaw_api.modules.runtime.budget import RuntimeBudgetExceededError
 from tests.test_agent_harness import _directive
 
@@ -18,6 +21,27 @@ from tests.test_agent_harness import _directive
 class _Budget:
     def snapshot(self) -> object:
         return object()
+
+
+@pytest.mark.asyncio
+async def test_react_context_preparer_accounts_for_required_extra_without_retaining_marker() -> (
+    None
+):
+    class _Agent:
+        def __init__(self) -> None:
+            self.state = SimpleNamespace(context=[])
+            self.observed = ""
+
+        async def compress_context(self) -> None:
+            self.observed = self.state.context[-1].get_text_content()
+
+    agent = _Agent()
+
+    await prepare_react_context(agent, ("用户追加要求", "工具参数"))
+
+    assert "用户追加要求" in agent.observed
+    assert "工具参数" in agent.observed
+    assert agent.state.context == []
 
 
 @pytest.mark.asyncio
@@ -183,3 +207,58 @@ async def test_before_model_boundary_uses_distinct_monotonic_identity() -> None:
     await coordinator.apply_before_model(agent=agent, budget=_Budget())
 
     assert boundaries == ["before-model-1", "before-react-model-2"]
+
+
+@pytest.mark.asyncio
+async def test_directive_batch_prepares_context_before_hard_preflight_and_apply() -> None:
+    events: list[str] = []
+    claimed = _directive(
+        status=RunDirectiveStatus.CLAIMED,
+        instruction="继续保留用户新增要求。",
+        boundary_id="before-model-1",
+    )
+
+    async def load() -> tuple[RunDirectiveRead, ...]:
+        return ()
+
+    async def claim(
+        _boundary_id: str,
+        _limit: int,
+    ) -> tuple[RunDirectiveRead, ...]:
+        return (claimed,)
+
+    async def prepare(_agent: object, extra_text: tuple[str, ...]) -> None:
+        assert any("继续保留用户新增要求" in item for item in extra_text)
+        events.append("prepare")
+
+    def preflight(**_kwargs: object) -> SimpleNamespace:
+        events.append("preflight")
+        return SimpleNamespace(allowed=True, reason_code="")
+
+    async def apply(
+        _directive_ids: tuple[uuid.UUID, ...],
+        _boundary_id: str,
+    ) -> None:
+        events.append("apply")
+
+    coordinator = RuntimeDirectiveCoordinator(
+        loader=load,
+        claimer=claim,
+        applier=apply,
+        preflight=preflight,
+        error_factory=RuntimeBudgetExceededError,
+        risk_classifier=lambda _instructions: (),
+        context_preparer=prepare,
+        max_per_boundary=20,
+        max_per_run=200,
+        image_count=0,
+    )
+    agent = SimpleNamespace(state=SimpleNamespace(context=[]))
+
+    await coordinator.prepare_initial(
+        agent=agent,
+        budget=_Budget(),
+        user_message="原始要求",
+    )
+
+    assert events == ["prepare", "preflight", "apply"]
