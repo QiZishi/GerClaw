@@ -1,0 +1,22 @@
+Create a publication-ready landscape flow diagram for an ICLR/NeurIPS workshop paper, 16:9 aspect ratio, white background, crisp flat vector style, restrained navy/teal/amber palette, thin dark-gray strokes, large legible sans-serif labels, no gradients, no shadows, no decorative illustrations.
+
+Title inside figure: “Claim path: pattern-bounded enforcement and structural provenance”.
+
+Left input: “Medical user message”.
+
+Top emergency branch:
+“Deterministic red-flag patterns” → if matched → “Emergency policy output” → “Policy-gated SSE”.
+Add a small annotation: “pattern-bounded; no model call”. Never call this output safe.
+
+Normal branch:
+“Local / Web / uploaded evidence” → “Versioned evidence records” → “Bounded AgentScope generation” → “Detected medical segments + citation markers” → diamond “In-range current-turn marker?”
+
+YES branch in teal: “Record bound marker” → “Normalize to public [C#]”.
+NO branch in amber: “Record unbound segment” → diamond “Matched diagnosis-certainty pattern?”
+YES: “Rewrite with uncertainty”.
+NO: “Audit only (not universally blocked)”.
+Both paths then join at “Policy-gated SSE”.
+
+Add a bottom caution band with exact text: “Marker binding ≠ semantic entailment, source quality, or clinical correctness.”
+
+The diagram must make clear that only a narrow deterministic diagnosis pattern is rewritten, while other unbound statements are audited. Do not use the phrases “Safe Terminal Output”, “Validated SSE response”, “traceable support”, or “all unsupported claims rewritten”.

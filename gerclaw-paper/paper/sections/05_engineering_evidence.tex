@@ -1,0 +1,69 @@
+\section{Executable Engineering Evidence and Coverage Gaps}
+\label{sec:evidence}
+
+This paper adds no research experiment.  To distinguish implemented contracts
+from architectural aspiration, we executed the repository's existing
+deterministic evaluation entry point:
+\begin{center}
+\small\ttfamily
+python -m gerclaw\_api.modules.evals.cli
+\end{center}
+The run reported 40 of 40 passing cases.  Its JSON includes
+\texttt{external\_model\_or\_rag=false}; this field is suite metadata
+consistent with the deterministic call graph, not evidence from
+network-egress interception.  The run used no patient data, model sampling,
+retrieval, training, or parameter selection.  The internal machine-readable
+audit records the command, date, counts, and interpretation, but the anonymous
+submission does not include source, environment capture, or raw-output hash.
+
+\begin{table}[t]
+\caption{Composition of the existing deterministic regression suite.  Counts
+are cases, not independent clinical examples.}
+\label{tab:regressions}
+\centering
+\small
+\begin{tabularx}{\linewidth}{@{}Xrr@{}}
+\toprule
+Policy family & Cases & Passed \\
+\midrule
+Emergency short-circuit and negation & 6 & 6 \\
+Output-safety rewriting & 3 & 3 \\
+Privacy redaction by egress purpose & 6 & 6 \\
+Medication-rule contracts & 6 & 6 \\
+Memory extraction and subject binding & 4 & 4 \\
+Runtime security-profile admission & 12 & 12 \\
+Skill-draft review coverage & 3 & 3 \\
+\midrule
+\textbf{Total} & \textbf{40} & \textbf{40} \\
+\bottomrule
+\end{tabularx}
+\end{table}
+
+The suite makes a limited but useful claim: selected adjacent policy contracts
+are executable and their named positive and negative cases currently behave
+as specified.  Five positive emergency cases exercise six red-flag codes,
+while a negated chest-pain case does not short-circuit; malformed
+direct-diagnosis outputs are rewritten; egress-purpose policies redact
+labeled identifiers; known medication combinations produce versioned
+findings; and runtime assets with missing budgets or version mismatches are
+denied.
+
+The suite does \emph{not} estimate sensitivity, specificity, diagnostic
+accuracy, calibration, utility, fairness, latency, or clinician agreement.  It
+also does not exercise stale-owner takeover, transaction rollback, unique
+terminal publication, hidden-case execution, independent approval, or atomic
+release promotion.  Its cases are curated software regressions and are neither
+sampled from a population nor statistically independent.  A 40/40 pass cannot
+be used to compare \system\ with another agent or to infer performance on
+unseen language.  The evolution library has additional implementation tests,
+but this paper does not aggregate them as a benchmark because no
+clinician-calibrated update set or prospective protocol has been frozen.
+
+\paragraph{Why include non-experimental evidence?}
+Architecture papers can accidentally describe mechanisms that are absent from
+the artifact.  The regression map makes narrow policy assertions falsifiable:
+the code either admits or rejects a version-mismatched runtime asset and
+rewrites the specified unsupported diagnosis-output case.  It is adjacent
+engineering evidence, not an end-to-end safety case or an effectiveness
+result.  External replication remains limited until an anonymous artifact can
+be released.

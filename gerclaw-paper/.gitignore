@@ -1,0 +1,11 @@
+# LaTeX intermediates
+paper/*.aux
+paper/*.bbl
+paper/*.blg
+paper/*.fdb_latexmk
+paper/*.fls
+paper/*.log
+paper/*.out
+
+# Local visual-inspection renders
+evidence/rendered-*/

@@ -1,0 +1,26 @@
+Publication-ready ICLR-style scientific trust-boundary diagram, wide 16:9,
+crisp flat vector, white background, navy text, cobalt/teal/amber accents,
+thin strokes, rounded boxes, precise alignment, no gradients, shadows, logos,
+watermark, or decorative imagery.
+
+Show governed offline evolution of a high-risk AI agent as a left-to-right
+pipeline with exact short English labels: “Candidate commit” → “Freeze +
+digest” → “Read-only bundle” → “No-network sandbox” → paired block with two
+lanes “Baseline” and “Candidate” and footer “same cases + runner” → “Public
+regression gate” → “Sealed evaluator” → “Human signature” → “Atomic promotion
+ledger”. Add a signed rollback arrow from the ledger back to the previous
+release. Under “Public regression gate”, four small checks: “case”, “slice”,
+“runtime”, “charter”. Above final stages label distinct authorities “runner”,
+“evaluator”, “approver”. Put a dashed candidate-visible trust boundary around
+only the bundle, sandbox, and paired execution. Put a separate controller-only
+box below containing “sealed cases”, “thresholds”, “keys”, “release refs”,
+with a muted-red blocked arrow from the candidate. Text must be correctly
+spelled and readable at paper width. No title inside.
+
+Revision prompt:
+
+Preserve this exact scientific diagram and change only the bottom navy
+rollback connector. The connector must start at the bottom of “Atomic
+promotion ledger”, run left, and end in a visible left-pointing arrowhead. Set
+the label exactly to “Signed rollback record → prior release”. Keep every other
+pixel, label, box, arrow, color, authority icon, and trust boundary unchanged.

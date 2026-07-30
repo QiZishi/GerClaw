@@ -1,0 +1,22 @@
+Publication-ready ICLR-style scientific state-machine diagram, wide 16:9
+landscape, crisp flat vector, white background, dark navy text, cobalt blue,
+teal, amber, and muted red, thin uniform strokes, rounded boxes, precise grid,
+generous whitespace, no gradients, shadows, logos, watermark, or decorative
+imagery. Three horizontal swimlanes labeled exactly “Client”, “Runtime worker”,
+and “Durable state”.
+
+Show a left-to-right transactional AI run lifecycle: Client “Create / resume
+run”; Runtime worker “Redis owner lease”; Durable state “Fencing token + Trace
+ID”; Runtime worker “Private attempt events”; then a bold terminal gate
+containing three short checks “lease owner?”, “current token?”, “current
+Trace?”. From the gate, teal success path enters one grouped box labeled “ONE
+COMMIT” containing three stacked items “Assistant message”, “Audit event”,
+“Completed trace”; only after the grouped box, arrow to Client “SSE done”.
+Amber failure path enters another grouped box labeled “ONE COMMIT” containing
+“Error event”, “Failed / cancelled trace”, “Bad-case pointer”. A muted-red
+“Stale worker / older token” approaches the gate and stops at “Reject stale
+write”. Add a small replay loop from “Completed trace” back to Client labeled
+“same trace + payload → stored response”. Use a subtle dashed boundary labeled
+“private attempt” before the terminal gate and a solid boundary labeled
+“public terminal state” after it. Keep all labels correctly spelled and
+readable at paper width. No title inside.

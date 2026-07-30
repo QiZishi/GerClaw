@@ -1,0 +1,11 @@
+Edit only the run-publication path of the existing diagram.  Preserve every
+other element and the flat ICLR-style design.  Replace the current two-box
+path “Policy-gated SSE → Atomic terminal commit” with three boxes and
+left-to-right arrows in this exact order:
+
+“Output policy + private buffer” → “Atomic terminal commit” →
+“Public SSE done / replay”.
+
+The public SSE box must be final, with no bypass around commit.  Keep labels
+large and exact.  Do not change the offline promoted-release arrow, stores,
+runtime, title, bottom three cards, or legend.

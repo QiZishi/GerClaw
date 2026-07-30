@@ -1,0 +1,26 @@
+Create a publication-ready landscape architecture diagram for an ICLR/NeurIPS workshop paper, 2:1 aspect ratio, white background, crisp flat vector style, restrained navy/teal/amber palette, thin dark-gray strokes, generous whitespace, consistent sans-serif typography, no gradients, no shadows, no decorative illustrations.
+
+Title inside figure: “Offline evolution: implemented paths and deployment-required authorities”.
+
+Use a left-to-right flow with a legend:
+- solid teal border = “implemented path or library contract”
+- dashed amber border = “required authority — not implemented/deployed here”
+
+Solid implemented flow:
+“Clean candidate commit” → “Frozen manifest + exact Git archive” → “No-network, read-only Docker sandbox” → “Routing-only paired runner”.
+Under the paired runner show exactly four small slice chips: “normal”, “complex”, “high-risk”, “elderly”, and a note “1 deterministic routing case per slice”.
+Then “Public routing gate”.
+
+After that show two solid teal library-contract cards:
+“Attestation envelope contract” and “Human-approval proof contract”.
+Do not present these cards as independent running services.
+
+Above them show two dashed amber authority cards:
+“Sealed evaluator service — required, not implemented” and “Authenticated human approval service — required, not deployed”.
+Use dashed arrows from the required services into their corresponding contract cards, labeled “must compute/sign independently”.
+
+Final solid flow:
+“Atomic Git ref promotion + signed ledger” → “Release”.
+Below Release show a left-pointing rollback arrow to “Prior release”, labeled “append-only signed rollback record”.
+
+Add a small isolation annotation around the sandbox: “no network • read-only source/root • non-root • bounded resources”. Make all labels exact and legible. Do not imply a general medical-agent evaluation runner, hidden-case execution, or deployed independent services.

@@ -1,0 +1,47 @@
+{
+  "schema_version": "paper-claim-audit-v1",
+  "audited_at": "2026-07-30",
+  "paper": "paper/main.tex",
+  "verdict": "PASS_AFTER_SCOPE_NARROWING",
+  "claims": [
+    {
+      "id": "C1",
+      "claim": "The paper proposes three verification boundaries: claim, run, and update.",
+      "evidence": ["paper/sections/03_verification_model.tex", "SOURCE_EVIDENCE.md"],
+      "status": "supported_as_reference_architecture"
+    },
+    {
+      "id": "C2",
+      "claim": "The current claim path audits in-range markers, records bound/unbound segments, and rewrites a narrow class of unbound deterministic diagnosis assertions.",
+      "evidence": ["apps/api/src/gerclaw_api/modules/agent_harness/evidence/markers.py:32-161", "apps/api/src/gerclaw_api/modules/agent_harness/safety.py:52-204"],
+      "status": "supported_with_explicit_non_entailment_and_non_universal_scope"
+    },
+    {
+      "id": "C3",
+      "claim": "Terminal states are protected by owner leases, monotonic fencing tokens, and atomic commits.",
+      "evidence": ["apps/api/src/gerclaw_api/modules/agent_harness/README.md:51-56", "ARCHITECTURE.md:166-186"],
+      "status": "supported_as_software_contract_under_trusted_datastore_assumptions"
+    },
+    {
+      "id": "C4",
+      "claim": "The update library implements candidate freeze/sandbox, a four-case routing paired runner, signed envelope contracts, and atomic Git-ref promotion; sealed evaluation and independent approval remain requirements.",
+      "evidence": ["apps/evolution/src/gerclaw_evolution/runner.py:25-219", "apps/evolution/src/gerclaw_evolution/attestation.py:26-228", "apps/evolution/src/gerclaw_evolution/approval.py:146-335", "apps/evolution/src/gerclaw_evolution/release.py:259-469"],
+      "status": "supported_as_partial_implementation"
+    },
+    {
+      "id": "C5",
+      "claim": "The deterministic adjacent-policy audit passed 40 of 40 cases.",
+      "evidence": ["evidence/engineering_audit.json"],
+      "status": "internally_verified_not_independently_reproducible_from_submission"
+    }
+  ],
+  "forbidden_claim_scan": {
+    "clinical_effectiveness_claims": 0,
+    "comparative_superiority_claims": 0,
+    "state_of_the_art_claims": 0,
+    "clinical_safety_claims": 0,
+    "universal_claim_enforcement_claims": 0,
+    "deployed_independent_evaluator_claims": 0
+  },
+  "notes": "Round-1 reviewer overclaim findings were corrected by reframing the paper as a reference architecture plus partial implementation case study."
+}

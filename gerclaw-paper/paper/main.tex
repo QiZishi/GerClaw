@@ -1,0 +1,90 @@
+\documentclass{article}
+
+\PassOptionsToPackage{numbers,compress}{natbib}
+\usepackage[dblblindworkshop]{neurips_2026}
+\workshoptitle{Who Verifies the Agents? Toward Reliable Agent Development}
+
+\usepackage[utf8]{inputenc}
+\usepackage[T1]{fontenc}
+\usepackage{hyperref}
+\usepackage{url}
+\usepackage{booktabs}
+\usepackage{tabularx}
+\usepackage{amsmath}
+\usepackage{amssymb}
+\usepackage{graphicx}
+\usepackage{float}
+\usepackage{xcolor}
+\usepackage{microtype}
+\usepackage{enumitem}
+
+\definecolor{gerblue}{HTML}{1F5FBF}
+\definecolor{gerteal}{HTML}{137B80}
+\definecolor{geramber}{HTML}{B86B00}
+\hypersetup{
+  hypertexnames=false,
+  colorlinks=true,
+  linkcolor=gerblue,
+  citecolor=gerblue,
+  urlcolor=gerblue
+}
+
+\newcommand{\system}{\textsc{GerClaw}}
+\newcommand{\claimcheck}{\ensuremath{\mathsf{ClaimCheck}}}
+\newcommand{\runcommit}{\ensuremath{\mathsf{RunCommit}}}
+\newcommand{\updategate}{\ensuremath{\mathsf{UpdateGate}}}
+\newcommand{\placeholderfigure}[2]{%
+  \fbox{\begin{minipage}[c][#1][c]{0.96\linewidth}
+  \centering\small\color{gray}#2
+  \end{minipage}}}
+
+\title{\system: Three-Boundary Verification Contracts\\
+for Evolvable Medical Agents}
+
+\author{Anonymous Authors}
+
+\begin{document}
+
+\maketitle
+
+\begin{abstract}
+Medical-agent failures are not confined to an incorrect final answer.  A
+clinical statement can lose its provenance, a stale concurrent worker can
+publish a second terminal state, and an apparently improved prompt or tool can
+silently regress a high-risk subgroup.  We present \system, a pre-deployment
+geriatric medical-agent prototype and a reference architecture that separates
+verification at three boundaries: \emph{claim}, \emph{run}, and
+\emph{update}.  The current prototype partially instantiates these contracts.
+Its claim path validates citation-marker ranges, records bound and unbound
+medical segments, rewrites a narrow class of unsupported deterministic
+diagnosis assertions, and short-circuits recognized emergencies before model
+invocation; it does not establish evidence entailment or fail closed on every
+clinical statement.  Its run path combines an owner lease, a monotonic
+database fencing token, and an atomic terminal commit.  Its offline update
+library freezes and sandboxes candidates, implements a concrete paired runner
+for four routing cases, and provides signed-attestation, approval, atomic
+promotion, and rollback contracts; independent sealed evaluation and a
+separately authenticated approval service remain deployment requirements.
+An adjacent deterministic policy suite reports 40/40 passing cases across
+seven families, but does not test the run and update boundaries.  We perform
+no clinical study and make no claim about diagnostic accuracy, clinical
+safety, or patient benefit.  The case study argues that verification for
+evolving high-risk agents should be specified as linked admission contracts
+across three time scales, with implementation status exposed rather than
+collapsed into a single output score.
+\end{abstract}
+
+\input{sections/01_introduction}
+\input{sections/02_related_work}
+\input{sections/03_verification_model}
+\input{sections/04_architecture}
+\input{sections/05_engineering_evidence}
+\input{sections/06_limitations_ethics}
+\input{sections/07_conclusion}
+
+\bibliographystyle{plainnat}
+\bibliography{references}
+
+\input{checklist_answers}
+
+\end{document}

@@ -1,0 +1,18 @@
+Create a publication-ready landscape research-paper system diagram for an ICLR/NeurIPS workshop paper, 2:1 aspect ratio, white background, crisp flat vector style, restrained navy/teal/amber palette, thin dark-gray strokes, generous whitespace, consistent sans-serif typography, no gradients, no shadows, no decorative illustrations.
+
+Title inside figure: “GerClaw: three verification objects on three time scales”.
+
+Show the online runtime as a large solid rounded rectangle on the left/center, with:
+1. “Patient / Clinician Web” → “Server-only BFF” → “FastAPI + AgentScope Runtime”.
+2. Around the runtime, small untrusted inputs: “Model output”, “Retrieval”, “Uploaded documents”, “Governed tools”.
+3. Stores below: “PostgreSQL facts + fencing”, “Redis leases”, “Qdrant references”.
+4. Public output exits only through “Policy-gated SSE” after the runtime and “Atomic terminal commit”. Do not draw any bypass from inputs or stores to the public output.
+
+Show the offline update domain as a separate dashed rounded rectangle on the right, clearly labeled “Offline update domain”. It contains “Frozen candidate”, “No-network sandbox”, “Routing-only paired runner”, and “Release-control contracts”. Connect it to the online runtime only with a dashed arrow labeled “promoted release”; do not show Update as a per-turn step.
+
+At the bottom, show three parallel, equally sized cards with NO arrows between them:
+- “CLAIM — per text segment” / “marker audit + bounded diagnosis rewrite”
+- “RUN — per turn” / “lease + fencing + atomic terminal state”
+- “UPDATE — per release” / “paired gate + independent authorities required”
+
+Use small status chips: solid teal = “implemented path”; dashed amber = “deployment requirement”. Make all words exact and legible. Do not use “safe”, “validated answer”, “clinically verified”, or imply that the three cards form a serial pipeline.

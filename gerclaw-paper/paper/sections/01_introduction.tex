@@ -1,0 +1,61 @@
+\section{Introduction}
+\label{sec:introduction}
+
+Language-model agents interleave generated text, external retrieval, tools,
+memory, and persistent actions.  ReAct-style control loops
+\citep{yao2023react} and agent frameworks such as AgentScope
+\citep{gao2024agentscope} make these components easier to compose, while
+benchmarks expose failures in interactive environments
+\citep{liu2024agentbench}.  In medicine, however, a correct-looking final
+answer is only one observable at one instant.  A response can cite a source
+that does not support a particular claim; a cancelled worker can finish after
+its successor; or a model, prompt, retriever, or tool update can improve an
+average score while degrading an elderly or high-risk slice.  Each failure can
+occur even when an evaluator assigns a plausible score to the final text.
+
+Healthcare guidance accordingly emphasizes traceability, human factors,
+versioning, monitoring, and lifecycle governance
+\citep{vasey2022decide,liu2020consortai,lekadir2025futureai}.  Yet these
+principles do not by themselves specify which runtime objects must be
+verified, when verification occurs, or what state must be committed together.
+Our central position is that high-risk agent verification should cover three
+objects on three time scales:
+\begin{enumerate}[leftmargin=*,nosep]
+    \item a \textbf{claim}, whose admissibility depends on traceable evidence
+    and deterministic risk rules;
+    \item a \textbf{run}, whose public outcome depends on current ownership and
+    an atomic terminal state; and
+    \item an \textbf{update}, whose release depends on regression checks that
+    the candidate cannot observe or approve.
+\end{enumerate}
+
+We develop this position through \system, a Web-based research prototype for
+older patients and geriatric clinicians.  It uses an AgentScope runtime with
+retrieval, memory, governed tools, streaming output, and an operator-run
+offline evolution controller.  \system\ is an instructive case because
+geriatric tasks combine multimodal evidence, polypharmacy, missing or
+conflicting longitudinal facts, emergency escalation, and costly failures.
+The contribution is not a new clinical model.  It is a reference verification
+architecture, examined against a partial implementation, in which generated
+content, concurrent execution, and candidate evolution cross explicit trust
+boundaries.
+
+This paper makes three contributions:
+\begin{itemize}[leftmargin=*,nosep]
+    \item We define a three-boundary model---\claimcheck,
+    \runcommit, and \updategate---that separates evidential validity,
+    transactional finality, and update admissibility.
+    \item We report implementation status boundary by boundary: citation-marker
+    auditing and bounded diagnosis rewriting; lease-plus-fencing terminal
+    commits; and frozen sandbox execution, a routing-only paired runner, and
+    release-control contracts.  We identify independent sealed evaluation and
+    approval services as unimplemented deployment obligations.
+    \item We map an adjacent deterministic audit of 40 passing policy cases to
+    the claims it can and cannot support.  It is not evidence for run finality,
+    update admissibility, clinical effectiveness, or general safety.
+\end{itemize}
+
+The intended value is a falsifiable systems blueprint and a set of
+machine-checkable obligations for the workshop community.  No human-subject
+data, clinician evaluation, diagnostic-accuracy experiment, or live clinical
+deployment is reported.

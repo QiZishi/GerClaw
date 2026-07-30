@@ -1,0 +1,22 @@
+Publication-ready ICLR-style scientific architecture diagram, wide 2:1
+landscape, crisp flat vector, white background, dark navy text, restrained
+cobalt blue, teal, and amber, thin uniform strokes, rounded boxes, precise
+alignment, generous whitespace, no gradients, shadows, logos, watermark, or
+decorative medical imagery. Explain a system named GerClaw using four
+horizontal bands and exact concise English labels.
+
+Band 1 “Access”: “Patient & Clinician Web” → “Server-only BFF” → “FastAPI +
+AgentScope”.
+Band 2 “Bounded agent turn”: “Route” → “Clinical State” → “Plan” → “Governed
+Tools” → “Output Gate”.
+Band 3 “Data & evidence”: three stores “PostgreSQL / facts”, “Redis /
+coordination”, “Qdrant / references”; three evidence sources “Local RAG”,
+“Governed Web”, “User Documents”; connect the evidence sources to one amber
+bar “Claim–Evidence Binding”.
+Band 4 “Verification envelope”: three equal numbered segments “1 Claim”, “2
+Run”, “3 Update”.
+At far right show one validated output box “SSE + Citations + Atomic Terminal
+State”. Use subtle dashed containers labeled “Access boundary”, “Runtime
+boundary”, and “Data boundary”. Arrows left-to-right. Do not call the agent
+loop deterministic and do not call all verification cryptographic. Keep every
+label correctly spelled and readable at paper width. No title inside.

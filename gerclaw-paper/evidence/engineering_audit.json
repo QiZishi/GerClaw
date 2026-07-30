@@ -1,0 +1,20 @@
+{
+  "schema_version": "gerclaw-paper-engineering-audit-v1",
+  "executed_at": "2026-07-30",
+  "working_directory": "apps/api",
+  "command": ".venv/bin/python -m gerclaw_api.modules.evals.cli",
+  "kind": "deterministic_safety_policy",
+  "external_model_or_rag": false,
+  "case_count": 40,
+  "passed_count": 40,
+  "families": [
+    {"name": "emergency_safety", "case_count": 6},
+    {"name": "output_safety", "case_count": 3},
+    {"name": "privacy_redaction", "case_count": 6},
+    {"name": "medication_rules", "case_count": 6},
+    {"name": "memory_extraction", "case_count": 4},
+    {"name": "runtime_security_profiles", "case_count": 12},
+    {"name": "skill_draft_quality", "case_count": 3}
+  ],
+  "interpretation": "Executable engineering regression evidence only. It is not a clinical experiment, does not measure diagnostic accuracy, and does not establish safety or effectiveness in deployment."
+}

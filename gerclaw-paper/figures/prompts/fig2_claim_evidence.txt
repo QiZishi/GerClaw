@@ -1,0 +1,21 @@
+Create a publication-ready scientific process diagram for a NeurIPS/ICLR-style
+AI systems paper. Wide landscape 16:9, crisp flat vector infographic, white
+background, dark navy text, restrained cobalt blue, teal, and amber accents,
+thin strokes, precise grid, generous whitespace, no gradients, no shadows, no
+logos, no watermark, no decorative medical imagery.
+
+The figure explains claim-level evidence verification in a geriatric medical
+agent. Arrange a left-to-right pipeline with two branches. Main input box:
+“User Turn” with small tags “text / image / document”. Then “Deterministic
+Red-Flag Check”. Its emergency branch goes upward directly to an amber box
+“Urgent Action Guidance” and then “Safe Terminal Output (no model call)”. The
+normal branch continues to “Bounded ReAct Agent” which can call three source
+boxes below: “Local RAG”, “Governed Web”, “User Evidence”. These feed
+“Validated Evidence Records”. Then show “Sentence-level Clinical Claims”
+paired with “Evidence IDs”. A gate diamond asks “Traceable support?”. YES goes
+to “Retain qualified claim + citation”. NO goes to “Rewrite as uncertainty /
+request missing information”. Both merge into “Audience-aware disclaimer” and
+finally “Validated SSE response”. Include a small dashed side note: “Untrusted
+content is data, not authority”. Keep every label exactly as written, short,
+and readable at two-column paper width. No title inside the figure; leave room
+for a LaTeX caption.

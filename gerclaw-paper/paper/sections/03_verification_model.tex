@@ -1,0 +1,113 @@
+\section{A Three-Boundary Verification Model}
+\label{sec:model}
+
+We model a turn as
+\begin{equation}
+R=(\tau, a, o, f, S, E, Y, z),
+\end{equation}
+where $\tau$ is a trace identifier, $a$ an authenticated actor, $o$ an
+ephemeral lease-owner token, $f$ a monotonic fencing token, $S$ a
+request-scoped clinical state, $E$ the validated evidence records, $Y$ the
+private attempt outputs, and $z$ the durable terminal state.  This notation is
+a reference contract, not a formal safety theorem.  Table~\ref{tab:status}
+separates the target obligation from the present implementation.
+
+\subsection{Claim admissibility}
+
+Let $s$ be a detected medical text segment and
+$\operatorname{marker}(s,E)$ indicate that the segment contains an in-range
+current-turn evidence marker.  The implemented audit is
+\begin{equation}
+\operatorname{ClaimAudit}(s,E)=
+\begin{cases}
+\textsc{record-bound}, & \operatorname{marker}(s,E),\\
+\textsc{record-unbound}, & \neg\operatorname{marker}(s,E).
+\end{cases}
+\end{equation}
+For a narrow regex-defined class $D$ of deterministic diagnosis assertions,
+the output sanitizer additionally applies
+\begin{equation}
+\claimcheck(s,E)=
+\begin{cases}
+\textsc{retain-text}, & s\in D\wedge\operatorname{marker}(s,E),\\
+\textsc{rewrite-uncertain}, & s\in D\wedge\neg\operatorname{marker}(s,E),\\
+\textsc{audit-only}, & s\notin D.
+\end{cases}
+\end{equation}
+Thus a bound marker means structurally traceable, not semantically supported.
+General medication, risk, and clinical statements are recorded but do not all
+fail closed.  Before this path, deterministic red-flag patterns can produce
+urgent-action guidance without a model call.
+
+\subsection{Run finality}
+
+Public finality is allowed only while both coordination layers agree:
+\begin{equation}
+\runcommit(R) =
+\operatorname{ownsRedis}(o)
+\wedge \operatorname{currentPG}(a,\tau,f)
+\wedge \operatorname{atomic}(m,q,z),
+\end{equation}
+where $m$ is the assistant message and $q$ the audit event.  A worker may
+stream provisional content, but it cannot publish \texttt{done} until
+$(m,q,z)$ commits.  An older worker with a stale $f$ cannot write either a
+successful or failed terminal state after takeover.  Attempt events remain
+private; only the committed state becomes public.
+
+\subsection{Update admissibility}
+
+For candidate $u$ and baseline $b$, the target update contract is
+\begin{align}
+\updategate(u,b)={}&
+\operatorname{frozen}(u)
+\wedge \operatorname{sameRunner}(u,b)
+\wedge \operatorname{noPublicRegression}(u,b)\nonumber\\
+&\wedge \operatorname{sealedAttestation}(u)
+\wedge \operatorname{humanSignature}(u)
+\wedge \operatorname{atomicPromotion}(u).
+\end{align}
+The current concrete runner covers only \texttt{routing.strategy} with four
+deterministic cases, one per required slice.  The repository defines signed
+envelopes for sealed-gate facts and exact-artifact human approval, plus atomic
+Git reference promotion.  It does not implement the service that runs hidden
+cases or derives those facts, nor deploy the signer as a separately
+authenticated authority.  Those are requirements of \updategate, not achieved
+properties of the present prototype.
+
+\begin{table}[t]
+\caption{Reference obligations and implementation status.}
+\label{tab:status}
+\centering
+\scriptsize
+\begin{tabularx}{\linewidth}{@{}p{0.11\linewidth}X X X@{}}
+\toprule
+Object & Reference obligation & Present implementation & Not established \\
+\midrule
+Claim & Admit only claims satisfying an evidence policy & In-range marker
+normalization/audit; diagnosis-pattern rewrite; emergency short-circuit &
+Entailment and fail-closed handling of all clinical statements \\
+Run & Only the current owner atomically exposes one terminal state & Redis
+lease; monotonic PostgreSQL fencing; row lock; shared terminal transaction &
+Tolerance of datastore or host compromise; exactly-once downstream delivery \\
+Update & Same-runner regression gate plus independent evaluation and approval
+& Candidate freeze/sandbox; four-case routing runner; signed-envelope and
+atomic-promotion libraries & Hidden-case execution and separately deployed
+evaluator/approver authorities \\
+\bottomrule
+\end{tabularx}
+\end{table}
+
+\subsection{Threat model and trusted computing base}
+
+Model outputs, retrieved pages, uploaded documents, tools, and candidate
+bundles are untrusted.  A runtime worker may crash, retry, or become stale; a
+candidate may attempt to inspect evaluator inputs or write outside its bundle.
+We trust PostgreSQL transaction and locking semantics, Redis script atomicity
+for lease coordination, the controller and Docker host, protected Git
+references, and uncompromised signing keys.  The run contract does not survive
+database or host compromise.  Update signatures do not provide independence
+if a controller can access evaluator or approval keys.  Network partitions
+may reduce availability; a stale worker remains rejectable only if the
+authoritative database and fencing check are reachable.  These assumptions
+define the trusted computing base rather than proving safety under a fully
+compromised platform.

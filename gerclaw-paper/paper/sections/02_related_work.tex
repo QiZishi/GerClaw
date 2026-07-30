@@ -1,0 +1,57 @@
+\section{Related Work and the Verification Gap}
+\label{sec:related}
+
+\paragraph{Agent execution and evaluation.}
+ReAct couples reasoning with environment actions \citep{yao2023react},
+AgentScope provides an extensible agent-development platform
+\citep{gao2024agentscope}, and AgentBench evaluates agents across interactive
+environments \citep{liu2024agentbench}.  ToolEmu uses an LM-emulated sandbox
+to elicit long-tail risks \citep{ruan2024toolemu}; AgentDojo evaluates utility
+and prompt-injection security over tool-mediated tasks
+\citep{debenedetti2024agentdojo}.  These works motivate
+environment-grounded testing.  Our focus is complementary: how a
+deployed-style runtime makes a text segment, terminal state, and candidate
+release separately admissible.
+
+\paragraph{Evidence-grounded generation.}
+Retrieval-augmented generation combines parametric generation with explicit
+retrieved memory \citep{lewis2020rag}.  ALCE shows that citation correctness
+and completeness are distinct evaluation dimensions \citep{gao2023alce}.
+\system\ therefore does not treat the presence of a bibliography as
+sufficient.  It creates validated evidence records and audits whether
+detected medical segments carry an in-range marker from the current turn.
+This is structural provenance, not proof that a source is medically correct
+or that a claim follows from it.
+
+\paragraph{Transactions, attestation, and assurance cases.}
+Lease fencing and atomic commit are established transaction-processing
+techniques rather than new consistency primitives \citep{gray1992transaction}.
+Software supply-chain systems such as in-toto bind steps and artifacts to
+signed attestations \citep{torresarias2019intoto}.  The ML Test Score
+organizes production-readiness checks beyond predictive quality
+\citep{breck2017mltestscore}, while Goal Structuring Notation makes assurance
+claims, arguments, and evidence explicit \citep{spriggs2012gsn}.  \system\
+draws on these traditions but applies them to three agent-specific admission
+objects.  Its novelty claim is the boundary decomposition and status-aware
+safety case, not fencing, signatures, regression gates, or structured
+assurance individually.
+
+\paragraph{Medical agents and clinical AI governance.}
+MedAgentBench evaluates medical agents in a virtual electronic-health-record
+environment \citep{jiang2025medagentbench}.  Clinical-AI reporting and
+governance frameworks call for explicit intended use, human--AI interaction,
+error analysis, version disclosure, traceability, and continuous stakeholder
+engagement \citep{vasey2022decide,liu2020consortai,lekadir2025futureai}.
+\system\ occupies an earlier, pre-clinical stage.  It translates part of that
+lifecycle guidance into software invariants, while leaving clinical adequacy
+to future clinician-calibrated and prospective studies.
+
+\paragraph{Gap.}
+Security benchmarks stress adversarial inputs or tool behavior, while medical
+benchmarks stress task competence.  Neither perspective alone captures the
+commit path of an evolving, concurrent, evidence-bearing medical agent.
+Supply-chain attestation proves who produced which artifact, but not whether
+a medical segment is provenance-bearing or a stale worker lost ownership.
+We ask what should be checked before a runtime exposes a segment, finalizes a
+run, or promotes an update, and which checks the present prototype actually
+enforces.

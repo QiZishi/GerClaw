@@ -1,0 +1,64 @@
+\section{Limitations, Ethics, and Research Agenda}
+\label{sec:limitations}
+
+\paragraph{No clinical validation.}
+\system\ is a research prototype, not a clinically validated system or a
+medical device.  We used no patient data and enrolled no clinicians or
+patients.  The work cannot support claims about diagnosis, treatment quality,
+workflow benefit, trust, safety in use, or health outcomes.  A future
+early-stage clinical investigation would require institutional review,
+prospective protocol registration, human-factors analysis, error reporting,
+and adherence to relevant guidance such as DECIDE-AI
+\citep{vasey2022decide}; later trials would require an appropriate
+CONSORT-AI-style design \citep{liu2020consortai}.
+
+\paragraph{Evidence is not truth.}
+Structural citation validation can show that a claim points to a current,
+authorized evidence record; it does not prove source quality, retrieval
+completeness, entailment, guideline currency, or patient applicability.
+Moreover, the present sanitizer rewrites only matched deterministic diagnosis
+phrases; other unbound clinical segments are audited but are not universally
+blocked.
+Image and document interpretation remain model-dependent.  The deterministic
+red-flag policy covers named patterns and can miss paraphrases, languages, and
+unanticipated presentations; an overly broad policy can also over-escalate.
+
+\paragraph{Transactional assumptions.}
+Lease and fencing checks depend on correct datastore isolation, durable
+transactions, clock and timeout configuration, and operational monitoring.
+Atomic database finality does not guarantee that every downstream consumer
+observes events exactly once.  The external audit mirror for evolution can
+enter a repair-required state even when the signed Git ledger commits.
+
+\paragraph{Incomplete integration and deployment controls.}
+The unified Harness currently composes memory, skills, and validated uploaded
+documents in standard chat turns, but CGA, voice context, and governed
+prescription workflows are not all connected through the same path.  The
+release signer, human signer, sealed evaluator, protected Git references, and
+audit mirror must be deployed as separate identities and trust roots.  Only a
+routing-specific four-case paired runner is concrete today; the sealed
+evaluator and independently authenticated approval service are not implemented
+or deployed.  Repository contracts cannot substitute for an HSM, branch
+protection, host permissions, or institutional approval.  The broader project
+remains under active development and has not completed its final release
+regression.
+
+\paragraph{Fairness, privacy, and misuse.}
+The geriatric focus creates an obligation to evaluate age-associated sensory,
+cognitive, literacy, language, disability, polypharmacy, and multimorbidity
+subgroups rather than treat ``elderly'' as one homogeneous slice.
+Minimizing traces and separating private attempts can reduce unnecessary
+exposure, but retained medical text, images, and documents remain sensitive.
+Conversely, the same verification architecture could make an unvalidated
+medical agent appear more trustworthy than its clinical evidence warrants.
+Interfaces and publications must therefore distinguish software invariants
+from clinical assurance and preserve clinician oversight.
+
+\paragraph{Next evaluation.}
+A credible next study should freeze synthetic, clinician-authored geriatric
+case families; reserve a sealed family-level test set; mutate prompts, models,
+retrievers, rules, and tools; and compare update gates on critical-safety
+regression, task utility, over-refusal, evidence entailment, and subgroup
+performance.  At least two clinicians should independently define high-risk
+rubrics and adjudicate blinded disagreements.  Such a study is future work,
+not evidence in this paper.

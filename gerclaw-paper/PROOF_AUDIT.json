@@ -1,0 +1,6 @@
+{
+  "schema_version": "proof-audit-v1",
+  "audited_at": "2026-07-30",
+  "verdict": "NOT_APPLICABLE",
+  "reason": "The paper contains no theorem, lemma, proposition, or proof. Equations are explicitly labeled as executable design contracts rather than formal safety results."
+}
