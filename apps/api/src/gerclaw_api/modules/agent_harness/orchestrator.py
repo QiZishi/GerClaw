@@ -1,7 +1,6 @@
 """Production composition entry for one modular Agent Harness turn."""
 
 # ruff: noqa: RUF001
-
 from __future__ import annotations
 
 import inspect
@@ -20,8 +19,10 @@ from gerclaw_api.modules.agent_harness.components import HarnessComponents
 from gerclaw_api.modules.agent_harness.config import ResolvedHarnessConfig
 from gerclaw_api.modules.agent_harness.context_snapshot import (
     ContextSnapshotError,
+    ContextSnapshotInputs,
     ProductionContextSnapshotAssembler,
     UploadedInputProjector,
+    compose_context_snapshot,
     render_untrusted_clinical_state,
 )
 from gerclaw_api.modules.agent_harness.evidence import bind_citation_markers
@@ -157,6 +158,7 @@ class ProductionAgentHarness:
         route_decision: RouteDecision | None = None,
         dynamic_plan: DynamicPlan | None = None,
         clinical_decision: TurnClinicalDecision | None = None,
+        preassembled_context: AgentContext | None = None,
     ) -> None:
         companion = is_companion_workflow(workflow)
         build_core_runtime_asset_security_registry().assess_agent(
@@ -220,6 +222,7 @@ class ProductionAgentHarness:
         )
         self._approval_callback = approval_callback
         self._clinical_decision = clinical_decision
+        self._preassembled_context = preassembled_context
         self._agent_factory = agent_factory or ProductionAgentFactory(
             model=model,
             config=self._config,
@@ -234,7 +237,6 @@ class ProductionAgentHarness:
         uploaded_files: list[str],
     ) -> AgentContext:
         """Assemble validated short- and long-term context for one isolated turn."""
-
         if str(self._execution.session_id) != session_id or self._execution.actor_id != user_id:
             raise ContextSnapshotError("execution identity does not match requested Agent context")
         if loaded_skills != self._loaded_skill_ids:
@@ -248,39 +250,24 @@ class ProductionAgentHarness:
         quick_route = (
             self._route_decision is not None and self._route_decision.route is RouteKind.QUICK
         )
-        tool_names = [] if companion or quick_route else ["search_knowledge", "search_memory"]
-        if (
-            not companion
-            and not quick_route
-            and self._search_module is not None
-            and self._search_enabled
-        ):
-            tool_names.append("web_search")
-        if not companion and not quick_route and self._agent_skills:
-            tool_names.append("Skill")
-        return self._context_assembler.assemble(
-            execution=self._execution,
-            system_instructions=(
-                ("companion_safety_v1", "no_raw_chain_of_thought_v1")
-                if companion
-                else (
-                    "medical_safety_v1",
-                    "traceable_evidence_required_v1",
-                    "no_raw_chain_of_thought_v1",
-                )
+        return compose_context_snapshot(
+            self._context_assembler,
+            ContextSnapshotInputs(
+                execution=self._execution,
+                history=tuple(self._history),
+                profile_context=self._profile_context,
+                profile_version=self._profile_version,
+                memory_refs=tuple(self._memory_refs),
+                session_summary=self._session_summary,
+                clinical_state=self._clinical_state,
+                loaded_skills=tuple(loaded_skills),
+                uploaded_files=tuple(uploaded_files),
+                companion=companion,
+                quick_route=quick_route,
+                search_available=self._search_module is not None and self._search_enabled,
+                skill_available=bool(self._agent_skills),
+                preassembled=self._preassembled_context,
             ),
-            tool_names=tuple(tool_names),
-            profile_ref=(
-                f"health_profile:v{self._profile_version}" if self._profile_version else None
-            ),
-            profile_context=self._profile_context,
-            profile_version=self._profile_version,
-            memory_refs=tuple(self._memory_refs),
-            session_summary=self._session_summary,
-            clinical_state=self._clinical_state,
-            loaded_skills=tuple(loaded_skills),
-            uploaded_files=tuple(uploaded_files),
-            history=tuple(self._history),
         )
 
     async def process_message(
@@ -291,7 +278,6 @@ class ProductionAgentHarness:
         stream_callback: StreamCallback,
     ) -> AgentResponse:
         """Run preflight evidence, AgentScope ReAct, and deterministic safety."""
-
         budget = RuntimeBudgetTracker(self._execution_budget)
         turn_results = TurnResultReuse(
             scope=SharedResultScope(
@@ -304,7 +290,6 @@ class ProductionAgentHarness:
             uploaded_input=self._uploaded_input,
         )
         turn_clinical_state = await turn_results.clinical_state()
-
         await self._emit(
             stream_callback,
             "agent_start",

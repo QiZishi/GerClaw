@@ -35,6 +35,7 @@ from gerclaw_api.domain.chat_schemas import (
 from gerclaw_api.domain.trace_schemas import TRACE_ID_PATTERN
 from gerclaw_api.middleware import set_active_trace
 from gerclaw_api.modules.agent_harness import StreamEvent
+from gerclaw_api.modules.agent_harness.context_snapshot import FrozenRunState
 from gerclaw_api.modules.agent_harness.plugin_runtime import (
     CapabilityCatalogRead,
     CapabilityEntrypoint,
@@ -336,7 +337,8 @@ async def resume_run(
         request=request,
         identity=identity,
         trace_id=command.trace_id,
-        request_id=str(request.state.request_id),
+        request_id=command.request_id,
+        resume_state=command.state,
     )
 
 
@@ -347,6 +349,7 @@ async def _stream_chat(
     identity: AuthContext,
     trace_id: str,
     request_id: str,
+    resume_state: FrozenRunState | None = None,
 ) -> StreamingResponse:
     """Run the shared SSE transport for a new or explicitly resumed turn."""
 
@@ -568,6 +571,7 @@ async def _stream_chat(
                                 actor_id=identity.actor_id,
                                 trace_id=trace_id,
                             ),
+                            resume_state=resume_state,
                         )
                     finally:
                         if request_owned_search is not None:

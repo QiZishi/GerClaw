@@ -6,15 +6,18 @@ import uuid
 from dataclasses import dataclass
 from typing import Literal
 
-from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
+from pydantic import BaseModel, ConfigDict, Field
 
 from gerclaw_api.domain.chat_schemas import ChatRequest
 from gerclaw_api.domain.run_schemas import AgentRunRead, AgentRunStatus
+from gerclaw_api.modules.agent_harness.context_snapshot import (
+    FrozenRunState,
+    PersistedContextSnapshot,
+    PersistedRunPlan,
+)
 from gerclaw_api.modules.agent_harness.routing import RouteKind
 from gerclaw_api.modules.input_output import ImageInput
-from gerclaw_api.modules.skill.models import SkillId
-from gerclaw_api.modules.workflows import WorkflowId
-from gerclaw_api.repositories.run_resume import RunResumeRepository
+from gerclaw_api.repositories.run_resume import RunResumeRecord, RunResumeRepository
 from gerclaw_api.services.agent_run_service import AgentRunService
 from gerclaw_api.services.run_regeneration_service import image_fingerprint
 
@@ -38,56 +41,6 @@ class _StoredTextBlock(BaseModel):
     text: str = Field(min_length=1, max_length=50_000)
 
 
-class _StoredResumePlan(BaseModel):
-    model_config = ConfigDict(extra="ignore", frozen=True)
-
-    loaded_skill_count: int = Field(ge=0, le=20)
-    loaded_skill_ids: tuple[SkillId, ...] = Field(default=(), max_length=20)
-    requested_capability_count: int = Field(default=0, ge=0, le=20)
-    requested_capability_ids: tuple[str, ...] = Field(default=(), max_length=20)
-    uploaded_document_count: int = Field(ge=0, le=10)
-    uploaded_document_ids: tuple[uuid.UUID, ...] = Field(default=(), max_length=10)
-    uploaded_image_count: int = Field(ge=0, le=10)
-    uploaded_image_fingerprints: tuple[
-        str,
-        ...,
-    ] = Field(default=(), max_length=10)
-    workflow: WorkflowId
-    regenerate_from_run_id: uuid.UUID | None = None
-    expected_current_answer_version_id: uuid.UUID | None = None
-
-    @field_validator("uploaded_image_fingerprints")
-    @classmethod
-    def validate_image_fingerprints(cls, value: tuple[str, ...]) -> tuple[str, ...]:
-        if any(
-            len(item) != 64 or any(character not in "0123456789abcdef" for character in item)
-            for item in value
-        ):
-            raise ValueError("resume plan contains an invalid image fingerprint")
-        return value
-
-    @model_validator(mode="after")
-    def validate_counts(self) -> _StoredResumePlan:
-        if (
-            self.loaded_skill_count != len(self.loaded_skill_ids)
-            or self.requested_capability_count != len(self.requested_capability_ids)
-            or self.uploaded_document_count != len(self.uploaded_document_ids)
-            or self.uploaded_image_count != len(self.uploaded_image_fingerprints)
-        ):
-            raise ValueError("resume plan counts do not match stored identifiers")
-        if len(set(self.loaded_skill_ids)) != len(self.loaded_skill_ids):
-            raise ValueError("resume plan contains duplicate Skill ids")
-        if len(set(self.requested_capability_ids)) != len(self.requested_capability_ids):
-            raise ValueError("resume plan contains duplicate capability ids")
-        if len(set(self.uploaded_document_ids)) != len(self.uploaded_document_ids):
-            raise ValueError("resume plan contains duplicate document ids")
-        if (self.regenerate_from_run_id is None) != (
-            self.expected_current_answer_version_id is None
-        ):
-            raise ValueError("resume plan regeneration identifiers must be paired")
-        return self
-
-
 class _StoredImageRecord(BaseModel):
     model_config = ConfigDict(extra="forbid", frozen=True)
 
@@ -102,7 +55,9 @@ class _StoredImageRecord(BaseModel):
 class RunResumeCommand:
     run_id: uuid.UUID
     trace_id: str
+    request_id: str
     request: ChatRequest
+    state: FrozenRunState
 
 
 class RunResumeService:
@@ -164,7 +119,19 @@ class RunResumeService:
                 for item in record.input_message.content
             ]
             message = "\n".join(block.text for block in text_blocks).strip()
-            plan = _StoredResumePlan.model_validate(record.run.plan)
+            state = FrozenRunState(
+                snapshot=PersistedContextSnapshot.model_validate(
+                    record.run.context_snapshot
+                ),
+                plan=PersistedRunPlan.model_validate(record.run.plan),
+            )
+            self._validate_frozen_identity(
+                state,
+                record=record,
+                tenant_id=tenant_id,
+                actor_id=actor_id,
+            )
+            plan = state.plan
             images = self._restore_images(
                 record.trace.private_input_artifacts,
                 plan=plan,
@@ -176,7 +143,7 @@ class RunResumeService:
                 requested_capabilities=list(plan.requested_capability_ids),
                 uploaded_files=list(plan.uploaded_document_ids),
                 images=images,
-                channel="web",
+                channel=plan.channel,
                 workflow=plan.workflow,
                 regenerate_from_run_id=plan.regenerate_from_run_id,
                 expected_current_answer_version_id=(
@@ -190,14 +157,36 @@ class RunResumeService:
         return RunResumeCommand(
             run_id=persisted_run_id,
             trace_id=persisted_trace_id,
+            request_id=state.snapshot.agent_context.execution.request_id,
             request=request,
+            state=state,
         )
+
+    @staticmethod
+    def _validate_frozen_identity(
+        state: FrozenRunState,
+        *,
+        record: RunResumeRecord,
+        tenant_id: str,
+        actor_id: str,
+    ) -> None:
+        execution = state.snapshot.agent_context.execution
+        if (
+            state.snapshot.input_message_id != record.run.input_message_id
+            or execution.tenant_id != tenant_id
+            or execution.actor_id != actor_id
+            or execution.session_id != record.run.conversation_id
+            or execution.trace_id != record.run.trace_id
+            or execution.request_id != record.trace.request_id
+            or state.plan.route_decision.route.value != record.run.route
+        ):
+            raise ValueError("stored snapshot identity does not match its Run")
 
     @staticmethod
     def _restore_images(
         artifacts: dict[str, object] | None,
         *,
-        plan: _StoredResumePlan,
+        plan: PersistedRunPlan,
     ) -> list[ImageInput]:
         if plan.uploaded_image_count == 0:
             return []

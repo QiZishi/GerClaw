@@ -26,6 +26,13 @@ from gerclaw_api.modules.runtime.tool_schemas import (
 from gerclaw_api.modules.security_evaluation import build_chat_tool_security_registry
 from gerclaw_api.modules.skill.agentscope_adapter import SAFE_SKILL_INSTRUCTION_TEMPLATE
 
+CHAT_TOOL_CONTRACT_VERSIONS = {
+    "search_knowledge": "1.0.0",
+    "search_memory": "1.0.0",
+    "web_search": "1.0.0",
+    "Skill": "1.0.0",
+}
+
 
 def build_production_tool_registry() -> ToolRegistryPort:
     """Construct the existing Runtime-owned registry behind its Harness port."""
@@ -51,7 +58,7 @@ def build_chat_toolkit(
         "search_knowledge": (
             ToolCapability(
                 name="search_knowledge",
-                version="1.0.0",
+                version=CHAT_TOOL_CONTRACT_VERSIONS["search_knowledge"],
                 description="Read-only local medical evidence retrieval.",
                 required_scopes=frozenset({"rag:read"}),
                 allowed_roles=frozenset({ActorRole.GUEST, ActorRole.PATIENT, ActorRole.DOCTOR}),
@@ -65,7 +72,7 @@ def build_chat_toolkit(
         "search_memory": (
             ToolCapability(
                 name="search_memory",
-                version="1.0.0",
+                version=CHAT_TOOL_CONTRACT_VERSIONS["search_memory"],
                 description="Read-only retrieval of caller-owned health memory.",
                 required_scopes=frozenset({"memory:read"}),
                 allowed_roles=frozenset({ActorRole.GUEST, ActorRole.PATIENT, ActorRole.DOCTOR}),
@@ -80,7 +87,7 @@ def build_chat_toolkit(
         "web_search": (
             ToolCapability(
                 name="web_search",
-                version="1.0.0",
+                version=CHAT_TOOL_CONTRACT_VERSIONS["web_search"],
                 description="Read-only redacted external medical evidence search.",
                 required_scopes=frozenset({"search:read"}),
                 allowed_roles=frozenset({ActorRole.GUEST, ActorRole.PATIENT, ActorRole.DOCTOR}),

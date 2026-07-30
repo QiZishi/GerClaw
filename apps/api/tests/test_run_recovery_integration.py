@@ -14,9 +14,27 @@ from gerclaw_api.database.models import AgentRun, AnswerVersion, RunEvent
 from gerclaw_api.domain.chat_schemas import ChatRequest
 from gerclaw_api.domain.run_schemas import AgentRunCreate
 from gerclaw_api.domain.trace_schemas import TraceStartRequest
-from gerclaw_api.modules.agent_harness.routing import RouteKind
+from gerclaw_api.modules.agent_harness.clinical_state import ClinicalState
+from gerclaw_api.modules.agent_harness.config import ResolvedHarnessConfig
+from gerclaw_api.modules.agent_harness.context_snapshot import (
+    AgentContext,
+    FrozenToolContract,
+    PersistedContextSnapshot,
+    PersistedRunPlan,
+)
+from gerclaw_api.modules.agent_harness.planning import (
+    ClinicalDecisionCoordinator,
+    DeterministicPlanner,
+    PlanRequest,
+)
+from gerclaw_api.modules.agent_harness.routing import RouteDecision, RouteKind
 from gerclaw_api.modules.agent_harness.safety import MEDICAL_DISCLAIMER
-from gerclaw_api.modules.contracts import AgentResponse, SafetyDecision
+from gerclaw_api.modules.contracts import (
+    AgentResponse,
+    ExecutionContext,
+    SafetyDecision,
+)
+from gerclaw_api.modules.runtime.models import ExecutionBudget
 from gerclaw_api.modules.workflows import get_default_workflow_registry
 from gerclaw_api.repositories.agent_run import SqlAlchemyAgentRunRepository
 from gerclaw_api.repositories.conversation import SqlAlchemyConversationRepository
@@ -33,12 +51,105 @@ TENANT = "tenant_public0001"
 ACTOR = "usr_patient_integration0001"
 
 
+def _frozen_run_material(
+    *,
+    settings: object,
+    payload: ChatRequest,
+    input_message_id: uuid.UUID,
+    trace_id: str,
+    request_id: str,
+    regenerate_from_run_id: uuid.UUID | None = None,
+    expected_current_answer_version_id: uuid.UUID | None = None,
+) -> tuple[dict[str, object], dict[str, object]]:
+    resolved = ResolvedHarnessConfig.from_settings(settings)  # type: ignore[arg-type]
+    budget = ExecutionBudget(
+        max_steps=resolved.max_react_iterations,
+        max_output_bytes=resolved.max_output_bytes,
+    )
+    route = RouteDecision(
+        route=RouteKind.STANDARD,
+        reason_code="integration_resume_fixture",
+    )
+    clinical_decision = ClinicalDecisionCoordinator(
+        minimum_score=resolved.savi_minimum_score
+    ).prepare(
+        state=ClinicalState(),
+        message=payload.message,
+        has_attachments=False,
+    )
+    dynamic_plan = DeterministicPlanner(
+        execution_budget=budget,
+        output_reserve_tokens=resolved.model_output_reserve_tokens,
+    ).build(PlanRequest(route=RouteKind.STANDARD))
+    workflow = get_default_workflow_registry().resolve(payload.workflow)
+    context = AgentContext(
+        execution=ExecutionContext(
+            request_id=request_id,
+            trace_id=trace_id,
+            tenant_id=TENANT,
+            actor_id=ACTOR,
+            session_id=payload.session_id,
+        ),
+        system_instructions=(
+            "medical_safety_v1",
+            "traceable_evidence_required_v1",
+            "no_raw_chain_of_thought_v1",
+        ),
+        tool_names=("search_knowledge", "search_memory"),
+    )
+    snapshot = PersistedContextSnapshot(
+        input_message_id=input_message_id,
+        agent_context=context,
+        prompt_policy_ids=context.system_instructions,
+        tool_contracts=tuple(
+            FrozenToolContract(name=name, version="1.0.0")
+            for name in context.tool_names
+        ),
+    )
+    plan = PersistedRunPlan(
+        loaded_skill_count=0,
+        requested_capability_count=0,
+        uploaded_document_count=0,
+        uploaded_image_count=0,
+        workflow=workflow.workflow_id,
+        workflow_definition=workflow,
+        channel=payload.channel,
+        workflow_version=workflow.version,
+        workflow_owner_module=workflow.owner_module,
+        search_enabled=workflow.search_enabled,
+        route_decision=route,
+        dynamic_plan=dynamic_plan,
+        clinical_decision=clinical_decision,
+        resolved_config=resolved,
+        execution_budget=budget,
+        regenerate_from_run_id=regenerate_from_run_id,
+        expected_current_answer_version_id=expected_current_answer_version_id,
+    )
+    return (
+        snapshot.model_dump(mode="json"),
+        plan.model_dump(mode="json"),
+    )
+
+
 class _ResumeHarness:
-    def __init__(self, **_kwargs: object) -> None:
-        pass
+    def __init__(self, **kwargs: object) -> None:
+        preassembled = kwargs.get("preassembled_context")
+        self.context = (
+            preassembled
+            if isinstance(preassembled, AgentContext)
+            else AgentContext(
+                execution=kwargs["execution"],
+                system_instructions=(
+                    "medical_safety_v1",
+                    "traceable_evidence_required_v1",
+                    "no_raw_chain_of_thought_v1",
+                ),
+                tool_names=("search_knowledge", "search_memory"),
+            )
+        )
 
     async def assemble_context(self, *_args: object, **_kwargs: object) -> object:
-        return object()
+        return self.context
 
     async def process_message(self, *_args: object, **_kwargs: object) -> AgentResponse:
         return AgentResponse(
@@ -302,6 +413,13 @@ async def test_explicit_resume_adopts_interrupted_run_and_completes_it(
             tenant_id=TENANT,
             actor_id=ACTOR,
         )
+        context_snapshot, persisted_plan = _frozen_run_material(
+            settings=app.state.settings,
+            payload=payload,
+            input_message_id=message.id,
+            trace_id=trace_id,
+            request_id="request_recovery_retry_0001",
+        )
         run_service = AgentRunService(SqlAlchemyAgentRunRepository(session))
         run = await run_service.create_run(
             AgentRunCreate(
@@ -309,13 +427,8 @@ async def test_explicit_resume_adopts_interrupted_run_and_completes_it(
                 input_message_id=message.id,
                 trace_id=trace_id,
                 route=RouteKind.STANDARD,
-                context_snapshot={},
-                plan={
-                    "loaded_skill_count": 0,
-                    "uploaded_document_count": 0,
-                    "uploaded_image_count": 0,
-                    "workflow": workflow.workflow_id.value,
-                },
+                context_snapshot=context_snapshot,
+                plan=persisted_plan,
                 fencing_token=old_fence,
             ),
             tenant_id=TENANT,
@@ -448,6 +561,15 @@ async def test_explicit_resume_reuses_source_input_for_interrupted_regeneration(
             tenant_id=TENANT,
             actor_id=ACTOR,
         )
+        context_snapshot, persisted_plan = _frozen_run_material(
+            settings=app.state.settings,
+            payload=regeneration,
+            input_message_id=source_input_message_id,
+            trace_id=interrupted_trace_id,
+            request_id="request_resume_regeneration_retry_0001",
+            regenerate_from_run_id=source_run_id,
+            expected_current_answer_version_id=source_answer_version_id,
+        )
         run_service = AgentRunService(SqlAlchemyAgentRunRepository(session))
         interrupted_run = await run_service.create_run(
             AgentRunCreate(
@@ -455,17 +577,8 @@ async def test_explicit_resume_reuses_source_input_for_interrupted_regeneration(
                 input_message_id=source_input_message_id,
                 trace_id=interrupted_trace_id,
                 route=RouteKind.STANDARD,
-                context_snapshot={},
-                plan={
-                    "loaded_skill_count": 0,
-                    "uploaded_document_count": 0,
-                    "uploaded_image_count": 0,
-                    "workflow": workflow.workflow_id.value,
-                    "regenerate_from_run_id": str(source_run_id),
-                    "expected_current_answer_version_id": str(
-                        source_answer_version_id
-                    ),
-                },
+                context_snapshot=context_snapshot,
+                plan=persisted_plan,
                 fencing_token=old_fence,
             ),
             tenant_id=TENANT,

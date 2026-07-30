@@ -43,6 +43,11 @@ from gerclaw_api.modules.agent_harness.clinical_state import (
     ClinicalState,
     FactProvenance,
 )
+from gerclaw_api.modules.agent_harness.context_snapshot import (
+    FrozenRunState,
+    PersistedContextSnapshot,
+    PersistedRunPlan,
+)
 from gerclaw_api.modules.agent_harness.routing import RouteKind
 from gerclaw_api.modules.agent_harness.run_lifecycle import RunFenceConflictError
 from gerclaw_api.modules.memory.models import MemoryUpdateResult
@@ -1078,7 +1083,10 @@ async def test_medical_turn_reduces_prior_clinical_state_into_run_snapshot(
     )
 
     persisted = ClinicalState.model_validate(
-        run_journal.start_requests[0].context_snapshot["clinical_state"]
+        cast(
+            dict[str, Any],
+            run_journal.start_requests[0].context_snapshot["agent_context"],
+        )["clinical_state"]
     )
     assert persisted.unknowns == ("当前用药",)
     assert persisted.facts[0].fact_id == "allergy:penicillin"
@@ -1087,6 +1095,79 @@ async def test_medical_turn_reduces_prior_clinical_state_into_run_snapshot(
     assert current.value == "老人最近头晕"
     assert current.status == "reported"
     assert current.provenance[0].source_type == "user"
+
+
+@pytest.mark.asyncio
+async def test_resume_uses_frozen_context_without_reloading_mutable_memory_or_input(
+    unit_settings: Settings,
+) -> None:
+    session_id = uuid.uuid4()
+    request_id = "request_chat_frozen_resume_0001"
+    trace_id = "trace_chat_frozen_resume_0001"
+    payload = ChatRequest(
+        session_id=session_id,
+        message="请帮我整理一份日常安排建议，" * 12,
+    )
+    initial_journal = _RunJournal()
+    initial_service = ChatService(
+        settings=unit_settings,
+        conversation=cast(Any, _ConversationFacade(session_id)),
+        traces=cast(Any, _TraceFacade(created=True, session_id=session_id)),
+        lease=cast(Any, _OwnedLease()),
+        model=cast(Any, _TextModel()),
+        rag_module=cast(Any, _NoopRAG()),
+        memory_factory=_memory_factory(),
+        run_journal=initial_journal,
+    )
+
+    async def callback(_event: object) -> None:
+        return None
+
+    identity = AuthContext(
+        actor_id="usr_patient_unit0001",
+        tenant_id="tenant_public0001",
+        scopes=frozenset({"chat:write"}),
+    )
+    await initial_service.process(
+        payload,
+        identity=identity,
+        request_id=request_id,
+        trace_id=trace_id,
+        callback=cast(Any, callback),
+    )
+    original = initial_journal.start_requests[0]
+    frozen = FrozenRunState(
+        snapshot=PersistedContextSnapshot.model_validate(original.context_snapshot),
+        plan=PersistedRunPlan.model_validate(original.plan),
+    )
+
+    mutable_memory = _MemoryFacade()
+    resumed_conversation = _ConversationFacade(session_id)
+    resumed_journal = _RunJournal()
+    resumed_service = ChatService(
+        settings=unit_settings,
+        conversation=cast(Any, resumed_conversation),
+        traces=cast(Any, _TraceFacade(created=True, session_id=session_id)),
+        lease=cast(Any, _OwnedLease()),
+        model=cast(Any, _TextModel()),
+        rag_module=cast(Any, _NoopRAG()),
+        memory_factory=_memory_factory(mutable_memory),
+        run_journal=resumed_journal,
+    )
+    await resumed_service.process(
+        payload,
+        identity=identity,
+        request_id=request_id,
+        trace_id=trace_id,
+        callback=cast(Any, callback),
+        resume_state=frozen,
+    )
+
+    resumed = resumed_journal.start_requests[0]
+    assert resumed.context_snapshot == original.context_snapshot
+    assert resumed.plan == original.plan
+    assert mutable_memory.short_term_sessions == []
+    assert resumed_conversation.user_text is None
 
 
 @pytest.mark.asyncio
@@ -1146,7 +1227,10 @@ async def test_treatment_unknown_returns_persisted_ask_without_model_or_rag(
     execution = cast(dict[str, Any], response.structured["plan_execution"])
     assert execution["statuses"] == {"clarify_unknowns": "completed"}
     persisted = ClinicalState.model_validate(
-        run_journal.start_requests[0].context_snapshot["clinical_state"]
+        cast(
+            dict[str, Any],
+            run_journal.start_requests[0].context_snapshot["agent_context"],
+        )["clinical_state"]
     )
     assert "年龄" in persisted.unknowns
     assert "完整当前用药名称、剂量和频次" in persisted.unknowns

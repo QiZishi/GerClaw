@@ -7,7 +7,9 @@ from collections.abc import Awaitable, Callable
 from typing import cast
 
 from gerclaw_api.modules.agent_harness.clinical_state import ClinicalState
-from gerclaw_api.modules.agent_harness.context_snapshot import UploadedInputProjector
+from gerclaw_api.modules.agent_harness.context_snapshot.uploaded_input import (
+    UploadedInputProjector,
+)
 from gerclaw_api.modules.agent_harness.plugin_runtime.shared_results import (
     SharedResultKind,
     SharedResultRef,

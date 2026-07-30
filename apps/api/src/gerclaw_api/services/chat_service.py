@@ -39,6 +39,12 @@ from gerclaw_api.modules.agent_harness.clinical_state import (
     UserMessageClinicalProjector,
 )
 from gerclaw_api.modules.agent_harness.config import ResolvedHarnessConfig
+from gerclaw_api.modules.agent_harness.context_snapshot import (
+    FrozenRunState,
+    FrozenToolContract,
+    PersistedContextSnapshot,
+    PersistedRunPlan,
+)
 from gerclaw_api.modules.agent_harness.planning import (
     ClinicalDecisionCoordinator,
     DeterministicPlanner,
@@ -49,6 +55,9 @@ from gerclaw_api.modules.agent_harness.plugin_runtime import (
     GovernedCapabilityCatalog,
     PluginRuntime,
     get_default_capability_catalog,
+)
+from gerclaw_api.modules.agent_harness.plugin_runtime.production import (
+    CHAT_TOOL_CONTRACT_VERSIONS,
 )
 from gerclaw_api.modules.agent_harness.routing import (
     DeterministicRouter,
@@ -79,6 +88,7 @@ from gerclaw_api.modules.runtime.models import (
     RuntimePrincipal,
 )
 from gerclaw_api.modules.search.protocols import SearchModule
+from gerclaw_api.modules.skill.agentscope_adapter import to_agentscope_skill
 from gerclaw_api.modules.skill.skill_module import ProductionSkillModule
 from gerclaw_api.modules.validation import validate_public_chat_stream_event
 from gerclaw_api.modules.workflows import get_default_workflow_registry
@@ -213,13 +223,27 @@ class ChatService:
         trace_id: str,
         callback: StreamCallback,
         cancellation_requested: CancellationProbe | None = None,
+        resume_state: FrozenRunState | None = None,
     ) -> AgentResponse:
-        workflow = get_default_workflow_registry().validate_context(
-            payload.workflow,
-            loaded_skill_count=len(payload.loaded_skills),
-            uploaded_file_count=len(payload.uploaded_files),
-            uploaded_image_count=len(payload.images),
-        )
+        if resume_state is None:
+            workflow = get_default_workflow_registry().validate_context(
+                payload.workflow,
+                loaded_skill_count=len(payload.loaded_skills),
+                uploaded_file_count=len(payload.uploaded_files),
+                uploaded_image_count=len(payload.images),
+            )
+        else:
+            workflow = resume_state.plan.workflow_definition
+            if (
+                payload.workflow is not resume_state.plan.workflow
+                or tuple(payload.loaded_skills) != resume_state.plan.loaded_skill_ids
+                or tuple(payload.uploaded_files)
+                != resume_state.plan.uploaded_document_ids
+                or len(payload.images) != resume_state.plan.uploaded_image_count
+            ):
+                raise UnsupportedAgentContextError(
+                    "resume request does not match its frozen Run state"
+                )
         normalized = await self._input_output.normalize(
             AgentRequest(
                 context=ExecutionContext(
@@ -268,6 +292,7 @@ class ChatService:
                 cancellation_requested=cancellation_requested,
                 active_skill_calls=active_skill_calls,
                 skill_audit_events=skill_audit_events,
+                resume_state=resume_state,
             )
 
         async def finalize_failure(
@@ -340,7 +365,20 @@ class ChatService:
         cancellation_requested: CancellationProbe | None,
         active_skill_calls: dict[str, ActiveSkillCall],
         skill_audit_events: list[TraceEventCreate],
+        resume_state: FrozenRunState | None,
     ) -> AgentResponse:
+        if resume_state is not None:
+            frozen_execution = resume_state.snapshot.agent_context.execution
+            if (
+                frozen_execution.tenant_id != identity.tenant_id
+                or frozen_execution.actor_id != identity.actor_id
+                or frozen_execution.session_id != payload.session_id
+                or frozen_execution.trace_id != trace_id
+                or frozen_execution.request_id != request_id
+            ):
+                raise UnsupportedAgentContextError(
+                    "resume state identity does not match the active request"
+                )
         conversation = await self._conversation.ensure_session(
             payload.session_id,
             tenant_id=identity.tenant_id,
@@ -365,19 +403,27 @@ class ChatService:
         self._answer_group_run_id = regeneration.source_run_id if regeneration is not None else None
         if conversation.user_id is None:
             raise RuntimeError("conversation has no active user principal")
-        workflow = get_default_workflow_registry().validate_context(
-            payload.workflow,
-            loaded_skill_count=len(payload.loaded_skills),
-            uploaded_file_count=len(payload.uploaded_files),
-            uploaded_image_count=len(payload.images),
+        workflow = (
+            resume_state.plan.workflow_definition
+            if resume_state is not None
+            else get_default_workflow_registry().validate_context(
+                payload.workflow,
+                loaded_skill_count=len(payload.loaded_skills),
+                uploaded_file_count=len(payload.uploaded_files),
+                uploaded_image_count=len(payload.images),
+            )
         )
         companion = is_companion_workflow(cast(Any, workflow.workflow_id.value))
         medical_content = is_medical_message(payload.message) and not companion
         high_risk_codes = tuple(detect_high_risk(payload.message))
-        capability_selection = self._capability_catalog.select(
-            message=payload.message,
-            workflow=workflow.workflow_id,
-            requested=tuple(payload.requested_capabilities),
+        capability_selection = (
+            resume_state.plan.capability_selection
+            if resume_state is not None
+            else self._capability_catalog.select(
+                message=payload.message,
+                workflow=workflow.workflow_id,
+                requested=tuple(payload.requested_capabilities),
+            )
         )
         planning_capabilities = tuple(
             [
@@ -385,34 +431,63 @@ class ChatService:
                 *capability_selection.ids,
             ]
         )
-        resolved_harness_config = ResolvedHarnessConfig.from_settings(self._settings)
-        route_decision = DeterministicRouter(
-            RoutingPolicy(
-                quick_max_characters=resolved_harness_config.quick_route_max_characters,
-                deep_min_characters=resolved_harness_config.deep_route_min_characters,
-                deep_attachment_count=resolved_harness_config.deep_route_attachment_count,
-                deep_capability_count=resolved_harness_config.deep_route_capability_count,
-            )
-        ).decide(
-            RoutingInput(
-                message=payload.message,
-                has_images=bool(payload.images),
-                has_documents=bool(payload.uploaded_files),
-                image_count=len(payload.images),
-                document_count=len(payload.uploaded_files),
-                selected_capabilities=planning_capabilities,
-                medical_content=medical_content,
-                high_risk_detected=bool(high_risk_codes),
+        resolved_harness_config = (
+            resume_state.plan.resolved_config
+            if resume_state is not None
+            else ResolvedHarnessConfig.from_settings(self._settings)
+        )
+        route_decision = (
+            resume_state.plan.route_decision
+            if resume_state is not None
+            else DeterministicRouter(
+                RoutingPolicy(
+                    quick_max_characters=(
+                        resolved_harness_config.quick_route_max_characters
+                    ),
+                    deep_min_characters=resolved_harness_config.deep_route_min_characters,
+                    deep_attachment_count=(
+                        resolved_harness_config.deep_route_attachment_count
+                    ),
+                    deep_capability_count=(
+                        resolved_harness_config.deep_route_capability_count
+                    ),
+                )
+            ).decide(
+                RoutingInput(
+                    message=payload.message,
+                    has_images=bool(payload.images),
+                    has_documents=bool(payload.uploaded_files),
+                    image_count=len(payload.images),
+                    document_count=len(payload.uploaded_files),
+                    selected_capabilities=planning_capabilities,
+                    medical_content=medical_content,
+                    high_risk_detected=bool(high_risk_codes),
+                )
             )
         )
         emergency_route = route_decision.route is RouteKind.EMERGENCY
-        if payload.loaded_skills and self._skill_module is None and not emergency_route:
+        if (
+            resume_state is None
+            and payload.loaded_skills
+            and self._skill_module is None
+            and not emergency_route
+        ):
             raise UnsupportedAgentContextError("Skill module is unavailable")
-        agent_skills = (
-            await self._skill_module.resolve_agent_skills(payload.loaded_skills)
-            if self._skill_module is not None and not emergency_route
-            else []
-        )
+        if resume_state is not None:
+            skill_definitions = list(resume_state.snapshot.skill_definitions)
+            agent_skills = [to_agentscope_skill(item) for item in skill_definitions]
+        elif self._skill_module is not None and not emergency_route:
+            loaded_skills = [
+                await self._skill_module.load_enabled_skill(skill_id)
+                for skill_id in payload.loaded_skills
+            ]
+            skill_definitions = [item.definition for item in loaded_skills]
+            agent_skills = [
+                to_agentscope_skill(item.definition) for item in loaded_skills
+            ]
+        else:
+            skill_definitions = []
+            agent_skills = []
         skill_versions = {
             skill_id: version
             for skill in agent_skills
@@ -423,7 +498,11 @@ class ChatService:
             payload.loaded_skills[0] if len(payload.loaded_skills) == 1 else "unknown_skill"
         )
         fallback_skill_version = skill_versions.get(fallback_skill_id)
-        if self._skill_module is not None and not emergency_route:
+        if (
+            resume_state is None
+            and self._skill_module is not None
+            and not emergency_route
+        ):
             await self._skill_module.replace_session_skills(
                 payload.session_id, payload.loaded_skills, commit=False
             )
@@ -442,12 +521,23 @@ class ChatService:
             RouteKind.QUICK,
             RouteKind.EMERGENCY,
         }
-        execution_budget = ExecutionBudget(
-            max_steps=resolved_harness_config.max_react_iterations,
-            max_output_bytes=resolved_harness_config.max_output_bytes,
+        execution_budget = (
+            resume_state.plan.execution_budget
+            if resume_state is not None
+            else ExecutionBudget(
+                max_steps=resolved_harness_config.max_react_iterations,
+                max_output_bytes=resolved_harness_config.max_output_bytes,
+            )
         )
         memory_refs: list[str]
-        if emergency_route:
+        if resume_state is not None:
+            frozen_context = resume_state.snapshot.agent_context
+            history = list(frozen_context.conversation_history)
+            session_summary = frozen_context.session_summary
+            profile_context = frozen_context.profile_context
+            profile_version = frozen_context.profile_version
+            memory_refs = list(frozen_context.memory_refs)
+        elif emergency_route:
             history = []
             session_summary = ""
             profile_context = ""
@@ -506,7 +596,9 @@ class ChatService:
                 )
             profile_context, profile_version, memory_refs = await memory.core_profile_context()
         user_message_id = (
-            regeneration.input_message_id
+            resume_state.snapshot.input_message_id
+            if resume_state is not None
+            else regeneration.input_message_id
             if regeneration is not None
             else (
                 await self._conversation.store_user_message(
@@ -520,15 +612,19 @@ class ChatService:
             ).id
         )
         clinical_state = (
-            await self._run_journal.read_clinical_state(
-                payload.session_id,
-                tenant_id=identity.tenant_id,
-                actor_id=identity.actor_id,
+            resume_state.snapshot.agent_context.clinical_state
+            if resume_state is not None
+            else (
+                await self._run_journal.read_clinical_state(
+                    payload.session_id,
+                    tenant_id=identity.tenant_id,
+                    actor_id=identity.actor_id,
+                )
+                if self._run_journal is not None
+                else ClinicalState()
             )
-            if self._run_journal is not None
-            else ClinicalState()
         )
-        if medical_content:
+        if medical_content and resume_state is None:
             clinical_state = UserMessageClinicalProjector(self._clinical_state_reducer).project(
                 clinical_state,
                 message_id=user_message_id,
@@ -536,14 +632,18 @@ class ChatService:
                 observed_at=datetime.now(UTC),
                 red_flag_codes=high_risk_codes,
             )
-        clinical_decision = ClinicalDecisionCoordinator(
-            minimum_score=resolved_harness_config.savi_minimum_score
-        ).prepare(
-            state=clinical_state,
-            message=payload.message,
-            has_attachments=bool(payload.images or payload.uploaded_files),
+        clinical_decision = (
+            resume_state.plan.clinical_decision
+            if resume_state is not None
+            else ClinicalDecisionCoordinator(
+                minimum_score=resolved_harness_config.savi_minimum_score
+            ).prepare(
+                state=clinical_state,
+                message=payload.message,
+                has_attachments=bool(payload.images or payload.uploaded_files),
+            )
         )
-        if clinical_decision.clarification_questions:
+        if clinical_decision.clarification_questions and resume_state is None:
             clinical_state = self._clinical_state_reducer.reduce(
                 clinical_state,
                 (),
@@ -554,29 +654,43 @@ class ChatService:
             if clinical_decision.action_selection.selected is not None
             else "answer"
         )
-        dynamic_plan = DeterministicPlanner(
-            execution_budget=execution_budget,
-            output_reserve_tokens=resolved_harness_config.model_output_reserve_tokens,
-        ).build(
-            PlanRequest(
-                route=route_decision.route,
-                medical_content=medical_content,
-                image_count=len(payload.images),
-                document_count=len(payload.uploaded_files),
-                selected_capabilities=planning_capabilities,
-                available_capabilities=planning_capabilities,
-                report_requested=requests_report(payload.message),
-                selected_action=selected_action,
+        dynamic_plan = (
+            resume_state.plan.dynamic_plan
+            if resume_state is not None
+            else DeterministicPlanner(
+                execution_budget=execution_budget,
+                output_reserve_tokens=(
+                    resolved_harness_config.model_output_reserve_tokens
+                ),
+            ).build(
+                PlanRequest(
+                    route=route_decision.route,
+                    medical_content=medical_content,
+                    image_count=len(payload.images),
+                    document_count=len(payload.uploaded_files),
+                    selected_capabilities=planning_capabilities,
+                    available_capabilities=planning_capabilities,
+                    report_requested=requests_report(payload.message),
+                    selected_action=selected_action,
+                )
             )
         )
-        capability_results = []
+        capability_results = (
+            list(resume_state.plan.capability_results)
+            if resume_state is not None
+            else []
+        )
         planned_capabilities = {node.capability for node in dynamic_plan.nodes}
         selected_owner_capabilities = [
             item
             for item in capability_selection.selected
             if item.capability_id in planned_capabilities
         ]
-        if selected_owner_capabilities and not emergency_route:
+        if (
+            resume_state is None
+            and selected_owner_capabilities
+            and not emergency_route
+        ):
             if self._capability_runtime is None:
                 raise UnsupportedAgentContextError("governed capability owners are unavailable")
             for selected_capability in selected_owner_capabilities:
@@ -591,76 +705,38 @@ class ChatService:
                         },
                     )
                 )
-        if self._run_journal is not None:
-            run = await self._run_journal.start(
-                AgentRunCreate(
-                    conversation_id=payload.session_id,
-                    input_message_id=user_message_id,
-                    trace_id=trace_id,
-                    route=route_decision.route,
-                    context_snapshot={
-                        "history_message_count": len(history),
-                        "memory_reference_count": len(memory_refs),
-                        "profile_version": profile_version,
-                        "clinical_state": clinical_state.model_dump(mode="json"),
-                    },
-                    plan={
-                        "loaded_skill_count": len(payload.loaded_skills),
-                        "loaded_skill_ids": [str(item) for item in payload.loaded_skills],
-                        "requested_capability_count": len(payload.requested_capabilities),
-                        "requested_capability_ids": payload.requested_capabilities,
-                        "governed_capabilities": [
-                            item.model_dump(mode="json") for item in capability_selection.selected
-                        ],
-                        "capability_results": [
-                            item.model_dump(mode="json") for item in capability_results
-                        ],
-                        "uploaded_document_count": len(payload.uploaded_files),
-                        "uploaded_document_ids": [str(item) for item in payload.uploaded_files],
-                        "uploaded_image_count": len(payload.images),
-                        "uploaded_image_fingerprints": [
-                            image_fingerprint(image.media_type, image.base64)
-                            for image in payload.images
-                        ],
-                        "workflow": workflow.workflow_id.value,
-                        "dynamic_plan": dynamic_plan.model_dump(mode="json"),
-                        "clinical_decision": clinical_decision.model_dump(mode="json"),
-                        **(
-                            {
-                                "regenerate_from_run_id": str(regeneration.source_run_id),
-                                "expected_current_answer_version_id": str(
-                                    regeneration.current_answer_version_id
-                                ),
-                            }
-                            if regeneration is not None
-                            else {}
-                        ),
-                    },
-                    fencing_token=lease_guard.fencing_token,
-                ),
-                tenant_id=identity.tenant_id,
-                actor_id=identity.actor_id,
-            )
-            self._active_run_id = run.id
-        if payload.uploaded_files and self._document_service is None and not emergency_route:
+        if (
+            resume_state is None
+            and payload.uploaded_files
+            and self._document_service is None
+            and not emergency_route
+        ):
             raise UnsupportedAgentContextError("uploaded document storage is unavailable")
         uploaded_documents = (
-            await self._document_service.resolve_context(
-                payload.uploaded_files,
+            list(resume_state.snapshot.uploaded_documents)
+            if resume_state is not None
+            else (
+                await self._document_service.resolve_context(
+                    payload.uploaded_files,
+                    tenant_id=identity.tenant_id,
+                    actor_id=identity.actor_id,
+                    session_id=payload.session_id,
+                    max_characters=self._settings.document_context_max_characters,
+                )
+                if self._document_service is not None and not emergency_route
+                else []
+            )
+        )
+        execution = (
+            resume_state.snapshot.agent_context.execution
+            if resume_state is not None
+            else ExecutionContext(
+                request_id=request_id,
+                trace_id=trace_id,
                 tenant_id=identity.tenant_id,
                 actor_id=identity.actor_id,
                 session_id=payload.session_id,
-                max_characters=self._settings.document_context_max_characters,
             )
-            if self._document_service is not None and not emergency_route
-            else []
-        )
-        execution = ExecutionContext(
-            request_id=request_id,
-            trace_id=trace_id,
-            tenant_id=identity.tenant_id,
-            actor_id=identity.actor_id,
-            session_id=payload.session_id,
         )
 
         async def persist_approval(command: ApprovalCreate) -> ApprovalRead:
@@ -707,6 +783,11 @@ class ChatService:
             route_decision=route_decision,
             dynamic_plan=dynamic_plan,
             clinical_decision=clinical_decision,
+            preassembled_context=(
+                resume_state.snapshot.agent_context
+                if resume_state is not None
+                else None
+            ),
         )
         context = await harness.assemble_context(
             str(payload.session_id),
@@ -714,6 +795,83 @@ class ChatService:
             [] if emergency_route else payload.loaded_skills,
             [] if emergency_route else [str(item) for item in payload.uploaded_files],
         )
+        if resume_state is None:
+            persisted_snapshot = PersistedContextSnapshot(
+                input_message_id=user_message_id,
+                agent_context=context,
+                prompt_policy_ids=context.system_instructions,
+                tool_contracts=tuple(
+                    FrozenToolContract(
+                        name=tool_name,
+                        version=CHAT_TOOL_CONTRACT_VERSIONS[tool_name],
+                    )
+                    for tool_name in context.tool_names
+                ),
+                skill_definitions=(
+                    () if emergency_route else tuple(skill_definitions)
+                ),
+                uploaded_documents=tuple(uploaded_documents),
+            )
+            persisted_plan = PersistedRunPlan(
+                loaded_skill_count=len(payload.loaded_skills),
+                loaded_skill_ids=tuple(payload.loaded_skills),
+                requested_capability_count=len(payload.requested_capabilities),
+                requested_capability_ids=tuple(payload.requested_capabilities),
+                capability_selection=capability_selection,
+                capability_results=tuple(capability_results),
+                uploaded_document_count=len(payload.uploaded_files),
+                uploaded_document_ids=tuple(payload.uploaded_files),
+                uploaded_image_count=len(payload.images),
+                uploaded_image_fingerprints=tuple(
+                    image_fingerprint(image.media_type, image.base64)
+                    for image in payload.images
+                ),
+                workflow=workflow.workflow_id,
+                workflow_definition=workflow,
+                channel=payload.channel,
+                workflow_version=workflow.version,
+                workflow_owner_module=workflow.owner_module,
+                search_enabled=workflow.search_enabled,
+                route_decision=route_decision,
+                dynamic_plan=dynamic_plan,
+                clinical_decision=clinical_decision,
+                resolved_config=resolved_harness_config,
+                execution_budget=execution_budget,
+                regenerate_from_run_id=(
+                    regeneration.source_run_id
+                    if regeneration is not None
+                    else None
+                ),
+                expected_current_answer_version_id=(
+                    regeneration.current_answer_version_id
+                    if regeneration is not None
+                    else None
+                ),
+            )
+        else:
+            persisted_snapshot = resume_state.snapshot
+            persisted_plan = resume_state.plan
+        if self._run_journal is not None:
+            run = await self._run_journal.start(
+                AgentRunCreate(
+                    conversation_id=payload.session_id,
+                    input_message_id=user_message_id,
+                    trace_id=trace_id,
+                    route=persisted_plan.route_decision.route,
+                    context_snapshot=cast(
+                        dict[str, JsonValue],
+                        persisted_snapshot.model_dump(mode="json"),
+                    ),
+                    plan=cast(
+                        dict[str, JsonValue],
+                        persisted_plan.model_dump(mode="json"),
+                    ),
+                    fencing_token=lease_guard.fencing_token,
+                ),
+                tenant_id=identity.tenant_id,
+                actor_id=identity.actor_id,
+            )
+            self._active_run_id = run.id
         await self._append_event(
             identity.tenant_id,
             trace_id,

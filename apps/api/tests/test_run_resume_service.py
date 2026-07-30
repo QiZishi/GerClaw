@@ -7,7 +7,26 @@ from datetime import UTC, datetime
 
 import pytest
 
+from gerclaw_api.config import Settings
 from gerclaw_api.database.models import AgentRun, ExecutionTrace, Message
+from gerclaw_api.modules.agent_harness.clinical_state import ClinicalState
+from gerclaw_api.modules.agent_harness.config import ResolvedHarnessConfig
+from gerclaw_api.modules.agent_harness.context_snapshot import (
+    AgentContext,
+    ConversationHistoryMessage,
+    FrozenToolContract,
+    PersistedContextSnapshot,
+    PersistedRunPlan,
+)
+from gerclaw_api.modules.agent_harness.planning import (
+    ClinicalDecisionCoordinator,
+    DeterministicPlanner,
+    PlanRequest,
+)
+from gerclaw_api.modules.agent_harness.routing import RouteDecision, RouteKind
+from gerclaw_api.modules.contracts import ExecutionContext
+from gerclaw_api.modules.runtime.models import ExecutionBudget
+from gerclaw_api.modules.workflows import get_default_workflow_registry
 from gerclaw_api.repositories.run_resume import RunResumeRecord
 from gerclaw_api.services.run_resume_service import (
     RunResumeConflictError,
@@ -56,7 +75,77 @@ def _record() -> RunResumeRecord:
     session_id = uuid.uuid4()
     message_id = uuid.uuid4()
     trace_id = "trace_resume_unit_0001"
+    request_id = "request_resume_unit_0001"
     now = datetime.now(UTC)
+    settings = Settings()
+    resolved = ResolvedHarnessConfig.from_settings(settings)
+    budget = ExecutionBudget(
+        max_steps=resolved.max_react_iterations,
+        max_output_bytes=resolved.max_output_bytes,
+    )
+    route = RouteDecision(
+        route=RouteKind.STANDARD,
+        reason_code="test_standard",
+    )
+    clinical_decision = ClinicalDecisionCoordinator(
+        minimum_score=resolved.savi_minimum_score
+    ).prepare(state=ClinicalState(), message="请恢复这次回答", has_attachments=False)
+    dynamic_plan = DeterministicPlanner(
+        execution_budget=budget,
+        output_reserve_tokens=resolved.model_output_reserve_tokens,
+    ).build(
+        PlanRequest(
+            route=RouteKind.STANDARD,
+            selected_action="answer",
+        )
+    )
+    workflow = get_default_workflow_registry().resolve("standard")
+    context = AgentContext(
+        execution=ExecutionContext(
+            request_id=request_id,
+            trace_id=trace_id,
+            tenant_id=TENANT,
+            actor_id=ACTOR,
+            session_id=session_id,
+        ),
+        system_instructions=(
+            "medical_safety_v1",
+            "traceable_evidence_required_v1",
+            "no_raw_chain_of_thought_v1",
+        ),
+        tool_names=("search_knowledge", "search_memory"),
+        conversation_history=(
+            ConversationHistoryMessage(
+                role="assistant",
+                text="这是冻结的历史。",
+            ),
+        ),
+    )
+    snapshot = PersistedContextSnapshot(
+        input_message_id=message_id,
+        agent_context=context,
+        prompt_policy_ids=context.system_instructions,
+        tool_contracts=tuple(
+            FrozenToolContract(name=name, version="1.0.0")
+            for name in context.tool_names
+        ),
+    )
+    plan = PersistedRunPlan(
+        loaded_skill_count=0,
+        requested_capability_count=0,
+        uploaded_document_count=0,
+        uploaded_image_count=0,
+        workflow=workflow.workflow_id,
+        workflow_definition=workflow,
+        workflow_version=workflow.version,
+        workflow_owner_module=workflow.owner_module,
+        search_enabled=workflow.search_enabled,
+        route_decision=route,
+        dynamic_plan=dynamic_plan,
+        clinical_decision=clinical_decision,
+        resolved_config=resolved,
+        execution_budget=budget,
+    )
     run = AgentRun(
         id=run_id,
         tenant_id=TENANT,
@@ -66,16 +155,8 @@ def _record() -> RunResumeRecord:
         trace_id=trace_id,
         route="standard",
         status="interrupted",
-        context_snapshot={},
-        plan={
-            "loaded_skill_count": 1,
-            "loaded_skill_ids": ["medication-reminder"],
-            "uploaded_document_count": 1,
-            "uploaded_document_ids": [str(uuid.uuid4())],
-            "uploaded_image_count": 0,
-            "uploaded_image_fingerprints": [],
-            "workflow": "standard",
-        },
+        context_snapshot=snapshot.model_dump(mode="json"),
+        plan=plan.model_dump(mode="json"),
         warnings=[],
         fencing_token=7,
         last_sequence=2,
@@ -98,7 +179,7 @@ def _record() -> RunResumeRecord:
     )
     trace = ExecutionTrace(
         trace_id=trace_id,
-        request_id="request_resume_unit_0001",
+        request_id=request_id,
         tenant_id=TENANT,
         actor_id=ACTOR,
         session_id=session_id,
@@ -123,9 +204,13 @@ async def test_prepare_reconstructs_only_server_persisted_input() -> None:
 
     assert command.trace_id == record.run.trace_id
     assert command.request.message == "请恢复这次回答"
-    assert command.request.loaded_skills == ["medication-reminder"]
-    assert len(command.request.uploaded_files) == 1
+    assert command.request.loaded_skills == []
+    assert command.request.uploaded_files == []
     assert command.request.images == []
+    assert command.request_id == record.trace.request_id
+    assert command.state.snapshot.agent_context.conversation_history[0].text == (
+        "这是冻结的历史。"
+    )
     assert repository.rollbacks == 1
 
 
@@ -160,7 +245,6 @@ async def test_prepare_rejects_non_interrupted_or_corrupt_material() -> None:
             tenant_id=TENANT,
             actor_id=ACTOR,
         )
-
     record.run.status = "interrupted"
     record.run.plan = {**record.run.plan, "loaded_skill_count": 2}
     with pytest.raises(RunResumeDataError):
@@ -170,6 +254,30 @@ async def test_prepare_rejects_non_interrupted_or_corrupt_material() -> None:
             actor_id=ACTOR,
         )
 
+
+@pytest.mark.asyncio
+async def test_prepare_rejects_cross_actor_or_unknown_snapshot_material() -> None:
+    record = _record()
+    agent_context = record.run.context_snapshot["agent_context"]
+    assert isinstance(agent_context, dict)
+    execution = agent_context["execution"]
+    assert isinstance(execution, dict)
+    execution["actor_id"] = "usr_patient_foreign0001"
+    with pytest.raises(RunResumeDataError):
+        await RunResumeService(_Repository(record)).prepare(
+            record.run.id,
+            tenant_id=TENANT,
+            actor_id=ACTOR,
+        )
+
+    record = _record()
+    record.run.context_snapshot["unexpected"] = True
+    with pytest.raises(RunResumeDataError):
+        await RunResumeService(_Repository(record)).prepare(
+            record.run.id,
+            tenant_id=TENANT,
+            actor_id=ACTOR,
+        )
 
 @pytest.mark.asyncio
 async def test_prepare_hides_missing_or_foreign_run() -> None:

@@ -772,10 +772,10 @@ Agents SDK、HL7 FHIR、Mem0、Agent Skills、A-Evolve、GEPA 和 Adaptive Auto-
 | Routing | 核心符合 | Emergency 在首次模型调用前覆盖 Quick，继续冻结这条优先级 |
 | Planning | 核心符合 | DAG、依赖和预算存在；能力节点必须在 Run 建立后执行并持久化节点状态 |
 | ClinicalState | 核心符合 | provenance、unknown、conflict 和 confirmed 分离仍成立；补红旗生命周期测试 |
-| Context Snapshot | **P1 偏离** | 当前 Run 仅保存摘要字段，恢复会重读当前环境；必须持久化足以重放的稳定快照并从快照恢复 |
-| Run Lifecycle | **P1 偏离** | `interrupted` 同时被列为终态又允许转回 running；必须统一为可恢复非终态，或恢复时创建 successor Run |
+| Context Snapshot | **P1 已修复** | 已增加 `context-snapshot-v1`/`run-plan-v1`，恢复消费加密冻结上下文，不再重读当前历史、Profile、Memory、Skill 或文档 |
+| Run Lifecycle | **P1 已修复** | `interrupted` 已从真正终态集合移除，并使用独立 `interrupted_at`；恢复仍受 fencing 约束 |
 | Evidence/Citation | **P1 偏离** | 合同完整，但“存在任意 citation”会解锁所有临床句子；必须建立 claim/segment 到 adopted text 的逐项绑定 |
-| Plugin Runtime | **P1 偏离** | Manifest 声明 input/output schema，但 owner 调用前后未强制执行；必须把声明变成可执行合同 |
+| Plugin Runtime | **P1 已修复** | Manifest schema 已与 owner adapter 的 Pydantic 合同绑定，并在 owner 调用前后及运行时 schema 漂移时 fail closed |
 | Shared Results | 核心符合 | 保留 actor/run/scope/consumer 全量校验 |
 | Evolution Signals | 安全休眠、尚未实现 | 当前只有去内容化合同和可选 sink；缺生产收集器不等于语义损坏 |
 | Memory | 核心符合 | 已在线新增、修订、冲突、确认、拒绝、inactive 和召回过滤；补明确 PATCH/DELETE、tombstone/恢复审计，不冻结内容 |
@@ -789,6 +789,22 @@ Agents SDK、HL7 FHIR、Mem0、Agent Skills、A-Evolve、GEPA 和 Adaptive Auto-
 
 双轨能力接入前必须先关闭上述 4 项 P1。否则候选评测会建立在不稳定事实源、矛盾终态、宽泛证据授权或
 说明性 Plugin Schema 上，无法证明演化没有把组件改偏。
+
+截至 2026-07-30 的前置修复记录：
+
+- Plugin Runtime schema 边界：`ecfa62d`。定向测试 9/9，Harness/Planning/Chat 63/63，
+  Ruff/Mypy 通过。
+- Run Lifecycle interruption 语义：`d9b14dc`。迁移 upgrade → downgrade → upgrade、数据库
+  constraint、56 项定向测试、前端契约、Ruff/Mypy/ESLint/tsc 通过。
+- Context Snapshot：已实现不可变 `AgentContext`、严格 `PersistedContextSnapshot`、
+  `PersistedRunPlan` 和 `FrozenRunState`。快照包含模型可见历史、Profile/Memory 版本与引用、
+  ClinicalState、精确 Skill 定义、解析文档、版本化 Prompt policy、工具合同版本、能力结果、路由、
+  DAG、SAVI/C3 决策、工作流、配置和预算。Resume 重新校验当前主体授权与
+  tenant/actor/session/trace/input identity，使用原 Trace request id，复用附件哈希，不新增用户消息；
+  legacy/未知 schema、跨主体或合同漂移 fail closed，禁止回退到当前可变环境。定向单元测试
+  96/96、真实 PostgreSQL/Redis Chat + 恢复集成测试 18/18、Ruff/Mypy 和 800 行结构门禁通过。
+
+尚未关闭的唯一 P1 是 Evidence/Citation 逐 claim 绑定；完成后才进入在线/离线演化写路径。
 
 #### 6.1 必须保留的语义
 

@@ -496,10 +496,13 @@ async def test_companion_harness_has_no_tools_or_long_term_memory_context(
         events.append,
     )
 
-    assert context.tool_names == []
+    assert context.tool_names == ()
     assert context.profile_context == ""
-    assert context.memory_refs == []
-    assert context.system_instructions == ["companion_safety_v1", "no_raw_chain_of_thought_v1"]
+    assert context.memory_refs == ()
+    assert context.system_instructions == (
+        "companion_safety_v1",
+        "no_raw_chain_of_thought_v1",
+    )
     assert rag.calls == []
     assert response.citations == []
     assert events[0].data["agent"] == "gerclaw_emotional_companion"

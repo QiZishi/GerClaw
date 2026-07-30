@@ -190,6 +190,10 @@ class DatabaseChatRunJournal:
                 await repository.rollback()
                 return ClinicalState()
             raw_state = run.context_snapshot.get("clinical_state")
+            if raw_state is None:
+                agent_context = run.context_snapshot.get("agent_context")
+                if isinstance(agent_context, dict):
+                    raw_state = agent_context.get("clinical_state")
             await repository.rollback()
             if raw_state is None:
                 return ClinicalState()

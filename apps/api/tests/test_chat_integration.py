@@ -23,7 +23,7 @@ from gerclaw_api.database.models import (
 from gerclaw_api.domain.enums import TraceStatus
 from gerclaw_api.domain.run_schemas import AgentRunStatus
 from gerclaw_api.domain.trace_schemas import TraceFinishRequest
-from gerclaw_api.modules.agent_harness import StreamEvent
+from gerclaw_api.modules.agent_harness import AgentContext, StreamEvent
 from gerclaw_api.modules.agent_harness.run_lifecycle import RunFenceConflictError
 from gerclaw_api.modules.contracts import AgentResponse, Citation, SafetyDecision
 from gerclaw_api.repositories.conversation import (
@@ -47,17 +47,51 @@ TENANT = "tenant_public0001"
 ACTOR = "usr_patient_integration0001"
 
 
+def _fake_agent_context(kwargs: dict[str, object]) -> AgentContext:
+    preassembled = kwargs.get("preassembled_context")
+    if isinstance(preassembled, AgentContext):
+        return preassembled
+    documents = kwargs.get("uploaded_documents")
+    document_ids = tuple(
+        str(item.document_id)
+        for item in documents
+        if hasattr(item, "document_id")
+    ) if isinstance(documents, list) else ()
+    loaded_skill_ids = kwargs.get("loaded_skill_ids")
+    return AgentContext(
+        execution=kwargs["execution"],
+        system_instructions=(
+            "medical_safety_v1",
+            "traceable_evidence_required_v1",
+            "no_raw_chain_of_thought_v1",
+        ),
+        tool_names=(),
+        clinical_state=kwargs.get("clinical_state", {}),
+        loaded_skills=(
+            tuple(loaded_skill_ids)
+            if isinstance(loaded_skill_ids, list)
+            else ()
+        ),
+        uploaded_files=document_ids,
+        conversation_history=(
+            tuple(kwargs["history"])
+            if isinstance(kwargs.get("history"), list)
+            else ()
+        ),
+    )
+
+
 class _EmptyRAG:
     async def retrieve(self, *_args: object, **_kwargs: object) -> list[object]:
         return []
 
 
 class _SafeHarness:
-    def __init__(self, **_kwargs: object) -> None:
-        pass
+    def __init__(self, **kwargs: object) -> None:
+        self.context = _fake_agent_context(kwargs)
 
     async def assemble_context(self, *_args: object, **_kwargs: object) -> object:
-        return object()
+        return self.context
 
     async def process_message(self, *_args: object, **_kwargs: object) -> AgentResponse:
         return _safe_response()
@@ -68,9 +102,10 @@ class _BlockingSkillHarness:
 
     def __init__(self, **_kwargs: object) -> None:
         type(self).entered.clear()
+        self.context = _fake_agent_context(_kwargs)
 
     async def assemble_context(self, *_args: object, **_kwargs: object) -> object:
-        return object()
+        return self.context
 
     async def process_message(
         self,
@@ -456,7 +491,7 @@ async def test_chat_missing_evidence_persists_safe_clarification_without_bad_cas
     assert response.status_code == 200
     assert "event: error" not in response.text
     assert "event: done" in response.text
-    assert "请补充" in response.text
+    assert "请先补充" in response.text
     trace = await client.get(f"/api/v1/traces/{trace_id}")
     assert trace.status_code == 200
     assert trace.json()["status"] == "completed"
