@@ -63,6 +63,8 @@ interface ChatWorkspaceViewProps {
     | ChatSendAccepted
     | Promise<boolean | void | ChatSendAccepted>;
   onStop: () => void;
+  onQueue: (instruction: string) => Promise<boolean>;
+  onSteer: (instruction: string) => Promise<boolean>;
 }
 
 export function ChatWorkspaceView({
@@ -89,6 +91,8 @@ export function ChatWorkspaceView({
   onAnswerVersionSelected,
   onSend,
   onStop,
+  onQueue,
+  onSteer,
 }: ChatWorkspaceViewProps) {
   const actionTitles: Partial<Record<ChatActionType, string>> = {
     prescription: role === "doctor" ? "五大处方草案" : "五大处方计划",
@@ -229,6 +233,8 @@ export function ChatWorkspaceView({
           onSend={onSend}
           isGenerating={isGenerating}
           onStop={onStop}
+          onQueue={onQueue}
+          onSteer={onSteer}
           onStartAction={onStartAction}
           contextLoading={contextLoading}
           companionMode={chatAction === "companion"}

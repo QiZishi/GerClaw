@@ -10,6 +10,8 @@ interface ComposerSubmitControlProps {
   isGenerating: boolean;
   isTranscribing: boolean;
   isSending: boolean;
+  directiveSubmitting: "queue" | "steer" | null;
+  hasDirectiveText: boolean;
   canSend: boolean;
   isOnline: boolean;
   asrAvailable: boolean;
@@ -17,6 +19,8 @@ interface ComposerSubmitControlProps {
   seniorMode: boolean;
   onSend: () => void;
   onStop?: () => void;
+  onQueue: () => void;
+  onSteer: () => void;
   onMicStart: () => void;
   onCancelTranscription: () => void;
 }
@@ -24,13 +28,55 @@ interface ComposerSubmitControlProps {
 export function ComposerSubmitControl(props: ComposerSubmitControlProps) {
   if (props.isGenerating) {
     return (
-      <IconAction
-        label="停止生成"
-        seniorMode={props.seniorMode}
-        variant="destructive"
-        onClick={props.onStop}
-        icon={<Square className="size-4 fill-current" aria-hidden />}
-      />
+      <div
+        className="flex flex-wrap items-center justify-end gap-2"
+        aria-label="执行中的新要求"
+      >
+        <Button
+          type="button"
+          variant="outline"
+          className={cn(
+            "min-h-11 px-3 disabled:opacity-100 disabled:text-muted-foreground",
+            props.seniorMode && "min-h-12 text-lg",
+          )}
+          disabled={
+            !props.hasDirectiveText ||
+            props.directiveSubmitting !== null ||
+            !props.isOnline
+          }
+          onClick={props.onQueue}
+        >
+          {props.directiveSubmitting === "queue" ? "排队中" : "排队继续"}
+        </Button>
+        <Button
+          type="button"
+          className={cn(
+            "min-h-11 px-3 disabled:bg-muted disabled:text-muted-foreground disabled:opacity-100",
+            props.seniorMode && "min-h-12 text-lg",
+          )}
+          disabled={
+            !props.hasDirectiveText ||
+            props.directiveSubmitting !== null ||
+            !props.isOnline
+          }
+          onClick={props.onSteer}
+        >
+          {props.directiveSubmitting === "steer" ? "调整中" : "立即调整"}
+        </Button>
+        <Button
+          type="button"
+          variant="destructive"
+          className={cn(
+            "min-h-11 gap-2 px-3 text-foreground disabled:opacity-100",
+            props.seniorMode && "min-h-12 text-lg",
+          )}
+          onClick={props.onStop}
+          aria-label="停止生成"
+        >
+          <Square className="size-4 fill-current" aria-hidden />
+          <span>停止</span>
+        </Button>
+      </div>
     );
   }
   if (props.isTranscribing) {

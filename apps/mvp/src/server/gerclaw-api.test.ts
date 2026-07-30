@@ -29,6 +29,45 @@ test("session proxy permits only the declared session lifecycle operations", () 
   assert.equal(isAllowedGerclawProxyTarget("sessions/not-a-uuid", "DELETE"), false);
 });
 
+test("chat execution directives allow only bounded trace POST routes", () => {
+  const traceId = "trace_directive_ui_0001";
+  assert.equal(
+    isAllowedGerclawProxyTarget(
+      `chat/${traceId}/directives/queue`,
+      "POST",
+    ),
+    true,
+  );
+  assert.equal(
+    isAllowedGerclawProxyTarget(
+      `chat/${traceId}/directives/steer`,
+      "POST",
+    ),
+    true,
+  );
+  assert.equal(
+    isGuestAllowedGerclawProxyTarget(
+      `chat/${traceId}/directives/steer`,
+      "POST",
+    ),
+    true,
+  );
+  assert.equal(
+    isAllowedGerclawProxyTarget(
+      `chat/${traceId}/directives/steer`,
+      "GET",
+    ),
+    false,
+  );
+  assert.equal(
+    isAllowedGerclawProxyTarget(
+      "chat/trace_short/directives/steer/extra",
+      "POST",
+    ),
+    false,
+  );
+});
+
 test("Run proxy exposes only owner-scoped lifecycle and resource operations", () => {
   assert.equal(isAllowedGerclawProxyTarget(`runs/${runId}`, "GET"), true);
   assert.equal(isAllowedGerclawProxyTarget(`runs/${runId}/events`, "GET"), true);

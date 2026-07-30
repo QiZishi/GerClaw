@@ -38,8 +38,12 @@ export function ChatArea() {
   const deleteMessage = useChatStore((s) => s.deleteMessage);
   const storeSessions = useChatStore((s) => s.sessions);
 
-  const { sendTurn: doSend, stopTurn: handleStop } =
-    useAgentConversationStream();
+  const {
+    sendTurn: doSend,
+    stopTurn: handleStop,
+    queueTurn: handleQueue,
+    steerTurn: handleSteer,
+  } = useAgentConversationStream();
   const {
     readySessionId: skillSelectionReadySessionId,
     stageSelection: stageSkillSelection,
@@ -160,6 +164,16 @@ export function ChatArea() {
         onStop={() => {
           if (currentSessionId) handleStop(currentSessionId);
         }}
+        onQueue={(instruction) =>
+          currentSessionId
+            ? handleQueue(currentSessionId, instruction)
+            : Promise.resolve(false)
+        }
+        onSteer={(instruction) =>
+          currentSessionId
+            ? handleSteer(currentSessionId, instruction)
+            : Promise.resolve(false)
+        }
       />
       <ChatWorkspaceDialogs
         messages={messages}

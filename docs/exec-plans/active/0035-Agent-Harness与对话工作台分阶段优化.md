@@ -36,7 +36,7 @@ Memory/Skill 的治理机制。
 | 3 | ClinicalState、动态规划与医疗门禁 | 已完成：四轮独立审阅修复、真实 GUI 与最终 ACCEPT |
 | 4 | 证据、Memory 与受治理能力组合 | 已完成：三项 P1 修复、真实 GUI/数据库复验、最终独立复审 ACCEPT |
 | 5 | 对话工作台 UI 与交互重构 | 已完成：独立审阅 3 项 P1 修复，真实 Playwright/axe 复验，最终 ACCEPT |
-| 6 | 双轨受控自进化与执行期上下文治理 | 进行中：完成组件宪章、双轨分类、Memory 在线 CRUD、Skill 在线/离线分轨和去内容化信号；继续 sealed evaluator、离线评测、晋升控制面、执行期 steer/queue 和上下文压缩交互 |
+| 6 | 双轨受控自进化与执行期上下文治理 | 进行中：完成组件宪章、双轨分类、Memory 在线 CRUD、Skill 在线/离线分轨、去内容化信号、Codex 风格高价值上下文压缩及执行期 steer/queue 前后端闭环；继续 sealed evaluator、离线评测和晋升控制面 |
 | 7 | 最终回归、真实 GUI 对抗审阅与发布 | 未开始 |
 
 ## 3. 阶段 0：冻结基线与真实运行审计
@@ -1217,6 +1217,22 @@ Harness/Safety/AgentRun/Context/Directive 的组合回归 `157 passed`，Ruff �
 终态/绑定/apply/withdraw 竞态合跑 `9 passed`（只有本地 Qdrant HTTP API-key warning）。Composer 和真实 Playwright 操作仍属于下一
 独立前端变更集；before-tool/PlanNode checkpoint 也未在此处伪装为完成。
 
+执行期 Composer 变更集现已完成：同一会话运行中可继续输入，用户明确选择“排队继续”或“立即调整”，
+两者均使用服务端返回合同和稳定 idempotency key；`interrupted` 是替换控制帧，不生成失败/修复气泡。
+active turn 按 session 隔离，切换会话不会把后台 Run 劫持到当前 Composer。steer handoff 期间保留
+source controller，并另持有 successor controller；停止同时作用于两者。若新 Trace 到达时已经停止，
+客户端立即取消 successor；若 successor 建立失败，则删除未验证 assistant、释放 active turn 并保留
+用户新要求供重发，不会恢复已经中断的旧 controller 或永久卡在生成态。
+
+前端信任边界为严格 Zod `interrupted`/`RunDirective` 合同，BFF 只放行带界限 Trace 的 POST
+queue/steer 路径。运行态三个文字按钮在患者老年模式均为 48 px 高、18 px 文字；工具条横向滚动区可
+聚焦，禁用态和停止按钮通过对比度检查。Playwright 使用真实 Next.js/FastAPI/PostgreSQL/Redis/Qdrant
+和真实模型，没有 route mock：queue 返回 201、steer 返回 200，旧 Run 为 `interrupted`、successor
+为 `completed`，queue/steer 均绑定并 `applied`；handoff 中立即停止得到 source cancel 202、steer
+409，并在约 1.4 秒内回到可发送状态。最终工作台 Playwright/axe `6 passed`，chat 合同 `12 passed`、
+BFF/能力合同 `30 passed`，lint 和生产 build 通过。首次独立审阅指出 handoff 失败悬挂和 pending
+stop 失效两项 P1；修复后复审 P0/P1/P2 均为 0，结论 ACCEPT。
+
 #### 6.7 安全校验的可用性、反馈修复与步骤级回退硬约束
 
 “安全”不能被实现成高误杀率的拒绝系统。每个校验器必须先声明保护的具体资产、精确失败条件、可修复性、
@@ -1358,6 +1374,22 @@ attempt，公开 replay 仍只读取 `run_events`，因此坏输出没有公开�
 验证记录：相关 pytest 39/39，Ruff、Mypy、Alembic `upgrade → downgrade → upgrade → check` 通过。
 该变更集暂以完整回答作为最小提升单元；节点内确定性 repair/fallback、多 attempt 真正重试、十路 PostgreSQL
 并发 CAS、steer/queue 后继 Run、前端网络/DOM 无泄漏 Playwright 仍属于后续独立变更集，未标记完成。
+
+第二变更集已把最终回答中的 Provider/tool 协议标记纳入局部可修复合同：第一次出现
+`invoke/parameter/tool_call/function_call` 控制标记时，完整事件仍只在私有 attempt 缓冲区；
+attempt 以无正文 `answer_protocol_markup` 反馈被拒绝，从 `chat.answer.pre_model.v1` 重建
+request-scoped Agent，并在既有 retry/Token/延迟预算内只重试一次。第二 attempt 通过后才获得公开
+sequence、AnswerVersion 和 current pointer；再次失败走类型化公开错误，不拼接、解释或泄漏坏片段。
+ChatService 的 repair observer 保留同一 `public_operation_id`，创建单调新 attempt，并重新暂存此前
+安全的 pre-model 事件。确定性测试真实执行“首轮原始 `<invoke>` → 第二轮自然语言成功”，断言模型调用
+两次、坏片段未进入 callback/回答、修复指令只存在于私有上下文；扩大定向回归 `106 passed`，Ruff、
+Mypy 通过。真实 Playwright 成功路径只见最终自然语言；另一次真实 Provider 自身失败时页面只保留用户
+消息和可重发 Composer，没有内部错误、协议标记或残缺 assistant。提交为 `941e02c5`。
+
+Provider 清理层吞掉首次 `Task.cancel()` 的执行控制问题也已闭环：Registry 对同一身份绑定 control
+intent 做有界重复投递，Coordinator 一捕获取消就同步 acknowledge，再进入数据库终态提交，因此重复
+信号不会打断持久化清理。相关 cancellation/coordinator/chat 测试 `48 passed`，Ruff、Mypy 通过；
+真实 queue→steer 链路的旧 Run 唯一进入 `interrupted`、successor 完成，提交为 `3465a319`。
 
 ### 阶段 7
 

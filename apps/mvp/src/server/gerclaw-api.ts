@@ -71,6 +71,11 @@ const proxyRules: Array<{ pattern: RegExp; methods: ReadonlySet<string> }> = [
     methods: new Set(["POST"]),
   },
   {
+    pattern:
+      /^chat\/trace_[A-Za-z0-9][A-Za-z0-9_.:-]{7,57}\/directives\/(?:queue|steer)$/,
+    methods: new Set(["POST"]),
+  },
+  {
     pattern: new RegExp(`^runs/${uuidPattern}$`, "i"),
     methods: new Set(["GET"]),
   },

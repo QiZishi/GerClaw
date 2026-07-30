@@ -34,6 +34,8 @@ interface ChatInputProps {
   /** A request is being accepted by the backend; block duplicate sends without pretending generation has started. */
   isSending?: boolean;
   onStop?: () => void;
+  onQueue?: (instruction: string) => Promise<boolean>;
+  onSteer?: (instruction: string) => Promise<boolean>;
   onStartAction?: (action: "prescription" | "cga" | "drug-review" | "health-profile") => void;
   contextLoading?: boolean;
   /** The companion backend rejects files and Skills; keep the controls truthful. */
@@ -48,6 +50,8 @@ export function ChatInput({
   isGenerating,
   isSending = false,
   onStop,
+  onQueue,
+  onSteer,
   onStartAction,
   contextLoading = false,
   companionMode = false,
@@ -76,6 +80,9 @@ export function ChatInput({
   };
 
   const [text, setText] = useState("");
+  const [directiveSubmitting, setDirectiveSubmitting] = useState<
+    "queue" | "steer" | null
+  >(null);
   const [selectedCapabilityIds, setSelectedCapabilityIds] = useState<string[]>([]);
   const previousSessionIdRef = useRef<string | undefined>(currentSessionId);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
@@ -174,7 +181,9 @@ export function ChatInput({
     }
   }, []);
 
-  const placeholder = placeholderOverride ?? (!mounted
+  const placeholder = placeholderOverride ?? (isGenerating
+    ? "输入新要求，可选择立即调整或排队继续…"
+    : !mounted
     ? "描述您的健康问题…"
     : contextLoading
       ? "正在恢复当前会话的技能，请稍候…"
@@ -229,6 +238,25 @@ export function ChatInput({
     }
   };
 
+  const handleRunDirective = async (mode: "queue" | "steer") => {
+    const instruction = text.trim();
+    if (!instruction || directiveSubmitting || !isGenerating || !isOnline) return;
+    setDirectiveSubmitting(mode);
+    try {
+      const accepted =
+        mode === "queue"
+          ? await onQueue?.(instruction)
+          : await onSteer?.(instruction);
+      if (!accepted) return;
+      setText("");
+      if (textareaRef.current) {
+        textareaRef.current.style.height = "52px";
+      }
+    } finally {
+      setDirectiveSubmitting(null);
+    }
+  };
+
   const handleInput = (e: React.ChangeEvent<HTMLTextAreaElement>) => {
     setText(e.target.value.slice(0, INPUT_LIMITS.maxMessageLength));
     const ta = e.target;
@@ -260,6 +288,7 @@ export function ChatInput({
       asrAvailable={asrAvailable}
       isGenerating={Boolean(isGenerating)}
       isSending={isSending}
+      directiveSubmitting={directiveSubmitting}
       isTranscribing={isTranscribing}
       contextLoading={contextLoading}
       companionMode={companionMode}
@@ -299,6 +328,8 @@ export function ChatInput({
       onAction={handleStartAction}
       onSend={() => void handleSend()}
       onStop={onStop}
+      onQueue={() => void handleRunDirective("queue")}
+      onSteer={() => void handleRunDirective("steer")}
       onMicStart={() => void startVoice()}
       onCancelTranscription={cancelTranscription}
       onLimitDialogChange={setLimitDialogMessage}

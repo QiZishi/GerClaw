@@ -78,9 +78,9 @@ export function MessageBubble({
     <div
       data-message-bubble
       className={cn(
-        "group flex gap-3 px-4 py-4 transition-[transform,opacity] duration-200 motion-reduce:transition-opacity",
+        "group flex gap-3 px-4 py-4 transition-transform duration-200",
         isUser ? "flex-row-reverse" : "flex-row",
-        appeared ? "translate-y-0 opacity-100" : "translate-y-2 opacity-0 motion-reduce:translate-y-0",
+        appeared ? "translate-y-0" : "translate-y-2 motion-reduce:translate-y-0",
       )}
     >
       <Avatar className="mt-0.5 shrink-0" size="default">

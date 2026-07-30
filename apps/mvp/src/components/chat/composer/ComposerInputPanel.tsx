@@ -29,6 +29,7 @@ export function ComposerInputPanel({
   asrAvailable,
   isGenerating,
   isSending,
+  directiveSubmitting,
   isTranscribing,
   contextLoading,
   companionMode,
@@ -62,6 +63,8 @@ export function ComposerInputPanel({
   onAction,
   onSend,
   onStop,
+  onQueue,
+  onSteer,
   onMicStart,
   onCancelTranscription,
   onLimitDialogChange,
@@ -194,7 +197,12 @@ export function ComposerInputPanel({
               </p>
             ) : (
               <ComposerToolbar
-                disabled={isTranscribing || contextLoading || isSending}
+                disabled={
+                  isGenerating ||
+                  isTranscribing ||
+                  contextLoading ||
+                  isSending
+                }
                 role={role}
                 mounted={mounted}
                 seniorMode={seniorMode}
@@ -211,6 +219,8 @@ export function ComposerInputPanel({
               isGenerating={isGenerating}
               isTranscribing={isTranscribing}
               isSending={isSending}
+              directiveSubmitting={directiveSubmitting}
+              hasDirectiveText={Boolean(text.trim())}
               canSend={canSend}
               isOnline={isOnline}
               asrAvailable={asrAvailable}
@@ -218,6 +228,8 @@ export function ComposerInputPanel({
               seniorMode={seniorMode}
               onSend={onSend}
               onStop={onStop}
+              onQueue={onQueue}
+              onSteer={onSteer}
               onMicStart={onMicStart}
               onCancelTranscription={onCancelTranscription}
             />

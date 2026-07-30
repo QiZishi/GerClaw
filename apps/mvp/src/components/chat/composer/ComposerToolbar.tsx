@@ -47,7 +47,11 @@ export function ComposerToolbar({
 }: ComposerToolbarProps) {
   const isDoctor = mounted && role === "doctor";
   return (
-    <div className="flex min-w-0 flex-1 items-center gap-1 overflow-x-auto overscroll-x-contain pb-1">
+    <div
+      className="flex min-w-0 flex-1 items-center gap-1 overflow-x-auto overscroll-x-contain pb-1"
+      tabIndex={0}
+      aria-label="对话工具，可横向滚动"
+    >
       <ToolbarButton
         label="图片"
         tooltip="上传图片"

@@ -19,6 +19,7 @@ export interface ComposerInputPanelProps {
   asrAvailable: boolean;
   isGenerating: boolean;
   isSending: boolean;
+  directiveSubmitting: "queue" | "steer" | null;
   isTranscribing: boolean;
   contextLoading: boolean;
   companionMode: boolean;
@@ -52,6 +53,8 @@ export interface ComposerInputPanelProps {
   onAction: (action: ComposerAction) => void;
   onSend: () => void;
   onStop?: () => void;
+  onQueue: () => void;
+  onSteer: () => void;
   onMicStart: () => void;
   onCancelTranscription: () => void;
   onLimitDialogChange: (message: string | null) => void;

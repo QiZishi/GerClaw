@@ -3,6 +3,10 @@ import test from "node:test";
 
 import { chatDoneEventSchema } from "./chat-contract.ts";
 import {
+  interruptedSchema,
+  runDirectiveSchema,
+} from "./chat-directive-contract.ts";
+import {
   advanceDurableCursor,
   DurableStreamCursorError,
 } from "./durable-stream.ts";
@@ -125,5 +129,55 @@ test("durable cursor rejects partial or cross-Run metadata", () => {
         cursor
       ),
     DurableStreamCursorError
+  );
+});
+
+test("interrupted stream control is distinct from explicit cancellation", () => {
+  assert.deepEqual(
+    interruptedSchema.parse({
+      trace_id: "trace_source_run_0001",
+      status: "interrupted",
+      message: "已按新要求调整执行。",
+    }),
+    {
+      trace_id: "trace_source_run_0001",
+      status: "interrupted",
+      message: "已按新要求调整执行。",
+    },
+  );
+  assert.equal(
+    interruptedSchema.safeParse({
+      trace_id: "trace_source_run_0001",
+      status: "cancelled",
+      message: "回答已停止。",
+    }).success,
+    false,
+  );
+});
+
+test("run directive response excludes private worker identities", () => {
+  const parsed = runDirectiveSchema.safeParse({
+    schema_version: "1.0",
+    id: "3d7e7c3d-95cc-46d7-ae91-c03c5bcbcc50",
+    conversation_id: "2da90326-3490-4739-b7ab-274194bb2741",
+    target_run_id: "08056df4-0f35-4c39-aac7-6e1c65b80cf4",
+    successor_run_id: null,
+    sequence: 2,
+    mode: "queue_for_next_boundary",
+    status: "pending",
+    instruction: "下一步先回答饮食安排。",
+    revision: 1,
+    created_at: "2026-07-30T16:00:00Z",
+    claimed_at: null,
+    applied_at: null,
+    cancelled_at: null,
+  });
+  assert.equal(parsed.success, true);
+  assert.equal(
+    runDirectiveSchema.safeParse({
+      ...parsed.data,
+      claimed_by_fencing_token: 9,
+    }).success,
+    false,
   );
 });

@@ -5,8 +5,11 @@ import { useRef } from "react";
 import { toast } from "@/components/ui/toast";
 import { generateId } from "@/lib/format";
 import {
+  type AgentChatCallbacks,
   attachAgentRun,
+  queueAgentDirective,
   resumeAgentRun,
+  steerAgentChat,
   streamAgentChat,
 } from "@/services/gerclaw/chat";
 import { useAppStore } from "@/stores/appStore";
@@ -39,6 +42,20 @@ export type SendAgentTurn = (
   resume?: ConversationResume,
 ) => void;
 
+interface ActiveConversationTurn {
+  controller: AbortController;
+  handoffController?: AbortController;
+  traceId?: string;
+  assistantMessageId: string;
+  finish: () => void;
+  callbacks: AgentChatCallbacks;
+  prepareSuccessorProjection: (instruction: string) => void;
+  suppressedInterrupts: Set<string>;
+  directiveInFlight: boolean;
+  queueRequest?: { instruction: string; idempotencyKey: string };
+  steerRequest?: { instruction: string; idempotencyKey: string };
+}
+
 function getMessageText(message: Message): string {
   return message.blocks
     .filter(
@@ -58,6 +75,8 @@ function getMessageText(message: Message): string {
 export function useAgentConversationStream(): {
   sendTurn: SendAgentTurn;
   stopTurn: (sessionId: string) => void;
+  queueTurn: (sessionId: string, instruction: string) => Promise<boolean>;
+  steerTurn: (sessionId: string, instruction: string) => Promise<boolean>;
 } {
   const loadedSkillIds = useAppStore((state) => state.loadedSkillIds);
   const addMessage = useChatStore((state) => state.addMessage);
@@ -71,14 +90,16 @@ export function useAgentConversationStream(): {
   const failMessageToolCall = useChatStore((state) => state.failMessageToolCall);
   const updateSession = useChatStore((state) => state.updateSession);
   const setGenerating = useChatStore((state) => state.setGenerating);
+  const deleteMessage = useChatStore((state) => state.deleteMessage);
 
-  const abortControllersRef = useRef(new Map<string, AbortController>());
+  const activeTurnsRef = useRef(new Map<string, ActiveConversationTurn>());
 
   const stopTurn = (sessionId: string) => {
-    const controller = abortControllersRef.current.get(sessionId);
-    if (!controller) return;
-    controller.abort();
-    toast.show("正在安全停止，等待服务器确认执行终态");
+    const active = activeTurnsRef.current.get(sessionId);
+    if (!active) return;
+    active.controller.abort();
+    active.handoffController?.abort();
+    toast.show("正在停止");
   };
 
   const sendTurn: SendAgentTurn = (
@@ -94,7 +115,7 @@ export function useAgentConversationStream(): {
     replacementSnapshot,
     resume,
   ) => {
-    if (abortControllersRef.current.has(sessionId)) {
+    if (activeTurnsRef.current.has(sessionId)) {
       toast.show("当前对话仍有回答正在生成");
       return;
     }
@@ -127,7 +148,7 @@ export function useAgentConversationStream(): {
     const assistantMessageId = replaceMessageId ?? generateId("msg");
     const assistantBlockId = generateId("block");
     const initialThinkingBlockId = generateId("block");
-    const currentThinkingBlockId = initialThinkingBlockId;
+    let currentThinkingBlockId = initialThinkingBlockId;
     const assistantMessage: Message = {
       id: assistantMessageId,
       sessionId,
@@ -163,12 +184,59 @@ export function useAgentConversationStream(): {
     let thinkingFinished = false;
     let emergencyShortCircuit = false;
     const abortController = new AbortController();
-    abortControllersRef.current.set(sessionId, abortController);
+    const activeTurn: ActiveConversationTurn = {
+      controller: abortController,
+      assistantMessageId,
+      finish: () => {},
+      callbacks: {},
+      prepareSuccessorProjection: () => {},
+      suppressedInterrupts: new Set<string>(),
+      directiveInFlight: false,
+    };
+    activeTurnsRef.current.set(sessionId, activeTurn);
     const finishTurn = () => {
-      if (abortControllersRef.current.get(sessionId) !== abortController) return;
-      abortControllersRef.current.delete(sessionId);
+      if (activeTurnsRef.current.get(sessionId) !== activeTurn) return;
+      activeTurnsRef.current.delete(sessionId);
       setGenerating(sessionId, false);
     };
+    activeTurn.finish = finishTurn;
+    const prepareSuccessorProjection = (instruction: string) => {
+      deleteMessage(assistantMessageId);
+      addMessage({
+        id: generateId("msg"),
+        sessionId,
+        role: "user",
+        blocks: [
+          {
+            kind: "text",
+            id: generateId("block"),
+            content: instruction,
+          },
+        ],
+        status: "done",
+        createdAt: Date.now(),
+        workflow,
+      });
+      currentThinkingBlockId = generateId("block");
+      toolCallBlockMap.clear();
+      thinkingFinished = false;
+      emergencyShortCircuit = false;
+      addMessage({
+        ...assistantMessage,
+        blocks: [
+          {
+            kind: "text",
+            id: assistantBlockId,
+            content: "",
+            streaming: true,
+          },
+        ],
+        status: "streaming",
+        createdAt: Date.now(),
+      });
+      initMessageThinking(assistantMessageId, currentThinkingBlockId);
+    };
+    activeTurn.prepareSuccessorProjection = prepareSuccessorProjection;
     const streamTurn: typeof streamAgentChat = resume
       ? (_input, signal, callbacks) =>
           resume.mode === "attach"
@@ -181,21 +249,12 @@ export function useAgentConversationStream(): {
             : resumeAgentRun(resume.runId, signal, callbacks)
       : streamAgentChat;
 
-    void streamTurn(
-      {
-        localSessionId: sessionId,
-        message: text,
-        loadedSkills: workflow === "companion" ? [] : loadedSkillIds,
-        uploadedDocumentIds:
-          workflow === "companion" ? [] : uploadedDocumentIds,
-        images: workflow === "companion" ? [] : images,
-        workflow,
-        requestedCapabilities:
-          workflow === "companion" ? [] : requestedCapabilities,
-        regeneration,
-      },
-      abortController.signal,
-      {
+    const callbacks: AgentChatCallbacks = {
+        onStarted: (traceId) => {
+          if (activeTurnsRef.current.get(sessionId) === activeTurn) {
+            activeTurn.traceId = traceId;
+          }
+        },
         onThinking: (content) => {
           if (emergencyShortCircuit) return;
           const currentId = currentThinkingBlockId;
@@ -388,72 +447,15 @@ export function useAgentConversationStream(): {
             useAppStore.getState().setStreamingInterrupted(false);
             return;
           }
-          const currentId = currentThinkingBlockId;
-          if (currentId && !thinkingFinished) {
-            finalizeMessageThinking(assistantMessageId, currentId);
-            thinkingFinished = true;
-          }
-          const stoppedAt = Date.now();
-          const currentMessage = useChatStore
-            .getState()
-            .messagesBySession[sessionId]?.find(
-              (message) => message.id === assistantMessageId,
-            );
-          const stoppedNotice =
-            workflow === "companion"
-              ? `⚠️ ${cancellationMessage}以上内容不完整，请重新生成或稍后再试。`
-              : `⚠️ ${cancellationMessage}以上内容不完整且未通过最终校验，请勿据此调整治疗或用药。`;
-          const updatedBlocks =
-            currentMessage?.blocks.map((block) => {
-              if (block.kind === "text" && block.id === assistantBlockId) {
-                return {
-                  ...block,
-                  streaming: false,
-                  content: block.content.trim()
-                    ? `${block.content.trim()}\n\n---\n\n${stoppedNotice}`
-                    : stoppedNotice,
-                };
-              }
-              if (
-                block.kind === "thinking" &&
-                block.data.status === "thinking"
-              ) {
-                return {
-                  ...block,
-                  data: {
-                    ...block.data,
-                    status: "done" as const,
-                    endedAt: stoppedAt,
-                  },
-                };
-              }
-              if (
-                block.kind === "tool_call" &&
-                block.data.status === "running"
-              ) {
-                return {
-                  ...block,
-                  data: {
-                    ...block.data,
-                    status: "failed" as const,
-                    errorMessage: "用户已停止生成",
-                    endedAt: stoppedAt,
-                    durationMs: Math.max(
-                      0,
-                      stoppedAt - block.data.startedAt,
-                    ),
-                  },
-                };
-              }
-              return block;
-            }) ?? [];
-          updateMessage(assistantMessageId, {
-            status: "stopped",
-            blocks: updatedBlocks,
-            hasDisclaimer: true,
-          });
+          deleteMessage(assistantMessageId);
           finishTurn();
           useAppStore.getState().setStreamingInterrupted(false);
+          toast.show(cancellationMessage || "已停止生成");
+        },
+        onInterrupted: (traceId) => {
+          if (activeTurn.suppressedInterrupts.delete(traceId)) return;
+          deleteMessage(assistantMessageId);
+          finishTurn();
         },
         onError: (error) => {
           if (replacementSnapshot) {
@@ -472,66 +474,179 @@ export function useAgentConversationStream(): {
             finishTurn();
             return;
           }
-          const currentId = currentThinkingBlockId;
-          if (currentId && !thinkingFinished) {
-            finalizeMessageThinking(assistantMessageId, currentId);
-          }
-          const currentMessage = useChatStore
-            .getState()
-            .messagesBySession[sessionId]?.find(
-              (message) => message.id === assistantMessageId,
-            );
           const awaitingApproval = error.code === "CHAT_APPROVAL_REQUIRED";
-          const failedAt = Date.now();
-          const updatedBlocks =
-            currentMessage?.blocks.map((block) => {
-              if (block.kind === "text" && block.id === assistantBlockId) {
-                const partialContent = block.content.trim();
-                const incompleteNotice =
-                  workflow === "companion"
-                    ? "⚠️ 本次回复未完成，未通过最终安全校验。请点击“重新生成”重试。"
-                    : "⚠️ 本次回答未完成，未通过最终安全校验。请点击“重新生成”重试；请勿据此调整治疗或用药。";
-                return {
-                  ...block,
-                  content: awaitingApproval
-                    ? block.content || "该操作已安全暂停，等待人工授权。"
-                    : partialContent
-                      ? `${partialContent}\n\n---\n\n${incompleteNotice}`
-                      : `${error.message}\n\n${incompleteNotice}`,
+          if (awaitingApproval) {
+            updateMessage(assistantMessageId, {
+              status: "done",
+              blocks: [
+                {
+                  kind: "text",
+                  id: assistantBlockId,
+                  content: "该操作等待人工授权。",
                   streaming: false,
-                };
-              }
-              if (
-                block.kind === "tool_call" &&
-                block.data.status === "running"
-              ) {
-                return {
-                  ...block,
-                  data: {
-                    ...block.data,
-                    status: "failed" as const,
-                    errorMessage: "响应中断，工具结果未完成",
-                    endedAt: failedAt,
-                    durationMs: Math.max(
-                      0,
-                      failedAt - block.data.startedAt,
-                    ),
-                  },
-                };
-              }
-              return block;
-            }) ?? [];
-          updateMessage(assistantMessageId, {
-            status: awaitingApproval ? "done" : "error",
-            blocks: updatedBlocks,
-            hasDisclaimer: true,
-          });
+                },
+              ],
+            });
+          } else {
+            deleteMessage(assistantMessageId);
+            toast.show(error.message);
+          }
           finishTurn();
           useAppStore.getState().setStreamingInterrupted(false);
         },
+      };
+    activeTurn.callbacks = callbacks;
+
+    void streamTurn(
+      {
+        localSessionId: sessionId,
+        message: text,
+        loadedSkills: workflow === "companion" ? [] : loadedSkillIds,
+        uploadedDocumentIds:
+          workflow === "companion" ? [] : uploadedDocumentIds,
+        images: workflow === "companion" ? [] : images,
+        workflow,
+        requestedCapabilities:
+          workflow === "companion" ? [] : requestedCapabilities,
+        regeneration,
       },
+      abortController.signal,
+      callbacks,
     );
   };
 
-  return { sendTurn, stopTurn };
+  const queueTurn = async (
+    sessionId: string,
+    instruction: string,
+  ): Promise<boolean> => {
+    const active = activeTurnsRef.current.get(sessionId);
+    const normalized = instruction.trim();
+    if (!active?.traceId || !normalized || active.directiveInFlight) return false;
+    active.directiveInFlight = true;
+    const request =
+      active.queueRequest?.instruction === normalized
+        ? active.queueRequest
+        : {
+            instruction: normalized,
+            idempotencyKey: `directive_${crypto.randomUUID().replaceAll("-", "")}`,
+          };
+    active.queueRequest = request;
+    try {
+      await queueAgentDirective(
+        active.traceId,
+        request.instruction,
+        request.idempotencyKey,
+      );
+      addMessage({
+        id: generateId("msg"),
+        sessionId,
+        role: "user",
+        blocks: [
+          {
+            kind: "text",
+            id: generateId("block"),
+            content: normalized,
+          },
+        ],
+        status: "done",
+        createdAt: Date.now(),
+      });
+      active.queueRequest = undefined;
+      toast.show("已排队，将在下一步继续处理");
+      return true;
+    } catch (error) {
+      toast.show(error instanceof Error ? error.message : "新要求暂时无法排队");
+      return false;
+    } finally {
+      active.directiveInFlight = false;
+    }
+  };
+
+  const steerTurn = (
+    sessionId: string,
+    instruction: string,
+  ): Promise<boolean> => {
+    const active = activeTurnsRef.current.get(sessionId);
+    const normalized = instruction.trim();
+    if (!active?.traceId || !normalized || active.directiveInFlight) {
+      return Promise.resolve(false);
+    }
+    active.directiveInFlight = true;
+    const sourceTraceId = active.traceId;
+    const previousController = active.controller;
+    const request =
+      active.steerRequest?.instruction === normalized
+        ? active.steerRequest
+        : {
+            instruction: normalized,
+            idempotencyKey: `directive_${crypto.randomUUID().replaceAll("-", "")}`,
+          };
+    active.steerRequest = request;
+    active.suppressedInterrupts.add(sourceTraceId);
+    const successorController = new AbortController();
+    active.handoffController = successorController;
+
+    return new Promise<boolean>((resolve) => {
+      let accepted = false;
+      const baseCallbacks = active.callbacks;
+      const callbacks: AgentChatCallbacks = {
+        ...baseCallbacks,
+        onStarted: (traceId) => {
+          if (
+            activeTurnsRef.current.get(sessionId) !== active ||
+            previousController.signal.aborted ||
+            successorController.signal.aborted
+          ) {
+            successorController.abort();
+            active.directiveInFlight = false;
+            active.steerRequest = undefined;
+            active.handoffController = undefined;
+            resolve(false);
+            return;
+          }
+          accepted = true;
+          active.controller = successorController;
+          active.handoffController = undefined;
+          active.directiveInFlight = false;
+          active.steerRequest = undefined;
+          active.prepareSuccessorProjection(normalized);
+          baseCallbacks.onStarted?.(traceId);
+          resolve(true);
+        },
+        onCancelled: (traceId, message) => {
+          active.directiveInFlight = false;
+          active.steerRequest = undefined;
+          active.handoffController = undefined;
+          baseCallbacks.onCancelled?.(traceId, message);
+          resolve(false);
+        },
+        onError: (error) => {
+          if (!accepted) {
+            active.directiveInFlight = false;
+            active.steerRequest = undefined;
+            active.handoffController = undefined;
+            active.suppressedInterrupts.delete(sourceTraceId);
+            previousController.abort();
+            if (activeTurnsRef.current.get(sessionId) === active) {
+              deleteMessage(active.assistantMessageId);
+              active.finish();
+            }
+            toast.show(error.message);
+            resolve(false);
+            return;
+          }
+          baseCallbacks.onError?.(error);
+        },
+      };
+      void steerAgentChat(
+        sourceTraceId,
+        request.instruction,
+        request.idempotencyKey,
+        successorController.signal,
+        callbacks,
+      );
+    });
+  };
+
+  return { sendTurn, stopTurn, queueTurn, steerTurn };
 }

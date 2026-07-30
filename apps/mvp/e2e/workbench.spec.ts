@@ -149,6 +149,50 @@ test("mobile workbench uses an accessible session drawer", async ({ page }) => {
   await expect(profilePanel).toBeHidden();
 });
 
+test("provider protocol markup never reaches the visible answer", async ({
+  page,
+}) => {
+  test.setTimeout(90_000);
+  await page.setViewportSize({ width: 1440, height: 1000 });
+  const consoleErrors: string[] = [];
+  page.on("console", (message) => {
+    if (message.type() === "error") consoleErrors.push(message.text());
+  });
+  await enterGuestWorkspace(page);
+  const input = page.getByRole("textbox", {
+    name: "请描述您想咨询的健康问题…",
+  });
+  await input.fill("请只给三个最重要、最容易执行的规律作息建议。");
+  const response = page.waitForResponse(
+    (candidate) =>
+      candidate.request().method() === "POST" &&
+      candidate.url().endsWith("/api/gerclaw/chat"),
+  );
+  await page.getByRole("button", { name: "发送" }).click();
+  expect((await response).status()).toBe(200);
+  await expect(page.getByRole("button", { name: "停止生成" })).toHaveCount(0, {
+    timeout: 75_000,
+  });
+  await expect(
+    page.getByText(
+      /<invoke|<parameter|<tool_call|未通过最终安全校验|正在修复|内部错误/,
+    ),
+  ).toHaveCount(0);
+  const helpful = page.getByRole("button", { name: "有帮助" });
+  if ((await helpful.count()) > 0) {
+    await expect(helpful).toBeVisible();
+  } else {
+    await expect(page.locator("[data-message-bubble]")).toHaveCount(1);
+    await expect(page.getByRole("button", { name: "语音输入" })).toBeEnabled();
+  }
+  await expectNoBlockingAxeViolations(page);
+  await page.screenshot({
+    path: "output/playwright/stage6-output-repair/desktop.png",
+    fullPage: true,
+  });
+  expect(consoleErrors).toEqual([]);
+});
+
 test("a Run in another conversation does not take over the current Composer", async ({
   page,
 }) => {
@@ -182,4 +226,132 @@ test("a Run in another conversation does not take over the current Composer", as
     await stop.click();
     await expect(stop).toHaveCount(0, { timeout: 15_000 });
   }
+});
+
+test("a running Run accepts queued and immediate user directives", async ({
+  page,
+}) => {
+  test.setTimeout(120_000);
+  await page.setViewportSize({ width: 1440, height: 1000 });
+  const consoleErrors: string[] = [];
+  const failedRequests: string[] = [];
+  page.on("console", (message) => {
+    if (message.type() === "error") consoleErrors.push(message.text());
+  });
+  page.on("requestfailed", (request) => {
+    failedRequests.push(
+      `${request.method()} ${request.url()} ${request.failure()?.errorText ?? ""}`,
+    );
+  });
+  await enterGuestWorkspace(page);
+
+  const initialInstruction =
+    "请分步骤说明老年人如何建立规律作息，并给出一周可执行计划。";
+  const queuedInstruction = "下一步请补充家属可以怎样协助。";
+  const steeringInstruction = "先改为只给三个最重要、最容易执行的建议。";
+  const input = page.getByRole("textbox", {
+    name: "请描述您想咨询的健康问题…",
+  });
+  await input.fill(initialInstruction);
+  const initialResponse = page.waitForResponse(
+    (response) =>
+      response.request().method() === "POST" &&
+      response.url().endsWith("/api/gerclaw/chat"),
+  );
+  await page.getByRole("button", { name: "发送" }).click();
+  expect((await initialResponse).status()).toBe(200);
+
+  const runningInput = page.getByRole("textbox", {
+    name: "输入新要求，可选择立即调整或排队继续…",
+  });
+  await expect(runningInput).toBeVisible();
+  await runningInput.fill(queuedInstruction);
+  const queueResponse = page.waitForResponse(
+    (response) =>
+      response.request().method() === "POST" &&
+      /\/api\/gerclaw\/chat\/[^/]+\/directives\/queue$/.test(response.url()),
+  );
+  await page.getByRole("button", { name: "排队继续" }).click();
+  expect((await queueResponse).status()).toBe(201);
+  await expect(page.getByText(queuedInstruction, { exact: true })).toBeVisible();
+
+  await runningInput.fill(steeringInstruction);
+  const steerResponse = page.waitForResponse(
+    (response) =>
+      response.request().method() === "POST" &&
+      /\/api\/gerclaw\/chat\/[^/]+\/directives\/steer$/.test(response.url()),
+  );
+  await page.getByRole("button", { name: "立即调整" }).click();
+  expect((await steerResponse).status()).toBe(200);
+  await expect(
+    page.getByText(steeringInstruction, { exact: true }),
+  ).toBeVisible();
+  await expect(
+    page.getByText(
+      /未通过最终安全校验|正在修复|内部错误|<invoke|<parameter|<tool_call/,
+    ),
+  ).toHaveCount(0);
+  await expectNoPageOverflow(page, 1440);
+  await expectSeniorTargets(page);
+  await expectNoBlockingAxeViolations(page);
+  await page.screenshot({
+    path: "output/playwright/stage6-directives/desktop-steer.png",
+    fullPage: true,
+  });
+
+  const stop = page.getByRole("button", { name: "停止生成" });
+  if (await stop.isVisible()) {
+    await stop.click();
+    await expect(stop).toHaveCount(0, { timeout: 15_000 });
+  }
+  expect(consoleErrors).toEqual([]);
+  expect(
+    failedRequests.filter(
+      (failure) =>
+        !/^POST http:\/\/127\.0\.0\.1:3000\/api\/gerclaw\/chat(?:\/trace_[^/]+\/directives\/steer)? net::ERR_ABORTED$/.test(failure),
+    ),
+  ).toEqual([]);
+});
+
+test("stop remains effective while an immediate adjustment is handing off", async ({
+  page,
+}) => {
+  test.setTimeout(90_000);
+  await page.setViewportSize({ width: 1440, height: 1000 });
+  await enterGuestWorkspace(page);
+
+  const input = page.getByRole("textbox", {
+    name: "请描述您想咨询的健康问题…",
+  });
+  await input.fill("请详细制定一周规律作息计划，并分步骤解释。");
+  const initialResponse = page.waitForResponse(
+    (response) =>
+      response.request().method() === "POST" &&
+      response.url().endsWith("/api/gerclaw/chat"),
+  );
+  await page.getByRole("button", { name: "发送" }).click();
+  expect((await initialResponse).status()).toBe(200);
+
+  const runningInput = page.getByRole("textbox", {
+    name: "输入新要求，可选择立即调整或排队继续…",
+  });
+  await runningInput.fill("改为只列三个最重要的建议。");
+  const steerResponse = page.waitForResponse(
+    (response) =>
+      response.request().method() === "POST" &&
+      /\/api\/gerclaw\/chat\/[^/]+\/directives\/steer$/.test(response.url()),
+  );
+  await page.getByRole("button", { name: "立即调整" }).click();
+  await expect(page.getByRole("button", { name: "停止生成" })).toBeEnabled();
+  await page.getByRole("button", { name: "停止生成" }).click();
+
+  expect([200, 409]).toContain((await steerResponse).status());
+  await expect(page.getByRole("button", { name: "停止生成" })).toHaveCount(0, {
+    timeout: 45_000,
+  });
+  await expect(page.getByRole("button", { name: "发送" })).toBeEnabled();
+  await expect(
+    page.getByText(/内部错误|正在修复|<invoke|<parameter|<tool_call/),
+  ).toHaveCount(0);
+  await expectNoBlockingAxeViolations(page);
 });

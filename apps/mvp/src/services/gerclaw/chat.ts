@@ -2,6 +2,10 @@ import { z } from "zod";
 import { GerclawApiError, gerclawRequest } from "./client";
 import { chatDoneEventSchema } from "./chat-contract";
 import {
+  interruptedSchema,
+  runDirectiveSchema,
+} from "./chat-directive-contract";
+import {
   advanceDurableCursor,
   DurableStreamCursorError,
   type CursorMetadata,
@@ -114,6 +118,7 @@ export interface AgentToolEvent {
 }
 
 export interface AgentChatCallbacks {
+  onStarted?: (traceId: string) => void;
   onThinking?: (content: string) => void;
   onText?: (delta: string) => void;
   onToolCall?: (event: AgentToolEvent) => void;
@@ -138,6 +143,7 @@ export interface AgentChatCallbacks {
     } | null
   ) => void;
   onCancelled?: (traceId: string, message: string) => void;
+  onInterrupted?: (traceId: string, message: string) => void;
   onError?: (error: GerclawApiError) => void;
 }
 
@@ -298,6 +304,13 @@ async function consumeAgentStream(
       if (!acceptDurableEvent(cancelled, cursor)) return;
       sawTerminal = true;
       callbacks.onCancelled?.(cancelled.trace_id, cancelled.message);
+    } else if (parsed.event === "interrupted") {
+      const interrupted = interruptedSchema.parse(parsed.data);
+      sawTerminal = true;
+      callbacks.onInterrupted?.(
+        interrupted.trace_id,
+        interrupted.message,
+      );
     } else if (parsed.event === "error") {
       const error = errorSchema.parse(parsed.data);
       if (!acceptDurableEvent(error, cursor)) return;
@@ -375,7 +388,7 @@ export async function streamAgentChat(
         error instanceof GerclawApiError
           ? error
           : new GerclawApiError(
-              "暂时无法安全停止，请稍后重试",
+              "暂时无法停止，请稍后重试",
               "CHAT_CANCELLATION_UNAVAILABLE",
               503,
               traceId
@@ -431,6 +444,7 @@ export async function streamAgentChat(
         traceId
       );
     }
+    callbacks.onStarted?.(traceId);
 
     try {
       await consumeAgentStream(response, traceId, callbacks, cursor);
@@ -464,6 +478,140 @@ export async function streamAgentChat(
   }
 }
 
+export async function queueAgentDirective(
+  traceId: string,
+  instruction: string,
+  idempotencyKey: string,
+) {
+  return gerclawRequest(
+    `chat/${encodeURIComponent(traceId)}/directives/queue`,
+    runDirectiveSchema,
+    {
+      method: "POST",
+      body: JSON.stringify({
+        instruction,
+        idempotency_key: idempotencyKey,
+      }),
+    },
+  );
+}
+
+export async function steerAgentChat(
+  sourceTraceId: string,
+  instruction: string,
+  idempotencyKey: string,
+  signal: AbortSignal,
+  callbacks: AgentChatCallbacks,
+): Promise<void> {
+  let traceId: string | undefined;
+  const cursor: DurableStreamCursor = { lastSequence: 0 };
+  const transportController = new AbortController();
+  let requestStarted = false;
+  let cancellationFailureReported = false;
+  const handleCancellationRequest = () => {
+    if (!requestStarted || !traceId) return;
+    void requestAgentCancellation(traceId).catch((error) => {
+      cancellationFailureReported = true;
+      transportController.abort();
+      callbacks.onError?.(
+        error instanceof GerclawApiError
+          ? error
+          : new GerclawApiError(
+              "暂时无法停止，请稍后重试",
+              "CHAT_CANCELLATION_UNAVAILABLE",
+              503,
+              traceId,
+            ),
+      );
+    });
+  };
+  signal.addEventListener("abort", handleCancellationRequest, { once: true });
+  try {
+    if (signal.aborted) return;
+    requestStarted = true;
+    const response = await fetch(
+      `/api/gerclaw/chat/${encodeURIComponent(sourceTraceId)}/directives/steer`,
+      {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "X-GerClaw-Visitor-ID": getGerclawVisitorId(),
+        },
+        body: JSON.stringify({
+          instruction,
+          idempotency_key: idempotencyKey,
+        }),
+        credentials: "same-origin",
+        cache: "no-store",
+        signal: transportController.signal,
+      },
+    );
+    traceId = response.headers.get("x-trace-id") ?? undefined;
+    if (!response.ok || !response.body || !traceId) {
+      const payload = (await response.json().catch(() => null)) as {
+        error?: { code?: string; message?: string };
+      } | null;
+      throw new GerclawApiError(
+        payload?.error?.message ?? "当前执行暂时无法调整",
+        payload?.error?.code ?? "CHAT_STEER_FAILED",
+        response.status,
+        traceId,
+      );
+    }
+    callbacks.onStarted?.(traceId);
+    if (signal.aborted) {
+      try {
+        await requestAgentCancellation(traceId);
+        callbacks.onCancelled?.(traceId, "已停止生成");
+      } catch (error) {
+        callbacks.onError?.(
+          error instanceof GerclawApiError
+            ? error
+            : new GerclawApiError(
+                "暂时无法停止，请稍后重试",
+                "CHAT_CANCELLATION_UNAVAILABLE",
+                503,
+                traceId,
+              ),
+        );
+      }
+      return;
+    }
+    try {
+      await consumeAgentStream(response, traceId, callbacks, cursor);
+    } catch (error) {
+      if (!canReconnectStream(error) || signal.aborted) throw error;
+      await followDurableRun(
+        {
+          traceId,
+          cursor,
+        },
+        transportController.signal,
+        (nextResponse, nextTraceId, nextCursor) =>
+          consumeAgentStream(nextResponse, nextTraceId, callbacks, nextCursor),
+      );
+    }
+  } catch (error) {
+    if (cancellationFailureReported) return;
+    if (signal.aborted) {
+      callbacks.onCancelled?.(traceId ?? sourceTraceId, "已停止生成");
+      return;
+    }
+    callbacks.onError?.(
+      error instanceof GerclawApiError
+        ? error
+        : new GerclawApiError(
+            error instanceof Error ? error.message : "当前执行调整失败",
+            "CHAT_STEER_CLIENT_FAILED",
+            500,
+            traceId,
+          ),
+    );
+  } finally {
+    signal.removeEventListener("abort", handleCancellationRequest);
+  }
+}
+
 export async function resumeAgentRun(
   runId: string,
   signal: AbortSignal,
@@ -483,7 +631,7 @@ export async function resumeAgentRun(
         error instanceof GerclawApiError
           ? error
           : new GerclawApiError(
-              "暂时无法安全停止，请稍后重试",
+              "暂时无法停止，请稍后重试",
               "CHAT_CANCELLATION_UNAVAILABLE",
               503,
               traceId
@@ -522,6 +670,7 @@ export async function resumeAgentRun(
         traceId
       );
     }
+    callbacks.onStarted?.(traceId);
     try {
       await consumeAgentStream(response, traceId, callbacks, cursor);
     } catch (error) {
@@ -588,6 +737,7 @@ export async function attachAgentRun(
     }
     const run = await readAgentRun(runId);
     traceId = run.trace_id;
+    callbacks.onStarted?.(traceId);
     await followDurableRun(
       {
         runId,
