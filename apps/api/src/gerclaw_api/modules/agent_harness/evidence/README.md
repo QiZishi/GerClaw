@@ -25,7 +25,9 @@ deterministic evidence-unavailable path before a model call.
 Consumers: Harness planning/answer gates and the prescription citation adapter; RAG/Search/
 Document remain evidence producers through existing adapters. Configuration:
 `GERCLAW_AGENT_EVIDENCE_MIN_SCORE` and `GERCLAW_AGENT_EVIDENCE_TOP_K` are resolved once at
-composition. Known limit: web and uploaded evidence retain their owner-specific admission
+composition. The shipped absolute relevance floor is `0.3`; deployments may raise it after
+paired retrieval evaluation, but lowering it requires evidence-quality regression review.
+Known limit: web and uploaded evidence retain their owner-specific admission
 adapters; persistent evidence rows and richer citation UI metadata are future work.
 Acceptance: every admitted local record resolves to a validated locator and exact adopted
 text, higher-authority sources sort first, duplicates are removed, every preserved clinical

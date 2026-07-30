@@ -110,7 +110,10 @@ class Settings(BaseSettings):
     agent_max_react_iterations: int = Field(default=6, ge=1, le=20)
     agent_history_messages: int = Field(default=40, ge=2, le=200)
     agent_evidence_top_k: int = Field(default=5, ge=1, le=10)
-    agent_evidence_min_score: float = Field(default=0.2, ge=0, le=1)
+    # Real GUI auditing showed that 0.2 admitted a 0.268 eye-screening chunk
+    # for a medication-reconciliation question.  Keep this as injected
+    # configuration, but use a production-safe absolute relevance floor.
+    agent_evidence_min_score: float = Field(default=0.3, ge=0, le=1)
     agent_model_timeout_seconds: float = Field(default=180.0, gt=0, le=300)
     agent_model_max_output_tokens: int = Field(default=32_768, ge=256, le=32_768)
     agent_model_capability_version: str = Field(
