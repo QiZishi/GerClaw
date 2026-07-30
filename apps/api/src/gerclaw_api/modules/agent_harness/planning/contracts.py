@@ -68,6 +68,13 @@ class DynamicPlan(BaseModel):
         }
         if unknown := referenced - known:
             raise ValueError(f"plan references unknown nodes: {sorted(unknown)}")
+        node_by_id = {node.node_id: node for node in self.nodes}
+        if any(
+            node_by_id[fallback_id].required
+            for node in self.nodes
+            for fallback_id in node.fallback
+        ):
+            raise ValueError("plan fallback target must be optional")
         fallback_owners: dict[str, str] = {}
         for node in self.nodes:
             for fallback_id in node.fallback:

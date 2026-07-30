@@ -255,12 +255,14 @@ def test_dynamic_plan_rejects_fallback_cycle_and_snapshot_identity_drift() -> No
             nodes=(
                 PlanNode(
                     node_id="first",
+                    required=False,
                     capability="first.run",
                     public_summary="正在执行第一步",
                     fallback=("second",),
                 ),
                 PlanNode(
                     node_id="second",
+                    required=False,
                     capability="second.run",
                     public_summary="正在执行第二步",
                     fallback=("first",),
@@ -589,6 +591,22 @@ def test_dynamic_plan_rejects_shared_fallback_ownership() -> None:
             public_summary="正在执行主要路径",
             fallback=("fallback", "fallback"),
         )
+    with pytest.raises(ValidationError, match="target must be optional"):
+        DynamicPlan(
+            nodes=(
+                PlanNode(
+                    node_id="primary",
+                    capability="primary.run",
+                    public_summary="正在执行主要路径",
+                    fallback=("required_fallback",),
+                ),
+                PlanNode(
+                    node_id="required_fallback",
+                    capability="fallback.required",
+                    public_summary="正在执行错误声明的必要备用路径",
+                ),
+            )
+        )
 
 
 def test_fallback_owned_node_cannot_run_through_ordinary_capability_entry() -> None:
@@ -598,24 +616,30 @@ def test_fallback_owned_node_cannot_run_through_ordinary_capability_entry() -> N
                 node_id="primary",
                 capability="primary.run",
                 public_summary="正在执行主要路径",
-                fallback=("fallback",),
+                fallback=("fallback_one", "fallback_two"),
             ),
             PlanNode(
-                node_id="fallback",
+                node_id="fallback_one",
                 required=False,
-                capability="fallback.run",
-                public_summary="正在执行备用路径",
+                capability="fallback.one",
+                public_summary="正在执行第一备用路径",
+            ),
+            PlanNode(
+                node_id="fallback_two",
+                required=False,
+                capability="fallback.two",
+                public_summary="正在执行第二备用路径",
             ),
         )
     )
     executor = DynamicPlanExecutor(plan)
 
-    assert executor.complete_optional_capability("fallback.run") is False
+    assert executor.complete_optional_capability("fallback.one") is False
     with pytest.raises(PlanningError, match="PLAN_CAPABILITY_NOT_PENDING"):
-        executor.start_capability("fallback.run")
+        executor.start_capability("fallback.one")
     primary = executor.start_capability("primary.run")
     executor.fail(primary, "PRIMARY_UNAVAILABLE")
-    assert executor.start_fallback(primary) == "fallback"
+    assert executor.start_fallback(primary) == "fallback_one"
 
 
 def test_attempt_exhausted_fallback_can_be_skipped_without_side_effect() -> None:
@@ -625,13 +649,19 @@ def test_attempt_exhausted_fallback_can_be_skipped_without_side_effect() -> None
                 node_id="primary",
                 capability="primary.run",
                 public_summary="正在执行主要路径",
-                fallback=("fallback",),
+                fallback=("fallback_one", "fallback_two"),
             ),
             PlanNode(
-                node_id="fallback",
+                node_id="fallback_one",
                 required=False,
-                capability="fallback.run",
-                public_summary="正在执行备用路径",
+                capability="fallback.one",
+                public_summary="正在执行第一备用路径",
+            ),
+            PlanNode(
+                node_id="fallback_two",
+                required=False,
+                capability="fallback.two",
+                public_summary="正在执行第二备用路径",
             ),
         )
     )
@@ -643,21 +673,32 @@ def test_attempt_exhausted_fallback_can_be_skipped_without_side_effect() -> None
         update={
             "attempts": {
                 **failed.attempts,
-                "fallback": 50,
+                "fallback_one": 50,
             }
         }
     )
     restored = DynamicPlanExecutor(plan, snapshot=exhausted)
 
     assert restored.failover_candidates(primary) == ()
-    assert restored.skip_unavailable_fallback(primary) == "fallback"
+    assert restored.skip_unavailable_fallback(primary) == "fallback_one"
+    skipped = restored.snapshot()
     transition = validate_plan_execution_transition(
         plan,
         exhausted,
-        restored.snapshot(),
+        skipped,
     )
     assert transition[0].attempt == 50
     assert transition[0].status is PlanNodeStatus.SKIPPED
+    assert restored.failover_candidates(primary) == ("fallback_two",)
+    restored.start_fallback(primary)
+    running_second = restored.snapshot()
+    second_transition = validate_plan_execution_transition(
+        plan,
+        skipped,
+        running_second,
+    )
+    assert second_transition[0].node_id == "fallback_two"
+    assert second_transition[0].status is PlanNodeStatus.RUNNING
 
 
 @pytest.mark.asyncio

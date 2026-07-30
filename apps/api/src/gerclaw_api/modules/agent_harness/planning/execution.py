@@ -133,10 +133,6 @@ class PlanExecutionSnapshot(BaseModel):
                 }
                 for fallback_id in fallback_ids
             )
-            or any(
-                self.statuses[fallback_id] is not PlanNodeStatus.FAILED
-                for fallback_id in fallback_ids[:-1]
-            )
             for source_id, fallback_ids in self.fallbacks_used.items()
         ):
             raise PlanningError("PLAN_EXECUTION_FALLBACK_MISMATCH")
