@@ -1468,6 +1468,59 @@ class SkillEvolutionProposal(Base):
     )
 
 
+class SkillEvolutionReviewEvent(Base):
+    """Append-only, content-free offline review transition for one proposal."""
+
+    __tablename__ = "skill_evolution_review_events"
+    __table_args__ = (
+        UniqueConstraint(
+            "proposal_id",
+            "sequence",
+            name="uq_skill_evolution_review_event_sequence",
+        ),
+        UniqueConstraint(
+            "approval_ticket_digest",
+            name="uq_skill_evolution_review_event_ticket",
+        ),
+        CheckConstraint("sequence > 0", name="positive_skill_review_event_sequence"),
+        CheckConstraint(
+            (
+                "event_type IN "
+                "('exported','paired_rejected','sealed_rejected','approved','activated','stale')"
+            ),
+            name="valid_skill_review_event_type",
+        ),
+        Index(
+            "ix_skill_evolution_review_events_proposal_created",
+            "proposal_id",
+            "created_at",
+            "id",
+        ),
+        Index(
+            "uq_skill_evolution_review_events_terminal",
+            "proposal_id",
+            unique=True,
+            postgresql_where=text(
+                "event_type IN ('paired_rejected','sealed_rejected','activated','stale')"
+            ),
+        ),
+    )
+
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    proposal_id: Mapped[uuid.UUID] = mapped_column(
+        ForeignKey("skill_evolution_proposals.id", ondelete="CASCADE"),
+        nullable=False,
+    )
+    sequence: Mapped[int] = mapped_column(Integer, nullable=False)
+    event_type: Mapped[str] = mapped_column(String(32), nullable=False)
+    artifact_sha256: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    reason_codes: Mapped[list[str]] = mapped_column(JSONB, default=list, nullable=False)
+    approval_ticket_digest: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), nullable=False
+    )
+
+
 class SessionSkill(Base):
     """Ordered Skill selection for one caller-owned durable conversation."""
 

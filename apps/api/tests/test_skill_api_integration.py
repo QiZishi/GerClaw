@@ -17,7 +17,12 @@ from sqlalchemy.exc import IntegrityError
 
 from gerclaw_api.auth import create_access_token
 from gerclaw_api.modules.skill.models import SKILL_MODEL_OUTPUT_SCHEMA_VERSION
+from gerclaw_api.modules.skill.offline_contracts import SkillReviewEventAppend
 from gerclaw_api.repositories.skill import SqlAlchemySkillRepository
+from gerclaw_api.repositories.skill_evolution_control import (
+    SkillEvolutionControlConflictError,
+    SkillEvolutionControlRepository,
+)
 
 
 class _EvolutionModel:
@@ -450,6 +455,41 @@ async def test_skill_evolution_applies_only_dsl_and_hides_immutable_content(
         )
         assert owned_proposal is not None
         assert "胰岛素注射量提高三倍" in owned_proposal.candidate_snapshot["source_markdown"]
+    async with app.state.database.session() as control_session:
+        control = SkillEvolutionControlRepository(control_session)
+        exported = await control.append_event(
+            proposal_id,
+            SkillReviewEventAppend(
+                event_type="exported",
+                artifact_sha256="a" * 64,
+            ),
+        )
+        rejected = await control.append_event(
+            proposal_id,
+            SkillReviewEventAppend(
+                event_type="paired_rejected",
+                artifact_sha256="b" * 64,
+                reason_codes=("HIGH_RISK_CASE_REGRESSED",),
+            ),
+        )
+        await control.commit()
+        assert (exported.sequence, rejected.sequence) == (1, 2)
+    async with app.state.database.session() as control_session:
+        control = SkillEvolutionControlRepository(control_session)
+        events = await control.list_events(proposal_id)
+        assert [item.event_type for item in events] == ["exported", "paired_rejected"]
+        with pytest.raises(
+            SkillEvolutionControlConflictError,
+            match="SKILL_PROPOSAL_ALREADY_TERMINAL",
+        ):
+            await control.append_event(
+                proposal_id,
+                SkillReviewEventAppend(
+                    event_type="stale",
+                    artifact_sha256="e" * 64,
+                ),
+            )
+    assert (await client.get(f"/api/v1/skills/proposals/{proposal_id}")).status_code == 404
     proposal_trace = await client.get(f"/api/v1/traces/{blocked.headers['x-trace-id']}")
     assert proposal_trace.status_code == 200, proposal_trace.text
     assert proposal_trace.json()["events"][0]["payload"]["proposal_id"] == receipt["proposal_id"]
