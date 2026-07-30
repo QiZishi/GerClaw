@@ -12,6 +12,10 @@ GerClaw 保持老年医学定位。眼科病灶定位不在本计划范围。普
 CRUD 和低风险 Skill 内容演进；反馈信号不得自动修改 Prompt、危险 Skill、路由、代码、安全门或
 Memory/Skill 的治理机制。
 
+进入最终回归前还必须完成执行期指令接入：用户可明确选择立即打断当前执行并提交新要求，或把新要求
+排队到下一安全边界。该能力必须和提前感知窗口压力的上下文压缩一起实现，参考 Codex 可公开观察和
+核验的交互语义，但不得臆测、复制或硬编码未公开的内部阈值。
+
 每一阶段必须是独立变更集，完成相关测试、真实 GUI 审阅和 Conventional Commit 后才能进入下一阶段。阶段内只跑相关测试；阶段 7 才跑全量回归。
 
 ## 2. 阶段与状态
@@ -24,7 +28,7 @@ Memory/Skill 的治理机制。
 | 3 | ClinicalState、动态规划与医疗门禁 | 已完成：四轮独立审阅修复、真实 GUI 与最终 ACCEPT |
 | 4 | 证据、Memory 与受治理能力组合 | 已完成：三项 P1 修复、真实 GUI/数据库复验、最终独立复审 ACCEPT |
 | 5 | 对话工作台 UI 与交互重构 | 已完成：独立审阅 3 项 P1 修复，真实 Playwright/axe 复验，最终 ACCEPT |
-| 6 | 双轨受控自进化 | 进行中：完成组件宪章、双轨分类、Memory 在线 CRUD、Skill 在线/离线分轨和去内容化信号；继续 sealed evaluator、离线评测与晋升控制面 |
+| 6 | 双轨受控自进化与执行期上下文治理 | 进行中：完成组件宪章、双轨分类、Memory 在线 CRUD、Skill 在线/离线分轨和去内容化信号；继续 sealed evaluator、离线评测、晋升控制面、执行期 steer/queue 和上下文压缩交互 |
 | 7 | 最终回归、真实 GUI 对抗审阅与发布 | 未开始 |
 
 ## 3. 阶段 0：冻结基线与真实运行审计
@@ -996,6 +1000,66 @@ proposal ID、track、candidate commit、审批主体和时间。发布与回滚
 - 至少完成一次真实 candidate → paired evaluation → gate → reject/promote 的可审计闭环；没有提升时
   如实判定失败。
 - 生产镜像不包含优化器、训练依赖、sealed data 或审批密钥；在线反馈不会直接修改危险控制面。
+
+#### 6.6 进入阶段 7 前追加：执行期 steer/queue 与 Codex 风格上下文压缩
+
+此项是正式产品变更，不得只写文档或只在前端模拟。实施前先核验 Codex 的公开产品文档、SDK/CLI
+文档和可观察交互；只借鉴已证实的阈值触发、高价值上下文保留及执行期新指令语义。未公开的具体 Token
+比例、内部 Prompt、私有推理或调度算法不得被当作事实。实际阈值必须由 GerClaw 的
+`Settings/ResolvedConfig` 注入，并根据已选择模型的 `context_size` 计算。
+
+**执行期新要求的两种模式：**
+
+1. `interrupt_and_steer`：用户主动打断当前执行并提交新要求。服务端先持久化带
+   `conversation_id/run_id/actor_id/sequence/idempotency_key` 的指令事实，再取消或中断当前 worker、
+   提升 fencing token，并在最近一个已持久化安全 checkpoint 上建立后继 Run/attempt。旧 worker 不得再写
+   文本、节点状态或终态；已经公开但未完成的正文标记为未完成版本，不能拼接到新回答。新 Run 的首个公开事件
+   必须说明“已按新要求调整执行”，但不得暴露 private chain-of-thought。
+2. `queue_for_next_boundary`：当前 worker 继续到下一个明确的安全边界，在下一次模型调用、工具调用或计划节点
+   调度前，按单调 sequence 一次性领取尚未消费的指令并合并到当前有效要求。领取与 checkpoint 更新必须原子化；
+   重连、重放、重试和 worker 接管不能重复消费或改变顺序。若当前 Run 已在指令入库前进入真正终态，则该指令
+   自动成为下一 Run 的待处理要求，不得静默丢弃。
+
+前端 Composer 在 Run 执行期间仍可输入，并明确提供“立即调整”和“排队等候”两个有文字标签的操作；展示
+`已送达/已排队/已接收/已应用/失败可重试` 状态。老年模式控件保持不低于 48px、正文不低于 18px。用户可撤销
+尚未被领取的排队指令；已经领取或触发中断的指令只能通过新的纠正指令处理。切换会话时，其他会话中的 Run 或
+排队状态不得劫持当前 Composer。
+
+**提前触发与高价值上下文保留：**
+
+- 每次模型调用和每个可产生大结果的工具调用前都执行容量预检，不等 Provider 返回超窗才处理。预算必须分别
+  预留 system/safety、工具 schema 与结果、当前输入、尚未消费的新指令、证据、图片、输出和重试空间；达到
+  `soft_trigger_ratio` 时压缩可压缩历史，达到 `hard_stop_ratio` 且固定输入仍超窗时 fail closed 或请求用户
+  缩小范围。两个阈值及各类 reserve 均由配置注入，并要求 `soft < hard < 1`。
+- 永远优先保留：当前用户输入；尚未消费和本轮已应用的新指令；用户明确的目标、禁止项和验收标准；身份/授权
+  边界；系统与医疗安全规则；ClinicalState 的 confirmed/unknown/conflict、红旗和 provenance；当前 DAG、
+  checkpoint、预算和取消状态；完成当前任务所必需的工具结果、Evidence locator/adopted text、附件引用；
+  已尝试方法、稳定错误码、回退原因；当前有效 AnswerVersion 和 Artifact revision。
+- 可压缩内容仅限较旧对话、已被稳定事实替代的重复描述、冗长成功日志、可由稳定 ID 重新读取的工具正文和
+  superseded 草稿。压缩不得把 unknown 变成 negative、把冲突合并为单一事实、把模型推测升级为 confirmed、
+  删除用户未完成要求，或把失败尝试改写成成功。
+- 压缩产物必须版本化并保存 source message/event 范围、`source_hash`、before/after Token 预算、
+  retained/omitted stable IDs、尚未解决问题和不确定性。压缩模型失败、超时、输出超预算或 schema 不合法时，
+  使用同一 Token 估算器执行确定性高价值摘录；不得携带超窗输入继续调用 Provider。
+- 多次压缩必须避免“摘要的摘要”无限漂移：能回读事实源时按 stable ID 重新投影，不能回读时保留摘要谱系和
+  hash。恢复必须消费中断时冻结的上下文、已应用指令和待领取队列，不能改读当前 Memory/Skill 后伪装成原 Run。
+
+**错误、恢复和验收：**
+
+- 工具/模型错误按节点 fallback 和预算策略回退；回退前持久化稳定错误码、attempt、checkpoint 和已采用上下文
+  版本。非致命后处理失败保留正文并进入 `completed_with_warnings`；上下文损坏、身份漂移、fencing 失败或
+  固定输入超窗必须 fail closed，不能从空上下文重启。
+- 用户主动“停止”仍产生不可恢复的 `cancelled`；`interrupt_and_steer` 是带新指令的受控后继执行；
+  worker/进程意外中断为可恢复 `interrupted`。三者在 API、事件、UI 文案和遥测中不得混用。
+- 后端至少覆盖：工具执行中立即 steer、模型流中 steer、边界前后 queue race、十路并发同一
+  idempotency key、重连/重放、旧 worker 越权写、完成瞬间入队、撤销未领取指令、跨 tenant/会话隔离、
+  soft/hard 阈值、压缩失败降级、多轮摘要漂移、恢复后的指令 exactly-once。
+- 前端 unit/E2E 至少覆盖两种提交模式、状态流转、会话切换、移动端与老年模式、断网重试和
+  `Escape`/键盘主路径。真实 Playwright CLI 必须在模型或工具仍执行时分别完成一次 steer 和 queue，不得使用
+  route mock；检查 SSE、网络、控制台、后端日志和最终 AnswerVersion。
+- `context_snapshot`、`run_lifecycle`、`planning`、`memory` 和前端 Composer/Controller 分开形成小步
+  Conventional Commit；每个模块相关测试通过后及时提交，最后由独立子智能体审阅。阶段 6 的任何离线候选若
+  改动这些机制，也必须通过上述 sealed 反例，平均质量提升不能抵消其中任一退化。
 
 ### 阶段 7
 
