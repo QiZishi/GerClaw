@@ -9,7 +9,8 @@ evidence must remain unavailable and force a truthful downgrade.
 
 Evidence is a claim-to-source relationship, not a turn-level boolean. A citation only supports
 the clinical claim in the same public segment. Normalize model markers before SSE emission,
-keep public positions stable through the terminal response, and fail closed on reserved,
-missing, or out-of-range markers.
+keep public positions stable through the terminal response, and remove reserved, missing, or
+out-of-range model markers without deleting the readable claim or inventing a source.
+Server-owned public-marker corruption still fails closed.
 
 Run Harness safety, RAG, Search, document isolation, and citation contract tests after changes.

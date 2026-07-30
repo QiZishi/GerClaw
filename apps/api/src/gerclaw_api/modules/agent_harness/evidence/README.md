@@ -8,8 +8,11 @@ deduplication. Retrieval remains owned by `rag`; no duplicate retriever was intr
 Model-facing `[E#]` and `[W#]` markers are range-checked against the exact admitted local and
 web lists in the same answer segment. They are normalized to reserved `[C#]` markers before
 any SSE text becomes public, so streamed and terminal citation positions are identical. A
-model cannot emit `[C#]` directly, and any missing or out-of-range source fails the turn
-closed. One valid citation elsewhere in an answer cannot unlock an unrelated clinical claim.
+model cannot emit `[C#]` directly. Reserved, missing, or out-of-range model markers—including
+common spaced forms such as `[ E1 ]`—are removed while the readable answer remains available
+and the affected claim stays explicitly unbound; no source is invented and a normal answer is
+not converted into a failed Run. A malformed server-owned public marker still fails closed.
+One valid citation elsewhere in an answer cannot unlock an unrelated clinical claim.
 The terminal `ClaimEvidenceAudit` binds each detected clinical claim to source IDs, locators,
 and hashes of the exact adopted excerpts. The client creates an inline citation control only
 for server-owned `[C#]` markers.

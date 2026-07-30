@@ -552,9 +552,9 @@ async def test_private_clinical_state_is_projected_before_public_stream(
         text=(
             "<final-clinical-state>"
             '{"recommendations":['
-            '{"category":"behavior","detail":"固定睡前放松时间。",'
+            '{"category":"behavior","detail":"固定睡前放松时间 [ E1 ]。",'
             '"provenance":["private"]},'
-            '{"category":"environment","detail":"夜间保持卧室昏暗。",'
+            '{"category":"environment","detail":"夜间保持卧室昏暗 [E1]。",'
             '"provenance":["private"]}'
             '],"exclusions":["diet"]}'
             "</final-clinical-state>"
@@ -589,6 +589,8 @@ async def test_private_clinical_state_is_projected_before_public_stream(
     assert "final-clinical-state" not in response.text
     assert "provenance" not in response.text
     assert "exclusions" not in response.text
+    assert "[E1]" not in response.text
+    assert "[ E1 ]" not in response.text
     assert public_stream == response.text
 
 

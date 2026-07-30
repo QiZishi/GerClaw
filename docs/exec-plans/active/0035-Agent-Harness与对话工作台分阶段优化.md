@@ -1549,3 +1549,10 @@ failed/cancelled/interrupted 同事务归一化，以及 attachment completed re
 合法 envelope 在私有 attempt 内确定性投影为按序自然语言建议，只采用 `recommendations.detail`；
 category、provenance、exclusions、JSON 和标签均不进入 SSE/Conversation/TTS/导出。无法解析或没有
 可读建议的 envelope 继续走一次有界 checkpoint repair，失败尝试不可见且不会被包装成成功。
+
+同轮真实审计还复现了“Quick 路由未检索，但模型生成 `[E1]` 后整轮失败”：数据库中的
+`quick_answer` 节点为 `ANSWER_EXECUTION_FAILED`，临时后台诊断确认根因为
+`CitationMarkerValidationError(local citation marker is out of range)`。这属于校验压垮正常输出，
+不是应向用户暴露的医疗风险。Evidence 边界已改为：只把确实存在的 E/W 来源绑定成服务器 `[C#]`；
+模型直出的 C、越界、缺失和零编号标记（含 `[ E1 ]` 空格变体）只删除标记并保留可读正文，该 claim
+在审计中保持 unbound，绝不伪造来源；只有服务器已经生成的 public C 标记发生内部不一致时才阻断。

@@ -13,10 +13,14 @@ from gerclaw_api.modules.agent_harness.evidence.contracts import (
 )
 from gerclaw_api.modules.contracts import Citation
 
-_MODEL_MARKER = re.compile(r"\[(?P<prefix>[EWC])(?P<index>\d+)\]", re.IGNORECASE)
+_MODEL_MARKER = re.compile(
+    r"\[\s*(?P<prefix>[EWC])\s*(?P<index>\d{1,4})\s*\]",
+    re.IGNORECASE,
+)
 _PUBLIC_MARKER = re.compile(r"\[C(?P<index>\d+)\]", re.IGNORECASE)
 _CLAIM_SEGMENT = re.compile(r"[^。！？!?\n]+(?:[。！？!?]+|\n+|$)")  # noqa: RUF001
 _WHITESPACE = re.compile(r"\s+")
+_ORPHAN_MARKER_GAP = re.compile(r"[ \t]+(?=[,，。！？!?;；:：])")  # noqa: RUF001
 
 
 class CitationMarkerValidationError(RuntimeError):
@@ -61,7 +65,7 @@ def bind_citation_markers(
     web_citation_count: int,
     web_citation_offset: int,
 ) -> str:
-    """Replace valid model E/W markers with server-owned C markers."""
+    """Bind admitted markers and silently remove markers without a real source."""
 
     if min(local_citation_count, web_citation_count, web_citation_offset) < 0:
         raise ValueError("citation counts and offsets cannot be negative")
@@ -70,18 +74,18 @@ def bind_citation_markers(
         prefix = match.group("prefix").upper()
         index = int(match.group("index"))
         if prefix == "C":
-            raise CitationMarkerValidationError("model emitted reserved citation marker")
+            return ""
         if prefix == "E":
             if not 1 <= index <= local_citation_count:
-                raise CitationMarkerValidationError("local citation marker is out of range")
+                return ""
             public_index = index
         else:
             if not 1 <= index <= web_citation_count:
-                raise CitationMarkerValidationError("web citation marker is out of range")
+                return ""
             public_index = web_citation_offset + index
         return f"[C{public_index}]"
 
-    return _MODEL_MARKER.sub(replace, text)
+    return _ORPHAN_MARKER_GAP.sub("", _MODEL_MARKER.sub(replace, text))
 
 
 def segment_has_admitted_model_marker(

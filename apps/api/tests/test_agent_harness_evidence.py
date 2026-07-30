@@ -2,10 +2,7 @@
 
 from __future__ import annotations
 
-import pytest
-
 from gerclaw_api.modules.agent_harness.evidence import (
-    CitationMarkerValidationError,
     EvidenceAdmissionPolicy,
     ModelCitationBindingScope,
     audit_claim_evidence,
@@ -129,14 +126,24 @@ def test_citation_markers_bind_only_to_admitted_terminal_positions() -> None:
         )
         == "本地建议 [C2], 联网补充 [C4]。"
     )
-    for text in ("越界 [E3]", "越界 [W2]", "绕过 [C1]", "零编号 [E0]"):
-        with pytest.raises(CitationMarkerValidationError):
-            bind_citation_markers(
-                text,
-                local_citation_count=2,
-                web_citation_count=1,
-                web_citation_offset=3,
-            )
+    assert (
+        bind_citation_markers(
+            "越界 [E3]\uff0c联网 [W2]\uff0c绕过 [C1]\uff0c零编号 [E0]。",
+            local_citation_count=2,
+            web_citation_count=1,
+            web_citation_offset=3,
+        )
+        == "越界\uff0c联网\uff0c绕过\uff0c零编号。"
+    )
+    assert (
+        bind_citation_markers(
+            "允许空格 [ E2 ]。",
+            local_citation_count=2,
+            web_citation_count=0,
+            web_citation_offset=2,
+        )
+        == "允许空格 [C2]。"
+    )
 
 
 def test_streaming_claim_requires_an_in_range_marker_in_the_same_segment() -> None:
@@ -165,8 +172,7 @@ def test_model_citation_scope_keeps_streaming_public_positions_stable() -> None:
 
     assert scope.segment_has_evidence("本地 [E1], 联网 [W1]。")
     assert scope.normalize_public_text("本地 [E1], 联网 [W1]。") == ("本地 [C1], 联网 [C3]。")
-    with pytest.raises(CitationMarkerValidationError):
-        scope.normalize_public_text("模型不得直接输出 [C1]。")
+    assert scope.normalize_public_text("模型不得直接输出 [C1]。") == "模型不得直接输出。"
 
 
 def test_claim_audit_binds_source_locator_and_exact_adopted_text_hash() -> None:
