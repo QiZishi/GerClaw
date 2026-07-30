@@ -697,7 +697,86 @@ ESLint、Next production build 均通过。截图位于 gitignored 的 `output/p
 
 ### 阶段 6
 
-在线只记录去内容化信号；隔离离线环境固定官方优化器来源、commit 和许可证。候选在独立 worktree 配对评测，经过全切片非劣、预算、HMAC sealed test 和人工审批后才能晋升。
+依据 `DUAL_TRACK_EVOLUTION_GUIDE.md` 实现按权限分类的双轨演化。这里的双轨不能被误解为
+“Memory/Skill 一律不可在线变化”，也不能把“允许演化”误解为可以修改组件存在的核心原理。
+
+#### 6.1 必须保留的语义
+
+- **Memory 内容在线持续 CRUD。** 用户事实、偏好、习惯和状态随使用被新增、查询、更新和删除。
+  偏好/工作区习惯属于 `mutable` 低权限上下文；病史、用药、过敏等临床事实也在线产生，但继续经过
+  `proposed → 用户确认/冲突处理 → confirmed`。用户纠正或同实体新信息产生新 revision；用户明确
+  删除、明确否认、过期或由已确认新事实替代时，从召回视图移除并保留 tombstone/inactive revision
+  和来源审计。冲突期间新旧两版都不能自动注入。模型推测、回答赞踩或 Skill 输出不能直接写成
+  confirmed 健康事实。
+- **Skill 低风险能力在线持续演化。** 只涉及表达策略、受限检索策略、用户工作区流程且不扩大工具、
+  数据或临床权限的 Skill，可在线形成递增版本，经 schema、allowlist、预算、来源和安全 profile
+  确定性校验后按部署策略启用。涉及医疗安全、诊疗行为、工具许可扩大、认证授权、Memory 治理、
+  Harness 门禁或控制面配置的 Skill 变更必须转入 `immutable` 提案轨，不得在线生效。
+- **不可在线自改的是机制，不是内容。** Memory 的证据门槛、确认/冲突状态机、tenant/actor 隔离、
+  加密、revision、tombstone、召回过滤和低权限 Prompt 包装属于危险控制面；只有离线冻结、sealed
+  evaluation 和可信人工审批后才能发布新版本。
+
+#### 6.2 Harness 组件宪章
+
+在允许候选修改任何组件前，先把以下核心定义建成候选不可写的版本化 manifest 和反例测试。候选删除、
+弱化或绕过任一项均直接拒绝，不能用平均分提升抵消：
+
+- `routing`：医疗风险升级和红旗模型前短路必须保留，Quick 不能覆盖 Emergency。
+- `planning`：依赖、预算、fallback、checkpoint、必问项和治疗前提不能被跳过。
+- `clinical_state`：未知不能变阴性，冲突不能被模型自行覆盖，模型推测不能升级为 confirmed fact。
+- `context_snapshot`：来源、版本、主体和当前有效回答选择不能被 Memory/Skill 覆盖。
+- `run_lifecycle`：fencing、单调事件、唯一终态、取消/恢复幂等和旧 worker 禁写终态不可修改。
+- `evidence`：实际采用文本、locator、来源等级和绝对相关性门槛必须可核验，不能靠降低门槛制造提升。
+- `plugin_runtime` / Skill：能力声明、共享结果、schema 和工具许可不能由候选自行扩大或绕过。
+- `evolution_signals`：线上不得记录 Query/Answer/附件/证据/临床字段/用户 ID/凭据或 Provider 原始载荷。
+- `memory`：在线 CRUD 必须保留证据、确认、冲突、revision、tombstone、时效、隔离和低权限注入。
+
+#### 6.3 双轨写入与权限隔离
+
+- 分类依据是 `track`、`authority`、owner 和 update policy，而不是目录名；无法明确分类时默认
+  `immutable`。
+- `mutable` 在线 API 只能写用户拥有的低权限对象，运行时 Prompt 必须结构化标记
+  `governance_track=mutable`、`authority` 和“不得覆盖系统、安全、业务、权限和工具规则”的边界。
+- `immutable` 不向运行时 Agent 提供直接写 API，只能生成绑定 base/candidate commit、路径、风险和
+  激活条件的 proposal。
+- 同一候选同时修改两个轨道属于混轨，必须拒绝；路径穿越、符号链接、重命名、评测后修改、伪造审批、
+  回滚到非冻结版本都要有反例测试。
+- Harness 自身、轨道分类规则、组件宪章、sealed cases、评分器、关键阈值、审批/HMAC 密钥、审计日志、
+  release ref、认证授权和生产凭据对候选不可写；sealed data 还应对候选不可读。
+
+#### 6.4 离线控制面和晋升
+
+在线只记录去内容化信号；隔离离线环境固定官方优化器来源、commit 和许可证，不依赖 sibling 项目绝对
+路径，也不把优化器或训练依赖装入生产 API 镜像。官方 A-Evolve、GEPA 或 Adaptive Auto-Harness
+不可用时必须报告 `unavailable`，不得建立同名简化替代品冒充。
+
+正确顺序固定为：
+
+```text
+online signal / immutable proposal
+→ isolated Git worktree
+→ candidate freeze
+→ baseline/candidate paired evaluation
+→ sealed evaluation + 进程外 HMAC attestation
+→ 全切片非劣、单病例不退化、Token/延迟和组件宪章门禁
+→ immutable 轨可信人工审批（不能被全局开关关闭）
+→ atomic promotion / audited rollback
+```
+
+晋升前必须重新验证 worktree clean、evaluation commit、approval commit 和当前 HEAD 完全相同。审批绑定
+proposal ID、track、candidate commit、审批主体和时间。发布与回滚只能指向已冻结、已审计版本。
+
+#### 6.5 阶段验收
+
+- 四个强制反例全部通过：偏好 Memory 可在线更新；伪装成偏好的安全绕过不能生效；关闭普通候选人工
+  审批后仍不能晋升 immutable 变更；混轨候选被拒绝。
+- Memory 的 create/read/update/delete、revision、tombstone、冲突和召回过滤均有在线测试；不得把
+  “安全演化”实现成不可变 Memory。
+- 低风险 Skill 能产生并激活受限新版本；危险 Skill 自动转离线提案且无审批不能生效。
+- 每个 Harness 组件的核心定义有候选不可写 manifest 和反例门禁，证明演化没有把组件“改废”。
+- 至少完成一次真实 candidate → paired evaluation → gate → reject/promote 的可审计闭环；没有提升时
+  如实判定失败。
+- 生产镜像不包含优化器、训练依赖、sealed data 或审批密钥；在线反馈不会直接修改危险控制面。
 
 ### 阶段 7
 
