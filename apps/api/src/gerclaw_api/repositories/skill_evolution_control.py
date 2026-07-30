@@ -10,6 +10,7 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from gerclaw_api.database.models import (
+    SkillDefinitionRecord,
     SkillEvolutionProposal,
     SkillEvolutionReviewEvent,
 )
@@ -55,6 +56,24 @@ class SkillEvolutionControlRepository:
             )
         )
         return tuple(values)
+
+    async def get_skill_for_update(
+        self,
+        proposal: SkillEvolutionProposal,
+    ) -> SkillDefinitionRecord | None:
+        return cast(
+            SkillDefinitionRecord | None,
+            await self._session.scalar(
+                select(SkillDefinitionRecord)
+                .where(
+                    SkillDefinitionRecord.id == proposal.skill_record_id,
+                    SkillDefinitionRecord.tenant_id == proposal.tenant_id,
+                    SkillDefinitionRecord.actor_id == proposal.actor_id,
+                    SkillDefinitionRecord.skill_id == proposal.skill_id,
+                )
+                .with_for_update()
+            ),
+        )
 
     async def append_event(
         self,

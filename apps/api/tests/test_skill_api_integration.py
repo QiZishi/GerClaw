@@ -11,12 +11,19 @@ from types import SimpleNamespace
 from typing import Any
 
 import pytest
+from cryptography.hazmat.primitives import serialization
+from cryptography.hazmat.primitives.asymmetric.x25519 import X25519PrivateKey
 from httpx import AsyncClient
 from sqlalchemy import text
 from sqlalchemy.exc import IntegrityError
 
 from gerclaw_api.auth import create_access_token
 from gerclaw_api.modules.skill.models import SKILL_MODEL_OUTPUT_SCHEMA_VERSION
+from gerclaw_api.modules.skill.offline_bridge import (
+    SkillProposalExporter,
+    SkillProposalExporterKey,
+    SkillProposalRecipientKey,
+)
 from gerclaw_api.modules.skill.offline_contracts import SkillReviewEventAppend
 from gerclaw_api.repositories.skill import SqlAlchemySkillRepository
 from gerclaw_api.repositories.skill_evolution_control import (
@@ -457,12 +464,26 @@ async def test_skill_evolution_applies_only_dsl_and_hides_immutable_content(
         assert "胰岛素注射量提高三倍" in owned_proposal.candidate_snapshot["source_markdown"]
     async with app.state.database.session() as control_session:
         control = SkillEvolutionControlRepository(control_session)
-        exported = await control.append_event(
-            proposal_id,
-            SkillReviewEventAppend(
-                event_type="exported",
-                artifact_sha256="a" * 64,
+        recipient_private = X25519PrivateKey.generate()
+        recipient = SkillProposalRecipientKey(
+            key_id="controller.skill-review",
+            public_key=recipient_private.public_key().public_bytes(
+                encoding=serialization.Encoding.Raw,
+                format=serialization.PublicFormat.Raw,
             ),
+        )
+        exporter = SkillProposalExporter(
+            control,
+            exporter_key=SkillProposalExporterKey(
+                key_id="api.skill-export",
+                private_key_seed=b"e" * 32,
+            ),
+            owner_binding_secret=b"owner-binding-secret-for-tests-0001",
+            allowed_tools=frozenset(),
+        )
+        envelope = await exporter.export(
+            proposal_id,
+            recipient=recipient,
         )
         rejected = await control.append_event(
             proposal_id,
@@ -473,7 +494,11 @@ async def test_skill_evolution_applies_only_dsl_and_hides_immutable_content(
             ),
         )
         await control.commit()
-        assert (exported.sequence, rejected.sequence) == (1, 2)
+        assert rejected.sequence == 2
+        serialized_envelope = envelope.model_dump_json()
+        assert "胰岛素注射量提高三倍" not in serialized_envelope
+        assert "usr_patient_integration0001" not in serialized_envelope
+        assert "tenant_public0001" not in serialized_envelope
     async with app.state.database.session() as control_session:
         control = SkillEvolutionControlRepository(control_session)
         events = await control.list_events(proposal_id)

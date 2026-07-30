@@ -2,9 +2,13 @@
 
 from __future__ import annotations
 
+import uuid
+from datetime import datetime
 from typing import Literal
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
+
+from gerclaw_api.modules.skill.models import SkillDefinition
 
 SkillReviewEventType = Literal[
     "exported",
@@ -46,3 +50,56 @@ class SkillReviewEventAppend(BaseModel):
         if self.event_type != "activated" and self.approval_ticket_digest is not None:
             raise ValueError("only activation consumes an approval ticket")
         return self
+
+
+class SkillProposalBundle(BaseModel):
+    """Decrypted content candidate visible only inside the offline controller."""
+
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    schema_version: Literal["skill-proposal-bundle-v1"] = "skill-proposal-bundle-v1"
+    proposal_id: uuid.UUID
+    opaque_owner_binding: str = Field(pattern=r"^[a-f0-9]{64}$")
+    object_kind: Literal["skill.clinical", "skill.tooling"]
+    authority: Literal["clinical_guidance", "control_plane"]
+    reason_codes: tuple[str, ...] = Field(min_length=1, max_length=20)
+    base_revision: int = Field(ge=1)
+    candidate_revision: int = Field(ge=2)
+    base_content_sha256: str = Field(pattern=r"^[a-f0-9]{64}$")
+    candidate_content_sha256: str = Field(pattern=r"^[a-f0-9]{64}$")
+    base_snapshot: SkillDefinition
+    candidate_snapshot: SkillDefinition
+    governance_manifest_sha256: str = Field(pattern=r"^[a-f0-9]{64}$")
+    exported_at: datetime
+    nonce: str = Field(pattern=r"^[a-f0-9]{32}$")
+
+    @model_validator(mode="after")
+    def validate_candidate_identity(self) -> SkillProposalBundle:
+        if self.exported_at.tzinfo is None:
+            raise ValueError("export time must be timezone-aware")
+        if self.candidate_revision != self.base_revision + 1:
+            raise ValueError("candidate must advance one revision")
+        if (
+            self.base_snapshot.skill_id != self.candidate_snapshot.skill_id
+            or self.base_snapshot.revision != self.base_revision
+            or self.candidate_snapshot.revision != self.candidate_revision
+        ):
+            raise ValueError("bundle snapshots do not match candidate identity")
+        return self
+
+
+class SkillProposalExportEnvelope(BaseModel):
+    """Signed encrypted handoff with no owner or Skill content."""
+
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    schema_version: Literal["skill-proposal-export-envelope-v1"] = (
+        "skill-proposal-export-envelope-v1"
+    )
+    exporter_key_id: str = Field(pattern=r"^[a-z][a-z0-9_.-]{2,99}$")
+    recipient_key_id: str = Field(pattern=r"^[a-z][a-z0-9_.-]{2,99}$")
+    ephemeral_public_key: str = Field(pattern=r"^[a-f0-9]{64}$")
+    ciphertext: str = Field(min_length=32, max_length=100_000)
+    nonce: str = Field(pattern=r"^[a-f0-9]{24}$")
+    encrypted_payload_sha256: str = Field(pattern=r"^[a-f0-9]{64}$")
+    exporter_signature: str = Field(pattern=r"^[a-f0-9]{128}$")
