@@ -62,6 +62,16 @@ class RunAttemptConflictError(RuntimeError):
 
 
 _INTERRUPTED_NODE_ERROR_CODE = "RUN_INTERRUPTED_BEFORE_NODE_COMMIT"
+_UNCOMMITTED_NODE_OUTPUT_ERROR_CODE = "RUN_INTERRUPTED_BEFORE_OUTPUT_COMMIT"
+_FAILED_NODE_ERROR_CODE = "RUN_FAILED_BEFORE_NODE_COMMIT"
+_CANCELLED_NODE_ERROR_CODE = "RUN_CANCELLED_BEFORE_NODE_COMMIT"
+_RECONSTRUCTABLE_CAPABILITIES = frozenset(
+    {
+        "attachment.inspect",
+        "clinical.ask",
+        "safety.emergency",
+    }
+)
 
 
 class AgentRunService:
@@ -355,6 +365,23 @@ class AgentRunService:
                 ):
                     raise PlanningError("PLAN_CAPABILITY_RESULT_TRANSITION_INVALID")
                 capability_results = (*capability_results, capability_result)
+            selected_capability_ids = set(plan.capability_selection.ids)
+            node_by_id = {
+                node.node_id: node
+                for node in plan.dynamic_plan.nodes
+            }
+            if any(
+                node_by_id[transition.node_id].capability
+                in selected_capability_ids
+                and transition.status is PlanNodeStatus.COMPLETED
+                and not any(
+                    result.capability_id
+                    == node_by_id[transition.node_id].capability
+                    for result in capability_results
+                )
+                for transition in transitions
+            ):
+                raise PlanningError("PLAN_CAPABILITY_RESULT_REQUIRED")
             persisted_plan = plan.model_copy(
                 update={
                     "plan_execution": updated,
@@ -612,9 +639,21 @@ class AgentRunService:
                 result = self.to_public_run(run)
                 await self._repository.rollback()
                 return result
-            if target is AgentRunStatus.INTERRUPTED:
-                await self._normalize_plan_for_interruption(
+            if target in {
+                AgentRunStatus.FAILED,
+                AgentRunStatus.CANCELLED,
+                AgentRunStatus.INTERRUPTED,
+            }:
+                await self._normalize_abandoned_plan(
                     run,
+                    running_error_code={
+                        AgentRunStatus.FAILED: _FAILED_NODE_ERROR_CODE,
+                        AgentRunStatus.CANCELLED: _CANCELLED_NODE_ERROR_CODE,
+                        AgentRunStatus.INTERRUPTED: _INTERRUPTED_NODE_ERROR_CODE,
+                    }[target],
+                    reopen_uncommitted_completed=(
+                        target is AgentRunStatus.INTERRUPTED
+                    ),
                     occurred_at=occurred_at,
                 )
             run.status = updated.status.value
@@ -676,6 +715,12 @@ class AgentRunService:
                 result = self.to_public_run(run)
                 await self._repository.rollback()
                 return result
+            await self._normalize_abandoned_plan(
+                run,
+                running_error_code=_CANCELLED_NODE_ERROR_CODE,
+                reopen_uncommitted_completed=False,
+                occurred_at=occurred_at,
+            )
             run.status = updated.status.value
             run.revision = updated.revision
             run.warnings = list(updated.warnings)
@@ -728,8 +773,10 @@ class AgentRunService:
                 fencing_token=current.fencing_token,
                 occurred_at=occurred_at,
             )
-            await self._normalize_plan_for_interruption(
+            await self._normalize_abandoned_plan(
                 run,
+                running_error_code=_INTERRUPTED_NODE_ERROR_CODE,
+                reopen_uncommitted_completed=True,
                 occurred_at=occurred_at,
             )
             run.status = updated.status.value
@@ -758,13 +805,15 @@ class AgentRunService:
             raise
         return self.to_public_run(run)
 
-    async def _normalize_plan_for_interruption(
+    async def _normalize_abandoned_plan(
         self,
         run: AgentRun,
         *,
+        running_error_code: str,
+        reopen_uncommitted_completed: bool,
         occurred_at: datetime | None,
     ) -> None:
-        """Make in-flight nodes retryable in the same transaction as interruption."""
+        """Close in-flight nodes and optionally reopen non-durable completed output."""
 
         try:
             plan = PersistedRunPlan.model_validate(run.plan)
@@ -773,20 +822,51 @@ class AgentRunService:
             # interrupted safely, but explicit resume already rejects them.
             return
         current = plan.effective_plan_execution()
-        executor = DynamicPlanExecutor(plan.dynamic_plan, snapshot=current)
         transitions: list[PlanExecutionTransition] = []
         for node in plan.dynamic_plan.nodes:
-            if current.statuses[node.node_id] is not PlanNodeStatus.RUNNING:
-                continue
-            executor.fail(node.node_id, _INTERRUPTED_NODE_ERROR_CODE)
-            updated = executor.snapshot()
-            transitions.extend(
-                validate_plan_execution_transition(
-                    plan.dynamic_plan,
-                    current,
-                    updated,
-                )
+            previous_status = current.statuses[node.node_id]
+            if previous_status is PlanNodeStatus.RUNNING:
+                executor = DynamicPlanExecutor(plan.dynamic_plan, snapshot=current)
+                executor.fail(node.node_id, running_error_code)
+                updated = executor.snapshot()
+                transitions.extend(
+                    validate_plan_execution_transition(
+                        plan.dynamic_plan,
+                        current,
+                        updated,
+                    )
             )
+            elif (
+                reopen_uncommitted_completed
+                and previous_status is PlanNodeStatus.COMPLETED
+                and node.capability not in _RECONSTRUCTABLE_CAPABILITIES
+                and not any(
+                    result.capability_id == node.capability
+                    for result in plan.capability_results
+                )
+            ):
+                statuses = dict(current.statuses)
+                statuses[node.node_id] = PlanNodeStatus.FAILED
+                error_codes = dict(current.error_codes)
+                error_codes[node.node_id] = _UNCOMMITTED_NODE_OUTPUT_ERROR_CODE
+                updated = current.model_copy(
+                    update={
+                        "statuses": statuses,
+                        "error_codes": error_codes,
+                    }
+                )
+                updated.validate_for(plan.dynamic_plan)
+                transitions.append(
+                    PlanExecutionTransition(
+                        node_id=node.node_id,
+                        previous_status=previous_status,
+                        status=PlanNodeStatus.FAILED,
+                        attempt=updated.attempts[node.node_id],
+                        error_code=_UNCOMMITTED_NODE_OUTPUT_ERROR_CODE,
+                    )
+                )
+            else:
+                continue
             current = updated
         if not transitions:
             return

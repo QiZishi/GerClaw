@@ -543,6 +543,89 @@ async def test_capability_result_commits_atomically_with_node_completion() -> No
     assert stored.plan_execution == completed
     assert stored.capability_results == (result,)
     assert repository.plan_node_events[-1].status == "completed"
+    await service.interrupt_owned(
+        created.id,
+        tenant_id=TENANT,
+        actor_id=ACTOR,
+    )
+    interrupted = PersistedRunPlan.model_validate(repository.runs[created.id].plan)
+    assert (
+        interrupted.effective_plan_execution().statuses["capability"]
+        is PlanNodeStatus.COMPLETED
+    )
+    assert interrupted.capability_results == (result,)
+
+
+@pytest.mark.asyncio
+async def test_selected_owner_node_cannot_complete_without_durable_result() -> None:
+    repository = _Repository()
+    service = AgentRunService(repository)
+    base = _persisted_plan()
+    dynamic_plan = DynamicPlan(
+        route=RouteKind.QUICK,
+        nodes=(
+            PlanNode(
+                node_id="capability",
+                required=False,
+                capability="gerclaw.cga",
+                public_summary="正在执行老年综合评估",
+            ),
+            PlanNode(
+                node_id="answer",
+                capability="answer.quick",
+                public_summary="正在整理回答",
+            ),
+        ),
+    )
+    selection = CapabilitySelection(
+        selected=(
+            SelectedCapability(
+                capability_id="gerclaw.cga",
+                source=CapabilitySelectionMode.MANUAL,
+                entrypoint=CapabilityEntrypoint.CGA_ASSESSMENT,
+                owner_module="cga",
+            ),
+        )
+    )
+    plan = PersistedRunPlan.model_validate(
+        base.model_dump(mode="json")
+        | {
+            "capability_selection": selection.model_dump(mode="json"),
+            "dynamic_plan": dynamic_plan.model_dump(mode="json"),
+            "plan_execution": PlanExecutionSnapshot.initial(dynamic_plan).model_dump(
+                mode="json"
+            ),
+        }
+    )
+    created = await service.create_run(
+        _request(plan=plan.model_dump(mode="json")),
+        tenant_id=TENANT,
+        actor_id=ACTOR,
+    )
+    executor = DynamicPlanExecutor(dynamic_plan)
+    node_id = executor.start_capability("gerclaw.cga")
+    running = await service.update_plan_execution(
+        created.id,
+        executor.snapshot(),
+        tenant_id=TENANT,
+        actor_id=ACTOR,
+        fencing_token=7,
+    )
+    executor.complete(node_id)
+
+    with pytest.raises(AgentRunConflictError):
+        await service.update_plan_execution(
+            created.id,
+            executor.snapshot(),
+            tenant_id=TENANT,
+            actor_id=ACTOR,
+            fencing_token=7,
+        )
+
+    stored = PersistedRunPlan.model_validate(repository.runs[created.id].plan)
+    assert stored.plan_execution == running
+    assert stored.capability_results == ()
+    assert [event.status for event in repository.plan_node_events] == ["running"]
 
 
 @pytest.mark.asyncio
@@ -1092,6 +1175,126 @@ async def test_interruption_normalizes_running_plan_node_for_retry(
     assert resumed.status is AgentRunStatus.RUNNING
     assert retry.start_capability(first_node.capability) == node_id
     assert retry.snapshot().attempts[node_id] == 2
+
+
+@pytest.mark.asyncio
+async def test_interruption_reopens_completed_node_without_durable_output() -> None:
+    repository = _Repository()
+    service = AgentRunService(repository)
+    plan = _persisted_plan()
+    request = _request(
+        route=plan.route_decision.route,
+        plan=plan.model_dump(mode="json"),
+    )
+    created = await service.create_run(request, tenant_id=TENANT, actor_id=ACTOR)
+    executor = DynamicPlanExecutor(
+        plan.dynamic_plan,
+        snapshot=plan.effective_plan_execution(),
+    )
+    answer = plan.dynamic_plan.nodes[0]
+    node_id = executor.start_capability(answer.capability)
+    await service.update_plan_execution(
+        created.id,
+        executor.snapshot(),
+        tenant_id=TENANT,
+        actor_id=ACTOR,
+        fencing_token=7,
+    )
+    executor.complete(node_id)
+    await service.update_plan_execution(
+        created.id,
+        executor.snapshot(),
+        tenant_id=TENANT,
+        actor_id=ACTOR,
+        fencing_token=7,
+    )
+
+    await service.interrupt_owned(
+        created.id,
+        tenant_id=TENANT,
+        actor_id=ACTOR,
+    )
+
+    stored = PersistedRunPlan.model_validate(repository.runs[created.id].plan)
+    normalized = stored.effective_plan_execution()
+    assert normalized.statuses[node_id] is PlanNodeStatus.FAILED
+    assert (
+        normalized.error_codes[node_id]
+        == "RUN_INTERRUPTED_BEFORE_OUTPUT_COMMIT"
+    )
+    retry = DynamicPlanExecutor(plan.dynamic_plan, snapshot=normalized)
+    assert retry.start_capability(answer.capability) == node_id
+    assert retry.snapshot().attempts[node_id] == 2
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    ("terminal_mode", "expected_run_status", "expected_error_code"),
+    [
+        (
+            "failed",
+            AgentRunStatus.FAILED,
+            "RUN_FAILED_BEFORE_NODE_COMMIT",
+        ),
+        (
+            "cancel_transition",
+            AgentRunStatus.CANCELLED,
+            "RUN_CANCELLED_BEFORE_NODE_COMMIT",
+        ),
+        (
+            "cancel_owned",
+            AgentRunStatus.CANCELLED,
+            "RUN_CANCELLED_BEFORE_NODE_COMMIT",
+        ),
+    ],
+)
+async def test_terminal_failure_or_cancel_closes_running_plan_node(
+    terminal_mode: str,
+    expected_run_status: AgentRunStatus,
+    expected_error_code: str,
+) -> None:
+    repository = _Repository()
+    service = AgentRunService(repository)
+    plan = _persisted_plan()
+    request = _request(
+        route=plan.route_decision.route,
+        plan=plan.model_dump(mode="json"),
+    )
+    created = await service.create_run(request, tenant_id=TENANT, actor_id=ACTOR)
+    executor = DynamicPlanExecutor(plan.dynamic_plan)
+    node = plan.dynamic_plan.nodes[0]
+    node_id = executor.start_capability(node.capability)
+    await service.update_plan_execution(
+        created.id,
+        executor.snapshot(),
+        tenant_id=TENANT,
+        actor_id=ACTOR,
+        fencing_token=7,
+    )
+
+    if terminal_mode == "cancel_owned":
+        terminal = await service.cancel_owned(
+            created.id,
+            tenant_id=TENANT,
+            actor_id=ACTOR,
+        )
+    else:
+        terminal = await service.transition(
+            created.id,
+            expected_run_status,
+            tenant_id=TENANT,
+            actor_id=ACTOR,
+            expected_revision=None,
+            fencing_token=7,
+        )
+
+    stored = PersistedRunPlan.model_validate(repository.runs[created.id].plan)
+    execution = stored.effective_plan_execution()
+    assert terminal.status is expected_run_status
+    assert execution.statuses[node_id] is PlanNodeStatus.FAILED
+    assert execution.error_codes[node_id] == expected_error_code
+    assert repository.plan_node_events[-1].status == "failed"
+    assert repository.plan_node_events[-1].error_code == expected_error_code
 
 
 @pytest.mark.asyncio

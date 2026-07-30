@@ -31,6 +31,10 @@ the node failed with a bounded private code; because these nodes are optional, t
 remains available and the Run finishes as `completed_with_warnings`. Those warning codes are
 operational metadata and are not inserted into answer text. The runtime does not copy scoring,
 intake, draft, or persistence logic into the Harness.
+When Run persistence is unavailable, Chat never injects the owner invoker: the optional node
+fails only in request-local governance and no owner side effect occurs. When Run persistence
+exists but an owner runtime is unavailable, the durable node records the private failure and
+the normal answer still completes with warnings.
 
 Manifest `input_schema` and `output_schema` are the public JSON Schema projections of the exact
 strict Pydantic owner-adapter contracts. Runtime construction and every invocation reject a
@@ -51,6 +55,9 @@ the existing owner flows. Configuration: Runtime principal, approval callback/TT
 and budgets are injected at composition. Failure semantics: unknown/duplicate capabilities,
 unsupported workflow selection, manifest schema drift, invalid owner input/output, scope
 mismatch, consumer denial, and reuse-key contract drift fail closed with stable codes.
+The Run persistence owner additionally rejects a selected owner node's `completed`
+transition unless the same encrypted plan already contains its validated result or that
+result is committed atomically in the current transaction.
 
 Known limits: chat activation connects the existing owner workspace but does not bypass its
 required user-input or clinical-review state transitions. An owner side effect may finish

@@ -35,6 +35,7 @@ from gerclaw_api.modules.agent_harness.planning import (
     DynamicPlan,
     PlanExecutionObserver,
     PlanExecutionSnapshot,
+    PlanNodeStatus,
     ProductionAgentFactory,
     TurnClinicalDecision,
     TurnExecutionGovernance,
@@ -394,8 +395,11 @@ class ProductionAgentHarness(OrchestrationSupportMixin):
         )
         safe_high_risk_codes: list[JsonValue] = list(high_risk_codes)
         if route_decision.route is RouteKind.EMERGENCY:
-            emergency_node = await governance.checkpoint_persisted("safety.emergency")
-            await governance.complete_persisted(emergency_node)
+            if governance.status_for("safety.emergency") is not PlanNodeStatus.COMPLETED:
+                emergency_node = await governance.checkpoint_persisted(
+                    "safety.emergency"
+                )
+                await governance.complete_persisted(emergency_node)
             return await emit_deterministic_clarification(
                 body=HIGH_RISK_NOTICE,
                 high_risk_codes=high_risk_codes,
@@ -413,8 +417,9 @@ class ProductionAgentHarness(OrchestrationSupportMixin):
                 emergency_short_circuit=True,
             )
         if governance.should_ask:
-            ask_node = await governance.checkpoint_persisted("clinical.ask")
-            await governance.complete_persisted(ask_node)
+            if governance.status_for("clinical.ask") is not PlanNodeStatus.COMPLETED:
+                ask_node = await governance.checkpoint_persisted("clinical.ask")
+                await governance.complete_persisted(ask_node)
             return await emit_deterministic_clarification(
                 body=governance.clarification_text(),
                 high_risk_codes=high_risk_codes,
@@ -431,16 +436,21 @@ class ProductionAgentHarness(OrchestrationSupportMixin):
             )
         attachment_projector = self._uploaded_input
         if self._uploaded_documents or self._uploaded_images:
-            attachment_node = await governance.checkpoint_persisted("attachment.inspect")
-            try:
+            if governance.status_for("attachment.inspect") is PlanNodeStatus.COMPLETED:
                 attachment_projector = await turn_results.attachment_projector()
-            except Exception:
-                await governance.fail_persisted(
-                    attachment_node,
-                    "ATTACHMENT_INSPECTION_FAILED",
+            else:
+                attachment_node = await governance.checkpoint_persisted(
+                    "attachment.inspect"
                 )
-                raise
-            await governance.complete_persisted(attachment_node)
+                try:
+                    attachment_projector = await turn_results.attachment_projector()
+                except Exception:
+                    await governance.fail_persisted(
+                        attachment_node,
+                        "ATTACHMENT_INSPECTION_FAILED",
+                    )
+                    raise
+                await governance.complete_persisted(attachment_node)
 
         evidence_results = []
         if should_prefetch_local_evidence:
@@ -490,11 +500,15 @@ class ProductionAgentHarness(OrchestrationSupportMixin):
                 or capability_id not in planned_capabilities
             ):
                 continue
-            if self._capability_invoker is None:
-                raise UnsupportedAgentContextError(
-                    "governed capability owner is unavailable"
-                )
             capability_node = await governance.checkpoint_persisted(capability_id)
+            if self._capability_invoker is None:
+                await governance.fail_persisted(
+                    capability_node,
+                    "CAPABILITY_OWNER_UNAVAILABLE",
+                )
+                if "OPTIONAL_CAPABILITY_FAILED" not in self._warning_codes:
+                    self._warning_codes.append("OPTIONAL_CAPABILITY_FAILED")
+                continue
             try:
                 capability_result = await self._capability_invoker(capability_id)
             except Exception:

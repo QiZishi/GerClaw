@@ -12,7 +12,9 @@ checkpoint are durable. Commit a validated result and the node's `completed` tra
 one fenced transaction. Treat owner capabilities as idempotent because a process can stop
 after the owner side effect and before result persistence. Optional owner failures must not
 replace or contaminate an otherwise valid answer; retain only bounded private warning metadata
-and use `completed_with_warnings`.
+and use `completed_with_warnings`. Never inject an owner invoker when durable Run persistence
+is absent. A selected owner node may reach `completed` only when its validated result already
+exists in the encrypted plan or commits atomically with that transition.
 
 Run capability manifest, Runtime permission, workflow registry, shared-result, checkpoint,
 atomic result-persistence, and warning-terminal tests.

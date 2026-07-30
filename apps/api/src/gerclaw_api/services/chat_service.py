@@ -804,12 +804,6 @@ class ChatService:
             if item.capability_id not in completed_capability_ids
         ]
         if (
-            selected_owner_capabilities
-            and not emergency_route
-            and self._capability_runtime is None
-        ):
-            raise UnsupportedAgentContextError("governed capability owners are unavailable")
-        if (
             frozen_source is None
             and payload.uploaded_files
             and self._document_service is None
@@ -1168,7 +1162,10 @@ class ChatService:
             capability_results=tuple(capability_results),
             capability_invoker=(
                 invoke_owner_capability
-                if selected_owner_capabilities and not emergency_route
+                if self._run_journal is not None
+                and self._capability_runtime is not None
+                and selected_owner_capabilities
+                and not emergency_route
                 else None
             ),
             capability_result_observer=(

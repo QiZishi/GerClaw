@@ -57,9 +57,14 @@ to the public answer. Entering `interrupted` now normalizes every durably `runni
 PlanNode to `failed/RUN_INTERRUPTED_BEFORE_NODE_COMMIT` in the same transaction as the
 Run status change. The node keeps its attempt number and append-only audit lineage; an
 adopted worker receives a higher fence and may reopen that exact capability as the next
-attempt. Completed, pending, skipped, and already-failed nodes are not changed by this
-normalization. Durable output reuse for non-owner nodes remains separate recovery work
-rather than being implied here.
+attempt. A completed node survives interruption only when its result is independently
+reconstructable from the frozen snapshot (attachment, ASK, Emergency) or already committed
+as an owner `CapabilityResult`. Evidence, Skill, and Answer completions without a durable
+output are changed to `failed/RUN_INTERRUPTED_BEFORE_OUTPUT_COMMIT`, so resume retries the
+checkpoint instead of pretending an unavailable result exists. Pending, skipped, and
+already-failed nodes are unchanged. Failed and cancelled terminal transitions also close
+their currently running nodes with distinct stable codes, preventing terminal Runs from
+retaining a misleading `running` node.
 
 Queued requirements are available through the owner-scoped Trace create API and Run list/delete
 APIs. The Trace lookup closes the period before a successful stream reveals a Run ID. The

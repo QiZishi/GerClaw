@@ -30,11 +30,15 @@ from gerclaw_api.modules.agent_harness.harness import (
     _CanonicalTextStream,
 )
 from gerclaw_api.modules.agent_harness.planning import (
+    DynamicPlan,
+    DynamicPlanExecutor,
     PlanExecutionSnapshot,
+    PlanNode,
     PlanNodeStatus,
 )
 from gerclaw_api.modules.agent_harness.plugin_runtime import CapabilityResult
 from gerclaw_api.modules.agent_harness.protocols import ConversationHistoryMessage, StreamEvent
+from gerclaw_api.modules.agent_harness.routing import RouteDecision, RouteKind
 from gerclaw_api.modules.agent_harness.safety import (
     MEDICAL_DISCLAIMER,
 )
@@ -268,6 +272,9 @@ def _harness(
     directive_applier: Any = None,
     attempt_repair_observer: Any = None,
     plan_execution_observer: Any = None,
+    route_decision: RouteDecision | None = None,
+    dynamic_plan: DynamicPlan | None = None,
+    plan_execution_snapshot: PlanExecutionSnapshot | None = None,
     execution_budget: ExecutionBudget | None = None,
 ) -> ProductionAgentHarness:
     return ProductionAgentHarness(
@@ -309,6 +316,9 @@ def _harness(
         directive_applier=directive_applier,
         attempt_repair_observer=attempt_repair_observer,
         plan_execution_observer=plan_execution_observer,
+        route_decision=route_decision,
+        dynamic_plan=dynamic_plan,
+        plan_execution_snapshot=plan_execution_snapshot,
         execution_budget=execution_budget,
     )
 
@@ -1427,6 +1437,82 @@ async def test_medical_image_remains_usable_when_local_rag_is_unavailable(
         next(event.data["status"] for event in events if event.event_type == "tool_result")
         == "failed"
     )
+
+
+@pytest.mark.asyncio
+async def test_resume_reconstructs_completed_attachment_without_reopening_node(
+    unit_settings: Settings,
+) -> None:
+    image = _image()
+    plan = DynamicPlan(
+        route=RouteKind.STANDARD,
+        nodes=(
+            PlanNode(
+                node_id="inspect_attachments",
+                capability="attachment.inspect",
+                public_summary="正在核对上传资料",
+            ),
+            PlanNode(
+                node_id="retrieve_evidence",
+                capability="evidence.retrieve",
+                public_summary="正在检索医学证据",
+            ),
+            PlanNode(
+                node_id="answer",
+                dependencies=("inspect_attachments", "retrieve_evidence"),
+                capability="answer.compose",
+                public_summary="正在整理回答",
+            ),
+        ),
+    )
+    executor = DynamicPlanExecutor(plan)
+    attachment_node = executor.start_capability("attachment.inspect")
+    executor.complete(attachment_node)
+    restored = executor.snapshot()
+    observed: list[PlanExecutionSnapshot] = []
+
+    async def persist(snapshot: PlanExecutionSnapshot) -> None:
+        observed.append(snapshot)
+
+    harness = _harness(
+        unit_settings,
+        model=_HarnessModel(text="图片资料需结合症状和原始报告复核 [E1]。"),
+        rag=_HarnessRAG([_evidence()]),
+        uploaded_images=[image],
+        route_decision=RouteDecision(
+            route=RouteKind.STANDARD,
+            reason_code="resume_attachment_test",
+        ),
+        dynamic_plan=plan,
+        plan_execution_snapshot=restored,
+        plan_execution_observer=persist,
+    )
+    context = await harness.assemble_context(
+        "108815d7-05bf-4c2a-a977-cd034f390fab",
+        "usr_patient00000001",
+        [],
+        [],
+    )
+
+    response = await harness.process_message(
+        "请解读这张检查单图片，并说明需要注意什么。",
+        "108815d7-05bf-4c2a-a977-cd034f390fab",
+        context,
+        lambda _event: None,
+    )
+
+    final_execution = cast(dict[str, Any], response.structured["plan_execution"])
+    assert observed
+    assert all(
+        snapshot.statuses["inspect_attachments"] is PlanNodeStatus.COMPLETED
+        and snapshot.attempts["inspect_attachments"] == 1
+        for snapshot in observed
+    )
+    assert final_execution["statuses"]["inspect_attachments"] == "completed"
+    assert {citation.corpus for citation in response.citations} == {
+        "local_knowledge_base",
+        "uploaded_image",
+    }
 
 
 @pytest.mark.asyncio

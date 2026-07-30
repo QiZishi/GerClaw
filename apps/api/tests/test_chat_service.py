@@ -1192,6 +1192,90 @@ async def test_optional_owner_failure_finishes_with_private_warning_and_answer(
 
 
 @pytest.mark.asyncio
+async def test_missing_optional_owner_runtime_preserves_answer_after_run_checkpoint(
+    unit_settings: Settings,
+) -> None:
+    session_id = uuid.uuid4()
+    run_journal = _RunJournal()
+    service = ChatService(
+        settings=unit_settings,
+        conversation=cast(Any, _ConversationFacade(session_id)),
+        traces=cast(Any, _TraceFacade(created=True, session_id=session_id)),
+        lease=cast(Any, _OwnedLease()),
+        model=cast(Any, _TextModel()),
+        rag_module=cast(Any, _NoopRAG()),
+        memory_factory=_memory_factory(),
+        run_journal=run_journal,
+        capability_runtime=None,
+    )
+
+    async def callback(_event: object) -> None:
+        return None
+
+    response = await service.process(
+        ChatRequest(session_id=session_id, message="请做老年综合评估"),
+        identity=AuthContext(
+            actor_id="usr_patient_unit0001",
+            tenant_id="tenant_public0001",
+            scopes=frozenset({"chat:write"}),
+        ),
+        request_id="request_capability_unavailable_0001",
+        trace_id="trace_capability_unavailable_0001",
+        callback=cast(Any, callback),
+    )
+
+    assert response.text
+    assert run_journal.start_requests
+    assert any(
+        snapshot.statuses.get("capability_1") is PlanNodeStatus.FAILED
+        for snapshot in run_journal.plan_executions
+    )
+    assert run_journal.completion_warnings == ("OPTIONAL_CAPABILITY_FAILED",)
+    assert run_journal.transitions == [AgentRunStatus.COMPLETED_WITH_WARNINGS]
+
+
+@pytest.mark.asyncio
+async def test_owner_runtime_is_never_invoked_without_durable_run_journal(
+    unit_settings: Settings,
+) -> None:
+    session_id = uuid.uuid4()
+    unused_journal = _RunJournal()
+    runtime = _CapabilityRuntime(unused_journal)
+    service = ChatService(
+        settings=unit_settings,
+        conversation=cast(Any, _ConversationFacade(session_id)),
+        traces=cast(Any, _TraceFacade(created=True, session_id=session_id)),
+        lease=cast(Any, _OwnedLease()),
+        model=cast(Any, _TextModel()),
+        rag_module=cast(Any, _NoopRAG()),
+        memory_factory=_memory_factory(),
+        run_journal=None,
+        capability_runtime=runtime,
+    )
+
+    async def callback(_event: object) -> None:
+        return None
+
+    response = await service.process(
+        ChatRequest(session_id=session_id, message="请做老年综合评估"),
+        identity=AuthContext(
+            actor_id="usr_patient_unit0001",
+            tenant_id="tenant_public0001",
+            scopes=frozenset({"chat:write"}),
+        ),
+        request_id="request_capability_no_run_0001",
+        trace_id="trace_capability_no_run_0001",
+        callback=cast(Any, callback),
+    )
+
+    assert response.text
+    assert runtime.calls == []
+    assert response.structured["warning_codes"] == [
+        "OPTIONAL_CAPABILITY_FAILED"
+    ]
+
+
+@pytest.mark.asyncio
 async def test_invalid_protocol_attempt_is_rejected_and_replaced_in_place(
     unit_settings: Settings,
 ) -> None:

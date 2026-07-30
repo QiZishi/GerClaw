@@ -683,6 +683,20 @@ class TurnExecutionGovernance:
         selected = self._decision.action_selection.selected
         return selected is not None and selected.candidate.kind is ActionKind.ASK
 
+    def status_for(self, capability: str) -> PlanNodeStatus | None:
+        """Return the exact current status for a uniquely planned capability."""
+
+        matching = [
+            node.node_id
+            for node in self._plan.nodes
+            if node.capability == capability
+        ]
+        if not matching:
+            return None
+        if len(matching) != 1:
+            raise PlanningError(f"PLAN_CAPABILITY_AMBIGUOUS:{capability}")
+        return self._executor.snapshot().statuses[matching[0]]
+
     def checkpoint(self, capability: str) -> str:
         return self._executor.start_capability(capability)
 

@@ -1517,6 +1517,18 @@ steer 进入 interruption，还是由 startup reconciler 接管孤儿 Run，状�
 断言数据库审计为 `running → failed` 且同一 Run/Trace 成功采用。该小步只解决 in-flight 状态归一化；
 已完成非 owner 节点的耐久输出保存与复用仍未虚报完成。
 
+Owner checkpoint 首轮独立复审判定 `REJECT（P0=0，P1=3，P2=1）`，没有以测试通过替代语义审查：
+无 RunJournal 的组件调用仍会执行 owner；owner runtime 整体缺失会在 Run 前拖垮 optional 能力；
+服务层允许选中 owner 节点在无 `CapabilityResult` 时直接 completed；observer 失败或取消还会留下终态
+Run + `running` 节点。修复后，owner invoker 只有在 RunJournal 与 runtime 同时存在时才注入；runtime
+缺失会在 Run 后把 optional 节点记为私有失败并保留回答；持久层强制 owner completed 必须绑定既有结果
+或本事务新结果。进入 failed/cancelled/interrupted 时，同一事务关闭所有 in-flight 节点；interrupted
+还会把没有耐久结果的 Evidence/Skill/Answer completed 节点重新标成
+`failed/RUN_INTERRUPTED_BEFORE_OUTPUT_COMMIT`，而附件、确定性 ASK/Emergency 和已有 owner result
+可从冻结事实重建，保持 completed。Harness/Chat/Run/Planning 扩大回归 `150 passed`，Ruff/Mypy 通过；
+真实 PostgreSQL/Redis/Qdrant 原子结果与 resume 用例 `2 passed`。该修正版等待同一审阅者复审，不能把
+首轮 REJECT 写成通过。
+
 ### 阶段 7
 
 执行完整后端、前端、迁移、Compose、Playwright 和 axe 回归，覆盖患者、医生、访客和响应式关键路径；更新架构、Harness、前端、设计和产品规格，经独立审阅后归档本计划。
