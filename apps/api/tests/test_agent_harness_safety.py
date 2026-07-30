@@ -245,3 +245,11 @@ def test_public_answer_projection_renders_private_clinical_state_as_plain_advice
 
     with pytest.raises(AgentOutputProtocolError):
         validate_public_answer_text("<final-clinical-state>{malformed}</final-clinical-state>")
+
+
+def test_public_answer_projection_restores_inline_ordered_list_boundaries() -> None:
+    answer = "1. 关闭屏幕。2. 做腹式呼吸。3. 保持卧室安静。"
+
+    assert project_public_answer(answer) == (
+        "1. 关闭屏幕。\n2. 做腹式呼吸。\n3. 保持卧室安静。"
+    )

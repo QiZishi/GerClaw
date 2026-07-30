@@ -25,6 +25,9 @@ _GENERIC_TEMPLATE_SIGNALS: tuple[re.Pattern[str], ...] = (
     re.compile(r"(?:本回答|本内容).{0,32}(?:仅供参考|不能替代)", re.DOTALL),
 )
 _EXCESS_BLANK_LINES = re.compile(r"\n{3,}")
+_INLINE_ORDERED_LIST_BOUNDARY = re.compile(
+    r"(?<=[。！？!?])\s*(?=(?:[2-9]|[1-9]\d)\.\s)"  # noqa: RUF001
+)
 _CLINICAL_STATE_ENVELOPE = re.compile(
     r"<\s*final-clinical-state\s*>(?P<payload>.*?)"
     r"<\s*/\s*final-clinical-state\s*>",
@@ -75,4 +78,5 @@ def project_public_answer(text: str) -> str:
         pattern.search(match.group("body")) is not None for pattern in _GENERIC_TEMPLATE_SIGNALS
     ):
         candidate = candidate[: match.start()].rstrip()
+    candidate = _INLINE_ORDERED_LIST_BOUNDARY.sub("\n", candidate)
     return _EXCESS_BLANK_LINES.sub("\n\n", candidate)
