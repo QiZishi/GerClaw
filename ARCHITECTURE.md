@@ -111,9 +111,27 @@ Mini-Cog 和 MMSE 涉及动作、绘图、书写、阅读等内容时，报告�
 
 ### 4.5 Memory 与 Skill
 
-Memory 从会话中提取高置信度健康事实，正文加密保存在 PostgreSQL；Qdrant 只保存不含 PHI 正文的 reference vector。检索前按 tenant、actor 和状态过滤。
+Memory 是随用户使用持续演进的在线事实能力，不是只读快照。新增、确认、纠正、替代、删除和过期都形成递增 revision；删除使用 tombstone/inactive 语义保留审计。正文加密保存在 PostgreSQL，Qdrant 只保存不含 PHI 正文的 reference vector。检索前按 tenant、actor、状态、冲突和时效过滤；冲突中的事实不注入模型，模型推测不能升级为 confirmed。
 
-Skill 支持内置 Skill、Markdown/ZIP 导入、自然语言生成和递增 SemVer 修订。模型产物先进入待审阅状态，不会自动发布、启用或调用工具。
+Skill 支持内置 Skill、Markdown/ZIP 导入、自然语言生成和递增 SemVer 修订。只改变表达、受限检索策略或用户工作区流程且不扩大权限的低风险修订可以在线演进；涉及医疗行为、工具许可、认证授权、Memory/Harness 治理或安全门的变更只能形成 immutable proposal，进入隔离的离线评测和人工审批。
+
+### 4.6 Run、执行期指令与上下文
+
+每次 Agent 执行都以 `AgentRun`、单调 `RunEvent.sequence`、冻结 `ContextSnapshot` 和版本化 `PlanNode` 为事实源。SSE 可按 `after_sequence` 重放；取消、恢复和终态提交都受 fencing 约束。服务重启把无主执行标为可恢复的 `interrupted`，恢复只从已持久化 checkpoint 的 pending/failed 节点继续，不能改读当前可变 Memory 或 Skill 冒充原执行。
+
+Run 执行期间 Composer 仍接受新要求：
+
+- “排队继续”持久化到下一安全边界，领取和应用均为 exactly-once。
+- “立即调整”先持久化指令，再中断旧 Run，并创建绑定冻结上下文的后继 Run。
+- 用户停止在交接期间仍有效；其他会话的 Run 和指令状态不能接管当前 Composer。
+
+每次模型或大型工具调用前，Context Snapshot 会盘点固定输入、当前用户要求、ClinicalState、计划、Memory/Profile、Skill、证据、文档、工具合同和输出预留。达到 soft threshold 时只压缩旧历史、重复描述和可由稳定 ID 重读的正文；当前输入、医疗门禁、未知/冲突、计划与证据标识不得静默删除。压缩结果保留 source hash、来源范围、保留/省略 ID 和 Token 预算；压缩模型失败时回退到确定性摘录。固定输入仍超过 hard threshold 才在产生模型副作用前停止。
+
+模型或工具返回可修复的格式、长度或合同错误时，系统回到该步骤开始前的 checkpoint，把结构化问题仅作为私有修复输入进行有界重试。失败片段、内部协议、安全策略、错误码和修复过程不进入 SSE、Conversation、TTS 或导出；用户只看到最终通过校验的自然语言结果。真正的身份漂移、权限失效、上下文损坏或 fencing 冲突才阻止继续执行。
+
+### 4.7 双轨演化
+
+在线轨保留 Memory CRUD、低风险 Skill 修订和去内容化运行信号；它们不能改写组件的核心机制、权限或安全门。离线轨只接收冻结候选，在无网络、无宿主凭据、只读源码的隔离环境中做 baseline/candidate 配对评测、sealed gate 和绑定 commit 的人工审批。任一既有通过病例回归、高风险切片下降、组件宪章失败或预算越界都拒绝晋升。生产 API 镜像不包含 optimizer 或训练依赖，反馈不会直接修改 Prompt、路由、代码或危险 Skill。
 
 ## 5. 分层依赖
 
@@ -187,6 +205,9 @@ React Component
 11. 五大处方、Skill、Memory 和工具参数必须通过版本化结构合同；未知版本或未知字段不能静默兼容。
 12. Trace 不保存 Chain-of-Thought、凭据或无必要的 Provider 原始响应；图片 base64 进入专用加密字段而不是普通日志。
 13. 患者上传文档和图片不能写入公共医学知识库。
+14. Memory 内容必须支持在线 CRUD；不可在线修改的是确认、冲突、隔离、revision、tombstone 和召回过滤等核心机制。
+15. 执行期 steer/queue、压缩与恢复必须绑定冻结 Context Snapshot；不得从空上下文或当前可变状态偷偷重启。
+16. 可修复校验失败必须在私有 checkpoint 内重试并覆盖失败 attempt；公开结果不得混入内部策略、协议、错误或修复说明。
 
 ## 8. 部署架构
 

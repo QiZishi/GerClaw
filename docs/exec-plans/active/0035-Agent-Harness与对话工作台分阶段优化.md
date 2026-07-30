@@ -36,8 +36,8 @@ Memory/Skill 的治理机制。
 | 3 | ClinicalState、动态规划与医疗门禁 | 已完成：四轮独立审阅修复、真实 GUI 与最终 ACCEPT |
 | 4 | 证据、Memory 与受治理能力组合 | 已完成：三项 P1 修复、真实 GUI/数据库复验、最终独立复审 ACCEPT |
 | 5 | 对话工作台 UI 与交互重构 | 已完成：独立审阅 3 项 P1 修复，真实 Playwright/axe 复验，最终 ACCEPT |
-| 6 | 双轨受控自进化与执行期上下文治理 | 进行中：双轨分类、Memory 在线 CRUD、Skill 在线/离线分轨、去内容化信号、隔离候选、paired/sealed gate、签名审批、原子晋升/回滚、真实拒绝闭环、Codex 风格压缩及 steer/queue 已完成；继续逐 ReAct/大型工具边界预检、PlanNode checkpoint/resume 与局部 warning/fallback |
-| 7 | 最终回归、真实 GUI 对抗审阅与发布 | 未开始 |
+| 6 | 双轨受控自进化与执行期上下文治理 | 已完成：双轨分类、Memory 在线 CRUD、Skill 在线/离线分轨、去内容化信号、隔离候选、paired/sealed gate、签名审批、原子晋升/回滚、真实拒绝闭环、Codex 风格压缩、steer/queue、逐边界预检、PlanNode checkpoint/resume 与局部 warning/fallback 均完成并通过独立复审 |
+| 7 | 最终回归、真实 GUI 对抗审阅与发布 | 进行中：全量后端、迁移、前端 unit/lint/build 与真实 Playwright/axe 已通过，等待独立终审和归档 |
 
 ## 3. 阶段 0：冻结基线与真实运行审计
 
@@ -1562,3 +1562,41 @@ category、provenance、exclusions、JSON 和标签均不进入 SSE/Conversation
 近邻语境，或明确的停药/换药/诊断结论出现时追加该提示；停止屏幕、开始呼吸训练等普通行为不再触发。
 复验中还发现模型偶尔输出 `1. …。2. …。3. …。`，导致 Markdown 把三条合成一个列表项。
 公开文本投影现只在句末标点后紧跟下一有序编号的确定边界补换行，不改变正文、编号或引用。
+
+**完整回归记录（2026-07-31）：**
+
+- 后端非 external 全量单元/组件门禁：
+  `uv run pytest -m 'not integration and not external'` 为
+  `1039 passed, 62 deselected`，coverage `80.06%`；`uv run ruff format --check .`
+  为 `448 files already formatted`，`uv run ruff check .` 通过，
+  `uv run mypy src` 为 `Success: no issues found in 287 source files`。
+- 迁移门禁使用根配置中的数据库 URL，仅把 Compose 主机名 `postgres` 映射为本机
+  `127.0.0.1` 后执行 `uv run alembic check`，结果
+  `No new upgrade operations detected`。首次直接 `source ../../.env` 的尝试因 dotenv
+  不是 shell 脚本而失败，没有改动文件；该错误命令未被当作产品失败或成功证据。
+- 真实 PostgreSQL、Redis、Qdrant 集成全量：
+  `GERCLAW_RUN_INTEGRATION=1 uv run pytest -m 'not external' -rs`
+  在 `GERCLAW_TEST_KNOWLEDGE_BASE_PATH=.../knowledge-base/md` 下为
+  `1091 passed, 10 deselected`，coverage `85.25%`。首次误把知识库根指向
+  `.../knowledge-base` 时仅有两项 readiness 用例失败；修正为生产实际 Markdown 根后，
+  两项定向 `2 passed`，随后完整套件 `1091/1091` 通过。warning 仅为本地 Qdrant
+  insecure connection 和 local index 提示。
+- 前端 `npm test && npm run lint && npm run build` 全部退出 0：86 项 unit/契约断言、
+  CGA 82 题/123 WAV 资源校验、ESLint、Next.js production build 和 TypeScript 均通过。
+  仅有 Node `MODULE_TYPELESS_PACKAGE_JSON` 与 build 的 localStorage experimental warning。
+- 项目内置 `npm run test:e2e` 在真实 FastAPI、Next.js、PostgreSQL、Redis、Qdrant 和当前
+  Provider 上运行，未 route mock，`6 passed (1.1m)`。覆盖桌面键盘/IME、390px 抽屉、
+  老年模式目标尺寸、axe `serious/critical=0`、Provider 协议不泄露、跨会话 Run 隔离、
+  queue/steer exactly-once 交互和 steer 交接期间停止。
+- 真实 steer 审计中，源 Run
+  `trace_4d18710813a244f2b91e6092bd8c2404` 被明确打断，后继
+  `trace_steer_e1a2db615f0e4505b52891cbe6dd70ab` 完成并采用新要求；页面无内部协议、
+  假引用或控制台错误。Quick 模型越界引用已降级为保留正文、删除未绑定标记；普通“停用屏幕”
+  不再触发无关用药提醒。截图保存在 gitignored 的
+  `apps/mvp/output/playwright/stage7-final/`，包含
+  `steer-success-clean.png`、`quick-invalid-marker-degraded.png`、
+  `sleep-advice-no-irrelevant-medication-notice.png`。
+
+完整 external Provider 测试集没有作为本地全量门禁运行；真实 Provider 已由上述无 mock
+Playwright 路径覆盖。该边界在最终发布报告中必须如实保留，不能把 `not external` 写成 external
+套件通过。

@@ -122,6 +122,7 @@ Web 前端以 `apps/mvp/` 为唯一实现入口，并通过同源 BFF 整合 `ap
 - 消息删除和退出评估/信息收集同样必须使用应用内确认框；患者老年模式下标题不小于 24px、正文不小于 18px，取消与确认按钮并列且均为带文字、至少 48px 的操作目标。Esc 与“取消”只关闭确认框，不执行操作。
 - Skill 上传先调用只校验、不落库的 preview API；完整 `SKILL.md` 在可编辑源码/渲染预览中供用户审阅，明确确认后才注册。系统 Skill 可查看完整只读源码，自定义 Skill 使用 expected revision 编辑，禁止“上传即注册”。
 - 用户点击停止后进入“正在安全停止”状态，发送 `POST /api/gerclaw/chat/{trace_id}/cancel` 并继续读取原 SSE；只有收到服务端 `cancelled` 后，正文才标为 `stopped` 并追加“未完成且未通过最终校验”警示，thinking 结束、所有 running 工具卡转为 cancelled，且不显示重新生成之外的完成态假象。
+- 同一会话的 Run 执行期间 Composer 继续可用，并提供带文字的“排队继续”和“立即调整”：前者在下一安全边界 exactly-once 领取，后者持久化指令后中断旧 Run 并由后继 Run 采用冻结上下文。交接期间“停止”仍然有效；切换会话后，其他会话的 Run、排队状态和迟到回调不得接管当前输入框。内部校验、checkpoint 回滚和修复 attempt 始终留在服务端，失败片段不能进入消息、朗读、复制或导出。
 - 聊天 SSE 以受 Zod 校验的 `error` 终止、且尚无可展示正文时，必须展示后端的安全原因（例如“本地医学依据不足，本次不生成医学建议”），再附加未完成警示；不得以泛泛的“系统未完成”吞掉用户可行动的失败说明。
 - 引用的“查看原文”仅可指向真实 `http`/`https` 地址；上传文档和本地知识库没有公开链接时展示题名、摘录与来源定位，不得渲染空链接、无效跳转或假装可预览的操作。
 - Markdown 保留 GFM 表格、代码和明确的 `~~删除线~~`；单个 `~` 必须按普通字符渲染，避免把临床常用范围写法（如 `2~3次`、`5~7天`）误画为已撤销的数字。
@@ -176,7 +177,7 @@ Web 前端以 `apps/mvp/` 为唯一实现入口，并通过同源 BFF 整合 `ap
 - 组件与契约测试：覆盖 ChatInput、消息流、处方报告、账号会话、反馈和语音协调等关键交互
 - Hook测试：覆盖录音、播放和 reduced-motion 的核心状态转换
 - E2E测试：核心用户旅程（发送文本消息→AI回复→播放TTS→导出PDF）使用Playwright
-- 工作台 E2E 位于 `e2e/workbench.spec.ts`，在真实 FastAPI/Next.js 已启动时执行 `npm run test:e2e`；不得 route mock。当前门禁覆盖桌面侧栏键盘、IME/Shift+Enter、390px 抽屉、无页面横向溢出、老年模式 48px 热区和 axe `serious/critical=0`。
+- 工作台 E2E 位于 `e2e/workbench.spec.ts`，在真实 FastAPI/Next.js 已启动时执行 `npm run test:e2e`；不得 route mock。当前门禁覆盖桌面侧栏键盘、IME/Shift+Enter、390px 抽屉、无页面横向溢出、老年模式 48px 热区、axe `serious/critical=0`、Provider 协议不泄露、跨会话 Run 隔离、排队/即时调整和交接期间停止。
 - 测试文件命名：`[name].test.ts(x)` 与源文件同目录
 - 每个测试覆盖主路径（成功）+至少1条错误路径（失败/超时/降级）
 - 不追求100%覆盖率，但核心流程必须有测试
