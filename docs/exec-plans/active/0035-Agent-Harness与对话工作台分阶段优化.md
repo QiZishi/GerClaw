@@ -1130,6 +1130,18 @@ repair/fallback 与 `completed_with_warnings` 生产路径尚未完整实现。�
 319 passed/2 skipped 的只读验证记录见
 `docs/exec-plans/evidence/0035-harness-definition-audit-2026-07-30.md`。
 
+2026-07-30 `run_lifecycle` 已先落地执行期指令事实源的独立变更集：新增加密
+`RunDirective`、会话级单调 sequence、actor 级 idempotency、`pending/pending_next_run/claimed/
+applied/cancelled` 状态机，以及 fencing token + safe-boundary ID 双重绑定的 exactly-once
+领取/应用协议。新 fence 可接管旧 fence 的未完成 claim，旧 worker 随即失去 apply 权限；用户只能撤销
+未领取指令；真正终态后入库的要求保留为 `pending_next_run`。`interrupt_and_steer` 不允许被原 Run
+领取，只有绑定受控 successor 后才可消费。该提交只建立内部事实源，尚未开放会造成“假成功”的公共 API；
+worker 边界轮询、successor/fan-out、Context 指令预留和 Composer 状态投影继续在下一变更集完成。
+状态机单元测试 10/10、真实 PostgreSQL 十路同 idempotency 竞态/密文/claim fence 集成测试 1/1、
+Ruff/Mypy 通过；真实 `gerclaw_test` PostgreSQL 迁移首次因宿主机误用 Docker 内部主机名 `postgres`
+未连接，改用 `127.0.0.1` 后实际完成 upgrade → downgrade → upgrade 与 `alembic check`，未把首次
+环境失败冒充产品成功。
+
 #### 6.7 安全校验的可用性、反馈修复与步骤级回退硬约束
 
 “安全”不能被实现成高误杀率的拒绝系统。每个校验器必须先声明保护的具体资产、精确失败条件、可修复性、

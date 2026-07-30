@@ -229,6 +229,9 @@ class ConversationSession(TimestampMixin, Base):
         BigInteger, default=0, server_default="0", nullable=False
     )
     active_fencing_trace_id: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    last_directive_sequence: Mapped[int] = mapped_column(
+        Integer, default=0, server_default="0", nullable=False
+    )
     context_summary: Mapped[dict[str, Any]] = mapped_column(
         EncryptedJSON(), default=dict, nullable=False
     )
@@ -379,6 +382,91 @@ class RunEvent(Base):
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now(), nullable=False
     )
+
+
+class RunDirective(TimestampMixin, Base):
+    """Encrypted, actor-owned instruction consumed at a fenced execution boundary."""
+
+    __tablename__ = "run_directives"
+    __table_args__ = (
+        CheckConstraint("sequence > 0", name="positive_run_directive_sequence"),
+        CheckConstraint("revision > 0", name="positive_run_directive_revision"),
+        CheckConstraint(
+            "mode IN ('interrupt_and_steer','queue_for_next_boundary')",
+            name="valid_run_directive_mode",
+        ),
+        CheckConstraint(
+            "status IN ('pending','pending_next_run','claimed','applied','cancelled')",
+            name="valid_run_directive_status",
+        ),
+        CheckConstraint(
+            "claimed_by_fencing_token IS NULL OR claimed_by_fencing_token > 0",
+            name="positive_run_directive_claim_fence",
+        ),
+        CheckConstraint(
+            "((status IN ('claimed','applied') "
+            "AND claimed_at IS NOT NULL "
+            "AND claimed_by_fencing_token IS NOT NULL "
+            "AND claim_boundary_id IS NOT NULL) OR "
+            "(status NOT IN ('claimed','applied')))",
+            name="valid_run_directive_claim",
+        ),
+        CheckConstraint(
+            "status != 'applied' OR applied_at IS NOT NULL",
+            name="valid_run_directive_applied_time",
+        ),
+        CheckConstraint(
+            "status != 'cancelled' OR cancelled_at IS NOT NULL",
+            name="valid_run_directive_cancelled_time",
+        ),
+        UniqueConstraint(
+            "tenant_id",
+            "actor_id",
+            "idempotency_key",
+            name="uq_run_directives_owner_idempotency",
+        ),
+        UniqueConstraint(
+            "conversation_id",
+            "sequence",
+            name="uq_run_directives_conversation_sequence",
+        ),
+        Index(
+            "ix_run_directives_target_status_sequence",
+            "target_run_id",
+            "status",
+            "sequence",
+        ),
+        Index(
+            "ix_run_directives_successor_status_sequence",
+            "successor_run_id",
+            "status",
+            "sequence",
+        ),
+    )
+
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    tenant_id: Mapped[str] = mapped_column(String(64), nullable=False, index=True)
+    actor_id: Mapped[str] = mapped_column(String(128), nullable=False, index=True)
+    conversation_id: Mapped[uuid.UUID] = mapped_column(
+        ForeignKey("sessions.id", ondelete="CASCADE"), nullable=False
+    )
+    target_run_id: Mapped[uuid.UUID] = mapped_column(
+        ForeignKey("agent_runs.id", ondelete="CASCADE"), nullable=False
+    )
+    successor_run_id: Mapped[uuid.UUID | None] = mapped_column(
+        ForeignKey("agent_runs.id", ondelete="SET NULL"), nullable=True
+    )
+    sequence: Mapped[int] = mapped_column(Integer, nullable=False)
+    mode: Mapped[str] = mapped_column(String(32), nullable=False)
+    status: Mapped[str] = mapped_column(String(32), nullable=False)
+    instruction: Mapped[str] = mapped_column(EncryptedText(), nullable=False)
+    idempotency_key: Mapped[str] = mapped_column(String(128), nullable=False)
+    claimed_by_fencing_token: Mapped[int | None] = mapped_column(BigInteger, nullable=True)
+    claim_boundary_id: Mapped[str | None] = mapped_column(String(128), nullable=True)
+    revision: Mapped[int] = mapped_column(Integer, default=1, nullable=False)
+    claimed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    applied_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    cancelled_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
 
 
 class AgentRunAttempt(Base):

@@ -17,11 +17,20 @@ identifiers—never user text, provider payload, hidden prompts, credentials, se
 private reasoning. Cancellation, interruption, and immediate steer invalidate uncommitted
 attempts; resume starts after the latest committed checkpoint.
 
+Execution-time user instructions use the encrypted `RunDirective` ledger. Conversation
+sequence allocation is monotonic; idempotency is actor-scoped. A worker may consume a queued
+instruction only after a fencing-protected claim at a named safe boundary, and may mark it
+applied only with the same fence and boundary identity. A newer fence may adopt a stale claim;
+the old worker must then fail. `interrupt_and_steer` must never be consumed by the original
+Run and becomes claimable only after it is bound to a controlled successor. An instruction
+that races with a true terminal Run remains `pending_next_run`, never silently disappears.
+
 Inputs are bounded text deltas and validated lifecycle commands; outputs are safe public
 text fragments or stable typed errors. Do not import concrete Runtime, Memory, RAG, Search,
 Skill, Workflow, or persistence implementations.
 
 Run `tests/test_agent_harness.py`, `tests/test_agent_harness_safety.py`,
 `tests/test_agent_run_service.py`, `tests/test_chat_service.py`, and
-`tests/test_chat_cancellation.py` after changes. When persistence changes, also run Alembic
-upgrade, downgrade, re-upgrade, and `alembic check` against PostgreSQL.
+`tests/test_chat_cancellation.py` after changes. Directive changes also require
+`tests/test_run_directive_service.py`. When persistence changes, also run Alembic upgrade,
+downgrade, re-upgrade, and `alembic check` against PostgreSQL.

@@ -21,12 +21,26 @@ step and pre-step checkpoint. Terminal failure, cancellation, or interruption in
 uncommitted attempt. Persistence, replay sequence, recovery, fencing, and the versioned
 `AgentRun` state machine remain owned by the chat/session layer.
 
+Execution-time requirements now have an encrypted `RunDirective` fact source with
+actor-scoped idempotency and a conversation-scoped monotonic sequence. Queued requirements use
+`pending → claimed → applied`; claim and apply are bound to the same worker fencing token and
+safe-boundary ID. Worker adoption can reclaim only a lower-fence claim, while the previous
+worker is rejected. Users may withdraw only unclaimed directives. An instruction created after
+the target Run reaches a true terminal status becomes `pending_next_run`. Immediate steering
+requirements are intentionally excluded from the original Run's claim query and become
+consumable only after the orchestration layer binds a controlled successor Run.
+
 `interrupted` is a recoverable execution boundary, not a terminal outcome. It records
 `interrupted_at`, closes the current public event stream, rejects worker events until a fenced
 resume, and may transition to `running` or `cancelled`. Only `completed`,
 `completed_with_warnings`, `failed`, and `cancelled` set `completed_at`; those true terminal
 states have no outgoing transitions. A resumed Run retains its last interruption timestamp for
 audit while a new fencing token prevents the old worker from writing.
+
+The directive ledger is currently an internal persistence boundary. Public API fan-out,
+successor creation, per-model/tool boundary polling, Context reserve injection, and Composer
+status projection are the next change set; no UI or API claims immediate steering works before
+those consumers are connected.
 
 Measure improvement with one terminal event, no failed-attempt bytes in SSE/replay, atomic
 AnswerVersion/current-attempt selection, stale-fence/CAS rejection, cancellation tests, and

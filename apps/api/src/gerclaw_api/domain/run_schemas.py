@@ -25,6 +25,10 @@ ArtifactTitle = Annotated[
     str,
     StringConstraints(strip_whitespace=True, min_length=1, max_length=300),
 ]
+BoundedDirectiveText = Annotated[
+    str,
+    StringConstraints(strip_whitespace=True, min_length=1, max_length=10_000),
+]
 
 
 class AgentRunStatus(StrEnum):
@@ -85,6 +89,91 @@ class RunEventWrite(BaseModel):
     public_summary: BoundedPublicText | None = None
     payload: dict[str, JsonValue] = Field(default_factory=dict, max_length=50)
     duration_ms: int | None = Field(default=None, ge=0)
+
+
+class RunDirectiveMode(StrEnum):
+    """How a user instruction joins an already active Agent execution."""
+
+    INTERRUPT_AND_STEER = "interrupt_and_steer"
+    QUEUE_FOR_NEXT_BOUNDARY = "queue_for_next_boundary"
+
+
+class RunDirectiveStatus(StrEnum):
+    """Durable lifecycle for one user instruction."""
+
+    PENDING = "pending"
+    PENDING_NEXT_RUN = "pending_next_run"
+    CLAIMED = "claimed"
+    APPLIED = "applied"
+    CANCELLED = "cancelled"
+
+
+class RunDirectiveCreate(BaseModel):
+    """Create one idempotent instruction without exposing worker internals."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    id: uuid.UUID = Field(default_factory=uuid.uuid4)
+    mode: RunDirectiveMode
+    instruction: BoundedDirectiveText
+    idempotency_key: BoundedIdentifier
+
+
+class RunDirectiveClaim(BaseModel):
+    """Internal claim identity for exactly-once boundary consumption."""
+
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    fencing_token: int = Field(ge=1)
+    boundary_id: BoundedIdentifier
+
+
+class RunDirectiveRead(BaseModel):
+    """Owner-visible directive state; private execution attempts stay excluded."""
+
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    schema_version: Literal["1.0"] = "1.0"
+    id: uuid.UUID
+    conversation_id: uuid.UUID
+    target_run_id: uuid.UUID
+    successor_run_id: uuid.UUID | None = None
+    sequence: int = Field(ge=1)
+    mode: RunDirectiveMode
+    status: RunDirectiveStatus
+    instruction: BoundedDirectiveText
+    idempotency_key: BoundedIdentifier
+    claimed_by_fencing_token: int | None = Field(default=None, ge=1)
+    claim_boundary_id: BoundedIdentifier | None = None
+    revision: int = Field(ge=1)
+    created_at: datetime
+    claimed_at: datetime | None = None
+    applied_at: datetime | None = None
+    cancelled_at: datetime | None = None
+
+    @model_validator(mode="after")
+    def validate_lifecycle_timestamps(self) -> RunDirectiveRead:
+        if self.status in {
+            RunDirectiveStatus.CLAIMED,
+            RunDirectiveStatus.APPLIED,
+        } and (
+            self.claimed_at is None
+            or self.claimed_by_fencing_token is None
+            or self.claim_boundary_id is None
+        ):
+            raise ValueError("claimed directive requires its worker claim identity")
+        if self.status is RunDirectiveStatus.APPLIED and self.applied_at is None:
+            raise ValueError("applied directive requires applied_at")
+        if self.status is RunDirectiveStatus.CANCELLED and self.cancelled_at is None:
+            raise ValueError("cancelled directive requires cancelled_at")
+        return self
+
+
+class RunDirectiveListRead(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    run_id: uuid.UUID
+    directives: tuple[RunDirectiveRead, ...] = Field(default=(), max_length=200)
 
 
 class RunAttemptStatus(StrEnum):
