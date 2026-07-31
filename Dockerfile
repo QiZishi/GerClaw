@@ -19,7 +19,8 @@ COPY apps/api/src ./src
 COPY apps/api/scripts ./scripts
 COPY apps/api/evals/rag-retrieval-reviewed-v1.json ./evals/rag-retrieval-reviewed-v1.json
 
-RUN uv sync --frozen --no-dev
+RUN uv sync --frozen --no-dev --index-url "${PYTHON_PACKAGE_INDEX}" \
+    || uv sync --frozen --no-dev --index-url https://pypi.org/simple
 
 FROM node:22-bookworm-slim AS web-builder
 
