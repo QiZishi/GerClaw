@@ -16,6 +16,10 @@ _TERMINAL_TEMPLATE_SECTION = re.compile(
     """,
     re.DOTALL | re.VERBOSE,
 )
+_TERMINAL_RULE_SECTION = re.compile(
+    r"(?:\n[ \t]*)+---[ \t]*(?:\n[ \t]*)*(?P<body>.+?)[ \t\n]*\Z",
+    re.DOTALL,
+)
 _GENERIC_TEMPLATE_SIGNALS: tuple[re.Pattern[str], ...] = (
     re.compile(r"以上(?:建议|内容).{0,32}(?:通用|一般|仅供)", re.DOTALL),
     re.compile(
@@ -27,6 +31,9 @@ _GENERIC_TEMPLATE_SIGNALS: tuple[re.Pattern[str], ...] = (
 _EXCESS_BLANK_LINES = re.compile(r"\n{3,}")
 _INLINE_ORDERED_LIST_BOUNDARY = re.compile(
     r"(?<=[。！？!?])\s*(?=(?:[2-9]|[1-9]\d)\.\s)"  # noqa: RUF001
+)
+_INLINE_UNORDERED_LIST_BOUNDARY = re.compile(
+    r"(?<=[。！？!?：:])\s+\*\s+(?=\S)"  # noqa: RUF001
 )
 _CLINICAL_STATE_ENVELOPE = re.compile(
     r"<\s*final-clinical-state\s*>(?P<payload>.*?)"
@@ -73,10 +80,13 @@ def project_public_answer(text: str) -> str:
     """
 
     candidate = _CLINICAL_STATE_ENVELOPE.sub(_replace_private_clinical_state, text).strip()
-    match = _TERMINAL_TEMPLATE_SECTION.search(candidate)
-    if match is not None and any(
-        pattern.search(match.group("body")) is not None for pattern in _GENERIC_TEMPLATE_SIGNALS
-    ):
-        candidate = candidate[: match.start()].rstrip()
+    for terminal_pattern in (_TERMINAL_TEMPLATE_SECTION, _TERMINAL_RULE_SECTION):
+        match = terminal_pattern.search(candidate)
+        if match is not None and any(
+            pattern.search(match.group("body")) is not None for pattern in _GENERIC_TEMPLATE_SIGNALS
+        ):
+            candidate = candidate[: match.start()].rstrip()
+            break
     candidate = _INLINE_ORDERED_LIST_BOUNDARY.sub("\n", candidate)
+    candidate = _INLINE_UNORDERED_LIST_BOUNDARY.sub("\n- ", candidate)
     return _EXCESS_BLANK_LINES.sub("\n\n", candidate)

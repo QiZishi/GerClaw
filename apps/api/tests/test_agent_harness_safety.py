@@ -223,6 +223,18 @@ def test_public_answer_projection_removes_generic_terminal_risk_template() -> No
     assert project_public_answer(answer) == ("## 防跌倒建议\n\n保持通道整洁，并坚持平衡训练 [E1]。")
 
 
+def test_public_answer_projection_removes_unheaded_generic_terminal_note() -> None:
+    answer = (
+        "## 家属清单\n\n1. 记录头晕发生时间。\n2. 陪同缓慢起身。\n3. 症状加重时就医。\n\n"
+        "--- 以上建议仅供辅助记录参考，不能替代医生的临床诊断。"
+        "每位老人的情况不同，请结合线下检查综合评估。"
+    )
+
+    assert project_public_answer(answer) == (
+        "## 家属清单\n\n1. 记录头晕发生时间。\n2. 陪同缓慢起身。\n3. 症状加重时就医。"
+    )
+
+
 def test_public_answer_projection_preserves_specific_risk_instructions() -> None:
     answer = (
         "先停止运动并坐下休息。\n\n"
@@ -257,3 +269,11 @@ def test_public_answer_projection_restores_inline_ordered_list_boundaries() -> N
     answer = "1. 关闭屏幕。2. 做腹式呼吸。3. 保持卧室安静。"
 
     assert project_public_answer(answer) == ("1. 关闭屏幕。\n2. 做腹式呼吸。\n3. 保持卧室安静。")
+
+
+def test_public_answer_projection_restores_inline_unordered_list_boundaries() -> None:
+    answer = "请记录这些诱因： * 饱餐或饮酒后。 * 洗澡后。 * 近期调整药物。"
+
+    assert project_public_answer(answer) == (
+        "请记录这些诱因：\n- 饱餐或饮酒后。\n- 洗澡后。\n- 近期调整药物。"
+    )
