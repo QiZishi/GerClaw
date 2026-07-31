@@ -43,6 +43,12 @@ reasoning, or unbounded history. Unknown and absent data must remain distinguish
   actual request-scoped compression entry; an event observer is audit timing, not a pre-model
   gate. Concurrency-safe tools must be admitted as one complete batch before any owner side
   effect, with one combined result reserve and no shared temporary-marker race.
+- Hard admission must account for AgentScope's actual prepared Provider input: dynamic system
+  prompt, summary, every content-block kind, and activated tool schemas. A local complete
+  projection is the availability-preserving fallback when the read-only token counter fails.
+- Compression cancellation and failure restore summary/context atomically. Retained lineage
+  keeps the source identity captured before compression, including exact duplicate messages;
+  never infer retained identity by renumbering the after-projection occurrence.
 - `source_hash`, strategy, before/after estimates, source budgets, and retained message counts
   are frozen. New Runs use `context-projection-v2`, including stable retained/omitted source
   IDs, source range, summary hash lineage, and opaque unresolved-item IDs. Resume accepts and

@@ -19,7 +19,9 @@ from gerclaw_api.modules.agent_harness.context_snapshot import (
 from gerclaw_api.modules.agent_harness.run_lifecycle.directive_runtime import (
     DirectiveBudget,
     RuntimeDirectiveCoordinator,
+    agent_model_input_capacity,
     agent_text_values,
+    message_capacity_values,
 )
 
 
@@ -60,20 +62,27 @@ _BOUNDARY_INSTALLED_ATTRIBUTE = "_gerclaw_react_boundaries_installed"
 
 
 def _message_text(message: Msg) -> str:
-    return "\n".join(block.text for block in message.get_content_blocks("text") if block.text)
+    return "\n".join(message_capacity_values(message))
 
 
-def _context_projection(agent: Any) -> tuple[tuple[str, ...], tuple[str, ...], str]:
+def _context_projection(
+    agent: Any,
+    *,
+    source_ids_by_object: dict[int, str] | None = None,
+) -> tuple[tuple[str, ...], tuple[str, ...], str, dict[int, str]]:
     """Return stable ids, visible text and a content hash without persisting text."""
 
     ids: list[str] = []
     text_values: list[str] = []
     content_hashes: list[str] = []
     id_occurrences: dict[str, int] = {}
+    object_ids: dict[int, str] = {}
+    used_ids: set[str] = set()
     summary = str(getattr(agent.state, "summary", "") or "")
     if summary:
         summary_hash = hashlib.sha256(summary.encode()).hexdigest()
         ids.append(f"summary_{summary_hash[:32]}")
+        used_ids.add(ids[-1])
         text_values.append(summary)
         content_hashes.append(summary_hash)
     for message in agent.state.context:
@@ -84,9 +93,16 @@ def _context_projection(agent: Any) -> tuple[tuple[str, ...], tuple[str, ...], s
             f"{message_id}\0{message.role}\0{message.name}\0{content_hash}".encode()
         ).hexdigest()
         base_id = f"ctx_{identity_hash[:48]}"
-        occurrence = id_occurrences.get(base_id, 0) + 1
-        id_occurrences[base_id] = occurrence
-        ids.append(f"{base_id}_{occurrence}")
+        stable_id = (source_ids_by_object or {}).get(id(message))
+        if stable_id is None or stable_id in used_ids:
+            occurrence = id_occurrences.get(base_id, 0) + 1
+            while f"{base_id}_{occurrence}" in used_ids:
+                occurrence += 1
+            id_occurrences[base_id] = occurrence
+            stable_id = f"{base_id}_{occurrence}"
+        ids.append(stable_id)
+        used_ids.add(stable_id)
+        object_ids[id(message)] = stable_id
         text_values.append(text)
         content_hashes.append(content_hash)
     projection_hash = hashlib.sha256(
@@ -96,7 +112,7 @@ def _context_projection(agent: Any) -> tuple[tuple[str, ...], tuple[str, ...], s
             separators=(",", ":"),
         ).encode()
     ).hexdigest()
-    return tuple(ids), tuple(text_values), projection_hash
+    return tuple(ids), tuple(text_values), projection_hash, object_ids
 
 
 def _deterministic_extractive_fallback(
@@ -166,13 +182,14 @@ async def prepare_react_context(
     fails. The subsequent hard preflight remains authoritative.
     """
 
-    source_ids, before_text, context_hash_before = _context_projection(agent)
+    source_ids, before_text, context_hash_before, source_ids_by_object = _context_projection(agent)
     required_input_hashes = tuple(
         hashlib.sha256(value.encode()).hexdigest() for value in extra_text_values
     )
     required_tokens = estimate_context_tokens(*extra_text_values) + reserved_tokens
     marker = None
     original_context = list(agent.state.context)
+    original_summary = getattr(agent.state, "summary", None)
     compressible_context, protected_context = _protected_context(original_context)
     agent.state.context = compressible_context
     if extra_text_values or reserved_tokens:
@@ -191,10 +208,12 @@ async def prepare_react_context(
         await compressor()
     except asyncio.CancelledError:
         agent.state.context = original_context
+        agent.state.summary = original_summary
         raise
     except Exception:
         compression_failed = True
         agent.state.context = original_context
+        agent.state.summary = original_summary
         marker = None
         _deterministic_extractive_fallback(
             agent,
@@ -217,7 +236,10 @@ async def prepare_react_context(
         if missing_protected:
             agent.state.context.extend(missing_protected)
 
-    after_ids, after_text, context_hash_after = _context_projection(agent)
+    after_ids, after_text, context_hash_after, _ = _context_projection(
+        agent,
+        source_ids_by_object=source_ids_by_object,
+    )
     source_set = set(source_ids)
     after_set = set(after_ids)
     return ContextBoundaryDraft(
@@ -299,10 +321,16 @@ class BoundReActBoundaries:
                 "before-model",
                 self.model_call_count,
             )
+        counted_tokens, provider_projection = await agent_model_input_capacity(agent)
         decision = self.coordinator._model_preflight(
             usage=self.budget.snapshot(),
-            text_values=agent_text_values(agent),
+            text_values=(
+                ()
+                if counted_tokens is not None
+                else provider_projection or agent_text_values(agent)
+            ),
             image_count=self.coordinator._image_count,
+            estimated_input_tokens=counted_tokens,
         )
         if not decision.allowed:
             raise self.coordinator._error_factory(decision.reason_code)
@@ -337,11 +365,20 @@ class BoundReActBoundaries:
                     "before-tool",
                     self.model_call_count,
                 )
+            counted_tokens, provider_projection = await agent_model_input_capacity(agent)
             decision = self.coordinator._tool_preflight(
                 usage=self.budget.snapshot(),
-                text_values=(*agent_text_values(agent), *extra_text),
+                text_values=(
+                    ()
+                    if counted_tokens is not None
+                    else (
+                        *(provider_projection or agent_text_values(agent)),
+                        *extra_text,
+                    )
+                ),
                 image_count=self.coordinator._image_count,
                 result_reserve_tokens=self.pending_tool_result_reserve_tokens,
+                estimated_input_tokens=counted_tokens,
             )
             if not decision.allowed:
                 return decision.reason_code

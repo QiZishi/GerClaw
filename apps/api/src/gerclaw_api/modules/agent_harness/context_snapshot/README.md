@@ -79,7 +79,11 @@ projection 仍超过有效上限时才 fail closed。
 ReAct 执行期间，每个 model 副作用和每个 AgentScope tool batch 副作用前还会生成
 `ContextBoundaryDraft`。AgentScope 的自动压缩发生在公开 `ModelCallStartEvent` 之前，因此
 生产编排直接在请求级 Agent 的 `compress_context` 入口安装边界，而不再把公开事件误当作
-压缩前门禁。它将实际 AgentScope state 的 before/after Token 估算、message/summary
+压缩前门禁。hard preflight 优先调用固定 AgentScope 版本的实际 `_prepare_model_input()` 和
+model token counter，计入动态 system prompt、summary、全部 Text/Hint/Thinking/ToolCall/
+ToolResult/Data block 及当前 tool schema；counter/formatter 不可用时退回同一 prepared input
+的完整本地投影，不会因计数器故障阻断正常回答。它将实际 AgentScope state 的 before/after
+Token 估算、message/summary
 唯一稳定 ID、omitted/retained
 集合、required input hash、压缩失败状态和上下文 hash 写入私有
 `agent_run_context_boundaries`。写入必须持有当前 Run fencing token，按 Run row lock 分配
@@ -99,6 +103,10 @@ admitted evidence、Profile/Memory 投影、执行期用户指令、输出修复
 空串。`context_trigger_ratio` 同时满足项目 soft/hard 配置和 AgentScope
 `trigger_ratio < 0.9` 合同，
 防止合法项目配置在 Agent 构造时才失败。
+压缩边界在调用前同时快照 `state.summary` 与 `state.context`；AgentScope shielded apply
+完成后才传播取消也必须原子恢复两者，普通压缩异常同样先恢复再做 extractive fallback。
+lineage 在 before projection 为每个消息对象分配 source ID，after projection 对仍保留的
+对象回填原 ID；删除较早的 exact duplicate 不会再把较晚重复消息误记为被删除项。
 
 执行失败时，摘要、Memory 候选、assistant message 和成功终态处于同一事务；失败路径先
 rollback，再单独持久化失败 Trace/Run，旧 worker 仍受 fencing 阻断。服务/worker 丢失形成

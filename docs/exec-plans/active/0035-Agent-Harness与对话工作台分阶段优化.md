@@ -36,7 +36,7 @@ Memory/Skill 的治理机制。
 | 3 | ClinicalState、动态规划与医疗门禁 | 已完成：四轮独立审阅修复、真实 GUI 与最终 ACCEPT |
 | 4 | 证据、Memory 与受治理能力组合 | 已完成：三项 P1 修复、真实 GUI/数据库复验、最终独立复审 ACCEPT |
 | 5 | 对话工作台 UI 与交互重构 | 已完成：独立审阅 3 项 P1 修复，真实 Playwright/axe 复验，最终 ACCEPT |
-| 6 | 双轨受控自进化与执行期上下文治理 | 进行中：在线 Memory/低风险 Skill、steer/queue、PlanNode、私有 step repair、逐 ReAct 压缩 lineage 与危险 Skill 加密离线桥接已落地；离线 Skill 终审仍有 evaluator/manifest/operator 闭环 P1，修复复审前不得关闭 |
+| 6 | 双轨受控自进化与执行期上下文治理 | 进行中：在线 Memory/低风险 Skill、steer/queue、PlanNode、私有 step repair、逐 ReAct 压缩 lineage 与危险 Skill 加密离线桥接已落地；逐 ReAct 第二轮复审新增 3 项 P1 已整改，等待复审；离线 Skill 终审并行复验中 |
 | 7 | 最终回归、真实 GUI 对抗审阅与发布 | 已执行首轮全量回归与真实 Playwright/axe；因阶段 6 终审 REJECT 暂停归档，待 P1 修复后重跑受影响门禁和最终复审 |
 
 ## 3. 阶段 0：冻结基线与真实运行审计
@@ -1737,3 +1737,33 @@ Directive/Recovery 集成 `14 passed`（14 条本地 Qdrant insecure-HTTP warnin
 源码/测试与 Mypy 295 个源码文件通过。该整改
 仍等待原独立审阅者按四项 P1 复审，复审前 Stage 6 保持进行中；P2“resume 尚未校验 boundary
 hash chain”继续作为诚实登记的审计增强项，不虚称 mid-provider continuation。
+
+**逐 ReAct 边界第三轮独立审阅与整改（2026-07-31）：**
+
+同一独立子智能体确认上一轮四项 P1 的主体修复成立，但仍判定
+`REJECT（P0=0、P1=3、P2=3）`：
+
+1. hard preflight 只读取 `TextBlock`，遗漏 AgentScope 实际 Provider 输入中的动态 system
+   prompt、既有 summary、Mem0 `HintBlock`、ToolCall/ToolResult 和 tool schema；
+2. exact duplicate 在压缩删除较早副本后会重新编号，导致 retained/omitted lineage 归属反转；
+3. AgentScope shielded compression 在写入新 summary/context 后传播 `CancelledError` 时，
+   原实现只恢复 context，形成“新摘要 + 完整旧上下文”的冲突状态。
+
+本轮已改为优先使用固定 `agentscope==2.0.4` 的实际 `_prepare_model_input()` 与 model
+`count_tokens()`，因此动态 system prompt、summary、完整 Context block 和 activated tool
+schema 均进入 hard gate。只读 formatter/counter 异常时不把正常回答升级成失败，而是退回
+覆盖 Text/Hint/Thinking/ToolCall/ToolResult/Data 与 tool schema 的本地投影；tool batch 在
+已有精确计数时不重复累计已进入 Context 的 name/arguments，只额外保留未来结果预算。
+
+压缩前同时快照 summary/context，取消和普通异常均先原子恢复，再分别传播取消或进入
+deterministic extractive fallback。before projection 同时捕获消息对象到 source ID 的映射，
+after projection 对仍存在对象回填原 ID，不再按压缩后的 occurrence 重新编号。新增回归覆盖
+实际 prepared-input count、所有 ContentBlock、exact duplicate、shielded-cancel 原子回滚、
+普通异常回滚和固定 AgentScope 私有 hook 版本/签名。定向结果 `17 passed`，Ruff 和相关
+Mypy 均通过；扩大 Harness/Context/Run/Chat/Directive 回归 `184 passed`，Ruff 对 402 个
+源码/测试文件及 Mypy 对 295 个生产源码文件通过。需单独提交，并由同一子智能体再次复审后
+才能关闭该阻断。
+
+审阅所列三个 P2 保留为后续显式任务：AgentScope 私有 hook 的版本兼容门禁已在本轮先补；
+resume 前校验持久化 boundary hash chain、HITL/external resume 的 outstanding tool round
+初始化仍不得虚称完成。

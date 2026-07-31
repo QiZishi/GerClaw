@@ -52,6 +52,8 @@ worker fencing tokens, or private safe-boundary identifiers in public DTOs.
 AgentScope model admission must run at its actual `compress_context` entry, before the
 Provider side effect and before `ModelCallStartEvent`. Tool capacity admission is one atomic
 decision over the complete AgentScope sequential/concurrent batch before any owner call.
+The hard gate must count AgentScope's actual prepared messages and activated tool schemas;
+counter failure falls back to a complete content-block projection rather than failing the Run.
 Capacity rejection must be returned through the governed tool failure path so the Agent can
 repair the failed step privately; it must not turn a recoverable tool mistake into a public
 Run failure. Apply queued directives after the entire outstanding tool round completes, never

@@ -2,15 +2,27 @@
 
 from __future__ import annotations
 
+import asyncio
+import inspect
 import uuid
+from importlib.metadata import version
 from types import SimpleNamespace
 
 import pytest
-from agentscope.message import AssistantMsg, ToolCallBlock, UserMsg
+from agentscope.agent import Agent
+from agentscope.message import (
+    AssistantMsg,
+    HintBlock,
+    ToolCallBlock,
+    ToolResultBlock,
+    UserMsg,
+)
 
 from gerclaw_api.domain.run_schemas import RunDirectiveRead, RunDirectiveStatus
 from gerclaw_api.modules.agent_harness.run_lifecycle.directive_runtime import (
     RuntimeDirectiveCoordinator,
+    agent_model_input_tokens,
+    agent_text_values,
 )
 from gerclaw_api.modules.agent_harness.run_lifecycle.react_boundaries import (
     ReActBoundaryCoordinator,
@@ -23,6 +35,151 @@ from tests.test_agent_harness import _directive
 class _Budget:
     def snapshot(self) -> object:
         return object()
+
+
+def test_agentscope_boundary_hooks_match_pinned_runtime() -> None:
+    assert version("agentscope") == "2.0.4"
+    assert tuple(inspect.signature(Agent.compress_context).parameters) == (
+        "self",
+        "context_config",
+        "instructions",
+    )
+    assert tuple(inspect.signature(Agent._execute_concurrent_tool_calls).parameters) == (
+        "self",
+        "tool_calls",
+    )
+    assert tuple(inspect.signature(Agent._execute_sequential_tool_calls).parameters) == (
+        "self",
+        "tool_calls",
+    )
+    assert tuple(inspect.signature(Agent._prepare_model_input).parameters) == ("self",)
+
+
+def test_capacity_projection_includes_summary_hint_and_tool_blocks() -> None:
+    agent = SimpleNamespace(
+        state=SimpleNamespace(
+            summary="existing-summary",
+            context=[
+                AssistantMsg(
+                    name="memory",
+                    content=[HintBlock(hint="mem0-hint", source="mem0")],
+                ),
+                AssistantMsg(
+                    name="assistant",
+                    content=[
+                        ToolCallBlock(
+                            id="call-1",
+                            name="search",
+                            input='{"query":"fall risk"}',
+                        )
+                    ],
+                ),
+                AssistantMsg(
+                    name="assistant",
+                    content=[
+                        ToolResultBlock(
+                            id="call-1",
+                            name="search",
+                            output="tool-result-output",
+                            state="success",
+                        )
+                    ],
+                ),
+            ],
+        )
+    )
+
+    projection = "\n".join(agent_text_values(agent))
+
+    assert "existing-summary" in projection
+    assert "mem0-hint" in projection
+    assert "fall risk" in projection
+    assert "tool-result-output" in projection
+
+
+@pytest.mark.asyncio
+async def test_actual_agentscope_prepared_input_counter_is_used_when_available() -> None:
+    observed: list[tuple[object, object]] = []
+
+    class _Model:
+        async def count_tokens(self, messages: object, tools: object) -> int:
+            observed.append((messages, tools))
+            return 987
+
+    class _Agent:
+        def __init__(self) -> None:
+            self.model = _Model()
+
+        async def _prepare_model_input(self) -> dict[str, object]:
+            return {
+                "messages": ["dynamic-system", "summary", "full-context"],
+                "tools": [{"name": "governed_tool", "schema": {"type": "object"}}],
+            }
+
+    agent = _Agent()
+
+    assert await agent_model_input_tokens(agent) == 987
+    assert observed == [
+        (
+            ["dynamic-system", "summary", "full-context"],
+            [{"name": "governed_tool", "schema": {"type": "object"}}],
+        )
+    ]
+
+
+@pytest.mark.asyncio
+async def test_model_boundary_passes_exact_prepared_input_count_to_hard_gate() -> None:
+    observed: list[dict[str, object]] = []
+
+    async def prepare(
+        _agent: object,
+        _extra: tuple[str, ...],
+        _reserved_tokens: int,
+    ) -> object:
+        return SimpleNamespace()
+
+    class _Model:
+        async def count_tokens(self, _messages: object, _tools: object) -> int:
+            return 731
+
+    class _Agent:
+        def __init__(self) -> None:
+            self.state = SimpleNamespace(summary="", context=[])
+            self.model = _Model()
+
+        async def _prepare_model_input(self) -> dict[str, object]:
+            return {
+                "messages": [UserMsg(name="system", content="dynamic prompt")],
+                "tools": [{"name": "search", "parameters": {"type": "object"}}],
+            }
+
+    directives = RuntimeDirectiveCoordinator(
+        loader=None,
+        claimer=None,
+        applier=None,
+        preflight=lambda **_kwargs: SimpleNamespace(allowed=True, reason_code=""),
+        error_factory=RuntimeBudgetExceededError,
+        risk_classifier=lambda _instructions: (),
+        max_per_boundary=20,
+        max_per_run=200,
+        image_count=0,
+    )
+    agent = _Agent()
+    boundaries = ReActBoundaryCoordinator(
+        directives=directives,
+        model_preflight=lambda **kwargs: (
+            observed.append(dict(kwargs)) or SimpleNamespace(allowed=True, reason_code="")
+        ),
+        tool_preflight=lambda **_kwargs: SimpleNamespace(allowed=True, reason_code=""),
+        context_preparer=prepare,  # type: ignore[arg-type]
+        error_factory=RuntimeBudgetExceededError,
+        image_count=0,
+    ).bind(agent_provider=lambda: agent, budget=_Budget())
+
+    await boundaries.before_model()
+
+    assert observed[0]["estimated_input_tokens"] == 731
+    assert observed[0]["text_values"] == ()
 
 
 @pytest.mark.asyncio
@@ -113,6 +270,69 @@ async def test_successful_compression_cannot_remove_high_value_context() -> None
     assert draft.compression_failed is False
     assert draft.omitted_context_ids
     assert len(draft.retained_context_ids) == len(protected)
+
+
+@pytest.mark.asyncio
+async def test_compression_lineage_keeps_identity_for_later_exact_duplicate() -> None:
+    first = AssistantMsg(name="duplicate", content="相同内容", id="same-id")
+    second = AssistantMsg(name="duplicate", content="相同内容", id="same-id")
+
+    class _Agent:
+        def __init__(self) -> None:
+            self.state = SimpleNamespace(summary="", context=[first, second])
+
+        async def compress_context(self) -> None:
+            self.state.context = [second]
+
+    draft = await prepare_react_context(_Agent(), ())
+
+    assert draft.retained_context_ids == (draft.source_context_ids[1],)
+    assert draft.omitted_context_ids == (draft.source_context_ids[0],)
+
+
+@pytest.mark.asyncio
+async def test_cancelled_compression_atomically_restores_summary_and_context() -> None:
+    original = AssistantMsg(name="assistant", content="未压缩事实")
+
+    class _Agent:
+        def __init__(self) -> None:
+            self.state = SimpleNamespace(summary="old-summary", context=[original])
+
+        async def compress_context(self) -> None:
+            self.state.summary = "new-summary-from-cancelled-compression"
+            self.state.context = []
+            raise asyncio.CancelledError
+
+    agent = _Agent()
+
+    with pytest.raises(asyncio.CancelledError):
+        await prepare_react_context(agent, ())
+
+    assert agent.state.summary == "old-summary"
+    assert agent.state.context == [original]
+
+
+@pytest.mark.asyncio
+async def test_failed_compression_restores_summary_before_extractive_fallback() -> None:
+    original = AssistantMsg(name="assistant", content="未压缩事实")
+
+    class _Agent:
+        def __init__(self) -> None:
+            self.state = SimpleNamespace(summary="old-summary", context=[original])
+            self.context_config = SimpleNamespace(trigger_ratio=0.8)
+            self.model = SimpleNamespace(context_size=100)
+
+        async def compress_context(self) -> None:
+            self.state.summary = "partial-summary-from-failed-compression"
+            self.state.context = []
+            raise RuntimeError("compression failed after mutation")
+
+    agent = _Agent()
+
+    await prepare_react_context(agent, ())
+
+    assert agent.state.summary == "old-summary"
+    assert agent.state.context == [original]
 
 
 @pytest.mark.asyncio

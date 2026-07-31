@@ -151,12 +151,16 @@ class TurnPlanningCoordinator:
         usage: ExecutionUsage,
         text_values: tuple[str, ...],
         image_count: int,
+        estimated_input_tokens: int | None = None,
     ) -> BudgetPreflightDecision:
-        estimated_input_tokens = (
-            self._input_overhead_tokens
-            + image_count * self._image_input_estimate_tokens
-            + approximate_input_tokens(text_values)
-        )
+        if estimated_input_tokens is None:
+            estimated_input_tokens = (
+                self._input_overhead_tokens
+                + image_count * self._image_input_estimate_tokens
+                + approximate_input_tokens(text_values)
+            )
+        else:
+            estimated_input_tokens += approximate_input_tokens(text_values)
         return self._preflight.check(
             usage,
             ModelCallEstimate(
@@ -172,6 +176,7 @@ class TurnPlanningCoordinator:
         text_values: tuple[str, ...],
         image_count: int,
         result_reserve_tokens: int,
+        estimated_input_tokens: int | None = None,
     ) -> BudgetPreflightDecision:
         """Reserve one tool result and the model call needed to consume it.
 
@@ -179,12 +184,15 @@ class TurnPlanningCoordinator:
         before Runtime grants its one-shot execution permit.
         """
 
-        estimated_input_tokens = (
-            self._input_overhead_tokens
-            + image_count * self._image_input_estimate_tokens
-            + approximate_input_tokens(text_values)
-            + result_reserve_tokens
-        )
+        if estimated_input_tokens is None:
+            estimated_input_tokens = (
+                self._input_overhead_tokens
+                + image_count * self._image_input_estimate_tokens
+                + approximate_input_tokens(text_values)
+            )
+        else:
+            estimated_input_tokens += approximate_input_tokens(text_values)
+        estimated_input_tokens += result_reserve_tokens
         return self._preflight.check(
             usage,
             ModelCallEstimate(
