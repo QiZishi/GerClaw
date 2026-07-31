@@ -86,6 +86,7 @@ MVP为纯前端静态站点，无后端健康检查端点。前端在页面加�
 - **输入容错**：用户输入空消息不发送；超长文本自动截断+提示；粘贴文本自动清洗格式
 - **音频容错**：录音失败（无麦克风权限/设备被占用）给出明确提示和解决建议
 - **流式中断容错**：浏览器 SSE transport 中断只分离 consumer，不能冒充用户取消；owner turn 继续在 lease/fencing 下持久化 RunEvent。同一页面按 Run ID 和最后已渲染 sequence 续传；页面刷新后的历史 hydration 尚未渲染 RunEvent，必须从 sequence 0 重建或在已终态时重读数据库消息。重复 sequence 忽略、跨 Run 游标 fail closed。Provider 自身中断仍按执行失败处理，已接收片段不得冒充完成回答，也禁止跨模型续写。
+- **进程关闭 drain**：应用 lifespan 退出时先停止接受新的本机 Chat owner 注册，并等待已注册 owner turn 完成持久化和注销，再依次关闭 evolution signal collector、Provider runtime 与数据库连接池。不得先 dispose 数据库后遗留 detached `chat-turn`，否则旧 worker 会与新进程的恢复/测试清理争用锁并越过进程边界写入。
 - **显式取消容错**：用户停止不是浏览器直接断流。BFF 先向当前 Trace 的取消端点发送控制请求，原 SSE 继续消费到 `cancelled`。后端以 tenant/actor/trace 三元组注册 task，Redis TTL 键解决启动竞态，Pub/Sub 跨副本投递，副本内 intent 作为最终 success pre-commit fence；即使 AgentScope/provider 在异步清理中吞掉 task cancellation，也不能提交 replayable assistant 或 completed Trace。
 - **急症错误容错**：前端先显示的高风险就医卡和后端固定急症正文不得被后续网络错误覆盖；后端短路后不会再启动可能失败或延迟的 RAG/模型调用。
 - **JSON解析容错**：模型返回的结构化数据（处方/评估结果）解析失败时，不崩溃，降级为纯文本展示并提示重新生成

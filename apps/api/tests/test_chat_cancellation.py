@@ -128,6 +128,38 @@ async def test_control_redelivery_interrupts_a_task_that_swallows_the_first_sign
 
 
 @pytest.mark.asyncio
+async def test_shutdown_drains_detached_owner_before_closing_coordination() -> None:
+    redis = _FakeRedis()
+    registry = ChatCancellationRegistry(cast(Redis, redis))
+    await registry.start()
+    release = asyncio.Event()
+    task = asyncio.create_task(release.wait())
+    key = {
+        "tenant_id": "tenant_public0001",
+        "actor_id": "usr_patient00000001",
+        "trace_id": "trace_shutdown_drain_0001",
+    }
+    await registry.register(task=task, **key)
+
+    closing = asyncio.create_task(registry.aclose())
+    await asyncio.sleep(0)
+    assert not closing.done()
+    assert not redis.subscribers[0].closed
+
+    release.set()
+    await closing
+
+    assert task.done()
+    assert registry._tasks == {}
+    assert redis.subscribers[0].closed
+    late = asyncio.create_task(_never())
+    with pytest.raises(ChatCancellationUnavailable):
+        await registry.register(task=late, **key)
+    late.cancel()
+    await asyncio.gather(late, return_exceptions=True)
+
+
+@pytest.mark.asyncio
 async def test_acknowledgement_stops_redelivery_during_terminal_cleanup() -> None:
     redis = _FakeRedis()
     registry = ChatCancellationRegistry(cast(Redis, redis))

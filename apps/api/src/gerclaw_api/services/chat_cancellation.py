@@ -43,6 +43,7 @@ class ChatCancellationRegistry:
         self._lock = asyncio.Lock()
         self._listener: asyncio.Task[None] | None = None
         self._pubsub: object | None = None
+        self._closing = False
 
     async def start(self) -> None:
         """Subscribe before the application accepts chat requests."""
@@ -58,7 +59,14 @@ class ChatCancellationRegistry:
         )
 
     async def aclose(self) -> None:
-        """Release the dedicated Pub/Sub connection without cancelling chat turns."""
+        """Drain owned turns before releasing replica coordination resources."""
+
+        async with self._lock:
+            self._closing = True
+        # An SSE consumer may detach while its owner continues persisting the
+        # Run. Lifespan shutdown must not dispose the database underneath that
+        # task or let it overlap the next application instance.
+        await self.wait_active()
 
         redelivery = tuple(self._redelivery.values())
         self._redelivery.clear()
@@ -80,6 +88,21 @@ class ChatCancellationRegistry:
             with suppress(Exception):
                 await pubsub.aclose()  # type: ignore[attr-defined]
 
+    async def wait_active(self) -> None:
+        """Wait for locally owned turns and prune tasks that already finished."""
+
+        while True:
+            async with self._lock:
+                for key, task in tuple(self._tasks.items()):
+                    if task.done():
+                        self._tasks.pop(key, None)
+                        self._requested.pop(key, None)
+                        self._acknowledged.pop(key, None)
+                active = tuple(self._tasks.values())
+            if not active:
+                return
+            await asyncio.gather(*active, return_exceptions=True)
+
     async def register(
         self,
         *,
@@ -92,6 +115,8 @@ class ChatCancellationRegistry:
 
         key = (tenant_id, actor_id, trace_id)
         async with self._lock:
+            if self._closing:
+                raise ChatCancellationUnavailable("chat cancellation registry is shutting down")
             stale_redelivery = self._redelivery.pop(key, None)
             self._tasks[key] = task
             self._acknowledged.pop(key, None)
