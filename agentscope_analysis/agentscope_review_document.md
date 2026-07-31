@@ -185,7 +185,7 @@ AgentScope 2.0.4 的 `ModelConfig` 可以表达一个 `fallback_model` 和重试
 
 当前没有使用 AgentScope `TTSModelBase`、内置 TTS model 或 `TTSMiddleware`。因此语音层完全是 GerClaw 自有 provider adapter；外发隐私策略和账户级 provider override 是其主要原因。
 
-实际运行状态（2026-07 末真实调用验证）：外部语音服务当前返回 `VOICE_UNAVAILABLE`（`api/routes/voice.py:68` 等稳定错误码，HTTP 503），前端如实降级显示"语音暂不可用"；这使第 5.1 节"统一 TTS 事件流"候选方向更值得在 Provider 就绪后优先评估。
+运行验证说明（2026-07 末）：当时本地语音 API 凭证到期，接口按稳定错误码返回 `VOICE_UNAVAILABLE`（`api/routes/voice.py:68` 等，HTTP 503），前端如实降级显示"语音暂不可用"。该降级是**凭证到期或服务异常时的设计行为，并非系统固定不可用**；补充有效 MiMo 密钥后语音功能可用。第 5.1 节"统一 TTS 事件流"仍作为候选方向，供未来评估。
 
 ### 4.6 FastAPI 平台、数据库、临床领域和可观测性不是 AgentScope 代码
 
