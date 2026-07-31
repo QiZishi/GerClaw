@@ -3,9 +3,11 @@
 from __future__ import annotations
 
 import asyncio
+import logging
 import uuid
 from collections.abc import AsyncIterator, Mapping
 from contextlib import suppress
+from traceback import extract_tb
 from typing import Annotated
 
 from fastapi import APIRouter, Depends, HTTPException, Path, Query, Request, status
@@ -102,6 +104,7 @@ from gerclaw_api.services.session_lease import SessionLease
 from gerclaw_api.services.trace_service import TraceService
 
 router = APIRouter(tags=["chat"])
+logger = logging.getLogger(__name__)
 SessionDependency = Annotated[AsyncSession, Depends(get_database_session)]
 ChatReadIdentity = Annotated[AuthContext, Depends(require_chat_read)]
 ChatWriteIdentity = Annotated[AuthContext, Depends(require_chat_write)]
@@ -680,6 +683,18 @@ async def _stream_chat(
             )
         except Exception as error:
             code = ChatService.error_code(error)
+            frames = extract_tb(error.__traceback__) if error.__traceback__ else []
+            safe_stack = " > ".join(
+                f"{frame.filename.rsplit('/', maxsplit=1)[-1]}:{frame.lineno}:{frame.name}"
+                for frame in frames[-8:]
+            )
+            logger.error(
+                "chat_turn_failed trace_id=%s error_code=%s exception_type=%s failure_stack=%s",
+                trace_id,
+                code,
+                type(error).__name__,
+                safe_stack or "unknown",
+            )
             message, retriable = _public_error(code)
             _force_enqueue(
                 queue,

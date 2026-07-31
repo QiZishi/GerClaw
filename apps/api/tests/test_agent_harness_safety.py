@@ -55,6 +55,9 @@ def test_medical_classifier_fails_safe_outside_small_talk() -> None:
     assert is_medical_message("老人最近总是头晕怎么办")
     assert is_medical_message("上传资料提示头晕，应该怎样诊断？")
     assert not is_medical_message("计算 1+1")
+    assert not is_medical_message("请计算 18×7，并用一句自然中文说明结果。不要扩展到健康建议。")
+    assert is_medical_message("我最近起身头晕，请给记录建议，但不要下诊断建议。")
+    assert is_medical_message("总结这份病历，不要扩展到治疗建议。")
     assert not is_medical_message("请解读这张图片里的画面元素和主色")
 
 
@@ -178,10 +181,13 @@ def test_sanitize_medical_text_removes_model_duplicate_disclaimer() -> None:
     assert sanitize_medical_text("身体不适请及时就医。") == ""
 
 
-def test_safety_decision_always_applies_disclaimer_and_red_flag_check() -> None:
+def test_safety_decision_applies_disclaimer_only_to_medical_content() -> None:
     routine = safety_decision([])
+    non_medical = safety_decision([], medical_content=False)
     urgent = safety_decision(["chest_pain"], deterministic_diagnosis_blocked=True)
     assert routine.disclaimer_applied
+    assert non_medical.disclaimer_applied is False
+    assert "medical_disclaimer_not_applicable" in non_medical.notices
     assert not routine.deterministic_diagnosis_blocked
     assert urgent.deterministic_diagnosis_blocked
     assert "deterministic_diagnosis_checked" in routine.notices

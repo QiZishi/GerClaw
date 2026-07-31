@@ -141,6 +141,33 @@ def test_generic_medication_reconciliation_question_remains_answerable() -> None
     assert decision.clarification_questions == ()
 
 
+def test_negated_diagnosis_scope_does_not_block_low_risk_recording_advice() -> None:
+    decision = ClinicalDecisionCoordinator(minimum_score=1).prepare(
+        state=_reported_state(),
+        message=(
+            "我70岁，没有胸痛或呼吸困难，最近两周起身时偶尔头晕。"  # noqa: RUF001
+            "请给三条就诊前可执行的记录建议，不要下诊断。"  # noqa: RUF001
+        ),
+        has_attachments=False,
+    )
+
+    assert decision.action_selection.selected is not None
+    assert decision.action_selection.selected.candidate.kind is ActionKind.ANSWER
+    assert decision.clarification_questions == ()
+
+
+def test_negated_diagnosis_clause_does_not_hide_a_real_cause_question() -> None:
+    decision = ClinicalDecisionCoordinator(minimum_score=1).prepare(
+        state=_reported_state(),
+        message="不要直接下诊断，但最近头晕可能是什么原因?",  # noqa: RUF001
+        has_attachments=False,
+    )
+
+    assert decision.action_selection.selected is not None
+    assert decision.action_selection.selected.candidate.kind is ActionKind.ASK
+    assert decision.clarification_questions
+
+
 def test_diagnostic_direction_is_source_linked_and_never_a_diagnosis() -> None:
     decision = ClinicalDecisionCoordinator(minimum_score=1).prepare(
         state=_reported_state(),

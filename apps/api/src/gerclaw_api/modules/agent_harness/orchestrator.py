@@ -3,6 +3,7 @@
 # ruff: noqa: RUF001
 from __future__ import annotations
 
+import re
 from collections.abc import Awaitable, Callable
 from functools import partial
 
@@ -98,6 +99,10 @@ _EVIDENCE_UNAVAILABLE_CLARIFICATION = (
     "目前缺少可核验的资料，暂不适合据此作个体化判断。"
     "请补充症状出现和变化、近期检查或完整用药信息，我可以结合这些资料继续说明。"
 )
+_REFERENTIAL_FOLLOW_UP = re.compile(
+    r"基于(?:刚才|之前|上述|上面)|(?:刚才|之前|上述|上面|这个情况|这些情况)"
+)
+_MAX_EVIDENCE_QUERY_CHARACTERS = 4_000
 _SafeSentenceBuffer = SafeSentenceBuffer
 _CanonicalTextStream = CanonicalTextStream
 _final_agent_text = final_agent_text
@@ -152,6 +157,34 @@ def _classify_answer_step_failure(error: Exception) -> StepRepairDecision | None
     if _contains_failure(error, ModelOutputContractValidationError):
         return _ANSWER_SCHEMA_REPAIR
     return None
+
+
+def _evidence_retrieval_query(user_message: str, context: AgentContext) -> str:
+    """Resolve a bounded referential follow-up against the latest user turn.
+
+    Retrieval remains owned by RAG. This projection only makes the current
+    request self-contained enough for that owner to retrieve the same medical
+    subject the user referred to as "刚才/上述", while the full validated
+    conversation continues to reach the model separately.
+    """
+
+    if _REFERENTIAL_FOLLOW_UP.search(user_message) is None:
+        return user_message
+    previous = next(
+        (
+            item.text
+            for item in reversed(context.conversation_history)
+            if item.role == "user" and is_medical_message(item.text)
+        ),
+        "",
+    )
+    if not previous:
+        return user_message
+    current_budget = min(len(user_message), _MAX_EVIDENCE_QUERY_CHARACTERS)
+    previous_budget = max(0, _MAX_EVIDENCE_QUERY_CHARACTERS - current_budget - 1)
+    if previous_budget == 0:
+        return user_message[:_MAX_EVIDENCE_QUERY_CHARACTERS]
+    return f"{previous[-previous_budget:]}\n{user_message[:current_budget]}"
 
 
 class ProductionAgentHarness(ProductionHarnessCompositionSetup, OrchestrationSupportMixin):
@@ -330,6 +363,7 @@ class ProductionAgentHarness(ProductionHarnessCompositionSetup, OrchestrationSup
 
         evidence_results = []
         if should_prefetch_local_evidence:
+            evidence_query = _evidence_retrieval_query(user_message, context)
             evidence_node = await governance.checkpoint_persisted("evidence.retrieve")
             await self._emit(
                 stream_callback,
@@ -346,7 +380,7 @@ class ProductionAgentHarness(ProductionHarnessCompositionSetup, OrchestrationSup
                 evidence_results = await turn_results.prefetch_local_evidence(
                     call_id=prefetch_call_id,
                     retrieve=lambda: self._rag_module.retrieve(
-                        user_message,
+                        evidence_query,
                         top_k=self._config.evidence_top_k,
                     ),
                     add_tool_call=budget.add_tool_call,
@@ -705,11 +739,20 @@ class ProductionAgentHarness(ProductionHarnessCompositionSetup, OrchestrationSup
                 if patient_clinical_risk_notice_applied
                 else ""
             )
-            final_text = f"{model_text}{patient_risk_delta}\n\n{MEDICAL_DISCLAIMER}"
-            disclaimer_delta = f"{patient_risk_delta}\n\n{MEDICAL_DISCLAIMER}"
+            disclaimer_delta = (
+                f"{patient_risk_delta}\n\n{MEDICAL_DISCLAIMER}"
+                if medical_content
+                else patient_risk_delta
+            )
+            final_text = f"{model_text}{disclaimer_delta}"
             budget.check_wall_clock()
-            budget.add_output(disclaimer_delta)
-            await self._emit(stream_callback, "text_delta", {"content": disclaimer_delta})
+            if disclaimer_delta:
+                budget.add_output(disclaimer_delta)
+                await self._emit(
+                    stream_callback,
+                    "text_delta",
+                    {"content": disclaimer_delta},
+                )
         except Exception:
             await governance.fail_persisted(
                 answer_node,
@@ -731,6 +774,7 @@ class ProductionAgentHarness(ProductionHarnessCompositionSetup, OrchestrationSup
             citations=citations,
             safety=safety_decision(
                 high_risk_codes,
+                medical_content=medical_content,
                 deterministic_diagnosis_blocked=(stream_result.deterministic_diagnosis_blocked),
                 evidence_backed_clinical_conclusion_allowed=(claims_complete),
                 patient_clinical_risk_notice_applied=patient_clinical_risk_notice_applied,

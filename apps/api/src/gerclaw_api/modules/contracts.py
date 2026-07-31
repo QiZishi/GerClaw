@@ -76,7 +76,7 @@ class SafetyDecision(BaseModel):
     model_config = STRICT
 
     reviewed: Literal[True]
-    disclaimer_applied: Literal[True]
+    disclaimer_applied: bool
     deterministic_diagnosis_blocked: bool
     high_risk_escalation_checked: Literal[True]
     notices: list[str] = Field(min_length=1, max_length=10)
@@ -96,6 +96,8 @@ class AgentResponse(BaseModel):
 
     @model_validator(mode="after")
     def enforce_medical_output_invariants(self) -> AgentResponse:
+        if self.medical_content and not self.safety.disclaimer_applied:
+            raise ValueError("medical content requires an applied disclaimer")
         if _UNSAFE_DIAGNOSIS.search(self.text) and (
             not self.citations
             or self.structured.get("evidence_backed_clinical_conclusion") is not True

@@ -1237,6 +1237,47 @@ async def test_medical_harness_streams_evidence_backed_cited_response(
 
 
 @pytest.mark.asyncio
+async def test_referential_medical_follow_up_retrieves_with_latest_user_context(
+    unit_settings: Settings,
+) -> None:
+    previous = (
+        "我70岁，没有胸痛或呼吸困难，最近两周起身时偶尔头晕。"
+        "请给三条就诊前可执行的记录建议，不要下诊断。"
+    )
+    current = "请基于刚才的情况，改成给家属看的三点清单，并保留什么时候需要及时就医。"
+    rag = _HarnessRAG([_evidence()])
+    harness = _harness(
+        unit_settings,
+        model=_HarnessModel(text="家属可协助记录起身时间和血压 [E1]。"),
+        rag=rag,
+        history=[
+            ConversationHistoryMessage(role="user", text=previous),
+            ConversationHistoryMessage(
+                role="assistant",
+                text="此前已经给出三条记录建议。",
+            ),
+        ],
+    )
+    context = await harness.assemble_context(
+        "108815d7-05bf-4c2a-a977-cd034f390fab",
+        "usr_patient00000001",
+        [],
+        [],
+    )
+
+    response = await harness.process_message(
+        current,
+        "108815d7-05bf-4c2a-a977-cd034f390fab",
+        context,
+        lambda _event: None,
+    )
+
+    assert rag.calls == [f"{previous}\n{current}"]
+    assert response.citations
+    assert "家属" in response.text
+
+
+@pytest.mark.asyncio
 async def test_doctor_evidence_backed_conclusion_has_no_patient_risk_footer(
     unit_settings: Settings,
 ) -> None:
@@ -1901,6 +1942,39 @@ async def test_non_medical_small_talk_bypasses_evidence(unit_settings: Settings)
     assert memory.searches == []
     assert response.structured["route"] == "quick"
     assert response.structured["route_reason"] == "short_non_medical"
+
+
+@pytest.mark.asyncio
+async def test_bounded_general_task_is_not_promoted_by_negated_medical_scope(
+    unit_settings: Settings,
+) -> None:
+    model = _HarnessModel(text="18×7=126。")
+    rag = _HarnessRAG([])
+    memory = _HarnessMemory()
+    harness = _harness(unit_settings, model=model, rag=rag, memory=memory)
+    context = await harness.assemble_context(
+        "108815d7-05bf-4c2a-a977-cd034f390fab",
+        "usr_patient00000001",
+        [],
+        [],
+    )
+
+    response = await harness.process_message(
+        "请计算 18×7，并用一句自然中文说明结果。不要扩展到健康建议。",
+        "108815d7-05bf-4c2a-a977-cd034f390fab",
+        context,
+        lambda _event: None,
+    )
+
+    assert response.medical_content is False
+    assert response.citations == []
+    assert rag.calls == []
+    assert memory.searches == []
+    assert response.structured["route"] == "quick"
+    assert "126" in response.text
+    assert MEDICAL_DISCLAIMER not in response.text
+    assert response.safety.disclaimer_applied is False
+    assert "medical_disclaimer_not_applicable" in response.safety.notices
 
 
 @pytest.mark.asyncio

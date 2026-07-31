@@ -23,6 +23,10 @@ from gerclaw_api.modules.agent_harness.planning.contracts import (
 )
 
 _DIAGNOSTIC_INTENT = re.compile(r"什么原因|可能是什么|鉴别|诊断|怎么回事")
+_NEGATED_DIAGNOSTIC_INTENT = re.compile(
+    r"(?:不要|无需|不需要|请勿|不必|无须)"
+    r"[^\u3002\uFF01!\uFF1F?\uFF1B;\n]{0,16}?(?:下|做|给出|进行)?(?:明确)?诊断"
+)
 _TREATMENT_ACTION_INTENT = re.compile(
     r"停药|换药|改药|加药|减药|调药|药物调整|调整剂量|"
     r"(?:这些|这个|该|当前|目前|我的|他的|她的|患者的)?"
@@ -34,6 +38,11 @@ _TREATMENT_ACTION_INTENT = re.compile(
     r"(?:用药|药物).{0,12}(?:风险|相互作用|安全性).{0,12}"
     r"(?:评估|判断|看看|如何|怎么样)|"
     r"(?:我|老人|患者).{0,8}(?:吃|服|用).{0,8}(?:什么|哪种|哪些|多少|几片|几次)"
+)
+_NEGATED_TREATMENT_ACTION_INTENT = re.compile(
+    r"(?:不要|无需|不需要|请勿|不必|无须)"
+    r"[^\u3002\uFF01!\uFF1F?\uFF1B;\n]{0,16}?"
+    r"(?:停药|换药|改药|加药|减药|调药|药物调整|调整剂量)"
 )
 
 
@@ -59,12 +68,14 @@ class ClinicalDecisionCoordinator:
         message: str,
         has_attachments: bool,
     ) -> TurnClinicalDecision:
-        diagnostic_intent = _DIAGNOSTIC_INTENT.search(message) is not None
+        diagnostic_scope = _NEGATED_DIAGNOSTIC_INTENT.sub(" ", message)
+        treatment_scope = _NEGATED_TREATMENT_ACTION_INTENT.sub(" ", message)
+        diagnostic_intent = _DIAGNOSTIC_INTENT.search(diagnostic_scope) is not None
         # STEP prerequisites govern a concrete treatment decision, not every
         # educational mention of medication.  Treating generic reconciliation
         # questions as patient-specific dose changes makes the safe path
         # unusable and prevents a normal knowledge answer.
-        treatment_intent = _TREATMENT_ACTION_INTENT.search(message) is not None
+        treatment_intent = _TREATMENT_ACTION_INTENT.search(treatment_scope) is not None
         clarification_questions = self._clarification_questions(
             state,
             diagnostic_intent=diagnostic_intent,

@@ -45,6 +45,14 @@ _MEDICAL_SIGNAL = re.compile(
     r")",
     re.IGNORECASE,
 )
+_NEGATED_MEDICAL_SCOPE_CLAUSE = re.compile(
+    r"(?:^|(?<=[，,。；;！？!?\n]))\s*"
+    r"(?:不要|无需|不需要|请勿|无须)"
+    r"[^。！？!?；;\n]{0,64}?"
+    r"(?:健康建议|医疗建议|医学建议|就医建议|诊断建议|治疗建议|用药建议)"
+    r"[^。！？!?；;\n]{0,24}[。！？!?；;]?",
+    re.IGNORECASE,
+)
 _MALFORMED_LIMITATION_DIAGNOSIS = re.compile(
     r"(?P<prefix>(?:不能|无法|不应|不得)[^。！？!?；;\n]{0,80}?)"
     r"(?:明确(?:临床)?诊断|诊断结论|诊断)(?:为|是)结论"
@@ -133,7 +141,12 @@ def is_medical_message(text: str) -> bool:
         return False
     if _SYSTEM_CAPABILITY_EXPLANATION.fullmatch(candidate) is not None:
         return False
-    return _MEDICAL_SIGNAL.search(candidate) is not None
+    # A bounded non-medical task remains non-medical when the only medical
+    # words occur inside an explicit "do not expand into medical advice"
+    # scope clause. Red-flag detection runs independently on the untouched
+    # input, so this cannot suppress an emergency short circuit.
+    scoped_candidate = _NEGATED_MEDICAL_SCOPE_CLAUSE.sub(" ", candidate)
+    return _MEDICAL_SIGNAL.search(scoped_candidate) is not None
 
 
 def detect_high_risk(text: str) -> list[str]:
@@ -252,6 +265,7 @@ def build_evidence_context(citations: list[Citation]) -> str:
 def safety_decision(
     high_risk_codes: list[str],
     *,
+    medical_content: bool = True,
     deterministic_diagnosis_blocked: bool = False,
     evidence_backed_clinical_conclusion_allowed: bool = False,
     patient_clinical_risk_notice_applied: bool = False,
@@ -261,7 +275,11 @@ def safety_decision(
     """Return the mandatory explicit safety decision persisted with every reply."""
 
     notices = [
-        "medical_disclaimer_applied",
+        (
+            "medical_disclaimer_applied"
+            if medical_content
+            else "medical_disclaimer_not_applicable"
+        ),
         (
             "deterministic_diagnosis_blocked"
             if deterministic_diagnosis_blocked
@@ -282,7 +300,7 @@ def safety_decision(
         notices.append("patient_clinical_risk_notice_applied")
     return SafetyDecision(
         reviewed=True,
-        disclaimer_applied=True,
+        disclaimer_applied=medical_content,
         deterministic_diagnosis_blocked=deterministic_diagnosis_blocked,
         high_risk_escalation_checked=True,
         notices=notices,
