@@ -372,7 +372,7 @@ export function useAgentConversationStream(): {
             hasDisclaimer: true,
           });
         },
-        onDone: (fullText, citations, traceId, answer) => {
+        onDone: (fullText, citations, traceId, answer, presentation) => {
           const currentId = currentThinkingBlockId;
           if (currentId && !thinkingFinished) {
             finalizeMessageThinking(assistantMessageId, currentId);
@@ -396,7 +396,7 @@ export function useAgentConversationStream(): {
               emergencyShortCircuit || citations.length === 0
                 ? undefined
                 : citations,
-            hasDisclaimer: true,
+            hasDisclaimer: presentation.disclaimerApplied,
             traceId,
             executionRunId: answer?.runId,
             answerGroupRunId: answer?.answerGroupRunId,

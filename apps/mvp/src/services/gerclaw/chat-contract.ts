@@ -14,7 +14,7 @@ const referenceSchema = z
 const safetySchema = z
   .object({
     reviewed: z.literal(true),
-    disclaimer_applied: z.literal(true),
+    disclaimer_applied: z.boolean(),
     deterministic_diagnosis_blocked: z.boolean(),
     high_risk_escalation_checked: z.literal(true),
     notices: z.array(z.string()).min(1).max(10),

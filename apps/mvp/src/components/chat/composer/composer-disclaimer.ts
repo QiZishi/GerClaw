@@ -1,6 +1,9 @@
 import type { Message } from "@/types";
 
-type DisclaimerMessage = Pick<Message, "role" | "blocks">;
+type DisclaimerMessage = Pick<
+  Message,
+  "role" | "blocks" | "hasDisclaimer" | "status"
+>;
 
 export function shouldShowComposerDisclaimer(
   messages: readonly DisclaimerMessage[],
@@ -9,9 +12,11 @@ export function shouldShowComposerDisclaimer(
   return !messages.some(
     (message) =>
       message.role === "assistant" &&
-      message.blocks.some(
-        (block) =>
-          block.kind === "text" && block.content.includes(disclaimer),
-      ),
+      (message.status === "done" ||
+        message.hasDisclaimer === true ||
+        message.blocks.some(
+          (block) =>
+            block.kind === "text" && block.content.includes(disclaimer),
+        )),
   );
 }

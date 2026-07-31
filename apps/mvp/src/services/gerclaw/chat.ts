@@ -140,7 +140,10 @@ export interface AgentChatCallbacks {
       answerGroupRunId: string;
       answerVersionId: string;
       answerVersion: number;
-    } | null
+    } | null,
+    presentation: {
+      disclaimerApplied: boolean;
+    },
   ) => void;
   onCancelled?: (traceId: string, message: string) => void;
   onInterrupted?: (traceId: string, message: string) => void;
@@ -297,7 +300,10 @@ async function consumeAgentStream(
               answerGroupRunId: doneEvent.answer_group_run_id!,
               answerVersionId: doneEvent.answer_version_id!,
               answerVersion: doneEvent.answer_version!,
-            }
+            },
+        {
+          disclaimerApplied: doneEvent.safety.disclaimer_applied,
+        },
       );
     } else if (parsed.event === "cancelled") {
       const cancelled = cancelledSchema.parse(parsed.data);

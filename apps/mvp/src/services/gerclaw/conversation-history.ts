@@ -61,7 +61,8 @@ export function toFrontendMessages(response: BackendSessionMessages): Message[] 
       citations,
       status: "done",
       createdAt: Date.parse(item.created_at),
-      hasDisclaimer: item.role === "assistant",
+      hasDisclaimer:
+        item.role === "assistant" && item.text.includes("内容由 AI 生成，仅供参考。"),
       traceId: item.trace_id ?? undefined,
       answerGroupRunId: item.answer_group_run_id ?? undefined,
       answerVersionId: item.answer_version_id ?? undefined,

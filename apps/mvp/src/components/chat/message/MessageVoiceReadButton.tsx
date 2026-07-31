@@ -8,6 +8,12 @@ import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip
 import { useAudioPlayer } from "@/hooks/useAudioPlayer";
 import { cn } from "@/lib/utils";
 import { toast } from "@/components/ui/toast";
+import { ApiError } from "@/services/api-client";
+import { useAppStore } from "@/stores/appStore";
+
+function isTtsUnavailable(error: unknown): boolean {
+  return error instanceof ApiError && error.code === "VOICE_TTS_UNAVAILABLE";
+}
 
 export function MessageVoiceReadButton({
   text,
@@ -21,11 +27,22 @@ export function MessageVoiceReadButton({
   onAutoPlayConsumed: () => void;
 }) {
   const { isPlaying, isPaused, isLoading, progress, play, pause, resume, stop } = useAudioPlayer();
+  const setTtsAvailable = useAppStore((state) => state.setTtsAvailable);
   const autoPlaybackClaimedRef = useRef(false);
   const autoPlaybackTimerRef = useRef<number | null>(null);
 
-  const reportPlaybackError = () => toast.show("语音播放失败，请稍后重试");
-  const start = () => void play(text).catch(reportPlaybackError);
+  const reportPlaybackError = (error: unknown) => {
+    if (isTtsUnavailable(error)) {
+      setTtsAvailable(false);
+      toast.show("语音朗读当前不可用");
+      return;
+    }
+    toast.show("语音播放失败，请稍后重试");
+  };
+  const start = () =>
+    void play(text)
+      .then(() => setTtsAvailable(true))
+      .catch(reportPlaybackError);
   const continuePlayback = () => void resume().catch(reportPlaybackError);
 
   useEffect(() => {
@@ -34,7 +51,11 @@ export function MessageVoiceReadButton({
     onAutoPlayConsumed();
     autoPlaybackTimerRef.current = window.setTimeout(() => {
       autoPlaybackTimerRef.current = null;
-      void play(text).catch(() => undefined);
+      void play(text)
+        .then(() => setTtsAvailable(true))
+        .catch((error: unknown) => {
+          if (isTtsUnavailable(error)) setTtsAvailable(false);
+        });
     }, 500);
     return () => {
       if (!autoPlaybackClaimedRef.current && autoPlaybackTimerRef.current !== null) {
@@ -42,7 +63,7 @@ export function MessageVoiceReadButton({
         autoPlaybackTimerRef.current = null;
       }
     };
-  }, [autoPlay, onAutoPlayConsumed, play, text]);
+  }, [autoPlay, onAutoPlayConsumed, play, setTtsAvailable, text]);
 
   useEffect(() => () => {
     if (autoPlaybackTimerRef.current !== null) {

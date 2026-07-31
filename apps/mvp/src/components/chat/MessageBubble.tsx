@@ -77,6 +77,7 @@ export function MessageBubble({
   return (
     <div
       data-message-bubble
+      data-message-role={message.role}
       className={cn(
         "group flex gap-3 px-4 py-4 transition-transform duration-200",
         isUser ? "flex-row-reverse" : "flex-row",

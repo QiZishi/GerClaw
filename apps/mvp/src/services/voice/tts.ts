@@ -1,5 +1,5 @@
-import { generateTraceId, classifyError } from "../api-client";
-import { pcm16leToWav } from "./pcm-wav";
+import { ApiError, generateTraceId, classifyError } from "../api-client.ts";
+import { pcm16leToWav } from "./pcm-wav.ts";
 
 export async function synthesizeSpeech(text: string, signal?: AbortSignal): Promise<Blob> {
   const traceId = generateTraceId();
@@ -17,12 +17,20 @@ export async function synthesizeSpeech(text: string, signal?: AbortSignal): Prom
 
     if (!response.ok) {
       let errorMessage = `HTTP ${response.status}`;
+      let errorCode = "VOICE_TTS_REQUEST_FAILED";
       try {
         const errorBody = await response.text();
         if (errorBody) {
           try {
             const errorJson = JSON.parse(errorBody);
-            errorMessage = errorJson.error || errorJson.detail?.message || errorMessage;
+            errorCode =
+              typeof errorJson.detail?.code === "string"
+                ? errorJson.detail.code
+                : errorCode;
+            errorMessage =
+              errorCode === "VOICE_TTS_UNAVAILABLE"
+                ? "语音朗读当前不可用"
+                : errorJson.error || errorJson.detail?.message || errorMessage;
           } catch {
             errorMessage = errorBody;
           }
@@ -30,7 +38,13 @@ export async function synthesizeSpeech(text: string, signal?: AbortSignal): Prom
       } catch {
         // ignore
       }
-      throw new Error(errorMessage);
+      throw new ApiError(
+        errorMessage,
+        errorCode,
+        response.status,
+        response.status >= 500,
+        traceId,
+      );
     }
 
     if (!response.headers.get("content-type")?.toLowerCase().startsWith("audio/l16")) {

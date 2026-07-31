@@ -1,13 +1,22 @@
-class ApiError extends Error {
+export class ApiError extends Error {
+  public code: string;
+  public status?: number;
+  public retriable: boolean;
+  public traceId?: string;
+
   constructor(
     message: string,
-    public code: string,
-    public status?: number,
-    public retriable: boolean = false,
-    public traceId?: string
+    code: string,
+    status?: number,
+    retriable: boolean = false,
+    traceId?: string
   ) {
     super(message);
     this.name = "ApiError";
+    this.code = code;
+    this.status = status;
+    this.retriable = retriable;
+    this.traceId = traceId;
   }
 }
 
