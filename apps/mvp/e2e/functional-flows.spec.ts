@@ -66,6 +66,55 @@ test("guest completes and exports a real PHQ-9 assessment", async ({
   expect(artifact.suggestedFilename()).toMatch(/\.md$/);
 });
 
+test("guest uploads a document and receives a source-bound model answer", async ({
+  page,
+}) => {
+  test.setTimeout(180_000);
+  await page.setViewportSize({ width: 1440, height: 1000 });
+  await enterGuestWorkspace(page);
+
+  const documentInput = page.locator('input[type="file"][accept*=".pdf"]');
+  await documentInput.setInputFiles(
+    "e2e/fixtures/synthetic-home-record.md",
+  );
+  await expect(page.getByText("资料已解析，发送即可。")).toBeVisible({
+    timeout: 30_000,
+  });
+  await expect(page.getByText("synthetic-home-record.md")).toBeVisible();
+
+  const assistantBubbles = page.locator(
+    '[data-message-bubble][data-message-role="assistant"]',
+  );
+  const before = await assistantBubbles.count();
+  const input = page.getByRole("textbox");
+  await input.fill(
+    "只根据我上传的居家记录回答：最高的收缩压是多少，记录中的药名是什么？不要补充其他建议。",
+  );
+  const response = page.waitForResponse(
+    (candidate) =>
+      candidate.request().method() === "POST" &&
+      candidate.url().endsWith("/api/gerclaw/chat"),
+  );
+  await page.getByRole("button", { name: "发送" }).click();
+  expect((await response).status()).toBe(200);
+  await expect(page.getByRole("button", { name: "停止生成" })).toHaveCount(0, {
+    timeout: 120_000,
+  });
+  await expect(assistantBubbles).toHaveCount(before + 1, {
+    timeout: 120_000,
+  });
+  const answer = await assistantBubbles.last().innerText();
+  expect(answer).toContain("146");
+  expect(answer).toContain("氨氯地平");
+  expect(answer).not.toMatch(
+    /内部错误|正在修复|trace[_\s-]?id|provider|checkpoint|schema|policy/i,
+  );
+  await page.screenshot({
+    path: "output/playwright/stage7-real-use/document-upload.png",
+    fullPage: true,
+  });
+});
+
 test("guest creates a source-bound five-prescription draft", async ({
   page,
 }) => {
