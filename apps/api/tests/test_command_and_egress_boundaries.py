@@ -485,7 +485,22 @@ async def test_application_lifespan_owns_and_closes_every_runtime_dependency(
     )
     monkeypatch.setattr(application, "FailoverChatModel", lambda _configs: model)
 
-    app = application.create_app(make_settings(agent_model_configs=[]))
+    app = application.create_app(
+        make_settings(
+            agent_primary_url="https://primary.example/v1",
+            agent_primary_api_key="tests-primary-secret",
+            agent_primary_model="primary",
+            agent_primary_protocol="openai",
+            agent_backup1_url="https://backup1.example/v1",
+            agent_backup1_api_key="tests-backup1-secret",
+            agent_backup1_model="backup1",
+            agent_backup1_protocol="openai",
+            agent_backup2_url="https://backup2.example/v1",
+            agent_backup2_api_key="tests-backup2-secret",
+            agent_backup2_model="backup2",
+            agent_backup2_protocol="openai",
+        )
+    )
     async with app.router.lifespan_context(app):
         assert app.state.database is database
         assert app.state.redis is redis

@@ -7,7 +7,6 @@ from datetime import UTC, datetime
 
 import pytest
 
-from gerclaw_api.config import Settings
 from gerclaw_api.database.models import (
     AgentRun,
     AgentRunAttempt,
@@ -61,6 +60,7 @@ from gerclaw_api.services.agent_run_service import (
     AgentRunService,
     RunAttemptConflictError,
 )
+from tests.conftest import make_settings
 
 TENANT = "tenant_public0001"
 ACTOR = "usr_patient_unit0001"
@@ -260,7 +260,7 @@ def _request(**updates: object) -> AgentRunCreate:
 
 
 def _persisted_plan() -> PersistedRunPlan:
-    resolved = ResolvedHarnessConfig.from_settings(Settings())
+    resolved = ResolvedHarnessConfig.from_settings(make_settings())
     budget = ExecutionBudget(
         max_steps=resolved.max_react_iterations,
         max_output_bytes=resolved.max_output_bytes,

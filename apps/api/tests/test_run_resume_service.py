@@ -7,7 +7,6 @@ from datetime import UTC, datetime
 
 import pytest
 
-from gerclaw_api.config import Settings
 from gerclaw_api.database.models import AgentRun, ExecutionTrace, Message
 from gerclaw_api.modules.agent_harness.clinical_state import ClinicalState
 from gerclaw_api.modules.agent_harness.config import ResolvedHarnessConfig
@@ -35,6 +34,7 @@ from gerclaw_api.services.run_resume_service import (
     RunResumeNotFoundError,
     RunResumeService,
 )
+from tests.conftest import make_settings
 
 TENANT = "tenant_public0001"
 ACTOR = "usr_patient_unit0001"
@@ -100,7 +100,7 @@ def _record() -> RunResumeRecord:
     trace_id = "trace_resume_unit_0001"
     request_id = "request_resume_unit_0001"
     now = datetime.now(UTC)
-    settings = Settings()
+    settings = make_settings()
     resolved = ResolvedHarnessConfig.from_settings(settings)
     budget = ExecutionBudget(
         max_steps=resolved.max_react_iterations,
