@@ -65,7 +65,7 @@ COPY knowledge-base /app/knowledge-base
 COPY docker-entrypoint.sh /app/docker-entrypoint.sh
 
 RUN addgroup --system gerclaw \
-    && adduser --system --ingroup gerclaw --home /app gerclaw \
+    && adduser --system --shell /bin/sh --ingroup gerclaw --home /app gerclaw \
     && chmod 755 /app/docker-entrypoint.sh \
     && chown -R gerclaw:gerclaw /app
 
