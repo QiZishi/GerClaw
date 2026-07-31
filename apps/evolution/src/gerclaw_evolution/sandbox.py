@@ -208,10 +208,7 @@ class DockerCandidateExecutor:
             "--tmpfs",
             f"/tmp:rw,noexec,nosuid,nodev,size={self._tmpfs_size}",
             "--mount",
-            (
-                f"type=volume,src={volume_name},dst=/bundle,"
-                "readonly,volume-nocopy"
-            ),
+            (f"type=volume,src={volume_name},dst=/bundle,readonly,volume-nocopy"),
             "--workdir",
             "/tmp",
             "--env",
@@ -223,10 +220,7 @@ class DockerCandidateExecutor:
             "--env",
             "PYTHONHASHSEED=0",
             "--env",
-            (
-                "PYTHONPATH=/tmp/candidate/apps/api/src:"
-                "/app/.venv/lib/python3.12/site-packages"
-            ),
+            ("PYTHONPATH=/tmp/candidate/apps/api/src:/app/.venv/lib/python3.12/site-packages"),
             self._image_id,
             "/app/.venv/bin/python",
             "-S",
@@ -257,10 +251,7 @@ class DockerCandidateExecutor:
                 "--network",
                 "none",
                 "--mount",
-                (
-                    f"type=volume,src={volume_name},dst=/bundle,"
-                    "volume-nocopy"
-                ),
+                (f"type=volume,src={volume_name},dst=/bundle,volume-nocopy"),
                 self._image_id,
                 "/bin/true",
             ),

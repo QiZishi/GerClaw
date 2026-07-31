@@ -183,8 +183,7 @@ def _controller(
         approval_verifier=approval_verifier,
         release_signer=ReleaseSigner(release_key),
         release_verifier=ReleaseVerifier((release_key.verification_record(),)),
-        audit_writer=audit_writer
-        or JsonlReleaseAuditLog(tmp_path / "audit" / "release.jsonl"),
+        audit_writer=audit_writer or JsonlReleaseAuditLog(tmp_path / "audit" / "release.jsonl"),
         clock=_Clock(clock),
     )
 
@@ -222,8 +221,7 @@ def test_promotion_atomically_binds_release_record_ref_and_consumed_ticket(
     )
 
     assert (
-        source.resolve_ref("refs/gerclaw/releases/production")
-        == frozen.proposal.candidate_commit
+        source.resolve_ref("refs/gerclaw/releases/production") == frozen.proposal.candidate_commit
     )
     assert source.resolve_ref(f"refs/gerclaw/release-records/{result.record_sha256}")
     assert (
@@ -232,8 +230,7 @@ def test_promotion_atomically_binds_release_record_ref_and_consumed_ticket(
     )
     assert source.resolve_ref("refs/gerclaw/release-ledger/production")
     assert source.resolve_ref(
-        "refs/gerclaw/approval-tickets/"
-        + hashlib.sha256(b"ticket.release-one").hexdigest()
+        "refs/gerclaw/approval-tickets/" + hashlib.sha256(b"ticket.release-one").hexdigest()
     )
     assert result.audit_mirror_status == "appended"
     assert len((tmp_path / "audit" / "release.jsonl").read_text().splitlines()) == 1
@@ -430,8 +427,7 @@ def test_audit_mirror_outage_preserves_atomic_release_and_reports_warning(
 
     assert result.audit_mirror_status == "repair_required"
     assert (
-        source.resolve_ref("refs/gerclaw/releases/production")
-        == frozen.proposal.candidate_commit
+        source.resolve_ref("refs/gerclaw/releases/production") == frozen.proposal.candidate_commit
     )
     assert source.resolve_ref(f"refs/gerclaw/release-records/{result.record_sha256}")
 
@@ -494,9 +490,7 @@ def test_rollback_accepts_only_a_previously_signed_and_atomically_released_recor
         promotion_active=True,
     )
     unreleased = ReleaseSigner(release_key).sign(
-        first.record.payload.model_copy(
-            update={"release_id": "release.valid-but-unreleased"}
-        )
+        first.record.payload.model_copy(update={"release_id": "release.valid-but-unreleased"})
     )
     unreleased_bytes = json.dumps(
         unreleased.model_dump(mode="json"),
@@ -587,9 +581,7 @@ def test_new_promotion_rejects_a_hash_pointer_alias_in_release_history(
         promotion_active=True,
     )
     alias_record = ReleaseSigner(release_key).sign(
-        first_result.record.payload.model_copy(
-            update={"release_id": "release.alias-history"}
-        )
+        first_result.record.payload.model_copy(update={"release_id": "release.alias-history"})
     )
     alias_bytes = json.dumps(
         alias_record.model_dump(mode="json"),

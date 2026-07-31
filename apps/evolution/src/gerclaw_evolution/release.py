@@ -330,9 +330,7 @@ class PromotionController:
             approval_digest = _digest_model(human_approval)
             ticket_id = approval.approval_ticket_id
             ticket_digest = hashlib.sha256(ticket_id.encode()).hexdigest()
-            if source_repository.resolve_ref(
-                f"refs/gerclaw/approval-tickets/{ticket_digest}"
-            ):
+            if source_repository.resolve_ref(f"refs/gerclaw/approval-tickets/{ticket_digest}"):
                 raise CandidateControlError("EVOLUTION_APPROVAL_TICKET_ALREADY_CONSUMED")
 
         previous_commit = source_repository.resolve_ref(release_ref)
@@ -505,16 +503,9 @@ class PromotionController:
         if payload.release_ref != release_ref or payload.commit != current_commit:
             raise CandidateControlError("EVOLUTION_RELEASE_STATE_INCONSISTENT")
         digest = hashlib.sha256(raw_record).hexdigest()
-        immutable_record_object = repository.resolve_ref(
-            f"refs/gerclaw/release-records/{digest}"
-        )
-        immutable_commit = repository.resolve_ref(
-            f"refs/gerclaw/release-commits/{digest}"
-        )
-        if (
-            immutable_record_object != current_record_object
-            or immutable_commit != current_commit
-        ):
+        immutable_record_object = repository.resolve_ref(f"refs/gerclaw/release-records/{digest}")
+        immutable_commit = repository.resolve_ref(f"refs/gerclaw/release-commits/{digest}")
+        if immutable_record_object != current_record_object or immutable_commit != current_commit:
             raise CandidateControlError("EVOLUTION_RELEASE_STATE_INCONSISTENT")
         return digest
 
@@ -548,12 +539,8 @@ class PromotionController:
             except ValueError as error:
                 raise CandidateControlError("EVOLUTION_RELEASE_RECORD_INVALID") from error
             payload = self._release_verifier.verify(record)
-            immutable_object = repository.resolve_ref(
-                f"refs/gerclaw/release-records/{digest}"
-            )
-            immutable_commit = repository.resolve_ref(
-                f"refs/gerclaw/release-commits/{digest}"
-            )
+            immutable_object = repository.resolve_ref(f"refs/gerclaw/release-records/{digest}")
+            immutable_commit = repository.resolve_ref(f"refs/gerclaw/release-commits/{digest}")
             if (
                 immutable_object != object_id
                 or immutable_commit != payload.commit

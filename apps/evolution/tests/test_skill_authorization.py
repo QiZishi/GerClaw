@@ -71,9 +71,7 @@ class _SealedRunner:
                         "token_count": 100,
                         "latency_ms": 10,
                         "runtime_activated": True,
-                        "charters": [
-                            item.model_dump(mode="json") for item in charters
-                        ],
+                        "charters": [item.model_dump(mode="json") for item in charters],
                     }
                     for index, slice_name in enumerate(
                         ("normal", "complex", "high_risk", "elderly"),

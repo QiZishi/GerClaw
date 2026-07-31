@@ -209,9 +209,7 @@ class SubprocessRoutingPairedRunner:
         if repository.head() != expected_commit:
             raise CandidateControlError("EVOLUTION_RUNNER_COMMIT_MISMATCH")
         expected_identity = (
-            frozen.proposal.base_commit
-            if role == "baseline"
-            else frozen.proposal.candidate_commit
+            frozen.proposal.base_commit if role == "baseline" else frozen.proposal.candidate_commit
         )
         if expected_commit != expected_identity or {
             change.object_kind for change in frozen.repository_changes
@@ -232,8 +230,7 @@ class SubprocessRoutingPairedRunner:
             "apps/api/src/gerclaw_api/modules/agent_harness/routing/router.py",
         )
         module_activated = (
-            process_output is not None
-            and process_output.module_file == expected_module
+            process_output is not None and process_output.module_file == expected_module
         )
         results_by_name = (
             {result.name: result for result in process_output.results}
@@ -297,8 +294,7 @@ class SubprocessRoutingPairedRunner:
         request = {
             "policy": self._profile.policy,
             "cases": [
-                {"name": case.name, "input": case.routing_input}
-                for case in self._profile.cases
+                {"name": case.name, "input": case.routing_input} for case in self._profile.cases
             ],
         }
         execution = self._executor.run(
@@ -313,9 +309,7 @@ class SubprocessRoutingPairedRunner:
             output = _ProcessOutput.model_validate_json(execution.stdout)
         except ValueError:
             return None, execution.execution_bundle_sha256
-        if {item.name for item in output.results} != {
-            case.name for case in self._profile.cases
-        }:
+        if {item.name for item in output.results} != {case.name for case in self._profile.cases}:
             return None, execution.execution_bundle_sha256
         return output, execution.execution_bundle_sha256
 

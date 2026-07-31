@@ -183,8 +183,7 @@ class GitRepository:
             ):
                 raise CandidateControlError("EVOLUTION_REF_TRANSACTION_INVALID")
             commands.append(
-                f"update {update.ref_name} {update.new_object_id} "
-                f"{update.expected_old_object_id}"
+                f"update {update.ref_name} {update.new_object_id} {update.expected_old_object_id}"
             )
         commands.extend(("prepare", "commit", ""))
         try:
@@ -234,9 +233,7 @@ class IsolatedWorktreeFactory:
     """Create detached worktrees only beneath a controller-owned workspace."""
 
     def __init__(self, repository: GitRepository, workspace_root: Path) -> None:
-        if workspace_root.exists() and (
-            not workspace_root.is_dir() or workspace_root.is_symlink()
-        ):
+        if workspace_root.exists() and (not workspace_root.is_dir() or workspace_root.is_symlink()):
             raise CandidateControlError("EVOLUTION_WORKSPACE_ROOT_INVALID")
         workspace_root.mkdir(parents=True, exist_ok=True)
         self._repository = repository

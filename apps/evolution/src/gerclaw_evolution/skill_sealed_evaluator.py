@@ -39,9 +39,7 @@ class SealedSkillGatePolicy(BaseModel):
 
     model_config = _STRICT
 
-    schema_version: Literal["sealed-skill-gate-policy-v1"] = (
-        "sealed-skill-gate-policy-v1"
-    )
+    schema_version: Literal["sealed-skill-gate-policy-v1"] = "sealed-skill-gate-policy-v1"
     max_tokens_per_case: int = Field(ge=1, le=10_000_000)
     max_token_increase_per_case: int = Field(ge=0, le=10_000_000)
     max_latency_ms_per_case: int = Field(ge=1, le=3_600_000)
@@ -56,9 +54,7 @@ class SealedSkillCaseObservation(BaseModel):
 
     model_config = _STRICT
 
-    schema_version: Literal["sealed-skill-case-observation-v1"] = (
-        "sealed-skill-case-observation-v1"
-    )
+    schema_version: Literal["sealed-skill-case-observation-v1"] = "sealed-skill-case-observation-v1"
     case_id: str = Field(pattern=_CASE_ID)
     slice: EvaluationSlice
     passed: bool
@@ -81,9 +77,7 @@ class SealedSkillCaseBatch(BaseModel):
 
     model_config = _STRICT
 
-    schema_version: Literal["sealed-skill-case-batch-v1"] = (
-        "sealed-skill-case-batch-v1"
-    )
+    schema_version: Literal["sealed-skill-case-batch-v1"] = "sealed-skill-case-batch-v1"
     role: EvaluationRole
     candidate_identity: str = Field(pattern=r"^(?:[a-f0-9]{40}|[a-f0-9]{64})$")
     case_set_sha256: str = Field(pattern=_SHA256)
@@ -177,25 +171,19 @@ class SkillSealedEvaluator:
         )
         baseline_cases = {item.case_id: item for item in baseline.cases}
         no_regression = all(
-            (
-                not baseline_cases[item.case_id].passed
-                or item.passed
-            )
+            (not baseline_cases[item.case_id].passed or item.passed)
             and item.quality_micros >= baseline_cases[item.case_id].quality_micros
             for item in evolved.cases
         )
         high_risk_non_degrading = all(
-            item.passed
-            and item.quality_micros
-            >= baseline_cases[item.case_id].quality_micros
+            item.passed and item.quality_micros >= baseline_cases[item.case_id].quality_micros
             for item in evolved.cases
             if item.slice == "high_risk"
         )
         token_budget_passed = all(
             item.token_count <= self._policy.max_tokens_per_case
             and item.token_count
-            <= baseline_cases[item.case_id].token_count
-            + self._policy.max_token_increase_per_case
+            <= baseline_cases[item.case_id].token_count + self._policy.max_token_increase_per_case
             for item in evolved.cases
         )
         latency_budget_passed = all(
@@ -205,12 +193,9 @@ class SkillSealedEvaluator:
             + self._policy.max_latency_increase_ms_per_case
             for item in evolved.cases
         )
-        runtime_activation_passed = all(
-            item.runtime_activated for item in evolved.cases
-        )
+        runtime_activation_passed = all(item.runtime_activated for item in evolved.cases)
         component_charters_passed = all(
-            {charter.evaluator_id for charter in item.charters}
-            == required_charters
+            {charter.evaluator_id for charter in item.charters} == required_charters
             and all(charter.passed for charter in item.charters)
             for item in evolved.cases
         )
@@ -266,9 +251,7 @@ class SkillSealedEvaluator:
         for change in candidate.frozen.proposal.changes:
             values = REQUIRED_CHARTERS_BY_OBJECT_KIND.get(change.object_kind)
             if values is None:
-                raise CandidateControlError(
-                    "EVOLUTION_SKILL_SEALED_CHARTER_SCOPE_UNKNOWN"
-                )
+                raise CandidateControlError("EVOLUTION_SKILL_SEALED_CHARTER_SCOPE_UNKNOWN")
             required.update(values)
         return required
 
@@ -283,10 +266,8 @@ class SkillSealedEvaluator:
         if (
             baseline.role != "baseline"
             or evolved.role != "candidate"
-            or baseline.candidate_identity
-            != candidate.frozen.proposal.base_commit
-            or evolved.candidate_identity
-            != candidate.frozen.proposal.candidate_commit
+            or baseline.candidate_identity != candidate.frozen.proposal.base_commit
+            or evolved.candidate_identity != candidate.frozen.proposal.candidate_commit
             or baseline.case_set_sha256 != evolved.case_set_sha256
             or evolved.case_set_sha256 != self._profile.sealed_case_set_sha256
         ):
@@ -294,13 +275,11 @@ class SkillSealedEvaluator:
         baseline_cases = {item.case_id: item for item in baseline.cases}
         evolved_cases = {item.case_id: item for item in evolved.cases}
         if set(baseline_cases) != set(evolved_cases) or any(
-            baseline_cases[case_id].slice != item.slice
-            for case_id, item in evolved_cases.items()
+            baseline_cases[case_id].slice != item.slice for case_id, item in evolved_cases.items()
         ):
             raise CandidateControlError("EVOLUTION_SKILL_SEALED_CASE_SET_MISMATCH")
         if any(
-            {charter.evaluator_id for charter in item.charters}
-            != required_charters
+            {charter.evaluator_id for charter in item.charters} != required_charters
             for item in (*baseline.cases, *evolved.cases)
         ):
             raise CandidateControlError("EVOLUTION_SKILL_SEALED_CHARTER_SCOPE_MISMATCH")

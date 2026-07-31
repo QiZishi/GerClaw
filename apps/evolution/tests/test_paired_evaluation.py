@@ -320,9 +320,7 @@ def test_gate_requires_frozen_manifest_and_applicable_charter_binding() -> None:
     frozen = _frozen()
     baseline = _run("baseline", _BASE)
     candidate = _run("candidate", _CANDIDATE)
-    forged_manifest = candidate.model_copy(
-        update={"frozen_manifest_sha256": "0" * 64}
-    )
+    forged_manifest = candidate.model_copy(update={"frozen_manifest_sha256": "0" * 64})
     with pytest.raises(
         CandidateControlError,
         match="EVOLUTION_RUN_FROZEN_MANIFEST_MISMATCH",
@@ -330,9 +328,7 @@ def test_gate_requires_frozen_manifest_and_applicable_charter_binding() -> None:
         PairedEvaluationGate().compare(frozen, baseline, forged_manifest)
 
     without_routing = tuple(
-        item
-        for item in baseline.charters
-        if item.evaluator_id != "charter.routing.v1"
+        item for item in baseline.charters if item.evaluator_id != "charter.routing.v1"
     )
     with pytest.raises(CandidateControlError, match="EVOLUTION_CHARTER_SCOPE_MISMATCH"):
         PairedEvaluationGate().compare(

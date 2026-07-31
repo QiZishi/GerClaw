@@ -55,8 +55,7 @@ def _paired_repositories(
 ) -> tuple[GitRepository, GitRepository, FrozenCandidate]:
     baseline, _initial_commit = _base_repository(tmp_path)
     source_root = (
-        Path(__file__).resolve().parents[2]
-        / "api/src/gerclaw_api/modules/agent_harness/routing"
+        Path(__file__).resolve().parents[2] / "api/src/gerclaw_api/modules/agent_harness/routing"
     )
     target_root = baseline.root / "apps/api/src/gerclaw_api/modules/agent_harness/routing"
     for name in _ROUTING_FILES:

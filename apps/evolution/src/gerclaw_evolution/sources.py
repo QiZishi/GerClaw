@@ -34,7 +34,9 @@ class OfficialOptimizerPin(BaseModel):
 
     schema_version: Literal["official-optimizer-pin-v1"] = "official-optimizer-pin-v1"
     name: OptimizerName
-    repository_url: str = Field(pattern=r"^https://github\.com/[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+\.git$")
+    repository_url: str = Field(
+        pattern=r"^https://github\.com/[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+\.git$"
+    )
     reference: str = Field(pattern=r"^refs/heads/[A-Za-z0-9_./-]+$")
     commit: str = Field(pattern=_GIT_SHA)
     license_id: Literal["MIT"]

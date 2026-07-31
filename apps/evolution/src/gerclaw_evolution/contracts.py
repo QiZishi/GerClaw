@@ -69,12 +69,10 @@ class FrozenCandidate(BaseModel):
     @model_validator(mode="after")
     def bind_repository_and_logical_changes(self) -> FrozenCandidate:
         logical = tuple(
-            (item.object_kind, item.target, item.content_digest)
-            for item in self.proposal.changes
+            (item.object_kind, item.target, item.content_digest) for item in self.proposal.changes
         )
         repository = tuple(
-            (item.object_kind, item.target, item.content_digest)
-            for item in self.repository_changes
+            (item.object_kind, item.target, item.content_digest) for item in self.repository_changes
         )
         if logical != repository:
             raise ValueError("repository changes do not match the proposal")
