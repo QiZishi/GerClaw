@@ -58,6 +58,7 @@ fi
 
 postgres_bin_dir="$(pg_config --bindir)"
 if [ ! -s "$postgres_dir/PG_VERSION" ]; then
+    echo "[GerClaw] initializing PostgreSQL data directory"
     printf '%s\n' "$postgres_password" >"$runtime_root/secrets/postgres.init-password"
     "$postgres_bin_dir/initdb" \
         -D "$postgres_dir" \
@@ -69,11 +70,15 @@ if [ ! -s "$postgres_dir/PG_VERSION" ]; then
     rm -f "$runtime_root/secrets/postgres.init-password"
 fi
 
-"$postgres_bin_dir/pg_ctl" \
+if ! "$postgres_bin_dir/pg_ctl" \
     -D "$postgres_dir" \
-    -o "-h 127.0.0.1 -p 5432" \
+    -o "-h 127.0.0.1 -p 5432 -c unix_socket_directories=$postgres_dir" \
     -l "$postgres_dir/server.log" \
-    start >/dev/null
+    start >/dev/null; then
+    echo "[GerClaw] PostgreSQL failed to start" >&2
+    cat "$postgres_dir/server.log" >&2 || true
+    exit 1
+fi
 echo "[GerClaw] PostgreSQL process started"
 
 redis-server \
