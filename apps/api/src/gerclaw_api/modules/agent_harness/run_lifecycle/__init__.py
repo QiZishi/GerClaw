@@ -46,6 +46,9 @@ from gerclaw_api.modules.agent_harness.run_lifecycle.streaming import (
     bounded_events,
     validate_public_answer_text,
 )
+from gerclaw_api.modules.agent_harness.run_lifecycle.terminal_contract import (
+    validate_terminal_response_candidate,
+)
 
 __all__ = [
     "OUTPUT_PROTOCOL_REPAIR_INSTRUCTION",
@@ -78,4 +81,5 @@ __all__ = [
     "project_with_output_protocol_repair",
     "run_with_output_protocol_repair",
     "validate_public_answer_text",
+    "validate_terminal_response_candidate",
 ]

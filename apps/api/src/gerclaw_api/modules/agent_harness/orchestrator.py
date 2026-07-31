@@ -3,12 +3,10 @@
 # ruff: noqa: RUF001
 from __future__ import annotations
 
-import re
 from collections.abc import Awaitable, Callable
 from functools import partial
 
 from agentscope.message import AssistantMsg, SystemMsg, UserMsg
-from pydantic import ValidationError
 
 from gerclaw_api.modules.agent_harness.composition_setup import (
     ProductionHarnessCompositionSetup,
@@ -22,9 +20,11 @@ from gerclaw_api.modules.agent_harness.context_snapshot import (
 from gerclaw_api.modules.agent_harness.evidence import (
     ModelCitationBindingScope,
     bind_turn_evidence,
+    resolve_referential_evidence_query,
 )
 from gerclaw_api.modules.agent_harness.orchestration_support import (
     OrchestrationSupportMixin,
+    classify_answer_step_failure,
 )
 from gerclaw_api.modules.agent_harness.planning import (
     ClinicalDecisionCoordinator,
@@ -52,6 +52,7 @@ from gerclaw_api.modules.agent_harness.run_lifecycle import (
     SafeSentenceBuffer,
     UnsupportedAgentContextError,
     project_with_output_protocol_repair,
+    validate_terminal_response_candidate,
 )
 from gerclaw_api.modules.agent_harness.run_lifecycle.agent_stream import (
     AgentStreamResult,
@@ -59,9 +60,6 @@ from gerclaw_api.modules.agent_harness.run_lifecycle.agent_stream import (
 )
 from gerclaw_api.modules.agent_harness.run_lifecycle.directive_runtime import (
     RuntimeDirectiveEmergency,
-)
-from gerclaw_api.modules.agent_harness.run_lifecycle.step_repair import (
-    StepRepairDecision,
 )
 from gerclaw_api.modules.agent_harness.safety import (
     HIGH_RISK_NOTICE,
@@ -84,15 +82,13 @@ from gerclaw_api.modules.runtime.budget import (
 from gerclaw_api.modules.runtime.models import (
     ActorRole,
 )
-from gerclaw_api.modules.runtime.registry import ToolInputInvalidError
 from gerclaw_api.modules.search import (
     capture_agent_search_results,
     capture_search_attempts,
     citations_from_search_results,
 )
-from gerclaw_api.modules.validation.contracts import ModelOutputContractValidationError
 from gerclaw_api.security import JsonValue
-from gerclaw_api.services.model_router import PartialModelStreamError, capture_model_attempts
+from gerclaw_api.services.model_router import capture_model_attempts
 
 StreamCallback = Callable[[StreamEvent], Awaitable[None] | None]
 CapabilityResultObserver = Callable[
@@ -103,94 +99,9 @@ _EVIDENCE_UNAVAILABLE_CLARIFICATION = (
     "目前缺少可核验的资料，暂不适合据此作个体化判断。"
     "请补充症状出现和变化、近期检查或完整用药信息，我可以结合这些资料继续说明。"
 )
-_REFERENTIAL_FOLLOW_UP = re.compile(
-    r"基于(?:刚才|之前|上述|上面)|(?:刚才|之前|上述|上面|这个情况|这些情况)"
-)
-_MAX_EVIDENCE_QUERY_CHARACTERS = 4_000
 _SafeSentenceBuffer = SafeSentenceBuffer
 _CanonicalTextStream = CanonicalTextStream
 _final_agent_text = final_agent_text
-
-_PARTIAL_PROVIDER_REPAIR = StepRepairDecision(
-    error_code="provider_partial_stream",
-    field_paths=("answer.text",),
-    contract_version="chat-answer-v1",
-    checkpoint_id="chat.answer.pre_model.v1",
-    instruction=(
-        "上一服务在回答完成前中断。请从用户要求重新生成完整答案，"
-        "不要提及中断、重试、服务或已丢弃的内容。"
-    ),
-)
-_TOOL_INPUT_REPAIR = StepRepairDecision(
-    error_code="tool_input_contract",
-    field_paths=("tool.arguments",),
-    contract_version="governed-tool-input-v1",
-    checkpoint_id="chat.answer.pre_model.v1",
-    instruction=(
-        "上一尝试的工具参数未通过已声明的 schema，工具尚未执行。"
-        "请按工具的正式参数 schema 重新调用；如无需工具，直接用已有信息回答。"
-    ),
-)
-_ANSWER_SCHEMA_REPAIR = StepRepairDecision(
-    error_code="answer_schema_contract",
-    field_paths=("answer",),
-    contract_version="chat-answer-v1",
-    checkpoint_id="chat.answer.pre_model.v1",
-    instruction=(
-        "上一尝试的回答未通过已声明的数据合同。请从本步骤重新生成完整结果，"
-        "保留已核验事实，不要解释校验或重试过程。医疗事实必须在对应句使用本轮真实"
-        " [E1]/[W1] 证据标记；若尚无证据，先调用可用检索工具，不能编造来源。"
-    ),
-)
-
-
-def _contains_failure(error: BaseException, error_type: type[BaseException]) -> bool:
-    if isinstance(error, error_type):
-        return True
-    return isinstance(error, BaseExceptionGroup) and any(
-        _contains_failure(item, error_type) for item in error.exceptions
-    )
-
-
-def _classify_answer_step_failure(error: Exception) -> StepRepairDecision | None:
-    """Classify only errors that are safe to replay from the pre-model checkpoint."""
-
-    if _contains_failure(error, PartialModelStreamError):
-        return _PARTIAL_PROVIDER_REPAIR
-    if _contains_failure(error, ToolInputInvalidError):
-        return _TOOL_INPUT_REPAIR
-    if _contains_failure(error, ModelOutputContractValidationError):
-        return _ANSWER_SCHEMA_REPAIR
-    return None
-
-
-def _evidence_retrieval_query(user_message: str, context: AgentContext) -> str:
-    """Resolve a bounded referential follow-up against the latest user turn.
-
-    Retrieval remains owned by RAG. This projection only makes the current
-    request self-contained enough for that owner to retrieve the same medical
-    subject the user referred to as "刚才/上述", while the full validated
-    conversation continues to reach the model separately.
-    """
-
-    if _REFERENTIAL_FOLLOW_UP.search(user_message) is None:
-        return user_message
-    previous = next(
-        (
-            item.text
-            for item in reversed(context.conversation_history)
-            if item.role == "user" and is_medical_message(item.text)
-        ),
-        "",
-    )
-    if not previous:
-        return user_message
-    current_budget = min(len(user_message), _MAX_EVIDENCE_QUERY_CHARACTERS)
-    previous_budget = max(0, _MAX_EVIDENCE_QUERY_CHARACTERS - current_budget - 1)
-    if previous_budget == 0:
-        return user_message[:_MAX_EVIDENCE_QUERY_CHARACTERS]
-    return f"{previous[-previous_budget:]}\n{user_message[:current_budget]}"
-
 
 class ProductionAgentHarness(ProductionHarnessCompositionSetup, OrchestrationSupportMixin):
     """One-turn isolated harness over shared model and retrieval clients."""
@@ -368,7 +279,11 @@ class ProductionAgentHarness(ProductionHarnessCompositionSetup, OrchestrationSup
 
         evidence_results = []
         if should_prefetch_local_evidence:
-            evidence_query = _evidence_retrieval_query(user_message, context)
+            evidence_query = resolve_referential_evidence_query(
+                user_message,
+                context,
+                is_medical_message=is_medical_message,
+            )
             evidence_node = await governance.checkpoint_persisted("evidence.retrieve")
             await self._emit(
                 stream_callback,
@@ -657,8 +572,6 @@ class ProductionAgentHarness(ProductionHarnessCompositionSetup, OrchestrationSup
                 )
 
             def validate_candidate(result: AgentStreamResult) -> None:
-                """Apply the terminal public contract before buffered text is published."""
-
                 candidate_local = citations_from_results(
                     turn_results.evidence_for(
                         "report.compose"
@@ -669,8 +582,8 @@ class ProductionAgentHarness(ProductionHarnessCompositionSetup, OrchestrationSup
                     minimum_score=self._config.evidence_min_score,
                     limit=self._config.evidence_top_k,
                 )
-                candidate_bound = bind_turn_evidence(
-                    result.text,
+                validate_terminal_response_candidate(
+                    result,
                     initial_local=initial_citations,
                     additional_local=candidate_local,
                     web=citations_from_search_results(search_results),
@@ -681,53 +594,14 @@ class ProductionAgentHarness(ProductionHarnessCompositionSetup, OrchestrationSup
                     is_clinical_claim=(
                         is_medical_message if medical_content else (lambda _segment: False)
                     ),
-                    markers_already_bound=True,
+                    high_risk_codes=high_risk_codes,
+                    medical_content=medical_content,
+                    patient_facing=bool(
+                        self._runtime_principal is not None
+                        and self._runtime_principal.role
+                        in {ActorRole.GUEST, ActorRole.PATIENT}
+                    ),
                 )
-                candidate_claims_complete = (
-                    candidate_bound.claim_audit.all_clinical_claims_bound
-                )
-                candidate_patient_notice = bool(
-                    self._runtime_principal is not None
-                    and self._runtime_principal.role in {ActorRole.GUEST, ActorRole.PATIENT}
-                    and requires_patient_clinical_risk_notice(candidate_bound.text)
-                )
-                candidate_risk_delta = (
-                    f"\n\n{PATIENT_CLINICAL_RISK_NOTICE}"
-                    if candidate_patient_notice
-                    else ""
-                )
-                candidate_disclaimer_delta = (
-                    f"{candidate_risk_delta}\n\n{MEDICAL_DISCLAIMER}"
-                    if medical_content
-                    else candidate_risk_delta
-                )
-                try:
-                    AgentResponse(
-                        text=f"{candidate_bound.text}{candidate_disclaimer_delta}",
-                        citations=list(candidate_bound.citations),
-                        safety=safety_decision(
-                            high_risk_codes,
-                            medical_content=medical_content,
-                            deterministic_diagnosis_blocked=(
-                                result.deterministic_diagnosis_blocked
-                            ),
-                            evidence_backed_clinical_conclusion_allowed=(
-                                candidate_claims_complete
-                            ),
-                            patient_clinical_risk_notice_applied=candidate_patient_notice,
-                        ),
-                        medical_content=medical_content,
-                        structured={
-                            "model_invoked": True,
-                            "evidence_backed_clinical_conclusion": (
-                                candidate_claims_complete
-                            ),
-                        },
-                    )
-                except ValidationError as error:
-                    raise ModelOutputContractValidationError(
-                        "candidate answer violates the public response contract"
-                    ) from error
 
             try:
                 stream_result, output_contract_retries = await project_with_output_protocol_repair(
@@ -735,7 +609,7 @@ class ProductionAgentHarness(ProductionHarnessCompositionSetup, OrchestrationSup
                     publish=lambda kind, data: self._emit(stream_callback, kind, data),
                     budget=budget,
                     observer=self._attempt_repair_observer,
-                    classify_failure=_classify_answer_step_failure,
+                    classify_failure=classify_answer_step_failure,
                     user_message=attachment_projector.user_message(effective_user_message),
                     wall_clock_seconds=self._execution_budget.wall_clock_seconds,
                     max_output_characters=self._config.max_output_characters,

@@ -1,5 +1,7 @@
 """Focused orchestration support kept outside the bounded composition entry."""
 
+# ruff: noqa: RUF001
+
 from __future__ import annotations
 
 import inspect
@@ -21,6 +23,9 @@ from gerclaw_api.modules.agent_harness.run_lifecycle import bounded_events
 from gerclaw_api.modules.agent_harness.run_lifecycle.directive_runtime import (
     RuntimeDirectiveCoordinator,
 )
+from gerclaw_api.modules.agent_harness.run_lifecycle.step_repair import (
+    StepRepairDecision,
+)
 from gerclaw_api.modules.agent_harness.safety import HIGH_RISK_NOTICE
 from gerclaw_api.modules.contracts import AgentResponse, ExecutionContext
 from gerclaw_api.modules.runtime.budget import (
@@ -32,8 +37,63 @@ from gerclaw_api.modules.runtime.models import (
     RuntimePrincipal,
     ToolCapability,
 )
+from gerclaw_api.modules.runtime.registry import ToolInputInvalidError
 from gerclaw_api.modules.validation import validate_harness_stream_event
+from gerclaw_api.modules.validation.contracts import ModelOutputContractValidationError
 from gerclaw_api.security import JsonValue
+from gerclaw_api.services.model_router import PartialModelStreamError
+
+_PARTIAL_PROVIDER_REPAIR = StepRepairDecision(
+    error_code="provider_partial_stream",
+    field_paths=("answer.text",),
+    contract_version="chat-answer-v1",
+    checkpoint_id="chat.answer.pre_model.v1",
+    instruction=(
+        "上一服务在回答完成前中断。请从用户要求重新生成完整答案，"
+        "不要提及中断、重试、服务或已丢弃的内容。"
+    ),
+)
+_TOOL_INPUT_REPAIR = StepRepairDecision(
+    error_code="tool_input_contract",
+    field_paths=("tool.arguments",),
+    contract_version="governed-tool-input-v1",
+    checkpoint_id="chat.answer.pre_model.v1",
+    instruction=(
+        "上一尝试的工具参数未通过已声明的 schema，工具尚未执行。"
+        "请按工具的正式参数 schema 重新调用；如无需工具，直接用已有信息回答。"
+    ),
+)
+_ANSWER_SCHEMA_REPAIR = StepRepairDecision(
+    error_code="answer_schema_contract",
+    field_paths=("answer",),
+    contract_version="chat-answer-v1",
+    checkpoint_id="chat.answer.pre_model.v1",
+    instruction=(
+        "上一尝试的回答未通过已声明的数据合同。请从本步骤重新生成完整结果，"
+        "保留已核验事实，不要解释校验或重试过程。医疗事实必须在对应句使用本轮真实"
+        " [E1]/[W1] 证据标记；若尚无证据，先调用可用检索工具，不能编造来源。"
+    ),
+)
+
+
+def _contains_failure(error: BaseException, error_type: type[BaseException]) -> bool:
+    if isinstance(error, error_type):
+        return True
+    return isinstance(error, BaseExceptionGroup) and any(
+        _contains_failure(item, error_type) for item in error.exceptions
+    )
+
+
+def classify_answer_step_failure(error: Exception) -> StepRepairDecision | None:
+    """Classify only defects safe to replay from the pre-model checkpoint."""
+
+    if _contains_failure(error, PartialModelStreamError):
+        return _PARTIAL_PROVIDER_REPAIR
+    if _contains_failure(error, ToolInputInvalidError):
+        return _TOOL_INPUT_REPAIR
+    if _contains_failure(error, ModelOutputContractValidationError):
+        return _ANSWER_SCHEMA_REPAIR
+    return None
 
 
 class OrchestrationSupportMixin:

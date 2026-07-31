@@ -22,6 +22,7 @@ from gerclaw_api.modules.agent_harness.evidence.markers import (
 from gerclaw_api.modules.agent_harness.evidence.turn_binding import (
     BoundTurnEvidence,
     bind_turn_evidence,
+    resolve_referential_evidence_query,
 )
 
 __all__ = [
@@ -38,6 +39,7 @@ __all__ = [
     "audit_claim_evidence",
     "bind_citation_markers",
     "bind_turn_evidence",
+    "resolve_referential_evidence_query",
     "segment_has_admitted_model_marker",
     "validate_public_citation_markers",
 ]
