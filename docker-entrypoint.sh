@@ -94,7 +94,9 @@ redis_pid=$!
 QDRANT__SERVICE__API_KEY="$qdrant_api_key" \
 QDRANT__SERVICE__HTTP_PORT=6333 \
 QDRANT__SERVICE__GRPC_PORT=6334 \
-qdrant --storage-dir "$qdrant_dir" \
+QDRANT__STORAGE__STORAGE_PATH="$qdrant_dir" \
+QDRANT__STORAGE__SNAPSHOTS_PATH="$qdrant_dir/snapshots" \
+qdrant \
     >"$qdrant_dir/server.log" 2>&1 &
 qdrant_pid=$!
 
@@ -103,9 +105,17 @@ wait_for_port() {
     port="$2"
     attempts=0
     while ! python -c 'import socket, sys; s=socket.create_connection((sys.argv[1], int(sys.argv[2])), 1); s.close()' "$host" "$port" 2>/dev/null; do
+        if [ "$host:$port" = "localhost:6333" ] && ! kill -0 "$qdrant_pid" 2>/dev/null; then
+            echo "[GerClaw] Qdrant exited before becoming ready" >&2
+            cat "$qdrant_dir/server.log" >&2 || true
+            exit 1
+        fi
         attempts=$((attempts + 1))
         if [ "$attempts" -ge 60 ]; then
             echo "service did not become ready: $host:$port" >&2
+            if [ "$host:$port" = "localhost:6333" ]; then
+                cat "$qdrant_dir/server.log" >&2 || true
+            fi
             exit 1
         fi
         sleep 1
