@@ -1,5 +1,7 @@
 # GerClaw
 
+> 🚀 在线体验：[ModelScope Studio](https://www.modelscope.cn/studios/MoonNight/GerClaw/summary)
+
 面向老年患者与老年科医生的多模态 AI 诊疗与康养 Agent 应用。
 
 [快速开始](#快速开始) · [核心能力](#核心能力) · [Agent Harness](#agent-harness) · [系统架构](#系统架构) · [配置](#配置) · [项目结构](#项目结构) · [文档](#文档)
