@@ -19,5 +19,6 @@ export function normalizeChatMarkdown(content: string): string {
     .replace(/([^\n])---(?=\s*#{1,6}\s)/g, "$1\n\n---\n\n")
     .replace(/---\s*(?=#{1,6}\s)/g, "---\n\n")
     .replace(/([^\n\d])(?=(?:\d{1,2})\.\s+\*\*)/g, "$1\n")
+    .replace(/([。！？!?：:])\s+\*\s+(?=\S)/g, "$1\n- ")
     .replace(/([^\n#])(?=#{1,6}\s)/g, "$1\n\n");
 }

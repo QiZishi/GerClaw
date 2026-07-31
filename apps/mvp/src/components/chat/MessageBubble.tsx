@@ -105,13 +105,12 @@ export function MessageBubble({
       >
         {!isUser && message.status === "streaming" && (
           <AssistantRunStatus
-            startedAt={message.createdAt}
             phase={hasActiveThinking ? "正在分析您的问题" : "正在生成答复"}
             seniorMode={seniorMode}
           />
         )}
         {!isUser && message.status === "error" && (
-          <IncompleteAnswerWarning seniorMode={seniorMode} companionMode={companionMode} />
+          <IncompleteAnswerWarning seniorMode={seniorMode} />
         )}
         <div
           className={cn(
@@ -130,6 +129,11 @@ export function MessageBubble({
             onViewReport={handleViewReport}
           />
         </div>
+        {!isUser && message.citations?.length && message.status === "done" ? (
+          <div className="w-full px-1">
+            <SourceReferences citations={message.citations} />
+          </div>
+        ) : null}
         {message.hasDisclaimer && !hasInlineDisclaimer && (
           <div className={cn("px-2 text-muted-foreground", seniorMode ? "text-lg leading-relaxed" : "text-[11px]")}>
             {companionMode
@@ -137,11 +141,6 @@ export function MessageBubble({
               : MEDICAL_DISCLAIMER}
           </div>
         )}
-        {!isUser && message.citations?.length && message.status === "done" ? (
-          <div className="w-full px-1">
-            <SourceReferences citations={message.citations} />
-          </div>
-        ) : null}
         <div className="relative">
           <MessageActions
             message={message}

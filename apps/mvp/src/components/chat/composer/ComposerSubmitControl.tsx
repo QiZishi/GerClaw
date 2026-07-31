@@ -158,7 +158,17 @@ function IconAction({
         }
       >
         {icon}
-        {seniorMode && <span>{label === "停止生成" ? "停止" : label}</span>}
+        {seniorMode &&
+          (label === "语音输入" || label === "语音服务暂时不可用" ? (
+            <>
+              <span className="sm:hidden">
+                {label === "语音输入" ? "语音" : "语音不可用"}
+              </span>
+              <span className="hidden sm:inline">{label}</span>
+            </>
+          ) : (
+            <span>{label === "停止生成" ? "停止" : label}</span>
+          ))}
       </TooltipTrigger>
       <TooltipContent>{tooltip}</TooltipContent>
     </Tooltip>

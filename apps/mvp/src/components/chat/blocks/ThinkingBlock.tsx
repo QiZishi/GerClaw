@@ -17,9 +17,9 @@ export function ThinkingBlock({ data }: ThinkingBlockProps) {
   const isThinking = data.status === "thinking";
   const projection = projectPublicAnalysis(data);
 
-  if (isThinking && !projection.detail) {
+  if (!isThinking || !projection.detail) {
     // The message-level status bar owns the single animated indicator and
-    // elapsed clock, so nested blocks never create a distracting loader wall.
+    // completed attempts disappear once the reader-facing answer is ready.
     return null;
   }
 

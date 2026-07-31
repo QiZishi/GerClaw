@@ -6,7 +6,7 @@ const realUseTest = runRealUseAudit ? test : test.skip;
 const INTERNAL_DETAIL =
   /trace[_\s-]?id|trace_[0-9a-f]|CHAT_[A-Z_]+|EVOLUTION_[A-Z_]+|checkpoint|schema|provider|policy|tool_call|<invoke|<parameter|<tool_call|内部错误|正在修复|校验失败|安全边界|模型供应商/i;
 const PUBLIC_FAILURE =
-  /本次回复未完整生成|本次执行未完成|暂时无法完成|服务暂时不可用|请稍后重试/;
+  /这次回答没有完整生成|本次回复未完整生成|本次执行未完成|暂时无法完成|服务暂时不可用|请稍后重试/;
 const DISCLAIMER = "内容由 AI 生成，仅供参考。身体不适请及时就医。";
 
 async function enterGuestWorkspace(page: Page) {
@@ -53,10 +53,17 @@ async function sendAndRead(page: Page, message: string) {
     timeout: 90_000,
   });
   const visible = await assistantBubbles.last().innerText();
+  const markdownBody = assistantBubbles.last().locator(".markdown-body");
   expect(visible.trim().length).toBeGreaterThan(20);
+  if ((await markdownBody.count()) > 0) {
+    expect(await markdownBody.innerText()).not.toMatch(/\[C[1-9]\d{0,2}\]/);
+  }
   expect(visible).not.toMatch(INTERNAL_DETAIL);
   expect(visible).not.toMatch(PUBLIC_FAILURE);
   expect(visible.split(DISCLAIMER).length - 1).toBeLessThanOrEqual(1);
+  await expect(
+    page.getByText(/分析已完成|医学检索\s*完成|已执行\s+\d{2}:\d{2}/),
+  ).toHaveCount(0);
   return visible;
 }
 
@@ -144,6 +151,20 @@ realUseTest(
       "请基于刚才的情况，改成给家属看的三点清单，并保留什么时候需要及时就医。",
     );
     expect(familyChecklist).toMatch(/家属|清单|就医/);
+    expect(familyChecklist).not.toMatch(
+      /紧急就医警示|非典型的心血管危险征兆|以上建议仅供辅助|不能替代医生|高龄患者/,
+    );
+    expect(familyChecklist).not.toMatch(/(?:^|\s)\*\s+\S/);
+    await expect(
+      page
+        .locator('[data-message-bubble][data-message-role="assistant"]')
+        .last()
+        .locator("ol > li"),
+    ).toHaveCount(3);
+    expect(familyChecklist).not.toMatch(
+      /超过半数|唯一预警|致命|代偿机制正在失效|高龄群体|心肌梗死/,
+    );
+    expect(familyChecklist.length).toBeLessThan(1_200);
     await page.screenshot({
       path: "output/playwright/stage7-real-use/multiturn-consultation.png",
       fullPage: true,

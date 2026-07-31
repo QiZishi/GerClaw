@@ -8,7 +8,6 @@ import { RuntimeApprovalCard } from "@/components/chat/blocks/RuntimeApprovalCar
 import { StreamingText } from "@/components/chat/blocks/StreamingText";
 import { SubAgentTree } from "@/components/chat/blocks/SubAgentTree";
 import { ThinkingBlock } from "@/components/chat/blocks/ThinkingBlock";
-import { ToolCallBlock } from "@/components/chat/blocks/ToolCallBlock";
 import { EmergencyWarningCard } from "@/components/chat/message/MessageStatusNotices";
 import { InfoCollectionCard, StageIndicator } from "@/components/chat/InfoCollectionCard";
 import { MarkdownRenderer } from "@/components/chat/MarkdownRenderer";
@@ -16,6 +15,7 @@ import { DocumentToolCard } from "@/components/document/DocumentToolCard";
 import { FileTag } from "@/components/document/FileTag";
 import { SearchResultCard } from "@/components/search/SearchResultCard";
 import { Button } from "@/components/ui/button";
+import { stripCitationMarkers } from "@/lib/citation-markers";
 import { cn } from "@/lib/utils";
 import type { Message, RightPanelType } from "@/types";
 
@@ -38,13 +38,15 @@ export function MessageBody({
             return block.streaming ? (
               <StreamingText
                 key={block.id}
-                content={block.content}
+                content={stripCitationMarkers(block.content)}
                 streaming
-                citations={message.citations}
                 showPlaceholder={Boolean(block.content) || !hasActiveThinking}
               />
             ) : (
-              <MarkdownRenderer key={block.id} content={block.content} citations={message.citations} />
+              <MarkdownRenderer
+                key={block.id}
+                content={stripCitationMarkers(block.content)}
+              />
             );
           case "image":
             return (
@@ -63,7 +65,9 @@ export function MessageBody({
           case "thinking":
             return <ThinkingBlock key={block.id} data={block.data} />;
           case "tool_call":
-            return <ToolCallBlock key={block.id} data={block.data} />;
+            // Tool names, durations and completion states belong in telemetry.
+            // The running answer already has one concise reader-facing status.
+            return null;
           case "sub_agent":
             return <SubAgentTree key={block.id} data={block.data} />;
           case "decision":

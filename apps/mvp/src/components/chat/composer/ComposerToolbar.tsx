@@ -161,7 +161,11 @@ function ToolbarButton({
           <Button
             variant="ghost"
             size={seniorMode ? "default" : "icon"}
-            className={cn("btn-icon shrink-0", seniorMode && `${order} h-12 gap-2 px-3 text-base`)}
+            className={cn(
+              "btn-icon shrink-0",
+              seniorMode &&
+                `${order} h-12 min-w-12 gap-1 px-2 text-base sm:gap-2 sm:px-3`,
+            )}
             onClick={onClick}
             aria-label={tooltip}
             disabled={disabled}

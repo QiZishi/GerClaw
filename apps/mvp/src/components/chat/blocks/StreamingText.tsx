@@ -2,13 +2,11 @@
 
 import { cn } from "@/lib/utils";
 import { MarkdownRenderer } from "../MarkdownRenderer";
-import type { Citation } from "@/types";
 
 interface StreamingTextProps {
   content: string;
   streaming?: boolean;
   className?: string;
-  citations?: Citation[];
   showPlaceholder?: boolean;
 }
 
@@ -16,7 +14,6 @@ export function StreamingText({
   content,
   streaming = false,
   className,
-  citations,
   showPlaceholder = true,
 }: StreamingTextProps) {
   if (!content) {
@@ -34,7 +31,7 @@ export function StreamingText({
 
   return (
     <div className={cn("relative", className)}>
-      <MarkdownRenderer content={content} citations={citations} />
+      <MarkdownRenderer content={content} />
       {streaming && <span className="typing-cursor" aria-hidden />}
     </div>
   );

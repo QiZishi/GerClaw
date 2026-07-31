@@ -21,3 +21,10 @@ export function findCitationMatches(text: string): CitationMarkerMatch[] {
   }
   return matches;
 }
+
+/** Remove server citation markers when sources are presented after the answer. */
+export function stripCitationMarkers(text: string): string {
+  return text
+    .replace(/[ \t]*\[C[1-9]\d{0,2}\]/g, "")
+    .replace(/[ \t]+([，。；：、,.!?])/g, "$1");
+}
