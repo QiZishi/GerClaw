@@ -1767,3 +1767,11 @@ Mypy 均通过；扩大 Harness/Context/Run/Chat/Directive 回归 `184 passed`�
 审阅所列三个 P2 保留为后续显式任务：AgentScope 私有 hook 的版本兼容门禁已在本轮先补；
 resume 前校验持久化 boundary hash chain、HITL/external resume 的 outstanding tool round
 初始化仍不得虚称完成。
+
+第三轮针对性复审确认实际 Provider count、完整 block/schema fallback、duplicate lineage 和
+summary/context 原子回滚均已成立，但仍以 `REJECT（P0=0、P1=1、P2=2）` 阻断：counter
+失败但 prepared projection 成功时，tool batch 又追加一遍相同 name/arguments，可能在阈值
+附近产生假拒绝。修复后仅在 prepared projection 完全不可用时才把本地 Context 与
+`extra_text` 合并；只要 projection 已包含当前 ToolCall 就不重复累计。新增 counter 抛错的
+回归证明唯一工具参数只出现一次，定向 `18 passed`、Ruff/Mypy 通过。该小修复独立提交后继续
+由同一审阅者复验。

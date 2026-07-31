@@ -371,10 +371,9 @@ class BoundReActBoundaries:
                 text_values=(
                     ()
                     if counted_tokens is not None
-                    else (
-                        *(provider_projection or agent_text_values(agent)),
-                        *extra_text,
-                    )
+                    else provider_projection
+                    if provider_projection is not None
+                    else (*agent_text_values(agent), *extra_text)
                 ),
                 image_count=self.coordinator._image_count,
                 result_reserve_tokens=self.pending_tool_result_reserve_tokens,

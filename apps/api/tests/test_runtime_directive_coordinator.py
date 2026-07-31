@@ -183,6 +183,73 @@ async def test_model_boundary_passes_exact_prepared_input_count_to_hard_gate() -
 
 
 @pytest.mark.asyncio
+async def test_tool_fallback_does_not_double_count_prepared_tool_arguments() -> None:
+    observed: list[dict[str, object]] = []
+    tool_call = ToolCallBlock(
+        id="call-fallback",
+        name="search",
+        input='{"query":"unique-fallback-argument"}',
+    )
+
+    class _Model:
+        async def count_tokens(self, _messages: object, _tools: object) -> int:
+            raise RuntimeError("local tokenizer unavailable")
+
+    class _Agent:
+        def __init__(self) -> None:
+            self.state = SimpleNamespace(
+                summary="",
+                context=[AssistantMsg(name="assistant", content=[tool_call])],
+            )
+            self.model = _Model()
+
+        async def _prepare_model_input(self) -> dict[str, object]:
+            return {
+                "messages": self.state.context,
+                "tools": [{"name": "search", "parameters": {"type": "object"}}],
+            }
+
+    async def prepare(
+        _agent: object,
+        _extra: tuple[str, ...],
+        _reserved_tokens: int,
+    ) -> object:
+        return SimpleNamespace()
+
+    directives = RuntimeDirectiveCoordinator(
+        loader=None,
+        claimer=None,
+        applier=None,
+        preflight=lambda **_kwargs: SimpleNamespace(allowed=True, reason_code=""),
+        error_factory=RuntimeBudgetExceededError,
+        risk_classifier=lambda _instructions: (),
+        max_per_boundary=20,
+        max_per_run=200,
+        image_count=0,
+    )
+    agent = _Agent()
+    boundaries = ReActBoundaryCoordinator(
+        directives=directives,
+        model_preflight=lambda **_kwargs: SimpleNamespace(allowed=True, reason_code=""),
+        tool_preflight=lambda **kwargs: (
+            observed.append(dict(kwargs)) or SimpleNamespace(allowed=True, reason_code="")
+        ),
+        context_preparer=prepare,  # type: ignore[arg-type]
+        error_factory=RuntimeBudgetExceededError,
+        image_count=0,
+    ).bind(agent_provider=lambda: agent, budget=_Budget())
+
+    await boundaries.before_tool_batch(
+        tool_calls=(("search", tool_call.input, 128),),
+    )
+
+    values = observed[0]["text_values"]
+    assert isinstance(values, tuple)
+    assert tool_call.input not in values
+    assert "\n".join(values).count("unique-fallback-argument") == 1
+
+
+@pytest.mark.asyncio
 async def test_react_context_preparer_accounts_for_required_extra_without_retaining_marker() -> (
     None
 ):
