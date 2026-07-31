@@ -825,12 +825,8 @@ class Settings(BaseSettings):
             values = (url, api_key, model, protocol)
             if not any(value is not None for value in values):
                 continue
-            if not all(value is not None for value in values):
+            if url is None or api_key is None or model is None or protocol is None:
                 raise ValueError(f"agent model slot {name} is partially configured")
-            assert url is not None
-            assert api_key is not None
-            assert model is not None
-            assert protocol is not None
             configured.append(
                 AgentModelConfig(
                     url=url,

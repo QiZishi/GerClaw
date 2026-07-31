@@ -75,8 +75,8 @@ class ModelBudgetPreflight:
     def _hard_input_limit(self, output_reserve_tokens: int) -> int:
         if self._context_hard_stop_ratio is None:
             return self._model_context_tokens - output_reserve_tokens
-        assert self._context_trigger_ratio is not None
-        assert self._context_reserve_ratio is not None
+        if self._context_trigger_ratio is None or self._context_reserve_ratio is None:
+            raise RuntimeError("context ratio configuration is incomplete")
         limits = ContextWindowLimits.resolve(
             model_context_tokens=self._model_context_tokens,
             trigger_ratio=self._context_trigger_ratio,
