@@ -81,6 +81,26 @@ if ! "$postgres_bin_dir/pg_ctl" \
 fi
 echo "[GerClaw] PostgreSQL process started"
 
+if ! PGPASSWORD="$postgres_password" "$postgres_bin_dir/createdb" \
+    -h 127.0.0.1 \
+    -p 5432 \
+    -U gerclaw \
+    gerclaw \
+    2>"$postgres_dir/createdb.log"; then
+    if ! PGPASSWORD="$postgres_password" "$postgres_bin_dir/psql" \
+        -h 127.0.0.1 \
+        -p 5432 \
+        -U gerclaw \
+        -d postgres \
+        -tAc "SELECT 1 FROM pg_database WHERE datname = 'gerclaw'" \
+        | grep -q 1; then
+        echo "[GerClaw] PostgreSQL database creation failed" >&2
+        cat "$postgres_dir/createdb.log" >&2 || true
+        exit 1
+    fi
+fi
+echo "[GerClaw] PostgreSQL database ready"
+
 redis-server \
     --bind 127.0.0.1 \
     --port 6379 \
