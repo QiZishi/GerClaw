@@ -1,10 +1,39 @@
 # GerClaw
 
-> 🚀 在线体验：[ModelScope Studio](https://www.modelscope.cn/studios/MoonNight/GerClaw/summary)
-
 面向老年患者与老年科医生的多模态 AI 诊疗与康养 Agent 应用。
 
 [快速开始](#快速开始) · [核心能力](#核心能力) · [Agent Harness](#agent-harness) · [系统架构](#系统架构) · [配置](#配置) · [项目结构](#项目结构) · [文档](#文档)
+
+## 在线体验
+
+> 🚀 **无需部署，即刻体验 GerClaw 的全部核心功能。**
+
+我们在 ModelScope Studio 上提供完整功能的在线体验环境，无需安装、无需配置，打开浏览器即可使用：
+
+<p align="center">
+  <a href="https://www.modelscope.cn/studios/MoonNight/GerClaw/summary" target="_blank">
+    <img alt="ModelScope Studio" src="https://img.shields.io/badge/🚀%20在线体验-ModelScope%20Studio-6C5CE7?style=for-the-badge&logo=data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHZpZXdCb3g9IjAgMCAyNCAyNCIgZmlsbD0id2hpdGUiPjxwYXRoIGQ9Ik0xMiAyQzYuNDggMiAyIDYuNDggMiAxMnM0LjQ4IDEwIDEwIDEwIDEwLTQuNDggMTAtMTBTMTcuNTIgMiAxMiAyem0tMSAxNy45M2MtMy45NS0uNDktNy0zLjg1LTctNy45MyAwLS40MS4wMy0uODEuMDgtMS4yMUw5IDE1djFjMCAxLjEuOSAyIDIgMnYxLjkzem02LjktMi4xYy0uMjYtLjgxLTEtMS4zOS0xLjktMS4zOWgtMXYzYzAgLjU1LS40NSAxLTEgMWgtMnYyaDZjMi4wNyAwIDMuOTMtLjgyIDUuMjktMi4xNS0uMjQtLjY1LS43MS0xLjIxLTEuMzktMS40NnptLTEwLjktNC4xM2MtLjU1IDAtMS0uNDUtMS0xVjEwSDVjLS41NSAwLTEtLjQ1LTEtMVY3aDJjMS4xIDAgMi0uOSAyLTJ2LS4zMmMxLjc3LS44OSAzLjgtMS4zNiA1Ljk3LTEuMzYgMS44NyAwIDMuNjQuMzkgNS4yNyAxLjA2LS4yNy41Ni0uMjcgMS4xOSAwIDEuNzQgMS4wMyAxLjA0IDEuMTIgMi43My4yIDMuODgtLjg3IDEuMDktMi41MyAxLjI4LTMuNjIuNDItLjM3LS4yOS0uNjEtLjY4LS42Ny0xLjEzbC0yLjE1IDIuMTV2MmMwIC41NS0uNDUgMS0xIDFoLTEuNXoiLz48L3N2Zz4=">
+  </a>
+</p>
+
+**在线环境已内置以下能力，打开即可试用：**
+
+| 功能 | 在线体验说明 |
+|---|---|
+| 🩺 **AI 健康对话** | 以患者或医生身份与 AI 进行多轮健康咨询，支持文本输入 |
+| 📋 **CGA 老年综合评估** | 完成 PHQ-9、SAS、PSQI、Mini-Cog、MMSE 等标准化量表评估，查看计分与报告 |
+| 💊 **五大处方** | 体验药物、运动、营养、心理、康复处方的 AI 生成与补充对话流程 |
+| 🔍 **用药审查** | 查看药物相互作用（DDI）、剂量阈值、多重用药等规则审查 |
+| 📚 **Agentic RAG** | 基于 18 个老年科主题医学知识库的循证检索与引用定位 |
+| 📄 **病例文档解析** | 上传 PDF 等病例资料，MinerU 解析后进入对话上下文 |
+| 🎤 **语音交互** | 语音输入与 AI 语音播放（取决于运行环境音频设备） |
+| 🌐 **联网搜索** | 获取最新医学证据与资料 |
+| 📝 **文档工作台** | Markdown 实时编辑与 PDF/DOCX 导出 |
+| 👨‍⚕️ **医生审核工作流** | 医生端可编辑处方、核对证据、审核通过或退回，AI 初稿与医生修订版独立保留 |
+
+> ⚠️ **医疗使用边界**：GerClaw 是临床辅助和健康管理工具，不替代医生面诊、诊断、处方签署或紧急医疗服务。出现胸痛、呼吸困难、意识改变等紧急情况，应立即联系当地急救服务。
+
+在线环境为共享资源，部分功能（如大规模知识库索引、账户数据持久化）可能受限。如需完整体验或私有化部署，请参考下方 [快速开始](#快速开始)。
 
 ![Python](https://img.shields.io/badge/Python-3.12%2B-3776AB)
 ![FastAPI](https://img.shields.io/badge/FastAPI-0.116%2B-009688)
