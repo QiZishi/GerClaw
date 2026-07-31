@@ -132,11 +132,21 @@ export function SkillEditorDialog({
     setError(null);
     try {
       if (mode === "edit" && definition) {
-        await update(definition, markdown);
-        toast.show("技能新修订已保存");
+        const outcome = await update(definition, markdown);
+        toast.show(
+          "decision" in outcome &&
+            outcome.decision.disposition === "offline_review_required"
+            ? "技能修订已提交审核，通过后生效"
+            : "技能新修订已保存"
+        );
       } else {
-        await create(markdown, origin);
-        toast.show("技能已通过校验并保存");
+        const outcome = await create(markdown, origin);
+        toast.show(
+          "decision" in outcome &&
+            outcome.decision.disposition === "offline_review_required"
+            ? "技能已提交审核，通过后生效"
+            : "技能已通过校验并保存"
+        );
       }
       onOpenChange(false);
     } catch (saveError) {

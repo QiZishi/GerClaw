@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 
-import { skillEvolutionSchema } from "./schemas.ts";
+import { skillEvolutionSchema, skillMutationSchema } from "./schemas.ts";
 
 const definition = {
   skill_id: "accessible-summary",
@@ -116,6 +116,44 @@ test("Skill evolution contract rejects authority claims and inconsistent activat
         resulting_revision: 2,
       },
       active_definition: null,
+    }).success,
+    false
+  );
+});
+
+test("Skill mutation contract accepts an active definition or content-free offline receipt", () => {
+  const offline = {
+    trace_id: "trace_skill_manual_mutation_0001",
+    definition: null,
+    quality_report: null,
+    decision: {
+      schema_version: "skill-evolution-decision-v1",
+      track: "immutable",
+      object_kind: "skill.clinical",
+      authority: "clinical_guidance",
+      disposition: "offline_review_required",
+      reason_codes: ["SKILL_CLINICAL_CONTENT"],
+      expected_revision: 1,
+      resulting_revision: null,
+    },
+    active_definition: null,
+    offline_proposal_receipt: {
+      schema_version: "skill-evolution-proposal-receipt-v1",
+      proposal_id: "108815d7-05bf-4c2a-a977-cd034f390fab",
+      review_state: "pending_offline_review",
+      base_revision: 1,
+      candidate_revision: 2,
+      candidate_digest: "b".repeat(64),
+      created_at: "2026-07-30T08:02:00Z",
+    },
+  };
+
+  assert.equal(skillMutationSchema.safeParse(definition).success, true);
+  assert.equal(skillMutationSchema.safeParse(offline).success, true);
+  assert.equal(
+    skillMutationSchema.safeParse({
+      ...offline,
+      definition,
     }).success,
     false
   );

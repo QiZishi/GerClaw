@@ -23,6 +23,13 @@ This module owns the lifecycle of declarative GerClaw Skills: validation, regist
   server-owned directive DSL; every free-text instruction, name/category/tool/
   parameter change remains immutable. Clinical, permission and unknown changes
   remain immutable-track proposals whose content cannot cross the online API.
+- Every persistent source-Markdown write uses that same policy. Register,
+  upload, explicit PATCH and model-driven evolve are not separate trust
+  boundaries and may not bypass classification. A first low-authority exact-DSL
+  definition may become active online; an immutable first definition creates an
+  inert hidden baseline plus an encrypted proposal. An immutable PATCH leaves
+  the active revision unchanged. An owner toggling only `enabled` remains
+  ordinary CRUD because it does not change the Skill definition.
 - An immutable candidate is not discarded or regenerated later. Persist it once
   with its exact encrypted base/candidate snapshots, owner, trace, request
   fingerprint, revisions and digest in the append-only proposal ledger. The
@@ -32,6 +39,9 @@ This module owns the lifecycle of declarative GerClaw Skills: validation, regist
 ## Change and test rules
 
 - Preserve archive/revision readability and tenant/actor access boundaries when changing registry or storage behavior.
+- Keep the hidden baseline for a first immutable candidate non-listable,
+  non-loadable, disabled and non-executable. Do not expose its reserved internal
+  category as a product Skill or allow it to satisfy a session selection.
 - Evolution may target only a caller-owned custom Skill at its current revision
   and must preserve the ID and increase SemVer. An online-admitted mutation must
   preserve the existing tool list, parameter schema and enabled state, pass the

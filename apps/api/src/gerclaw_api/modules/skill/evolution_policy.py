@@ -156,6 +156,22 @@ class SkillEvolutionPolicy:
             resulting_revision=resulting_revision,
         )
 
+    def online_registration_allowed(self, candidate: SkillDefinition) -> bool:
+        """Admit only a complete low-authority DSL as a first active revision."""
+
+        classification = self._classify_registration(candidate)
+        rule = self._governance.rule_for(classification.object_kind)
+        if rule.track != "mutable":
+            return False
+        self._governance.classify_online_mutation(
+            OnlineMutationRequest(
+                object_kind=classification.object_kind,
+                requested_authority=classification.authority,
+                expected_revision=1,
+            )
+        )
+        return True
+
     @staticmethod
     def _classify(
         current: SkillDefinition,
@@ -201,6 +217,39 @@ class SkillEvolutionPolicy:
                 ("SKILL_CLINICAL_CONTENT",),
             )
 
+        return _Classification(
+            "skill.clinical",
+            "clinical_guidance",
+            ("SKILL_UNCLASSIFIED_FAIL_CLOSED",),
+        )
+
+    @staticmethod
+    def _classify_registration(candidate: SkillDefinition) -> _Classification:
+        if _is_exact_presentation_definition(candidate):
+            return _Classification(
+                "skill.presentation",
+                "presentation_only",
+                ("SKILL_PRESENTATION_DSL_ONLY",),
+            )
+        if _is_exact_retrieval_definition(candidate):
+            return _Classification(
+                "skill.retrieval",
+                "bounded_retrieval",
+                ("SKILL_BOUNDED_RETRIEVAL_DSL_ONLY",),
+            )
+        searchable = _normalized_content(candidate)
+        if _CONTROL_PATTERN.search(searchable) or candidate.tool_names:
+            return _Classification(
+                "skill.tooling",
+                "control_plane",
+                ("SKILL_CONTROL_PLANE_CONTENT",),
+            )
+        if _CLINICAL_PATTERN.search(searchable):
+            return _Classification(
+                "skill.clinical",
+                "clinical_guidance",
+                ("SKILL_CLINICAL_CONTENT",),
+            )
         return _Classification(
             "skill.clinical",
             "clinical_guidance",
@@ -255,25 +304,14 @@ def _is_bounded_presentation(
     current: SkillDefinition,
     candidate: SkillDefinition,
 ) -> bool:
-    required = frozenset({"# 工作流", "保留原意。", "不添加新事实。"})
     return (
         current.category.casefold() in _PRESENTATION_CATEGORIES
         and candidate.category == current.category
         and candidate.name == current.name
         and not current.tool_names
         and not candidate.tool_names
-        and _uses_exact_directive_dsl(
-            current,
-            descriptions=_PRESENTATION_DESCRIPTIONS,
-            directives=_PRESENTATION_DIRECTIVES,
-            required=required,
-        )
-        and _uses_exact_directive_dsl(
-            candidate,
-            descriptions=_PRESENTATION_DESCRIPTIONS,
-            directives=_PRESENTATION_DIRECTIVES,
-            required=required,
-        )
+        and _is_exact_presentation_definition(current)
+        and _is_exact_presentation_definition(candidate)
         and _instruction_lines(current) != _instruction_lines(candidate)
     )
 
@@ -282,7 +320,31 @@ def _is_bounded_retrieval(
     current: SkillDefinition,
     candidate: SkillDefinition,
 ) -> bool:
-    tools = frozenset(candidate.tool_names)
+    return (
+        current.category.casefold() in _RETRIEVAL_CATEGORIES
+        and candidate.category == current.category
+        and candidate.name == current.name
+        and _is_exact_retrieval_definition(current)
+        and _is_exact_retrieval_definition(candidate)
+        and _instruction_lines(current) != _instruction_lines(candidate)
+    )
+
+
+def _is_exact_presentation_definition(definition: SkillDefinition) -> bool:
+    return (
+        definition.category.casefold() in _PRESENTATION_CATEGORIES
+        and not definition.tool_names
+        and _uses_exact_directive_dsl(
+            definition,
+            descriptions=_PRESENTATION_DESCRIPTIONS,
+            directives=_PRESENTATION_DIRECTIVES,
+            required=frozenset({"# 工作流", "保留原意。", "不添加新事实。"}),
+        )
+    )
+
+
+def _is_exact_retrieval_definition(definition: SkillDefinition) -> bool:
+    tools = frozenset(definition.tool_names)
     required = {
         "# 工作流",
         "按用户提供的关键词检索。",
@@ -293,33 +355,17 @@ def _is_bounded_retrieval(
         required.add("使用本地知识库。")
     if "search_memory" in tools:
         required.add("使用用户已确认的记忆。")
-    current_lines = frozenset(_instruction_lines(current))
-    candidate_lines = frozenset(_instruction_lines(candidate))
-    source_directives_match = all(
-        (
-            ("使用本地知识库。" in lines) == ("search_knowledge" in tools)
-            and ("使用用户已确认的记忆。" in lines) == ("search_memory" in tools)
-        )
-        for lines in (current_lines, candidate_lines)
-    )
+    lines = frozenset(_instruction_lines(definition))
     return (
-        current.category.casefold() in _RETRIEVAL_CATEGORIES
-        and candidate.category == current.category
-        and candidate.name == current.name
+        definition.category.casefold() in _RETRIEVAL_CATEGORIES
         and bool(tools)
         and tools <= _BOUNDED_RETRIEVAL_TOOLS
-        and source_directives_match
+        and ("使用本地知识库。" in lines) == ("search_knowledge" in tools)
+        and ("使用用户已确认的记忆。" in lines) == ("search_memory" in tools)
         and _uses_exact_directive_dsl(
-            current,
+            definition,
             descriptions=_RETRIEVAL_DESCRIPTIONS,
             directives=_RETRIEVAL_DIRECTIVES,
             required=frozenset(required),
         )
-        and _uses_exact_directive_dsl(
-            candidate,
-            descriptions=_RETRIEVAL_DESCRIPTIONS,
-            directives=_RETRIEVAL_DIRECTIVES,
-            required=frozenset(required),
-        )
-        and _instruction_lines(current) != _instruction_lines(candidate)
     )

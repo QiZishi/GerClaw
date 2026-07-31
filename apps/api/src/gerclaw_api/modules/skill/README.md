@@ -20,8 +20,12 @@ tool allowlist 和实际内容差异：
 - `category`、风险等级、ownership 与 governance authority 均不能由浏览器、模型或
   Markdown 自报获得；分类使用服务端实际定义，未知情况 fail closed。
 
-人工创建、导入和显式编辑仍是既有的用户内容管理边界，不属于自动自演化授权。
-它们仍会经过完整解析、安全校验、工具 allowlist、SemVer 与 revision 检查。
+所有持久化 `source_markdown` 的入口共用同一个双轨分类边界，包括人工创建、文件导入、显式
+PATCH 和模型驱动 evolve，不能通过换一个 API 绕过分类。首次创建若是完整的低权限固定 DSL，
+可以作为 revision 1 在线生效；若属于临床、工具/权限、自由文本或未知类别，服务端先保存一个
+隐藏、禁用、不可加载和不可执行的惰性基线，再把真实候选写入加密 immutable proposal，响应只返回
+去内容化回执。对已有 Skill 的危险 PATCH 只产生提案，不改变 active revision。仅切换调用者自己
+Skill 的 `enabled` 不改变定义内容，仍是普通在线 CRUD。
 
 固定 DSL 的准入常量和 `evolution_policy.ONLINE_EVOLUTION_DSL_GUIDANCE` 由同一 policy 模块持有；
 guidance 同时注入 generate/evolve 模型 Prompt，避免“只有测试夹具能创建”的隐藏格式。presentation 必须保留原意且
@@ -44,10 +48,13 @@ guidance 同时注入 generate/evolve 模型 Prompt，避免“只有测试夹�
 
 **可安全改进。** 可提高生成/修订质量、编辑器体验、外部模型评测和临床 Skill 发布审核；生成器变化必须同步更新 `skill-generation-model-output-v1`、`skill-evolution-decision-v1`、quality case、SemVer/revision 测试和审核界面。
 
-**不可破坏的契约。** 低风险在线演化不能改变 name、category、自由文本、工具、参数 schema、enabled
-状态或权限；危险和未知变更不能通过在线响应取得候选内容，也不能自动写库、启用、执行或改变正在使用的 revision。
+**不可破坏的契约。** 所有定义写入口都必须经过中央分类器。低风险在线演化不能改变
+name、category、自由文本、工具、参数 schema、enabled 状态或权限；危险和未知变更不能通过
+在线响应取得候选内容，也不能写入 active 定义、启用、执行或改变正在使用的 revision。
 这里的“不能自动写库”指不能写入生产 Skill 定义；危险候选必须写入独立加密提案账本，不能被丢弃或要求
 离线阶段重新生成。提案账本不提供 update/delete/activate mutator，状态推进应写入独立审核事件。
+首次危险注册为保证提案拥有稳定的基线 revision，可以原子创建隐藏的惰性占位定义；它不是 active
+Skill，list/load/execute/session selection 都不能观察或使用它。
 相同 ID 的行为替换必须递增 SemVer，加载前必须重新通过服务端 profile。无证据的
 诊断/调药事实不得进入自动激活路径，有证据的临床建议仍进入离线审核而非在线执行。
 

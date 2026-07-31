@@ -188,6 +188,10 @@ export const skillEvolutionSchema = z
       });
     }
   });
+export const skillMutationSchema = z.union([
+  skillDefinitionSchema,
+  skillEvolutionSchema,
+]);
 export const sessionSkillsSchema = z
   .object({
     session_id: z.string().uuid(),
@@ -238,6 +242,7 @@ export type SkillInfo = z.infer<typeof skillInfoSchema>;
 export type SkillDefinition = z.infer<typeof skillDefinitionSchema>;
 export type SkillDraft = z.infer<typeof generatedSkillSchema>;
 export type SkillEvolution = z.infer<typeof skillEvolutionSchema>;
+export type SkillMutation = z.infer<typeof skillMutationSchema>;
 
 const approvalStatusSchema = z.enum([
   "pending",

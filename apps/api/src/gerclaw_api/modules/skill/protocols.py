@@ -23,8 +23,14 @@ class SkillModule(Protocol):
     async def load_skill(self, skill_id: str) -> Skill:
         """Load and validate one Skill definition."""
 
-    async def register_skill(self, skill_definition: SkillDefinition) -> str:
-        """Register a versioned, policy-checked Skill."""
+    async def register_skill(
+        self,
+        skill_definition: SkillDefinition,
+        *,
+        proposal_trace_id: str | None = None,
+        request_fingerprint: str | None = None,
+    ) -> SkillDefinition | SkillEvolutionOutcome:
+        """Activate a low-risk Skill or persist a dangerous offline proposal."""
 
     async def execute_skill(self, skill_id: str, params: dict[str, JsonValue]) -> SkillResult:
         """Validate and activate a Skill through the AgentScope policy layer."""

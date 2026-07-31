@@ -7,7 +7,17 @@ import json
 import uuid
 from typing import Annotated, cast
 
-from fastapi import APIRouter, Depends, File, HTTPException, Query, Request, UploadFile, status
+from fastapi import (
+    APIRouter,
+    Depends,
+    File,
+    HTTPException,
+    Query,
+    Request,
+    Response,
+    UploadFile,
+    status,
+)
 from pydantic import BaseModel, ConfigDict, model_validator
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -31,6 +41,7 @@ from gerclaw_api.modules.skill import (
     SkillDraftQualityReport,
     SkillDraftRequest,
     SkillEvolutionDecision,
+    SkillEvolutionOutcome,
     SkillEvolutionProposalReceipt,
     SkillEvolutionRequest,
     SkillExecuteRequest,
@@ -99,6 +110,18 @@ class SkillDeleteRead(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     deleted: bool
+
+
+def _evolution_read(trace_id: str, outcome: SkillEvolutionOutcome) -> SkillEvolutionRead:
+    offline = outcome.decision.disposition == "offline_review_required"
+    return SkillEvolutionRead(
+        trace_id=trace_id,
+        definition=None if offline else outcome.candidate,
+        quality_report=None if offline else evaluate_skill_draft(outcome.candidate),
+        decision=outcome.decision,
+        active_definition=outcome.active_definition,
+        offline_proposal_receipt=outcome.offline_proposal_receipt,
+    )
 
 
 def _module(
@@ -298,38 +321,61 @@ async def get_skill(
     return (await _module(request, session, identity).load_skill(skill_id)).definition
 
 
-@router.post("", response_model=SkillDefinition, status_code=status.HTTP_201_CREATED)
+@router.post(
+    "",
+    response_model=SkillDefinition | SkillEvolutionRead,
+    status_code=status.HTTP_201_CREATED,
+)
 async def register_skill(
     payload: SkillRegisterRequest,
     request: Request,
+    response: Response,
     session: SessionDependency,
     identity: SkillWriteIdentity,
-) -> SkillDefinition:
+) -> SkillDefinition | SkillEvolutionRead:
     await _rate_limit(request, identity)
     service = get_trace_service(
         session, max_events_per_trace=request.app.state.settings.max_events_per_trace
     )
+    request_fingerprint = _fingerprint(request, payload)
     trace_id = await _start_trace(
         request,
         service,
         identity,
         operation="register",
-        request_fingerprint=_fingerprint(request, payload),
+        request_fingerprint=request_fingerprint,
     )
     try:
-        definition = await _module(request, session, identity).register_markdown(
-            payload.source_markdown, origin=payload.origin, commit=False
+        result = await _module(request, session, identity).register_markdown(
+            payload.source_markdown,
+            origin=payload.origin,
+            proposal_trace_id=trace_id,
+            request_fingerprint=request_fingerprint,
+            commit=False,
         )
+        if isinstance(result, SkillEvolutionOutcome):
+            await _finish_trace(
+                service,
+                identity,
+                trace_id=trace_id,
+                operation="register",
+                skill_id=result.candidate.skill_id,
+                success=True,
+                version=result.candidate.version,
+                proposal_receipt=result.offline_proposal_receipt,
+            )
+            response.status_code = status.HTTP_202_ACCEPTED
+            return _evolution_read(trace_id, result)
         await _finish_trace(
             service,
             identity,
             trace_id=trace_id,
             operation="register",
-            skill_id=definition.skill_id,
+            skill_id=result.skill_id,
             success=True,
-            version=definition.version,
+            version=result.version,
         )
-        return definition
+        return result
     except asyncio.CancelledError:
         await session.rollback()
         await _finish_trace(
@@ -357,25 +403,31 @@ async def register_skill(
         raise
 
 
-@router.post("/upload", response_model=SkillDefinition, status_code=status.HTTP_201_CREATED)
+@router.post(
+    "/upload",
+    response_model=SkillDefinition | SkillEvolutionRead,
+    status_code=status.HTTP_201_CREATED,
+)
 async def upload_skill(
     request: Request,
+    response: Response,
     session: SessionDependency,
     identity: SkillWriteIdentity,
     file: Annotated[UploadFile, File(...)],
-) -> SkillDefinition:
+) -> SkillDefinition | SkillEvolutionRead:
     await _rate_limit(request, identity)
     filename = file.filename or ""
     content = await file.read(request.app.state.settings.skill_max_archive_bytes + 1)
     service = get_trace_service(
         session, max_events_per_trace=request.app.state.settings.max_events_per_trace
     )
+    request_fingerprint = _upload_fingerprint(request, filename, content)
     trace_id = await _start_trace(
         request,
         service,
         identity,
         operation="register",
-        request_fingerprint=_upload_fingerprint(request, filename, content),
+        request_fingerprint=request_fingerprint,
     )
     try:
         markdown = extract_skill_markdown(
@@ -384,19 +436,36 @@ async def upload_skill(
             max_archive_bytes=request.app.state.settings.skill_max_archive_bytes,
             max_markdown_characters=request.app.state.settings.skill_max_markdown_characters,
         )
-        definition = await _module(request, session, identity).register_markdown(
-            markdown, origin="upload", commit=False
+        result = await _module(request, session, identity).register_markdown(
+            markdown,
+            origin="upload",
+            proposal_trace_id=trace_id,
+            request_fingerprint=request_fingerprint,
+            commit=False,
         )
+        if isinstance(result, SkillEvolutionOutcome):
+            await _finish_trace(
+                service,
+                identity,
+                trace_id=trace_id,
+                operation="register",
+                skill_id=result.candidate.skill_id,
+                success=True,
+                version=result.candidate.version,
+                proposal_receipt=result.offline_proposal_receipt,
+            )
+            response.status_code = status.HTTP_202_ACCEPTED
+            return _evolution_read(trace_id, result)
         await _finish_trace(
             service,
             identity,
             trace_id=trace_id,
             operation="register",
-            skill_id=definition.skill_id,
+            skill_id=result.skill_id,
             success=True,
-            version=definition.version,
+            version=result.version,
         )
-        return definition
+        return result
     except asyncio.CancelledError:
         await session.rollback()
         await _finish_trace(
@@ -585,33 +654,48 @@ async def evolve_skill(
         raise
 
 
-@router.patch("/{skill_id}", response_model=SkillDefinition)
+@router.patch("/{skill_id}", response_model=SkillDefinition | SkillEvolutionRead)
 async def update_skill(
     skill_id: SkillId,
     payload: SkillUpdateRequest,
     request: Request,
     session: SessionDependency,
     identity: SkillWriteIdentity,
-) -> SkillDefinition:
+) -> SkillDefinition | SkillEvolutionRead:
     await _rate_limit(request, identity)
     service = get_trace_service(
         session, max_events_per_trace=request.app.state.settings.max_events_per_trace
     )
+    request_fingerprint = _fingerprint(request, payload, resource_id=skill_id)
     trace_id = await _start_trace(
         request,
         service,
         identity,
         operation="update",
-        request_fingerprint=_fingerprint(request, payload, resource_id=skill_id),
+        request_fingerprint=request_fingerprint,
     )
     try:
-        definition = await _module(request, session, identity).update_skill(
+        result = await _module(request, session, identity).update_skill(
             skill_id,
             source_markdown=payload.source_markdown,
             enabled=payload.enabled,
             expected_revision=payload.expected_revision,
+            proposal_trace_id=trace_id,
+            request_fingerprint=request_fingerprint,
             commit=False,
         )
+        if isinstance(result, SkillEvolutionOutcome):
+            await _finish_trace(
+                service,
+                identity,
+                trace_id=trace_id,
+                operation="update",
+                skill_id=skill_id,
+                success=True,
+                version=result.candidate.version,
+                proposal_receipt=result.offline_proposal_receipt,
+            )
+            return _evolution_read(trace_id, result)
         await _finish_trace(
             service,
             identity,
@@ -619,9 +703,9 @@ async def update_skill(
             operation="update",
             skill_id=skill_id,
             success=True,
-            version=definition.version,
+            version=result.version,
         )
-        return definition
+        return result
     except asyncio.CancelledError:
         await session.rollback()
         await _finish_trace(

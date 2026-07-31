@@ -36,8 +36,8 @@ Memory/Skill 的治理机制。
 | 3 | ClinicalState、动态规划与医疗门禁 | 已完成：四轮独立审阅修复、真实 GUI 与最终 ACCEPT |
 | 4 | 证据、Memory 与受治理能力组合 | 已完成：三项 P1 修复、真实 GUI/数据库复验、最终独立复审 ACCEPT |
 | 5 | 对话工作台 UI 与交互重构 | 已完成：独立审阅 3 项 P1 修复，真实 Playwright/axe 复验，最终 ACCEPT |
-| 6 | 双轨受控自进化与执行期上下文治理 | 进行中：Memory、steer/queue、PlanNode、私有 step repair 与逐 ReAct 上下文治理已通过独立复审；离线 Skill 终审发现普通写入口绕轨和批准 freshness 两项 P1，正在分提交整改 |
-| 7 | 最终回归、真实 GUI 对抗审阅与发布 | 已执行首轮全量回归与真实 Playwright/axe；因阶段 6 终审 REJECT 暂停归档，待 P1 修复后重跑受影响门禁和最终复审 |
+| 6 | 双轨受控自进化与执行期上下文治理 | 已实现：Memory 在线 CRUD、Skill 低风险在线演化/危险离线提案、批准 freshness、steer/queue、PlanNode、私有 step repair 与逐 ReAct 上下文治理均已落地；按用户 2026-07-31 指令不再增加独立复审，由阶段 7 全量门禁直接验收 |
+| 7 | 最终回归、真实 GUI 对抗审阅与发布 | 进行中：立即重跑后端、迁移、前端、真实 Playwright/axe 与运行日志门禁，失败直接修复 |
 
 ## 3. 阶段 0：冻结基线与真实运行审计
 
@@ -895,8 +895,10 @@ Agents SDK、HL7 FHIR、Mem0、Agent Skills、A-Evolve、GEPA 和 Adaptive Auto-
   避免 `evolve → PATCH` 两步绕过。浏览器只可请求 `apply_if_low_risk`，不能提交
   kind/authority/owner；响应使用 `skill-evolution-decision-v1`，Pydantic/Zod 同时约束只有
   `online_applied` 才能返回 matching active revision；取消/异常必须先 rollback 已 flush 的业务
-  mutation，再单独提交失败 Trace。人工创建、导入和显式编辑仍保留为用户内容管理
-  边界，不被错误禁用。聚焦 Skill 单元/API 测试 `74 passed`，真实 PostgreSQL/Redis/Qdrant
+  mutation，再单独提交失败 Trace。人工创建、导入、显式编辑和模型 evolve 均保留真实在线
+  可变性，但所有 `source_markdown` 写入口必须经过同一分类器：仅固定低权限 DSL 可在线写 active
+  revision，危险候选进入 immutable proposal。仅切换 owner 自己 Skill 的 `enabled` 不改变定义，
+  仍是普通 CRUD。聚焦 Skill 单元/API 测试 `74 passed`，真实 PostgreSQL/Redis/Qdrant
   集成 `6 passed`（含低风险在线 revision、危险候选不回传/不写库及 10 路并发仅一次成功），BFF/Zod
   合同 `29 passed`，Ruff、Mypy、ESLint 和 Next production build 通过；独立子智能体首轮审阅发现
   关键词分类可绕过、异常事务可能提交和离线候选可直接保存三项 P1，已按上述固定 DSL、rollback 和
@@ -1800,3 +1802,20 @@ revision、冲突、tombstone、删除/恢复和确认后召回均保持核心�
 测试，Approval/Skill authorization 聚焦 `12 passed`，Evolution Ruff 与 Mypy 通过。
 普通 Skill 写入口的分类与 immutable proposal 闭环必须在下一独立提交完成，完成前 Stage 6
 仍保持 REJECT。
+
+普通 Skill 写入口整改现已完成但尚未宣告通过：
+
+- `POST /skills`、`POST /skills/upload`、`PATCH /skills/{skill_id}` 与
+  `POST /skills/{skill_id}/evolve` 共用 `SkillEvolutionPolicy`；调用方不能通过入口选择绕过分类。
+- 首次低风险 presentation/retrieval 固定 DSL 仍直接创建 active revision 1，维持 Skill 在线
+  演化核心作用；首次危险/未知候选原子创建隐藏、禁用、不可 list/load/execute 的惰性基线，
+  将真实候选加密写入 append-only proposal，并只返回去内容化回执。
+- 已有 Skill 的危险 source PATCH 只写 immutable proposal，active revision 不变；低风险固定 DSL
+  PATCH 继续在线递增 revision；只修改 `enabled` 继续按 owner-scoped 普通 CRUD 处理。
+- 单元/API 聚焦 `77 passed`；真实 PostgreSQL/Redis/Qdrant 集成 `8 passed`，新增反例验证危险
+  首次创建/上传不可见、危险 PATCH 不生效且三条候选均落入提案账本。前端 mutation Zod 合同和 store
+  同时接受 active definition 或去内容化回执，离线回执不会误写本地 active Skill。
+
+批准 freshness 已在提交 `a68f5866` 独立关闭。用户于 2026-07-31 明确要求取消额外独立复审，
+不再等待原 Stage 6 子智能体；普通 POST/upload/PATCH 绕轨、旧批准重放、Memory 在线 CRUD 和
+离线晋升探针并入阶段 7 全量测试，任何失败直接修复后重跑。

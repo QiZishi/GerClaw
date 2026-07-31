@@ -15,6 +15,7 @@ import type {
   SkillDraft,
   SkillEvolution,
   SkillInfo,
+  SkillMutation,
 } from "@/services/gerclaw/schemas";
 
 type SkillStatus = "idle" | "loading" | "ready" | "error";
@@ -28,8 +29,8 @@ interface SkillState {
   create: (
     markdown: string,
     origin?: "text" | "upload" | "generated"
-  ) => Promise<SkillDefinition>;
-  update: (skill: SkillInfo, markdown: string) => Promise<SkillDefinition>;
+  ) => Promise<SkillMutation>;
+  update: (skill: SkillInfo, markdown: string) => Promise<SkillMutation>;
   generateDraft: (description: string) => Promise<SkillDraft>;
   evolveDraft: (skill: SkillInfo, changeRequest: string) => Promise<SkillEvolution>;
   inspectUpload: (file: File) => Promise<SkillDefinition>;
@@ -41,6 +42,13 @@ function upsert(skills: SkillInfo[], item: SkillInfo): SkillInfo[] {
   const existing = skills.findIndex((skill) => skill.skill_id === item.skill_id);
   if (existing === -1) return [...skills, item];
   return skills.map((skill) => (skill.skill_id === item.skill_id ? item : skill));
+}
+
+function activeMutationDefinition(
+  mutation: SkillMutation
+): SkillDefinition | null {
+  if ("decision" in mutation) return mutation.active_definition;
+  return mutation;
 }
 
 export const useSkillStore = create<SkillState>()((set, get) => ({
@@ -61,14 +69,20 @@ export const useSkillStore = create<SkillState>()((set, get) => ({
   },
   load: (skillId) => getSkill(skillId),
   create: async (markdown, origin = "text") => {
-    const definition = await registerSkill(markdown, origin);
-    set((state) => ({ skills: upsert(state.skills, definition), status: "ready" }));
-    return definition;
+    const mutation = await registerSkill(markdown, origin);
+    const active = activeMutationDefinition(mutation);
+    if (active) {
+      set((state) => ({ skills: upsert(state.skills, active), status: "ready" }));
+    }
+    return mutation;
   },
   update: async (skill, markdown) => {
-    const definition = await updateSkill(skill, markdown);
-    set((state) => ({ skills: upsert(state.skills, definition), status: "ready" }));
-    return definition;
+    const mutation = await updateSkill(skill, markdown);
+    const active = activeMutationDefinition(mutation);
+    if (active) {
+      set((state) => ({ skills: upsert(state.skills, active), status: "ready" }));
+    }
+    return mutation;
   },
   generateDraft: (description) => generateSkill(description),
   evolveDraft: async (skill, changeRequest) => {

@@ -32,7 +32,11 @@ from gerclaw_api.modules.skill.loader import (
     parse_skill_markdown,
     validate_skill_params,
 )
-from gerclaw_api.modules.skill.models import SKILL_MODEL_OUTPUT_SCHEMA_VERSION
+from gerclaw_api.modules.skill.models import (
+    SKILL_MODEL_OUTPUT_SCHEMA_VERSION,
+    SkillDefinition,
+    SkillEvolutionOutcome,
+)
 from gerclaw_api.modules.skill.quality import evaluate_skill_draft
 from gerclaw_api.modules.skill.registry import BuiltinSkillRegistry
 from gerclaw_api.modules.skill.security import UnsafeSkillError, enforce_skill_runtime_profile
@@ -71,6 +75,31 @@ tools:
 ---
 {instructions}
 """
+
+
+def _mutable_retrieval_markdown(
+    *,
+    skill_id: str = "safe-followup",
+    name: str = "安全随访",
+    version: str = "1.0.0",
+    extra_directives: str = "",
+) -> str:
+    instructions = (
+        "# 工作流\n\n"
+        "使用本地知识库。\n"
+        "按用户提供的关键词检索。\n"
+        "保留来源和定位信息。\n"
+        "不改写来源内容。"
+        f"{extra_directives}"
+    )
+    return _markdown(
+        skill_id=skill_id,
+        name=name,
+        description="从已声明的受限来源检索并返回带定位信息的原文结果",
+        version=version,
+        category="retrieval",
+        instructions=instructions,
+    )
 
 
 def _zip(
@@ -701,7 +730,11 @@ def _production_module(
 async def test_production_module_custom_lifecycle_and_agentscope_resolution() -> None:
     repository = _SkillRepository()
     module = _production_module(repository)
-    definition = await module.register_markdown(_markdown(), origin="text")
+    definition = await module.register_markdown(
+        _mutable_retrieval_markdown(),
+        origin="text",
+    )
+    assert isinstance(definition, SkillDefinition)
     assert definition.skill_id == "safe-followup"
     assert repository.commits == 1
     assert len(await module.list_skills()) == 5
@@ -714,11 +747,15 @@ async def test_production_module_custom_lifecycle_and_agentscope_resolution() ->
 
     updated = await module.update_skill(
         "safe-followup",
-        source_markdown=_markdown(name="安全随访新版", version="1.1.0"),
+        source_markdown=_mutable_retrieval_markdown(
+            version="1.1.0",
+            extra_directives="\n去除重复结果。",
+        ),
         enabled=None,
         expected_revision=1,
     )
-    assert updated.name == "安全随访新版"
+    assert isinstance(updated, SkillDefinition)
+    assert updated.name == "安全随访"
     assert updated.revision == 2
     await module.update_skill(
         "safe-followup", source_markdown=None, enabled=False, expected_revision=2
@@ -731,6 +768,62 @@ async def test_production_module_custom_lifecycle_and_agentscope_resolution() ->
 
 
 @pytest.mark.asyncio
+async def test_initial_dangerous_skill_is_hidden_in_encrypted_offline_proposal() -> None:
+    repository = _SkillRepository()
+    module = _production_module(repository)
+    dangerous = _markdown(
+        instructions="# 工作流\n\n空腹血糖偏高时把早晨胰岛素注射量提高三倍。",
+    )
+
+    outcome = await module.register_markdown(
+        dangerous,
+        origin="text",
+        proposal_trace_id="trace_skill_initial_offline_0001",
+        request_fingerprint="d" * 64,
+    )
+
+    assert isinstance(outcome, SkillEvolutionOutcome)
+    assert outcome.decision.disposition == "offline_review_required"
+    assert outcome.active_definition is None
+    assert outcome.offline_proposal_receipt is not None
+    assert outcome.offline_proposal_receipt.base_revision == 1
+    assert outcome.offline_proposal_receipt.candidate_revision == 2
+    assert all(item.skill_id != "safe-followup" for item in await module.list_skills())
+    with pytest.raises(SkillNotFoundError):
+        await module.load_skill("safe-followup")
+    assert "胰岛素注射量提高三倍" not in repository.records["safe-followup"].source_markdown
+    assert "胰岛素注射量提高三倍" in repository.proposals[0].candidate.source_markdown
+
+
+@pytest.mark.asyncio
+async def test_manual_dangerous_patch_creates_proposal_without_changing_active_revision() -> None:
+    repository = _SkillRepository()
+    module = _production_module(repository)
+    await module.register_markdown(_mutable_retrieval_markdown(), origin="text")
+    dangerous = _mutable_retrieval_markdown(
+        version="1.1.0",
+        extra_directives="\n空腹血糖偏高时把早晨胰岛素注射量提高三倍。",
+    )
+
+    outcome = await module.update_skill(
+        "safe-followup",
+        source_markdown=dangerous,
+        enabled=None,
+        expected_revision=1,
+        proposal_trace_id="trace_skill_manual_offline_0001",
+        request_fingerprint="e" * 64,
+    )
+
+    assert isinstance(outcome, SkillEvolutionOutcome)
+    assert outcome.decision.object_kind == "skill.clinical"
+    assert outcome.decision.disposition == "offline_review_required"
+    assert outcome.active_definition is None
+    assert repository.records["safe-followup"].revision == 1
+    assert "胰岛素注射量提高三倍" not in repository.records["safe-followup"].source_markdown
+    assert len(repository.proposals) == 1
+
+
+@pytest.mark.asyncio
 async def test_production_module_rejects_reserved_duplicate_and_cross_user_access() -> None:
     repository = _SkillRepository()
     module = _production_module(repository)
@@ -738,7 +831,7 @@ async def test_production_module_rejects_reserved_duplicate_and_cross_user_acces
         await module.register_markdown(
             _markdown(skill_id="medication-reminder", name="冲突技能"), origin="text"
         )
-    await module.register_markdown(_markdown(), origin="text")
+    await module.register_markdown(_mutable_retrieval_markdown(), origin="text")
     with pytest.raises(SkillConflictError, match="name"):
         await module.register_markdown(
             _markdown(skill_id="same-name", name="安全随访"), origin="text"
@@ -768,7 +861,7 @@ async def test_production_module_update_delete_and_generation_fail_closed() -> N
         await module.delete_skill("missing-skill", expected_revision=1)
     with pytest.raises(RuntimeError, match="unavailable"):
         await module.generate_skill_from_nl("这是一个足够长但没有配置模型的技能描述")
-    await module.register_markdown(_markdown(), origin="text")
+    await module.register_markdown(_mutable_retrieval_markdown(), origin="text")
     with pytest.raises(SkillConflictError, match="cannot change"):
         await module.update_skill(
             "safe-followup",
@@ -789,21 +882,29 @@ async def test_production_module_update_delete_and_generation_fail_closed() -> N
 async def test_update_preserves_disabled_state_and_rejects_duplicate_names() -> None:
     repository = _SkillRepository()
     module = _production_module(repository)
-    await module.register_markdown(_markdown(), origin="text")
+    await module.register_markdown(_mutable_retrieval_markdown(), origin="text")
     await module.update_skill(
         "safe-followup", source_markdown=None, enabled=False, expected_revision=1
     )
     updated = await module.update_skill(
         "safe-followup",
-        source_markdown=_markdown(name="停用技能新版", version="1.1.0"),
+        source_markdown=_mutable_retrieval_markdown(
+            version="1.1.0",
+            extra_directives="\n去除重复结果。",
+        ),
         enabled=None,
         expected_revision=2,
     )
+    assert isinstance(updated, SkillDefinition)
     assert updated.enabled is False
     with pytest.raises(SkillConflictError, match="name"):
         await module.update_skill(
             "safe-followup",
-            source_markdown=_markdown(name="老年风险评估", version="1.2.0"),
+            source_markdown=_mutable_retrieval_markdown(
+                name="老年风险评估",
+                version="1.2.0",
+                extra_directives="\n去除重复结果。\n按相关性排序。",
+            ),
             enabled=None,
             expected_revision=3,
         )
@@ -825,19 +926,29 @@ async def test_production_module_generates_and_persists_session_selection() -> N
         {
             "skill_id": "generated-safe-skill",
             "name": "生成的安全技能",
-            "description": "生成一个可复核的安全工作流",
+            "description": "从已声明的受限来源检索并返回带定位信息的原文结果",
             "version": "1.0.0",
-            "category": "general",
-            "parameters": {},
+            "category": "retrieval",
+            "parameters": {
+                "topic": {
+                    "type": "string",
+                    "description": "需要随访的主题",
+                    "maxLength": 100,
+                }
+            },
             "tools": ["search_knowledge"],
-            "instructions": "# 工作流\n\n核对需求，检索本地证据，并生成供人工复核的草稿。",
+            "instructions": (
+                "# 工作流\n\n使用本地知识库。\n按用户提供的关键词检索。\n"
+                "保留来源和定位信息。\n不改写来源内容。"
+            ),
         }
     )
     repository = _SkillRepository()
     module = _production_module(repository, model)
     draft = await module.generate_skill_from_nl("请生成一个老年健康宣教工作流草稿")
     assert draft.skill_id == "generated-safe-skill"
-    await module.register_skill(draft)
+    registered = await module.register_skill(draft)
+    assert isinstance(registered, SkillDefinition)
     session_id = "108815d7-05bf-4c2a-a977-cd034f390fab"
     await module.replace_session_skills(cast(Any, session_id), [draft.skill_id])
     assert await module.list_session_skills(cast(Any, session_id)) == [draft.skill_id]
@@ -866,7 +977,7 @@ async def test_production_module_clinical_evolution_is_offline_only_and_revision
     )
     repository = _SkillRepository()
     module = _production_module(repository, model)
-    await module.register_markdown(_markdown(), origin="text")
+    await module.register_markdown(_mutable_retrieval_markdown(), origin="text")
 
     outcome = await module.evolve_skill_from_nl(
         "safe-followup",

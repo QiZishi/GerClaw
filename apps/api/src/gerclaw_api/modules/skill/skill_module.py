@@ -2,8 +2,10 @@
 
 from __future__ import annotations
 
+import hashlib
 import re
 import uuid
+from datetime import datetime
 from typing import TYPE_CHECKING, cast
 
 from agentscope.skill import Skill as AgentScopeSkill
@@ -41,6 +43,9 @@ class SkillConflictError(RuntimeError):
     """Raised when a custom Skill conflicts with a system or caller Skill."""
 
 
+_PENDING_OFFLINE_CATEGORY = "offline_pending"
+
+
 class CorruptSkillError(RuntimeError):
     """Raised instead of loading invalid encrypted database content into an Agent."""
 
@@ -73,12 +78,13 @@ class ProductionSkillModule:
         if user_id is not None and user_id != self._actor_id:
             raise SkillNotFoundError("Skill owner is not accessible")
         builtins = await self._builtins.list_definitions()
-        custom = [
-            self._definition_from_record(item)
-            for item in await self._repository.list_custom(
-                tenant_id=self._tenant_id, actor_id=self._actor_id
-            )
-        ]
+        custom = []
+        for item in await self._repository.list_custom(
+            tenant_id=self._tenant_id, actor_id=self._actor_id
+        ):
+            definition = self._definition_from_record(item)
+            if not _is_pending_placeholder(definition):
+                custom.append(definition)
         return [
             SkillInfo.model_validate(item.model_dump(exclude={"source_markdown"}))
             for item in [
@@ -96,6 +102,8 @@ class ProductionSkillModule:
             if record is None:
                 raise SkillNotFoundError("Skill not found")
             definition = self._definition_from_record(record)
+            if _is_pending_placeholder(definition):
+                raise SkillNotFoundError("Skill not found")
         return Skill(definition=definition, tool_names=definition.tool_names)
 
     async def load_enabled_skill(self, skill_id: str) -> Skill:
@@ -106,11 +114,21 @@ class ProductionSkillModule:
         return skill
 
     async def register_markdown(
-        self, source_markdown: str, *, origin: str, commit: bool = True
-    ) -> SkillDefinition:
+        self,
+        source_markdown: str,
+        *,
+        origin: str,
+        proposal_trace_id: str | None = None,
+        request_fingerprint: str | None = None,
+        commit: bool = True,
+    ) -> SkillDefinition | SkillEvolutionOutcome:
         definition = self.preview_markdown(source_markdown, origin=origin)
-        await self.register_skill(definition, commit=commit)
-        return (await self.load_skill(definition.skill_id)).definition
+        return await self.register_skill(
+            definition,
+            proposal_trace_id=proposal_trace_id,
+            request_fingerprint=request_fingerprint,
+            commit=commit,
+        )
 
     def preview_markdown(self, source_markdown: str, *, origin: str) -> SkillDefinition:
         """Validate a review draft without mutating the registry."""
@@ -123,8 +141,13 @@ class ProductionSkillModule:
         )
 
     async def register_skill(
-        self, skill_definition: SkillDefinition, *, commit: bool = True
-    ) -> str:
+        self,
+        skill_definition: SkillDefinition,
+        *,
+        proposal_trace_id: str | None = None,
+        request_fingerprint: str | None = None,
+        commit: bool = True,
+    ) -> SkillDefinition | SkillEvolutionOutcome:
         definition = parse_skill_markdown(
             skill_definition.source_markdown,
             source="custom",
@@ -136,12 +159,55 @@ class ProductionSkillModule:
         existing = await self.list_skills()
         if any(item.name.casefold() == definition.name.casefold() for item in existing):
             raise SkillConflictError("a Skill with this name already exists")
+        if not self._evolution_policy.online_registration_allowed(definition):
+            self._validate_provenance(proposal_trace_id, request_fingerprint)
+            placeholder = parse_skill_markdown(
+                _pending_placeholder_markdown(definition),
+                source="custom",
+                origin="generated",
+                enabled=False,
+                revision=1,
+                allowed_tools=self._allowed_tools,
+            )
+            candidate = definition.model_copy(update={"revision": 2})
+            decision = self._evolution_policy.decide(
+                placeholder,
+                candidate,
+                expected_revision=1,
+                apply_if_low_risk=True,
+            )
+            if decision.disposition != "offline_review_required":
+                raise SkillConflictError("Skill registration policy is inconsistent")
+            await self._repository.create_custom(
+                placeholder,
+                tenant_id=self._tenant_id,
+                actor_id=self._actor_id,
+            )
+            proposal = await self._repository.create_evolution_proposal(
+                definition.skill_id,
+                tenant_id=self._tenant_id,
+                actor_id=self._actor_id,
+                expected_revision=1,
+                current=placeholder,
+                candidate=candidate,
+                decision=decision,
+                change_request="initial_skill_registration",
+                trace_id=proposal_trace_id or "",
+                request_fingerprint=request_fingerprint or "",
+            )
+            if commit:
+                await self._repository.commit()
+            return SkillEvolutionOutcome(
+                candidate=candidate,
+                decision=decision,
+                offline_proposal_receipt=_proposal_receipt(proposal),
+            )
         await self._repository.create_custom(
             definition, tenant_id=self._tenant_id, actor_id=self._actor_id
         )
         if commit:
             await self._repository.commit()
-        return definition.skill_id
+        return (await self.load_skill(definition.skill_id)).definition
 
     async def update_skill(
         self,
@@ -150,8 +216,10 @@ class ProductionSkillModule:
         source_markdown: str | None,
         enabled: bool | None,
         expected_revision: int,
+        proposal_trace_id: str | None = None,
+        request_fingerprint: str | None = None,
         commit: bool = True,
-    ) -> SkillDefinition:
+    ) -> SkillDefinition | SkillEvolutionOutcome:
         if await self._builtins.get(skill_id) is not None:
             raise SkillConflictError("system Skills are immutable")
         current_record = await self._repository.get_custom(
@@ -180,6 +248,33 @@ class ProductionSkillModule:
                 for item in existing
             ):
                 raise SkillConflictError("a Skill with this name already exists")
+            decision = self._evolution_policy.decide(
+                current,
+                replacement,
+                expected_revision=expected_revision,
+                apply_if_low_risk=True,
+            )
+            if decision.disposition == "offline_review_required":
+                self._validate_provenance(proposal_trace_id, request_fingerprint)
+                proposal = await self._repository.create_evolution_proposal(
+                    skill_id,
+                    tenant_id=self._tenant_id,
+                    actor_id=self._actor_id,
+                    expected_revision=expected_revision,
+                    current=current,
+                    candidate=replacement,
+                    decision=decision,
+                    change_request="manual_skill_revision",
+                    trace_id=proposal_trace_id or "",
+                    request_fingerprint=request_fingerprint or "",
+                )
+                if commit:
+                    await self._repository.commit()
+                return SkillEvolutionOutcome(
+                    candidate=replacement,
+                    decision=decision,
+                    offline_proposal_receipt=_proposal_receipt(proposal),
+                )
         record = await self._repository.update_custom(
             skill_id,
             tenant_id=self._tenant_id,
@@ -193,6 +288,19 @@ class ProductionSkillModule:
         if commit:
             await self._repository.commit()
         return self._definition_from_record(record)
+
+    @staticmethod
+    def _validate_provenance(
+        proposal_trace_id: str | None,
+        request_fingerprint: str | None,
+    ) -> None:
+        if not proposal_trace_id or len(proposal_trace_id) > 128:
+            raise SkillConflictError("Skill offline review requires valid request provenance")
+        if (
+            request_fingerprint is None
+            or re.fullmatch(r"(?:[a-f0-9]{64}|[a-z2-7]{52})", request_fingerprint) is None
+        ):
+            raise SkillConflictError("Skill offline review requires valid request provenance")
 
     async def delete_skill(
         self, skill_id: str, *, expected_revision: int, commit: bool = True
@@ -232,10 +340,7 @@ class ProductionSkillModule:
     ) -> SkillEvolutionOutcome:
         """Apply only low-authority revisions; return dangerous changes as offline proposals."""
 
-        if not proposal_trace_id or len(proposal_trace_id) > 128:
-            raise SkillConflictError("Skill evolution requires valid request provenance")
-        if re.fullmatch(r"(?:[a-f0-9]{64}|[a-z2-7]{52})", request_fingerprint) is None:
-            raise SkillConflictError("Skill evolution requires valid request provenance")
+        self._validate_provenance(proposal_trace_id, request_fingerprint)
         if self._generator is None:
             raise RuntimeError("Skill generation model is unavailable")
         if await self._builtins.get(skill_id) is not None:
@@ -278,13 +383,7 @@ class ProductionSkillModule:
                     trace_id=proposal_trace_id,
                     request_fingerprint=request_fingerprint,
                 )
-                proposal_receipt = SkillEvolutionProposalReceipt(
-                    proposal_id=proposal.id,
-                    base_revision=proposal.base_revision,
-                    candidate_revision=proposal.candidate_revision,
-                    candidate_digest=proposal.candidate_content_hash,
-                    created_at=proposal.created_at,
-                )
+                proposal_receipt = _proposal_receipt(proposal)
                 if commit:
                     await self._repository.commit()
             return SkillEvolutionOutcome(
@@ -378,3 +477,53 @@ def _semantic_version(value: str) -> tuple[int, int, int]:
 
     major, minor, patch = value.split(".")
     return int(major), int(minor), int(patch)
+
+
+def _pending_placeholder_markdown(candidate: SkillDefinition) -> str:
+    marker = hashlib.sha256(candidate.skill_id.encode()).hexdigest()[:12]
+    return f"""---
+id: {candidate.skill_id}
+name: pending-{marker}
+description: Internal inactive base for an encrypted offline review proposal
+version: 0.0.0
+category: {_PENDING_OFFLINE_CATEGORY}
+parameters:
+  topic:
+    type: string
+    description: Bounded evaluator input
+    maxLength: 100
+tools: []
+---
+# Workflow
+
+Preserve the supplied input.
+Do not add facts.
+"""
+
+
+def _is_pending_placeholder(definition: SkillDefinition) -> bool:
+    return (
+        definition.category == _PENDING_OFFLINE_CATEGORY
+        and not definition.enabled
+        and definition.version == "0.0.0"
+        and definition.name.startswith("pending-")
+    )
+
+
+def _proposal_receipt(proposal: object) -> SkillEvolutionProposalReceipt:
+    typed = cast("SkillEvolutionProposalRecordLike", proposal)
+    return SkillEvolutionProposalReceipt(
+        proposal_id=typed.id,
+        base_revision=typed.base_revision,
+        candidate_revision=typed.candidate_revision,
+        candidate_digest=typed.candidate_content_hash,
+        created_at=typed.created_at,
+    )
+
+
+class SkillEvolutionProposalRecordLike:
+    id: uuid.UUID
+    base_revision: int
+    candidate_revision: int
+    candidate_content_hash: str
+    created_at: datetime
