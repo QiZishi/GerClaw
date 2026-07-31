@@ -261,6 +261,9 @@ class SubprocessSkillPairedRunner:
             "allowed_tools": sorted(self._allowed_tools),
             "cases": _CASES,
             "module_paths": _MODULE_PATHS,
+            "process_script_sha256": hashlib.sha256(
+                _PROCESS_SCRIPT.encode()
+            ).hexdigest(),
             "charters": [
                 charter.model_dump(mode="json")
                 for charter in COMPONENT_CHARTERS

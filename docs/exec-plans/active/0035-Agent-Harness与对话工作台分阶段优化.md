@@ -1635,3 +1635,16 @@ Memory 10 路并发、跨主体 update/restore、vector 补偿，以及危险 Sk
   `alembic check` 通过；真实 PostgreSQL/Redis/Qdrant context-boundary + PlanNode 集成用例
   1/1 通过。逐节点 lineage 用于审计与提前容量治理，不虚称可以恢复 Provider 流中间态：
   unfinished model/tool 仍从冻结 v2 Snapshot/Plan 的安全 checkpoint 重执行。
+
+**危险 Skill 冻结与授权链加固（2026-07-31）：**
+
+- 恢复既有 immutable-track 伪装攻击用例依赖的 frozen digest 兼容 seam；Evolution 全量
+  `54 passed, 2 skipped`，此前真实发生的 1 项安全门禁回归已关闭。
+- Docker Skill runner 的 evaluation profile 现在绑定实际 `_PROCESS_SCRIPT` SHA-256；
+  只改容器内 evaluator 行为也必然改变 profile identity。最终 Ed25519 activation payload
+  同时绑定当前 governance manifest，生产激活前与本地 `governance_manifest_digest()` 比较，
+  治理规则更新后旧授权立即失效。
+- 已激活提案的幂等重放同时比较 approval ticket 和完整 authorization artifact digest；
+  不同有效授权不能冒充同一次操作。stale 分支在 owner record 仍存在时返回锁定记录的真实
+  revision。API 定向单测 3/3、真实 10 并发激活 1/1、Evolution 相关 11/11（1 skip）、
+  两侧 Ruff/Mypy 均通过。

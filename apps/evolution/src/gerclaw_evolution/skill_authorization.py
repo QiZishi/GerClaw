@@ -104,6 +104,7 @@ class SkillActivationAuthorizer:
             candidate_revision=candidate.candidate_snapshot.revision,
             base_content_sha256=frozen.proposal.base_commit,
             candidate_content_sha256=frozen.proposal.candidate_commit,
+            governance_manifest_sha256=frozen.governance_manifest_sha256,
             frozen_manifest_sha256=frozen.frozen_manifest_sha256,
             paired_report_sha256=PairedEvaluationGate.digest(report),
             sealed_attestation_sha256=attestation_digest(sealed_attestation),

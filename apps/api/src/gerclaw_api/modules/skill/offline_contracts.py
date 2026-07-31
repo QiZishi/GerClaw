@@ -119,6 +119,7 @@ class SkillActivationAuthorizationPayload(BaseModel):
     candidate_revision: int = Field(ge=2)
     base_content_sha256: str = Field(pattern=r"^[a-f0-9]{64}$")
     candidate_content_sha256: str = Field(pattern=r"^[a-f0-9]{64}$")
+    governance_manifest_sha256: str = Field(pattern=r"^[a-f0-9]{64}$")
     frozen_manifest_sha256: str = Field(pattern=r"^[a-f0-9]{64}$")
     paired_report_sha256: str = Field(pattern=r"^[a-f0-9]{64}$")
     sealed_attestation_sha256: str = Field(pattern=r"^[a-f0-9]{64}$")

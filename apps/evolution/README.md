@@ -32,6 +32,9 @@ socket, keys, sealed cases, release refs, audit logs, host environment, and Prov
 remain invisible. Cleanup retries exact resource names and queries Docker to confirm their
 absence; failure becomes bounded operator-repair state rather than being silently swallowed.
 Each run binds the frozen manifest and exact execution-bundle digest.
+The Skill runner's evaluation-profile digest also binds the exact controller-supplied process
+script SHA-256; changing the code that actually runs inside Docker cannot retain the old
+profile identity.
 
 Paired evaluation consumes only bounded, content-free observations for the same cases and
 four mandatory slices (`normal`, `complex`, `high_risk`, `elderly`). A passed baseline case
@@ -60,6 +63,13 @@ identity, nor a caller-provided timestamp. It re-verifies the sealed gate and en
 freeze → paired evaluation → sealed evaluation → approval ordering. Inactive keys and keys
 whose allowed tracks exclude the proposal fail closed; immutable approval therefore cannot be
 disabled by an ordinary deployment flag.
+
+The final Skill activation authorization additionally signs the current governance-manifest
+digest. Production verifies it against its own manifest before loading proposal state, and
+revalidates the candidate parser/policy under a locked owner record. Idempotent replay requires
+both the same approval ticket and the same complete authorization digest; a different grant
+cannot borrow a previous terminal event. A stale result reports the locked record's actual
+revision when that record still exists.
 
 An absent checkout is a normal `unavailable` result. This application deliberately does not
 download an optimizer and does not provide a same-name fallback. Operators install a pinned

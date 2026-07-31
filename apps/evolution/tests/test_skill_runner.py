@@ -18,6 +18,7 @@ from gerclaw_api.modules.skill.models import SkillDefinition
 from test_candidate_freeze import _base_repository
 from test_runner import _Clock, _test_executor
 
+from gerclaw_evolution import skill_runner as skill_runner_module
 from gerclaw_evolution.candidate import CandidateFreezer
 from gerclaw_evolution.contracts import (
     CandidateControlError,
@@ -223,6 +224,23 @@ def test_skill_runner_hides_candidate_failure_and_rejects_wrong_evaluator(
         match="EVOLUTION_SKILL_EVALUATOR_COMMIT_MISMATCH",
     ):
         runner.run(other, candidate=_candidate(), role="baseline")
+
+
+def test_skill_runner_profile_binds_actual_process_script(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    repository = _evaluator_repository(tmp_path)
+    runner = _runner(repository, monkeypatch)
+    before = runner.profile_digest()
+
+    monkeypatch.setattr(
+        skill_runner_module,
+        "_PROCESS_SCRIPT",
+        skill_runner_module._PROCESS_SCRIPT + "\n# evaluator behavior changed\n",
+    )
+
+    assert runner.profile_digest() != before
 
 
 @pytest.mark.skipif(

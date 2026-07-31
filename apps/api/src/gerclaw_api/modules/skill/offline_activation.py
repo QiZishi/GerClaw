@@ -17,6 +17,9 @@ from gerclaw_api.database.models import (
     SkillDefinitionRecord,
     SkillEvolutionProposal,
 )
+from gerclaw_api.modules.agent_harness.evolution_governance import (
+    governance_manifest_digest,
+)
 from gerclaw_api.modules.skill.evolution_policy import SkillEvolutionPolicy
 from gerclaw_api.modules.skill.loader import parse_skill_markdown
 from gerclaw_api.modules.skill.models import SkillDefinition
@@ -103,6 +106,11 @@ class SkillOfflineActivator:
                 if (
                     terminal.event_type == "activated"
                     and terminal.approval_ticket_digest == payload.approval_ticket_digest
+                    and terminal.artifact_sha256 is not None
+                    and hmac.compare_digest(
+                        terminal.artifact_sha256,
+                        artifact_sha256,
+                    )
                 ):
                     return SkillActivationOutcome(
                         status="already_activated",
@@ -126,7 +134,11 @@ class SkillOfflineActivator:
                 return SkillActivationOutcome(
                     status="stale",
                     proposal_id=str(proposal.id),
-                    revision=proposal.base_revision,
+                    revision=(
+                        record.revision
+                        if record is not None
+                        else proposal.base_revision
+                    ),
                     artifact_sha256=artifact_sha256,
                 )
             candidate = self._validated_candidate(proposal)
@@ -175,6 +187,13 @@ class SkillOfflineActivator:
             raise SkillEvolutionControlConflictError(
                 "SKILL_ACTIVATION_AUTHORIZATION_SIGNATURE_INVALID"
             ) from error
+        if not hmac.compare_digest(
+            authorization.payload.governance_manifest_sha256,
+            governance_manifest_digest(),
+        ):
+            raise SkillEvolutionControlConflictError(
+                "SKILL_ACTIVATION_GOVERNANCE_MANIFEST_CHANGED"
+            )
         now = self._clock.now()
         if now.tzinfo is None:
             raise SkillEvolutionControlConflictError("SKILL_ACTIVATION_CLOCK_INVALID")

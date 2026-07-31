@@ -286,3 +286,7 @@ class CandidateFreezer:
                 "governance_manifest_sha256": governance_digest,
             }
         )
+
+    # Backward-compatible test/operator seam retained for previously frozen
+    # immutable-candidate forgery fixtures.
+    _frozen_digest = frozen_digest

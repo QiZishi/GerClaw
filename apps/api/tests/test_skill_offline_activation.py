@@ -20,6 +20,9 @@ from gerclaw_api.database.models import (
     SkillEvolutionProposal,
     SkillEvolutionReviewEvent,
 )
+from gerclaw_api.modules.agent_harness.evolution_governance import (
+    governance_manifest_digest,
+)
 from gerclaw_api.modules.skill.evolution_policy import SkillEvolutionPolicy
 from gerclaw_api.modules.skill.loader import parse_skill_markdown
 from gerclaw_api.modules.skill.models import SkillDefinition
@@ -87,6 +90,7 @@ class _Repository:
         event = SimpleNamespace(
             event_type=command.event_type,
             approval_ticket_digest=command.approval_ticket_digest,
+            artifact_sha256=command.artifact_sha256,
         )
         self.events.append(event)
         return event
@@ -195,7 +199,9 @@ def _proposal_and_record() -> tuple[SkillEvolutionProposal, SkillDefinitionRecor
 def _authorization(
     proposal: SkillEvolutionProposal,
     *,
+    authorized_at: datetime = _NOW,
     expires_at: datetime = _NOW + timedelta(hours=1),
+    governance_manifest_sha256: str | None = None,
 ) -> SkillActivationAuthorization:
     payload = SkillActivationAuthorizationPayload(
         proposal_id=proposal.id,
@@ -204,12 +210,15 @@ def _authorization(
         candidate_revision=proposal.candidate_revision,
         base_content_sha256=proposal.base_content_hash,
         candidate_content_sha256=proposal.candidate_content_hash,
+        governance_manifest_sha256=(
+            governance_manifest_sha256 or governance_manifest_digest()
+        ),
         frozen_manifest_sha256="1" * 64,
         paired_report_sha256="2" * 64,
         sealed_attestation_sha256="3" * 64,
         approval_proof_sha256="4" * 64,
         approval_ticket_digest="5" * 64,
-        authorized_at=_NOW,
+        authorized_at=authorized_at,
         expires_at=expires_at,
     )
     key_id = "skill-activation-key-v1"
@@ -273,6 +282,16 @@ async def test_activation_is_atomic_content_free_and_idempotent() -> None:
     assert replayed.status == "already_activated"
     assert len(repository.events) == 2
 
+    different_grant = _authorization(
+        proposal,
+        authorized_at=_NOW + timedelta(seconds=1),
+    )
+    with pytest.raises(
+        SkillEvolutionControlConflictError,
+        match="SKILL_PROPOSAL_ALREADY_TERMINAL",
+    ):
+        await activator.activate(different_grant)
+
 
 @pytest.mark.asyncio
 async def test_stale_record_is_not_overwritten_and_invalid_grant_rolls_back() -> None:
@@ -290,6 +309,7 @@ async def test_stale_record_is_not_overwritten_and_invalid_grant_rolls_back() ->
     stale = await activator.activate(_authorization(proposal))
 
     assert stale.status == "stale"
+    assert stale.revision == 2
     assert record.revision == 2
     assert record.content_hash == "9" * 64
     assert [item.event_type for item in repository.events] == ["stale"]
@@ -309,6 +329,30 @@ async def test_stale_record_is_not_overwritten_and_invalid_grant_rolls_back() ->
         ).activate(invalid)
     assert invalid_repository.rolled_back is False
     assert other_record.revision == 1
+
+
+@pytest.mark.asyncio
+async def test_activation_rejects_authorization_from_previous_governance_manifest() -> None:
+    proposal, record = _proposal_and_record()
+    repository = _Repository(proposal, record)
+    stale_governance = _authorization(
+        proposal,
+        governance_manifest_sha256="0" * 64,
+    )
+
+    with pytest.raises(
+        SkillEvolutionControlConflictError,
+        match="SKILL_ACTIVATION_GOVERNANCE_MANIFEST_CHANGED",
+    ):
+        await SkillOfflineActivator(
+            repository,  # type: ignore[arg-type]
+            verification_key=_verification_key(),
+            allowed_tools=_ALLOWED_TOOLS,
+            clock=_Clock(),
+        ).activate(stale_governance)
+
+    assert record.revision == 1
+    assert repository.events == []
 
 
 @pytest.mark.integration
