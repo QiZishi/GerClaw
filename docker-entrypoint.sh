@@ -1,11 +1,13 @@
 #!/bin/sh
 set -eu
 
-runtime_root="${GERCLAW_INTERNAL_DATA_DIR:-/mnt/workspace/gerclaw-services}"
+runtime_root="${GERCLAW_INTERNAL_DATA_DIR:-/app/workspaces/gerclaw-services}"
 if ! mkdir -p "$runtime_root" 2>/dev/null; then
     runtime_root="/app/workspaces/gerclaw-services"
     mkdir -p "$runtime_root"
 fi
+
+echo "[GerClaw] internal service data root: $runtime_root"
 
 umask 077
 
@@ -72,6 +74,7 @@ fi
     -o "-h 127.0.0.1 -p 5432" \
     -l "$postgres_dir/server.log" \
     start >/dev/null
+echo "[GerClaw] PostgreSQL process started"
 
 redis-server \
     --bind 127.0.0.1 \
@@ -105,11 +108,16 @@ wait_for_port() {
 }
 
 wait_for_port localhost 5432
+echo "[GerClaw] PostgreSQL ready"
 wait_for_port localhost 6379
+echo "[GerClaw] Redis ready"
 wait_for_port localhost 6333
+echo "[GerClaw] Qdrant ready"
 
 cd /app/api
+echo "[GerClaw] applying database migrations"
 alembic upgrade head
+echo "[GerClaw] starting API and Web"
 uvicorn gerclaw_api.main:app --host 0.0.0.0 --port 8000 &
 api_pid=$!
 
