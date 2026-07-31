@@ -1675,3 +1675,25 @@ Memory 10 路并发、跨主体 update/restore、vector 补偿，以及危险 Sk
   sealed case prompt、回答、阈值和临床正文不离开 runner trust domain。
 - 原 Skill authorization 测试已改为实际通过该 evaluator 产生 attestation，不再手工构造全绿
   `SealedGatePayload`；相关 27/27、Ruff、Mypy（15 个 Evolution 源文件）通过。
+
+**危险 Skill operator 可审计闭环（2026-07-31）：**
+
+- 新增仅供隔离控制面的 `gerclaw-evolution skill-pair/skill-activate` 组合入口，不开放 FastAPI
+  路由。`skill-pair` 从 PostgreSQL 锁定并加密导出精确提案，追加 `exported`，再以固定 Docker
+  runner 对 base/candidate 做公共配对；公共门禁失败追加终态 `paired_rejected`。
+- `skill-activate` 先重新执行公共配对并核对 proposal/commit/freeze/runner/profile/bundle/case/
+  Charter 的稳定身份，再消费 sealed attestation 与独立人类 Ed25519 审批，生成短期且绑定当前
+  governance manifest 的 activation grant；生产侧在同一事务锁定 owner Skill，追加
+  `approved → activated` 并推进 revision。sealed 门禁失败只追加 `sealed_rejected`，active Skill
+  不变。幂等重放继续同时绑定 ticket 与完整 authorization digest。
+- 密钥、HMAC secret 和 owner-binding secret 只从 group/other 权限位为零的文件读取，不允许作为
+  CLI 参数或普通环境值传入；`.env.example` 只登记文件路径变量和公开 ID。pair 子命令不会因为
+  activation key 尚未配置而拒绝执行，避免无关门禁损害离线评测可用性。
+- 真实 `gerclaw_test` PostgreSQL + 固定镜像
+  `sha256:7d3da6a92589797a796a389c79cbbaa4622581ce397f0ee10d5c4741f21207f7`
+  完成两条端到端路径：`skill.clinical` 经 public/sealed/human gate 激活到 revision 2，事件严格为
+  `exported → approved → activated`；`skill.tooling` 公共 gate 通过但 secret case 失败，命令返回
+  `EVOLUTION_EVALUATION_GATE_REJECTED`，revision 保持 1，事件严格为
+  `exported → sealed_rejected`。真实集成 `1 passed`，普通 operator 单测 `2 passed, 1 skipped`，
+  Ruff/Mypy 通过。该结果只证明控制链可执行和拒绝有效，不能替代真实临床病例集、医学审阅或
+  生产 HSM/独立签名服务。

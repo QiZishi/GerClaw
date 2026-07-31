@@ -88,6 +88,43 @@ both the same approval ticket and the same complete authorization digest; a diff
 cannot borrow a previous terminal event. A stale result reports the locked record's actual
 revision when that record still exists.
 
+## Dangerous Skill operator
+
+`gerclaw-evolution skill-pair` is the operator composition root for a pending immutable Skill
+proposal. It locks and exports the exact encrypted proposal from PostgreSQL, appends the
+content-free `exported` event, decrypts only inside the controller process, and executes the
+same base/candidate snapshots with the pinned Docker runner. The resulting
+`prepared-skill-review-package-v1` retains the encrypted handoff and reproducible public report;
+a failed public gate appends terminal `paired_rejected`.
+
+`gerclaw-evolution skill-activate` accepts that package plus a sealed attestation, accountable
+human approval, and sealed evaluator profile. It first re-runs the public pair and compares the
+stable proposal, commit, freeze, runner/profile/bundle, case-set, and Charter identities. It then
+verifies sealed and human artifacts, issues a short-lived governance-bound activation grant, and
+atomically advances the exact locked owner Skill revision while appending `approved` and
+`activated`. A valid sealed rejection appends terminal `sealed_rejected`; no candidate snapshot
+is written to the active Skill. There is deliberately no FastAPI route for either command.
+
+Configuration names are documented in `.env.example`. Secret bytes are never accepted as command
+arguments or ordinary environment values: every key/secret setting names a controller-owned file
+whose group/other permission bits are zero; symlinks and non-regular or foreign-owner files are
+rejected. The pair command does not require activation keys.
+The operator still depends on external deployment separation for the secret-case runner and
+human signing service; the CLI consumes their signed artifacts but does not impersonate them.
+
+The real integration audit is opt-in because it requires migrated PostgreSQL and the pinned
+content-addressed Docker image:
+
+```sh
+GERCLAW_RUN_SKILL_OPERATOR_INTEGRATION=1 \
+GERCLAW_EVOLUTION_TEST_DATABASE_URL=postgresql+asyncpg://... \
+uv run pytest -q tests/test_skill_operator_integration.py
+```
+
+It exercises one `skill.clinical` proposal through activation to revision 2 and one
+`skill.tooling` proposal through a sealed rejection that remains at revision 1, including exact
+append-only event assertions.
+
 An absent checkout is a normal `unavailable` result. This application deliberately does not
 download an optimizer and does not provide a same-name fallback. Operators install a pinned
 source into an isolated environment only after supply-chain review.

@@ -9,6 +9,9 @@ dependencies = [
   "gerclaw-api",
 ]
 
+[project.scripts]
+gerclaw-evolution = "gerclaw_evolution.cli:main"
+
 [dependency-groups]
 dev = [
   "mypy>=1.17.1,<2",

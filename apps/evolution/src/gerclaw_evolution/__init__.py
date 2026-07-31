@@ -55,6 +55,10 @@ from gerclaw_evolution.skill_authorization import (
     SkillActivationAuthorizer,
     SkillActivationSigningKey,
 )
+from gerclaw_evolution.skill_operator import (
+    PreparedSkillReviewPackage,
+    SkillReviewOperator,
+)
 from gerclaw_evolution.skill_runner import SubprocessSkillPairedRunner
 from gerclaw_evolution.skill_sealed_evaluator import (
     SealedSkillCaseBatch,
@@ -96,6 +100,7 @@ __all__ = [
     "OptimizerSourceInspector",
     "PairedEvaluationGate",
     "PairedEvaluationReport",
+    "PreparedSkillReviewPackage",
     "PromotionController",
     "PromotionResult",
     "RefUpdate",
@@ -114,6 +119,7 @@ __all__ = [
     "SignedReleaseRecord",
     "SkillActivationAuthorizer",
     "SkillActivationSigningKey",
+    "SkillReviewOperator",
     "SkillSealedEvaluator",
     "SubprocessRoutingPairedRunner",
     "SubprocessSkillPairedRunner",
