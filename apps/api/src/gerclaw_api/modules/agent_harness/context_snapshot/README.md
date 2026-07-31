@@ -15,6 +15,10 @@ SAVI/C3 decision, selected capabilities and reusable results, workflow policy, H
 execution budget, attachments, and regeneration identity. `FrozenRunState` cross-validates
 both contracts.
 
+上传图片按当前用户任务中性投影。只有当前请求涉及医疗内容时，图片才作为病例、检查、
+用药或生活信息证据；计算、文字提取和一般图像识读不得被产品定位强行改写成医疗任务，
+也不得额外生成医疗范围说明或免责声明。
+
 New turns assemble these contracts once and save them in the encrypted
 `AgentRun.context_snapshot` and `AgentRun.plan` columns. Explicit resume reconstructs the
 request from the owner-scoped Message and Trace, validates tenant/actor/session/trace/input

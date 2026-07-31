@@ -115,6 +115,59 @@ test("guest uploads a document and receives a source-bound model answer", async 
   });
 });
 
+test("guest uploads an image and the real model reads its content", async ({
+  page,
+}) => {
+  test.setTimeout(180_000);
+  await page.setViewportSize({ width: 1440, height: 1000 });
+  await enterGuestWorkspace(page);
+
+  const imageInput = page.locator(
+    'input[type="file"][accept*="image/png"]',
+  );
+  await imageInput.setInputFiles(
+    "../../gerclaw-paper/figures/fig1_system_overview.png",
+  );
+  await expect(
+    page.getByRole("img", { name: "fig1_system_overview.png" }),
+  ).toBeVisible();
+
+  const assistantBubbles = page.locator(
+    '[data-message-bubble][data-message-role="assistant"]',
+  );
+  const before = await assistantBubbles.count();
+  await page
+    .getByRole("textbox")
+    .fill("请读取我上传的图片，只抄写图片最上方的英文标题。");
+  const response = page.waitForResponse(
+    (candidate) =>
+      candidate.request().method() === "POST" &&
+      candidate.url().endsWith("/api/gerclaw/chat"),
+  );
+  await page.getByRole("button", { name: "发送" }).click();
+  expect((await response).status()).toBe(200);
+  await expect(page.getByRole("button", { name: "停止生成" })).toHaveCount(0, {
+    timeout: 120_000,
+  });
+  await expect(assistantBubbles).toHaveCount(before + 1, {
+    timeout: 120_000,
+  });
+  const answer = await assistantBubbles.last().innerText();
+  expect(answer).toContain(
+    "GerClaw: three verification objects on three time scales",
+  );
+  expect(answer).not.toMatch(
+    /并非患者|无法提取病历|如需分析患者|请上传包含相关医疗信息/,
+  );
+  expect(answer).not.toMatch(
+    /内部错误|正在修复|trace[_\s-]?id|provider|checkpoint|schema|policy/i,
+  );
+  await page.screenshot({
+    path: "output/playwright/stage7-real-use/image-understanding.png",
+    fullPage: true,
+  });
+});
+
 test("guest creates a source-bound five-prescription draft", async ({
   page,
 }) => {

@@ -1527,6 +1527,9 @@ async def test_uploaded_image_reaches_agentscope_as_visual_data_and_is_cited(
     )
 
     user_message = model.last_messages[-1]
+    image_instruction = "".join(
+        block.text for block in user_message.get_content_blocks("text")
+    )
     visual_blocks = [block for block in user_message.content if isinstance(block, DataBlock)]
     assert len(visual_blocks) == 1
     visual = visual_blocks[0]
@@ -1534,6 +1537,11 @@ async def test_uploaded_image_reaches_agentscope_as_visual_data_and_is_cited(
     assert isinstance(visual.source, Base64Source)
     assert visual.source.media_type == "image/png"
     assert visual.source.data == image.base64
+    assert "严格按照用户当前任务识读图片" in image_instruction
+    assert "若当前任务不涉及医疗" in image_instruction
+    system_prompt = next(message for message in model.last_messages if message.role == "system")
+    system_text = "".join(block.text for block in system_prompt.get_content_blocks("text"))
+    assert "一般图片识读等非医疗任务严格按用户指定范围回答" in system_text
     assert model.calls == 1
     assert response.medical_content is False
     assert [citation.source_id for citation in response.citations] == [image.evidence_id]
