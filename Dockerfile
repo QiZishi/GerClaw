@@ -10,7 +10,8 @@ ENV UV_DEFAULT_INDEX=${PYTHON_PACKAGE_INDEX} \
 
 WORKDIR /app/api
 
-RUN pip install --no-cache-dir --index-url "${PYTHON_PACKAGE_INDEX}" uv==0.11.17
+RUN pip install --no-cache-dir --index-url "${PYTHON_PACKAGE_INDEX}" uv==0.11.17 \
+    || pip install --no-cache-dir uv==0.11.17
 
 COPY apps/api/pyproject.toml apps/api/uv.lock apps/api/README.md apps/api/alembic.ini ./
 COPY apps/api/migrations ./migrations
