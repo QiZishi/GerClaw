@@ -1527,9 +1527,7 @@ async def test_uploaded_image_reaches_agentscope_as_visual_data_and_is_cited(
     )
 
     user_message = model.last_messages[-1]
-    image_instruction = "".join(
-        block.text for block in user_message.get_content_blocks("text")
-    )
+    image_instruction = "".join(block.text for block in user_message.get_content_blocks("text"))
     visual_blocks = [block for block in user_message.content if isinstance(block, DataBlock)]
     assert len(visual_blocks) == 1
     visual = visual_blocks[0]

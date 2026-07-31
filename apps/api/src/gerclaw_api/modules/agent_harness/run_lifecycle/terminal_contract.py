@@ -44,9 +44,7 @@ def validate_terminal_response_candidate(
     claims_complete = bound.claim_audit.all_clinical_claims_bound
     patient_notice = patient_facing and requires_patient_clinical_risk_notice(bound.text)
     risk_delta = f"\n\n{PATIENT_CLINICAL_RISK_NOTICE}" if patient_notice else ""
-    disclaimer_delta = (
-        f"{risk_delta}\n\n{MEDICAL_DISCLAIMER}" if medical_content else risk_delta
-    )
+    disclaimer_delta = f"{risk_delta}\n\n{MEDICAL_DISCLAIMER}" if medical_content else risk_delta
     try:
         AgentResponse(
             text=f"{bound.text}{disclaimer_delta}",

@@ -275,11 +275,7 @@ def safety_decision(
     """Return the mandatory explicit safety decision persisted with every reply."""
 
     notices = [
-        (
-            "medical_disclaimer_applied"
-            if medical_content
-            else "medical_disclaimer_not_applicable"
-        ),
+        ("medical_disclaimer_applied" if medical_content else "medical_disclaimer_not_applicable"),
         (
             "deterministic_diagnosis_blocked"
             if deterministic_diagnosis_blocked

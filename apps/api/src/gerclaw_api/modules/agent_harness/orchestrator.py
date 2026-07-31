@@ -103,6 +103,7 @@ _SafeSentenceBuffer = SafeSentenceBuffer
 _CanonicalTextStream = CanonicalTextStream
 _final_agent_text = final_agent_text
 
+
 class ProductionAgentHarness(ProductionHarnessCompositionSetup, OrchestrationSupportMixin):
     """One-turn isolated harness over shared model and retrieval clients."""
 
@@ -598,8 +599,7 @@ class ProductionAgentHarness(ProductionHarnessCompositionSetup, OrchestrationSup
                     medical_content=medical_content,
                     patient_facing=bool(
                         self._runtime_principal is not None
-                        and self._runtime_principal.role
-                        in {ActorRole.GUEST, ActorRole.PATIENT}
+                        and self._runtime_principal.role in {ActorRole.GUEST, ActorRole.PATIENT}
                     ),
                 )
 
