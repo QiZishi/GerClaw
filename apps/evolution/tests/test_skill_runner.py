@@ -214,7 +214,11 @@ def test_skill_runner_hides_candidate_failure_and_rejects_wrong_evaluator(
     normal = next(item for item in evolved.cases if item.slice == "normal")
     assert normal.passed is False
     assert all(item.runtime_activated for item in evolved.cases)
-    assert not any(item.passed for item in evolved.charters)
+    charter_results = {item.evaluator_id: item.passed for item in evolved.charters}
+    assert charter_results == {
+        "charter.plugin_runtime.v1": True,
+        "charter.skill.v1": False,
+    }
 
     other_root = tmp_path / "other"
     other_root.mkdir()

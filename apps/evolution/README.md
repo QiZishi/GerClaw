@@ -48,6 +48,15 @@ sealed evaluator signs the freeze digest, report digest, sealed case-set digest,
 Token/latency verdicts, runtime activation, and charter verdicts with a controller-only HMAC
 key. Neither sealed cases nor thresholds appear in the report.
 
+For encrypted custom Skills, the public runner does not equate Markdown round-trip with
+execution. Inside the pinned Docker archive it parses the exact base/candidate snapshot,
+executes valid ordinary, high-risk-text, and elderly-text parameters through `SkillExecutor`,
+rejects an over-limit parameter, activates the exact Skill through AgentScope, and invokes a
+fake owner through a real `PluginManifest`/`GovernedCapabilityRuntime` input/output boundary.
+The `skill` and `plugin_runtime` charters receive separate verdicts from the paths actually
+executed. This remains a public structural/runtime gate; clinical usefulness and harm are owned
+by the separate sealed evaluator and human approval.
+
 The signer and verifier independently recompute the paired gate from observations; an
 all-green gate object supplied over regressing results is rejected. Each HMAC key record is
 bound to one exact evaluator/case-set/gate-policy profile and an explicit promotion-active

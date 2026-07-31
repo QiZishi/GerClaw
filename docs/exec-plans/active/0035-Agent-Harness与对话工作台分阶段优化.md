@@ -1648,3 +1648,17 @@ Memory 10 路并发、跨主体 update/restore、vector 补偿，以及危险 Sk
   不同有效授权不能冒充同一次操作。stale 分支在 owner record 仍存在时返回锁定记录的真实
   revision。API 定向单测 3/3、真实 10 并发激活 1/1、Evolution 相关 11/11（1 skip）、
   两侧 Ruff/Mypy 均通过。
+
+**Skill 公共 runner 真实执行语义（2026-07-31）：**
+
+- 四切片不再只是 Markdown/布尔标签：固定 Docker archive 内实际调用 `SkillExecutor`，
+  分别执行普通、高风险文字和老年交互参数，执行超长参数拒绝，并通过 AgentScope Toolkit
+  激活当前精确 Skill revision。
+- `plugin_runtime` charter 现在通过真实 `PluginManifest`、精确 input/output schema、
+  `GovernedCapabilityRuntime` 和 fake owner handler 执行；`skill` 与 `plugin_runtime` 分别
+  产生 verdict，不再用同一个总布尔值虚标两个 charter。runner profile 同时绑定新增的
+  executor/contracts/catalog/invocation 模块路径。
+- 单元相关 4/4（1 skip），固定镜像
+  `sha256:7d3da6a92589797a796a389c79cbbaa4622581ce397f0ee10d5c4741f21207f7`
+  真实 Docker 1/1 通过，Ruff/Mypy 通过。该 runner 仍明确只证明 public structural/runtime
+  non-regression；临床有效性/危害必须由 sealed evaluator 与人工审批证明，不能用本结果冒充。
