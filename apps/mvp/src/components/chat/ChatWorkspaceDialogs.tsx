@@ -65,6 +65,7 @@ export function ChatWorkspaceDialogs({
   return (
     <>
       <ExportDialog
+        key={exportMessageId ?? "closed"}
         open={exportMessageId !== null}
         onOpenChange={(open) => {
           if (!open) onCloseExport();
