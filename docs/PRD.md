@@ -29,9 +29,11 @@ GerClaw 是面向老年患者与老年科医生的 Web 端 AI 双向诊疗平台
 
 ### 3.1 通用循证对话
 
-输入文本/语音/图片/文档 → Privacy 输入过滤 → 会话、画像与已加载 Skill 组装 → 本地 RAG 优先 → 必要时联网搜索 → AgentScope ReAct → 输出安全后处理 → SSE 渲染 → 引用、免责声明、Trace、反馈。
+输入文本/语音/图片/文档 → Privacy 输入过滤 → 会话、画像与已加载 Skill 组装 → 本地 RAG 优先 → 必要时联网搜索 → AgentScope ReAct → 输出治理 → SSE 渲染 → 答案后的独立引用区、免责声明、Trace、反馈。
 
-验收：停止、超时、模型切换、工具失败、引用不可用均有明确终态；不能以无证据建议降级成“成功”。
+验收：停止、超时、模型切换、工具失败、引用不可用均有明确终态；不能以无证据建议降级成“成功”。校验、
+Provider、工具、Trace 和修复细节只进入生产日志，不进入答案或公开阶段；不可恢复时前台只显示
+“这次回答没有完整生成”，且该状态计入任务失败率。
 
 ### 3.2 CGA
 
@@ -69,9 +71,9 @@ GerClaw 是面向老年患者与老年科医生的 Web 端 AI 双向诊疗平台
 
 - `DEV-01` 权威文档、exec-plan、迁移、格式、lint、类型、测试、覆盖率、安全扫描、构建和 Docker 门禁可由统一命令真实执行。
 - `DEV-02` 测试分 unit/integration/external/e2e，外部付费调用显式 opt-in；真实依赖使用隔离数据库和 namespace。
-- `DEV-03` 每个里程碑保留命令、版本、结果、浏览器证据和独立审阅结论；重复缺陷转为测试或规则。
+- `DEV-03` 每个里程碑保留命令、版本、结果和真实浏览器证据；重复缺陷转为测试或规则。
 - `DEV-04` 模块均具有 Protocol、生产实现、README、schema、失败语义和最小必要测试。
-- `DEV-05` 每个里程碑和长任务明确 owner、审阅者、时间/调用/成本预算、checkpoint 与恢复入口；无 owner 的待办不能进入执行。
+- `DEV-05` 每个里程碑和长任务明确 owner、时间/调用/成本预算、checkpoint 与恢复入口；无 owner 的待办不能进入执行。
 
 ### 4.2 Runtime Agent Harness
 
@@ -118,11 +120,11 @@ GerClaw 是面向老年患者与老年科医生的 Web 端 AI 双向诊疗平台
 
 - `UI-01` 三栏可折叠布局覆盖 desktop/tablet/mobile；右侧面板承载 Skill、文档、引用、CGA、处方、用药和画像。
 - `UI-02` 输入框支持文本、点击式语音、图片、最多 10 个文件、Skill、处方、评估、Enter/Shift+Enter 和停止。
-- `UI-03` SSE 映射 thinking/tool/result/text/done/error/cancelled/HITL，所有运行态都有终态和恢复操作。
+- `UI-03` SSE 映射 thinking/tool/result/text/done/error/cancelled/HITL，所有运行态都有终态和恢复操作；运行中只显示简短公开阶段，完成后不展示工具名、耗时、Provider、校验、重试或内部执行卡片。
 - `UI-04` 患者老年模式正文≥18px、控件≥48px、AAA 高对比、图标有文字/ARIA、reduced motion；医生端保持专业密度。
-- `UI-05` 所有医疗输出常驻免责声明；引用可点击；红旗/自伤/高风险审批视觉优先级最高。
+- `UI-05` 所有医疗输出常驻一次简洁免责声明；引用在答案完成后以独立来源区展示，不把 `[C1]` 等内部绑定标记混入正文；红旗/自伤/高风险审批视觉优先级最高。
 - `UI-06` 对话、CGA、处方支持 PDF、Word、Markdown、TXT，图片导出仅作为附加格式。
-- `UI-07` API/schema 版本不兼容、checkpoint 恢复、审批等待、数据删除和授权撤回都提供明确用户状态，不允许白屏或无限 loading。
+- `UI-07` API/schema 版本不兼容、checkpoint 恢复、审批等待、数据删除和授权撤回都提供明确用户状态，不允许白屏或无限 loading；不可恢复的回答失败只使用普通人能懂的“这次回答没有完整生成”，具体原因留在生产日志。
 
 ### 4.7 质量、可观测与交付
 
@@ -170,11 +172,11 @@ GerClaw 是面向老年患者与老年科医生的 Web 端 AI 双向诊疗平台
 
 发布必须同时满足：
 
-1. [需求矩阵](REQUIREMENTS_MATRIX.md) 无 `未实现` 或无证据的 `部分实现`。
+1. 当前活跃 exec-plan 的需求—实现—证据记录无 `未实现` 或无证据的 `部分实现`。
 2. Ruff format/check、mypy、pytest、覆盖率、安全扫描、Alembic、MVP lint/build、浏览器 E2E 全部通过。
 3. 真实 LLM/ASR/TTS/Embedding/Rerank/Search/MinerU 至少各有一次成功和一次故障语义证据，未配置服务有清晰降级。
 4. Docker 从空卷启动、迁移、索引/readiness、核心旅程、重启持久化全部通过。
-5. 独立审阅者复现医疗安全、权限隔离、适老化、≤10 并发和核心 E2E 后给出 PASS。
+5. 自动化反例、真实依赖集成和 Playwright 复现医疗安全、权限隔离、适老化、≤10 并发与核心 E2E，并全部通过。
 
 ## 8. 当前事实基线
 

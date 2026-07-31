@@ -1,6 +1,6 @@
 # 0035 — Agent Harness 与对话工作台分阶段优化
 
-> 创建：2026-07-29 | 优先级：P0 | 状态：进行中  
+> 创建：2026-07-29 | 优先级：P0 | 状态：已完成（外部语音服务按真实不可用状态降级）
 > 最高权威：`docs/references/gerclaw设计要求.md`  
 > 产品偏好：`MEDICAL_AGENT_SYSTEM_OPTIMIZATION_GUIDE.md`
 
@@ -24,7 +24,10 @@ Memory/Skill 的治理机制。
 错误码、内部边界、重试说明或重复的安全套话。医疗免责声明遵循最高权威文档，但在普通回答中统一、简洁地
 出现一次；高风险场景优先给明确行动建议，不能用大量无关提醒淹没核心信息。
 
-每一阶段必须是独立变更集，完成相关测试、真实 GUI 审阅和 Conventional Commit 后才能进入下一阶段。阶段内只跑相关测试；阶段 7 才跑全量回归。
+每一阶段必须是独立变更集，完成相关测试、真实 GUI 审计和 Conventional Commit 后才能进入下一阶段。
+阶段内只跑相关测试；阶段 7 才跑全量回归。用户于 2026-07-31 明确取消后续独立审阅者和双重对抗机制；
+此前审阅记录只作为历史证据，后续不再启动、等待或重复审阅，完成标准改为代码实现、自动化门禁和真实
+Playwright 审计通过。
 
 ## 2. 阶段与状态
 
@@ -37,7 +40,7 @@ Memory/Skill 的治理机制。
 | 4 | 证据、Memory 与受治理能力组合 | 已完成：三项 P1 修复、真实 GUI/数据库复验、最终独立复审 ACCEPT |
 | 5 | 对话工作台 UI 与交互重构 | 已完成：独立审阅 3 项 P1 修复，真实 Playwright/axe 复验，最终 ACCEPT |
 | 6 | 双轨受控自进化与执行期上下文治理 | 已实现：Memory 在线 CRUD、Skill 低风险在线演化/危险离线提案、批准 freshness、steer/queue、PlanNode、私有 step repair 与逐 ReAct 上下文治理均已落地；按用户 2026-07-31 指令不再增加独立复审，由阶段 7 全量门禁直接验收 |
-| 7 | 最终回归、真实 GUI 对抗审阅与发布 | 进行中：立即重跑后端、迁移、前端、真实 Playwright/axe 与运行日志门禁，失败直接修复 |
+| 7 | 最终回归、真实 GUI 与发布 | 已完成：全量后端/前端、迁移、Compose、真实模型 Playwright/axe 与日志门禁通过；ASR/TTS 实际返回 503，前端如实显示暂不可用 |
 
 ## 3. 阶段 0：冻结基线与真实运行审计
 
@@ -1544,7 +1547,9 @@ failed/cancelled/interrupted 同事务归一化，以及 attachment completed re
 
 ### 阶段 7
 
-执行完整后端、前端、迁移、Compose、Playwright 和 axe 回归，覆盖患者、医生、访客和响应式关键路径；更新架构、Harness、前端、设计和产品规格，经独立审阅后归档本计划。
+执行完整后端、前端、迁移、Compose、Playwright 和 axe 回归，覆盖患者、医生、访客和响应式关键路径；
+更新架构、Harness、前端、设计和产品规格。按用户最新指令，不再增加独立审阅；上述自动化与真实运行
+门禁通过、失败项修复并重跑后即可归档本计划。
 
 2026-07-31 真实 headless Playwright 在 steer successor 成功后捕获到模型把
 `<final-clinical-state>` JSON 协议直接作为最终正文。该缺陷已进入独立输出边界变更：
@@ -1819,3 +1824,55 @@ revision、冲突、tombstone、删除/恢复和确认后召回均保持核心�
 批准 freshness 已在提交 `a68f5866` 独立关闭。用户于 2026-07-31 明确要求取消额外独立复审，
 不再等待原 Stage 6 子智能体；普通 POST/upload/PATCH 绕轨、旧批准重放、Memory 在线 CRUD 和
 离线晋升探针并入阶段 7 全量测试，任何失败直接修复后重跑。
+
+## 7. 最终回归与真实 GUI 交付记录（2026-07-31）
+
+### 7.1 用户可见结果
+
+- 真实浏览器不再展示完成态 Thinking、工具名、工具耗时、Provider、Trace、checkpoint、schema、
+  校验、重试或“正在修复”等生产细节；运行中只保留一个简短公开阶段。
+- 医疗引用不再把 `[C1]` 等绑定标记混入正文。答案和统一免责声明结束后，来源以独立
+  “参考来源”区域展示，并可展开或在右栏查看。
+- 不可恢复的回答状态只显示“这次回答没有完整生成”。真实模型验收将该文案视为失败条件，
+  不能把它包装成正常成功。
+- 明确要求“三点清单”时由 Planning 注入本轮呈现合同：恰好三个顶层条目、短标题加一至两句、
+  不追加第四部分；用户已否认的红旗不得被扩写成罕见或致命疾病警告。该合同只约束呈现和用户
+  指令遵从，不改变临床事实或医疗门禁。
+- 390×844 老年模式与 1024×768 平板实际页面无横向溢出，输入区、免责声明、上传图片/文件、
+  语音和抽屉均保持可见；axe 无 serious/critical 问题。
+
+### 7.2 真实模型与 GUI 证据
+
+项目内置 Playwright CLI 连接真实 Next.js、FastAPI、PostgreSQL、Redis、Qdrant 和已配置模型，
+没有 mock 模型回答。最终通过的任务包括：
+
+1. 非医疗计算 `18×7`：只回答 `126`，没有无关医疗建议或免责声明。
+2. 70 岁、两周起身头晕且明确无胸痛/呼吸困难：完成多轮上下文，随后生成恰好三项家属清单；
+   页面无内部执行卡、无原始引用标记、无恐吓式心梗扩写，答案后独立展示 3 个参考来源。
+3. 72 岁持续胸痛、呼吸困难、冷汗：在模型调用前走确定性红旗短路，约 100ms 返回醒目的急症卡，
+   明确拨打 120/尽快急诊，未被普通答案精简合同误伤。
+4. ASR 使用仓库真实 WAV 调用生产边界，实际返回 503；TTS 同样返回 503。前端只显示自然语言
+   “暂不可用”，没有把错误码、Provider 或失败载荷展示给用户。该项记录为真实外部服务降级，
+   不虚报语音成功。
+
+最终命令结果：
+
+- API 全量：`1089 passed, 65 skipped`，coverage `80.24%`。
+- API 静态门禁：Ruff check 通过，404 个文件 format check 通过，Mypy 297 个源码通过。
+- Planning/Harness 聚焦：`85 passed`；新增呈现合同模块覆盖率 100%。
+- MVP 全量 unit、ESLint 与 Next.js 16.2.10 production build 通过。
+- Playwright 响应式/axe：`2 passed`；真实模型使用审计：`1 passed`。
+- Alembic：`No new upgrade operations detected`；Compose 的 API、PostgreSQL、Redis、Qdrant
+  均为运行/健康状态。
+- 最终运行日志无 `chat_turn_failed`、Traceback 或 API ERROR。Memory 自动提取曾出现
+  `MemoryExtractionError / ModelChainExhaustedError` 后台 warning，但正文、引用和终态均保留；
+  这是非致命后处理降级，未进入前端。Memory owner-scoped 在线 CRUD 机制未被关闭。
+
+### 7.3 提交与已知降级
+
+- `cabad5ac fix(harness): enforce concise requested answer shape`
+- `2803893e fix(workbench): keep production details out of answers`
+
+当前唯一直接影响用户能力的已知降级是部署环境的 ASR/TTS Provider 不可用；文本、真实模型、
+多轮咨询、引用、急症短路、Memory CRUD 和工作台核心路径可用。计划按用户指令不再等待独立
+审阅，以上实现、全量测试和真实 GUI 结果即为阶段 7 关闭依据。
