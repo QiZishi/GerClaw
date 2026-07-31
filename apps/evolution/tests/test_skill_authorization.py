@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import hashlib
 from datetime import UTC, datetime
 from pathlib import Path
 
@@ -20,16 +21,67 @@ from gerclaw_evolution.attestation import (
     AttestationKeyRecord,
     AttestationKeyring,
     SealedEvaluatorProfile,
-    SealedGatePayload,
 )
 from gerclaw_evolution.contracts import CandidateControlError
-from gerclaw_evolution.evaluation import PairedEvaluationGate
+from gerclaw_evolution.evaluation import (
+    CharterObservation,
+    PairedEvaluationGate,
+)
 from gerclaw_evolution.skill_authorization import (
     SkillActivationAuthorizer,
     SkillActivationSigningKey,
 )
+from gerclaw_evolution.skill_sealed_evaluator import (
+    SealedSkillCaseBatch,
+    SealedSkillGatePolicy,
+    SkillSealedEvaluator,
+)
 
 _NOW = datetime(2026, 7, 30, 12, 5, tzinfo=UTC)
+_CASE_SET_DIGEST = "1" * 64
+
+
+class _SealedRunner:
+    def run(self, definition: object, *, role: str) -> SealedSkillCaseBatch:
+        source_markdown = str(definition.source_markdown)
+        identity = hashlib.sha256(source_markdown.encode()).hexdigest()
+        passed = "待医生复核" in source_markdown
+        charters = (
+            CharterObservation(
+                evaluator_id="charter.plugin_runtime.v1",
+                passed=passed,
+            ),
+            CharterObservation(
+                evaluator_id="charter.skill.v1",
+                passed=passed,
+            ),
+        )
+        return SealedSkillCaseBatch.model_validate(
+            {
+                "role": role,
+                "candidate_identity": identity,
+                "case_set_sha256": _CASE_SET_DIGEST,
+                "evaluated_at": _NOW,
+                "cases": [
+                    {
+                        "case_id": f"case_{index:032x}",
+                        "slice": slice_name,
+                        "passed": passed,
+                        "quality_micros": 900_000 if passed else 0,
+                        "token_count": 100,
+                        "latency_ms": 10,
+                        "runtime_activated": True,
+                        "charters": [
+                            item.model_dump(mode="json") for item in charters
+                        ],
+                    }
+                    for index, slice_name in enumerate(
+                        ("normal", "complex", "high_risk", "elderly"),
+                        start=1,
+                    )
+                ],
+            }
+        )
 
 
 def test_skill_authorization_requires_paired_sealed_and_human_approval(
@@ -42,14 +94,20 @@ def test_skill_authorization_requires_paired_sealed_and_human_approval(
     baseline = runner.run(repository, candidate=candidate, role="baseline")
     evolved = runner.run(repository, candidate=candidate, role="candidate")
     report = PairedEvaluationGate().compare(candidate.frozen, baseline, evolved)
+    sealed_policy = SealedSkillGatePolicy(
+        max_tokens_per_case=1_000,
+        max_token_increase_per_case=100,
+        max_latency_ms_per_case=1_000,
+        max_latency_increase_ms_per_case=100,
+    )
     sealed_profile = SealedEvaluatorProfile(
         public_runner_id=baseline.runner_id,
         public_runner_version=baseline.runner_version,
         public_evaluation_profile_sha256=baseline.evaluation_profile_sha256,
         evaluator_id="sealed.skill-medical-v1",
         evaluator_version="sealed-skill-v1",
-        sealed_case_set_sha256="1" * 64,
-        gate_policy_manifest_sha256="2" * 64,
+        sealed_case_set_sha256=_CASE_SET_DIGEST,
+        gate_policy_manifest_sha256=sealed_policy.digest(),
     )
     sealed_keys = AttestationKeyring(
         (
@@ -61,31 +119,15 @@ def test_skill_authorization_requires_paired_sealed_and_human_approval(
             ),
         )
     )
-    sealed_payload = SealedGatePayload(
-        proposal_id=candidate.frozen.proposal.proposal_id,
-        base_commit=candidate.frozen.proposal.base_commit,
-        candidate_commit=candidate.frozen.proposal.candidate_commit,
-        frozen_manifest_sha256=candidate.frozen.frozen_manifest_sha256,
-        paired_report_sha256=PairedEvaluationGate.digest(report),
-        sealed_case_set_sha256=sealed_profile.sealed_case_set_sha256,
-        gate_policy_manifest_sha256=sealed_profile.gate_policy_manifest_sha256,
-        evaluator_id=sealed_profile.evaluator_id,
-        evaluator_version=sealed_profile.evaluator_version,
-        evaluated_at=_NOW,
-        public_report_verified=True,
-        sealed_cases_passed=True,
-        no_sealed_case_regressed=True,
-        high_risk_singletons_non_degrading=True,
-        token_budget_passed=True,
-        latency_budget_passed=True,
-        runtime_activation_passed=True,
-        component_charters_passed=True,
-        passed=True,
-    )
-    attestation = sealed_keys.sign(
-        "sealed-skill-key-v1",
-        sealed_payload,
-        frozen=candidate.frozen,
+    attestation = SkillSealedEvaluator(
+        runner=_SealedRunner(),  # type: ignore[arg-type]
+        keyring=sealed_keys,
+        key_id="sealed-skill-key-v1",
+        profile=sealed_profile,
+        policy=sealed_policy,
+        clock=ApprovalClock(_NOW),
+    ).attest(
+        candidate,
         report=report,
     )
     approval_key = ApprovalSigningKeyRecord(

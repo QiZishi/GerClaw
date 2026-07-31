@@ -1662,3 +1662,16 @@ Memory 10 路并发、跨主体 update/restore、vector 补偿，以及危险 Sk
   `sha256:7d3da6a92589797a796a389c79cbbaa4622581ce397f0ee10d5c4741f21207f7`
   真实 Docker 1/1 通过，Ruff/Mypy 通过。该 runner 仍明确只证明 public structural/runtime
   non-regression；临床有效性/危害必须由 sealed evaluator 与人工审批证明，不能用本结果冒充。
+
+**Skill sealed gate 由逐病例结果推导（2026-07-31）：**
+
+- 新增 `SkillSealedEvaluator`，它不接收调用方提交的 aggregate
+  `sealed_cases_passed/passed=true`。部署隔离的 secret runner 必须对精确 base/candidate
+  Skill 快照各执行一次，且只返回 opaque case ID、四切片、质量、Token、延迟、runtime 和
+  charter observation。
+- evaluator 自己验证 case-set/profile/policy digest、candidate identity、相同病例集合与
+  精确 required charter，再计算已通过病例回归、高风险单例、绝对及增量 Token/延迟、
+  runtime activation 和 charter 门禁；最后才允许 controller-only keyring 签 attestation。
+  sealed case prompt、回答、阈值和临床正文不离开 runner trust domain。
+- 原 Skill authorization 测试已改为实际通过该 evaluator 产生 attestation，不再手工构造全绿
+  `SealedGatePayload`；相关 27/27、Ruff、Mypy（15 个 Evolution 源文件）通过。

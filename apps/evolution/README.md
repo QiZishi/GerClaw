@@ -48,6 +48,14 @@ sealed evaluator signs the freeze digest, report digest, sealed case-set digest,
 Token/latency verdicts, runtime activation, and charter verdicts with a controller-only HMAC
 key. Neither sealed cases nor thresholds appear in the report.
 
+`SkillSealedEvaluator` does not accept caller-supplied aggregate gate booleans. It invokes a
+deployment-owned `SealedSkillCaseRunner` separately for the exact base and candidate snapshots,
+requires the same opaque case IDs across all four slices, verifies the profile-bound case-set
+and policy digests, and derives case regression, high-risk singleton, absolute/incremental
+Token and latency, runtime activation, and exact required-charter gates from those observations.
+Only then may the controller-only keyring sign `SealedGateAttestation`. The runner port returns
+no case prompt, answer, threshold, user content, or clinical content.
+
 For encrypted custom Skills, the public runner does not equate Markdown round-trip with
 execution. Inside the pinned Docker archive it parses the exact base/candidate snapshot,
 executes valid ordinary, high-risk-text, and elderly-text parameters through `SkillExecutor`,
