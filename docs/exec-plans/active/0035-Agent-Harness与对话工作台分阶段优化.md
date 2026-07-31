@@ -1775,3 +1775,9 @@ summary/context 原子回滚均已成立，但仍以 `REJECT（P0=0、P1=1、P2=
 `extra_text` 合并；只要 projection 已包含当前 ToolCall 就不重复累计。新增 counter 抛错的
 回归证明唯一工具参数只出现一次，定向 `18 passed`、Ruff/Mypy 通过。该小修复独立提交后继续
 由同一审阅者复验。
+
+同一审阅者最终重放反例后判定 `ACCEPT（P0=0、P1=0、P2=2）`：工具参数 occurrence 从
+2 降为 1；工具名出现 2 次分别对应真实 ToolCall 与 tool schema，不是重复估算。独立定向
+`23 passed`，Ruff/Mypy 通过且无新回归。两个 P2 是不参与当前恢复门禁的 boundary audit
+hash chain，以及尚未启用的 HITL/external resume 工具轮识别；继续作为显式兼容性任务，
+不影响当前普通 ReAct/steer/queue 的关闭结论。
