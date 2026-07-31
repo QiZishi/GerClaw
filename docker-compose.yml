@@ -12,7 +12,6 @@ x-api-base: &api-base
     - path: ./.env
       required: false
   volumes:
-    - "${GERCLAW_KNOWLEDGE_BASE_HOST_PATH}:/knowledge-base:ro"
     - runtime_secrets:/app/workspaces
   networks:
     - edge
