@@ -8,6 +8,7 @@ from collections.abc import Awaitable, Callable
 from functools import partial
 
 from agentscope.message import AssistantMsg, SystemMsg, UserMsg
+from pydantic import ValidationError
 
 from gerclaw_api.modules.agent_harness.composition_setup import (
     ProductionHarnessCompositionSetup,
@@ -52,7 +53,10 @@ from gerclaw_api.modules.agent_harness.run_lifecycle import (
     UnsupportedAgentContextError,
     project_with_output_protocol_repair,
 )
-from gerclaw_api.modules.agent_harness.run_lifecycle.agent_stream import final_agent_text
+from gerclaw_api.modules.agent_harness.run_lifecycle.agent_stream import (
+    AgentStreamResult,
+    final_agent_text,
+)
 from gerclaw_api.modules.agent_harness.run_lifecycle.directive_runtime import (
     RuntimeDirectiveEmergency,
 )
@@ -133,8 +137,9 @@ _ANSWER_SCHEMA_REPAIR = StepRepairDecision(
     contract_version="chat-answer-v1",
     checkpoint_id="chat.answer.pre_model.v1",
     instruction=(
-        "上一尝试的回答未通过已声明的数据合同。请按当前输出 schema 重新生成完整结果，"
-        "保留已核验事实，不要解释校验或重试过程。"
+        "上一尝试的回答未通过已声明的数据合同。请从本步骤重新生成完整结果，"
+        "保留已核验事实，不要解释校验或重试过程。医疗事实必须在对应句使用本轮真实"
+        " [E1]/[W1] 证据标记；若尚无证据，先调用可用检索工具，不能编造来源。"
     ),
 )
 
@@ -651,6 +656,79 @@ class ProductionAgentHarness(ProductionHarnessCompositionSetup, OrchestrationSup
                     budget=budget,
                 )
 
+            def validate_candidate(result: AgentStreamResult) -> None:
+                """Apply the terminal public contract before buffered text is published."""
+
+                candidate_local = citations_from_results(
+                    turn_results.evidence_for(
+                        "report.compose"
+                        if governance.answer_capability() == "report.compose"
+                        else "answer.compose"
+                    )
+                    + agentic_results,
+                    minimum_score=self._config.evidence_min_score,
+                    limit=self._config.evidence_top_k,
+                )
+                candidate_bound = bind_turn_evidence(
+                    result.text,
+                    initial_local=initial_citations,
+                    additional_local=candidate_local,
+                    web=citations_from_search_results(search_results),
+                    attachments=[
+                        *attachment_projector.document_citations(),
+                        *attachment_projector.image_citations(),
+                    ],
+                    is_clinical_claim=(
+                        is_medical_message if medical_content else (lambda _segment: False)
+                    ),
+                    markers_already_bound=True,
+                )
+                candidate_claims_complete = (
+                    candidate_bound.claim_audit.all_clinical_claims_bound
+                )
+                candidate_patient_notice = bool(
+                    self._runtime_principal is not None
+                    and self._runtime_principal.role in {ActorRole.GUEST, ActorRole.PATIENT}
+                    and requires_patient_clinical_risk_notice(candidate_bound.text)
+                )
+                candidate_risk_delta = (
+                    f"\n\n{PATIENT_CLINICAL_RISK_NOTICE}"
+                    if candidate_patient_notice
+                    else ""
+                )
+                candidate_disclaimer_delta = (
+                    f"{candidate_risk_delta}\n\n{MEDICAL_DISCLAIMER}"
+                    if medical_content
+                    else candidate_risk_delta
+                )
+                try:
+                    AgentResponse(
+                        text=f"{candidate_bound.text}{candidate_disclaimer_delta}",
+                        citations=list(candidate_bound.citations),
+                        safety=safety_decision(
+                            high_risk_codes,
+                            medical_content=medical_content,
+                            deterministic_diagnosis_blocked=(
+                                result.deterministic_diagnosis_blocked
+                            ),
+                            evidence_backed_clinical_conclusion_allowed=(
+                                candidate_claims_complete
+                            ),
+                            patient_clinical_risk_notice_applied=candidate_patient_notice,
+                        ),
+                        medical_content=medical_content,
+                        structured={
+                            "model_invoked": True,
+                            "evidence_backed_clinical_conclusion": (
+                                candidate_claims_complete
+                            ),
+                        },
+                    )
+                except ValidationError as error:
+                    raise ModelOutputContractValidationError(
+                        "candidate answer violates the public response contract"
+                    ) from error
+
             try:
                 stream_result, output_contract_retries = await project_with_output_protocol_repair(
                     session=agent_session,
@@ -673,6 +751,7 @@ class ProductionAgentHarness(ProductionHarnessCompositionSetup, OrchestrationSup
                     ),
                     tool_result_observer=observe_tool_result,
                     safe_boundary_observer=apply_directives_after_tool,
+                    validate_result=validate_candidate,
                 )
             except RuntimeDirectiveEmergency as emergency:
                 await governance.complete_persisted(answer_node)

@@ -106,6 +106,50 @@ async def test_explicit_repair_replays_privately_and_publishes_only_replacement(
 
 
 @pytest.mark.asyncio
+async def test_terminal_contract_validation_replays_before_any_text_is_published() -> None:
+    attempts = 0
+    published: list[str] = []
+    rebuilt: list[str] = []
+    budget = _Budget()
+    decision = StepRepairDecision(
+        error_code="answer_schema_contract",
+        field_paths=("answer",),
+        contract_version="chat-answer-v1",
+        checkpoint_id="chat.answer.pre_model.v1",
+        instruction="补齐真实证据后重新回答。",
+    )
+
+    async def run_attempt(emit: object) -> AgentStreamResult:
+        nonlocal attempts
+        attempts += 1
+        text = "没有证据的草稿" if attempts == 1 else "带有证据的最终回答"
+        await emit("text_delta", {"content": text})  # type: ignore[operator]
+        return _result(text)
+
+    def validate_result(result: AgentStreamResult) -> None:
+        if "证据的最终" not in result.text:
+            raise ValueError("terminal response contract rejected")
+
+    async def publish(_kind: str, data: dict[str, object]) -> None:
+        published.append(str(data["content"]))
+
+    result, repair_count = await run_with_output_protocol_repair(
+        run_attempt=run_attempt,
+        rebuild_agent=rebuilt.append,
+        publish=publish,  # type: ignore[arg-type]
+        budget=budget,  # type: ignore[arg-type]
+        observer=None,
+        classify_failure=lambda error: decision if isinstance(error, ValueError) else None,
+        validate_result=validate_result,
+    )
+
+    assert result.text == "带有证据的最终回答"
+    assert published == ["带有证据的最终回答"]
+    assert rebuilt == [decision.instruction]
+    assert repair_count == budget.retries == 1
+
+
+@pytest.mark.asyncio
 async def test_repeated_failure_signature_is_not_retried_in_a_loop() -> None:
     attempts = 0
     budget = _Budget()

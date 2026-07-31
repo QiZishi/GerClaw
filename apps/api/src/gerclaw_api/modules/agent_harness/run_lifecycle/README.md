@@ -121,6 +121,14 @@ receive public sequence numbers; only the replacement attempt is replayable. A s
 failure ends normally through the typed failure path instead of exposing or concatenating the
 invalid fragment.
 
+The same private buffer now validates the fully assembled `AgentResponse` contract before
+publishing any text. A medical answer that finishes without a traceable citation, or whose
+direct clinical conclusion is not bound to the admitted evidence in that sentence, is returned
+to the pre-model checkpoint once with bounded, content-free repair guidance. The replacement
+may use the governed retrieval tools; the rejected draft is never sent to the browser, TTS,
+AnswerVersion, Artifact, or export path. This prevents a late Pydantic validation error from
+discarding an otherwise repairable answer after the model has already completed.
+
 Every validated model answer now passes through one deterministic reader-facing projection
 before the attempt is promoted. The projection removes only a terminal risk/disclaimer section
 that identifies itself as generic advice or generic patient variability; it preserves

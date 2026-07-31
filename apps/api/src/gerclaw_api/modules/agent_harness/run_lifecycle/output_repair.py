@@ -31,6 +31,7 @@ from gerclaw_api.security import JsonValue
 BufferedEvent = tuple[str, dict[str, JsonValue]]
 BufferedEmitter = Callable[[str, dict[str, JsonValue]], Awaitable[None]]
 AttemptRunner = Callable[[BufferedEmitter], Awaitable[AgentStreamResult]]
+AttemptValidator = Callable[[AgentStreamResult], None]
 AttemptRepairObserver = Callable[
     [str, tuple[str, ...], str, str, str],
     Awaitable[None],
@@ -145,6 +146,7 @@ async def run_with_output_protocol_repair(
     budget: RetryBudget,
     observer: AttemptRepairObserver | None,
     classify_failure: StepFailureClassifier | None = None,
+    validate_result: AttemptValidator | None = None,
 ) -> tuple[AgentStreamResult, int]:
     """Retry explicitly classified private failures without exposing bad output."""
 
@@ -154,8 +156,12 @@ async def run_with_output_protocol_repair(
         events: list[BufferedEvent] = []
         try:
             result = await run_attempt(_buffered_emitter(events))
-            public_text = project_public_answer(result.text)
+            original_text = result.text
+            public_text = project_public_answer(original_text)
             validate_public_answer_text(public_text)
+            result = replace(result, text=public_text)
+            if validate_result is not None:
+                validate_result(result)
         except Exception as error:
             decision = (
                 OUTPUT_PROTOCOL_REPAIR
@@ -181,12 +187,12 @@ async def run_with_output_protocol_repair(
             continue
         projected_events = _project_answer_events(
             events,
-            original_text=result.text,
+            original_text=original_text,
             public_text=public_text,
         )
         for event_type, data in projected_events:
             await publish(event_type, data)
-        return replace(result, text=public_text), repair_count
+        return result, repair_count
 
 
 async def project_with_output_protocol_repair(
@@ -196,6 +202,7 @@ async def project_with_output_protocol_repair(
     budget: RetryBudget,
     observer: AttemptRepairObserver | None,
     classify_failure: StepFailureClassifier | None = None,
+    validate_result: AttemptValidator | None = None,
     **project_kwargs: Any,
 ) -> tuple[AgentStreamResult, int]:
     """Bind the generic repair loop to the AgentScope stream projector."""
@@ -215,4 +222,5 @@ async def project_with_output_protocol_repair(
         budget=budget,
         observer=observer,
         classify_failure=classify_failure,
+        validate_result=validate_result,
     )
