@@ -1513,7 +1513,8 @@ class ChatService:
                 tuple(
                     item
                     for item in raw_warning_codes
-                    if isinstance(item, str) and item == "OPTIONAL_CAPABILITY_FAILED"
+                    if isinstance(item, str)
+                    and item in {"MEMORY_WRITE_FAILED", "OPTIONAL_CAPABILITY_FAILED"}
                 )
                 if isinstance(raw_warning_codes, list)
                 else ()

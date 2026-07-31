@@ -68,6 +68,7 @@ from gerclaw_api.modules.agent_harness.run_lifecycle import RunFenceConflictErro
 from gerclaw_api.modules.memory.models import MemoryUpdateResult
 from gerclaw_api.modules.memory.protocols import MemoryMessage, UserProfile
 from gerclaw_api.modules.orchestration import ChatSteeredInterruption
+from gerclaw_api.modules.rag.protocols import RetrievalResult
 from gerclaw_api.modules.runtime.models import ActorRole
 from gerclaw_api.security import JsonValue
 from gerclaw_api.services.chat_service import (
@@ -155,6 +156,52 @@ class _NoopRAG:
         return []
 
 
+class _EvidenceRAG:
+    async def retrieve(self, *_args: object, **_kwargs: object) -> list[RetrievalResult]:
+        return [
+            RetrievalResult(
+                content="老年高血压管理应定期测量并记录血压。",
+                source="老年高血压指南.md",
+                score=0.9,
+                metadata={
+                    "chunk_id": "chunk-chat-memory-warning",
+                    "document_id": "document-chat-memory-warning",
+                    "title": "老年高血压管理指南",
+                    "chapter": "综合评估",
+                    "category": "高血压",
+                    "source_type": "guideline",
+                    "publish_year": 2024,
+                    "chunk_index": 1,
+                    "total_chunks": 2,
+                },
+            )
+        ]
+
+
+class _MedicalTextModel(_TextModel):
+    async def _call_api(
+        self,
+        model_name: str,
+        messages: list[Msg],
+        tools: list[dict[str, Any]] | None = None,
+        tool_choice: ToolChoice | None = None,
+        **kwargs: Any,
+    ) -> ChatResponse | AsyncGenerator[ChatResponse, None]:
+        del model_name, tools, tool_choice, kwargs
+        self.last_messages = messages
+
+        async def stream() -> AsyncGenerator[ChatResponse, None]:
+            text = "建议每天定时测量并记录血压 [E1]。"
+            yield ChatResponse(content=[TextBlock(text=text)], is_last=False)
+            yield ChatResponse(
+                content=[TextBlock(text=text)],
+                is_last=True,
+                usage=ChatUsage(input_tokens=4, output_tokens=6, time=0.01),
+            )
+
+        return stream()
+
+
 class _MemoryFacade:
     def __init__(self) -> None:
         self.short_term_sessions: list[str] = []
@@ -222,6 +269,14 @@ class _FailingCompressionMemory(_MemoryFacade):
     ) -> list[MemoryMessage]:
         del messages, max_tokens
         raise RuntimeError("injected context compressor failure")
+
+
+class _FailingWriteMemory(_MemoryFacade):
+    async def extract_and_update_profile(
+        self, _actor_id: str, conversation: list[MemoryMessage]
+    ) -> None:
+        self.sources.extend(message.text() for message in conversation)
+        raise RuntimeError("injected memory extraction failure")
 
 
 def _memory_factory(memory: _MemoryFacade | None = None) -> Any:
@@ -1056,7 +1111,8 @@ async def test_owned_turn_streams_only_after_durable_success(unit_settings: Sett
     assert memory.sources == []
     assert memory.committed_count == 0
     assert memory.compensation_count == 0
-    assert response.text.endswith("内容由 AI 生成，仅供参考。身体不适请及时就医。")
+    assert response.text == "您好, 很高兴为您服务。"
+    assert response.safety.disclaimer_applied is False
     assert traces.trace.status == TraceStatus.COMPLETED.value
     assert traces.start_request is not None
     assert traces.start_request.attributes["workflow"] == "standard"
@@ -1200,6 +1256,46 @@ async def test_optional_owner_failure_finishes_with_private_warning_and_answer(
     assert response.text
     assert "CAPABILITY_OWNER_FAILED" not in response.text
     assert run_journal.completion_warnings == ("OPTIONAL_CAPABILITY_FAILED",)
+    assert run_journal.transitions == [AgentRunStatus.COMPLETED_WITH_WARNINGS]
+
+
+@pytest.mark.asyncio
+async def test_memory_write_failure_finishes_with_private_warning_and_answer(
+    unit_settings: Settings,
+) -> None:
+    session_id = uuid.uuid4()
+    run_journal = _RunJournal()
+    memory = _FailingWriteMemory()
+    service = ChatService(
+        settings=unit_settings,
+        conversation=cast(Any, _ConversationFacade(session_id)),
+        traces=cast(Any, _TraceFacade(created=True, session_id=session_id)),
+        lease=cast(Any, _OwnedLease()),
+        model=cast(Any, _MedicalTextModel()),
+        rag_module=cast(Any, _EvidenceRAG()),
+        memory_factory=_memory_factory(memory),
+        run_journal=run_journal,
+    )
+
+    async def callback(_event: object) -> None:
+        return None
+
+    response = await service.process(
+        ChatRequest(session_id=session_id, message="老年人高血压日常如何管理？"),
+        identity=AuthContext(
+            actor_id="usr_patient_unit0001",
+            tenant_id="tenant_public0001",
+            scopes=frozenset({"chat:write", "memory:read"}),
+        ),
+        request_id="request_memory_warning_0001",
+        trace_id="trace_memory_warning_0001",
+        callback=cast(Any, callback),
+    )
+
+    assert response.text
+    assert "MEMORY_WRITE_FAILED" not in response.text
+    assert memory.sources == ["老年人高血压日常如何管理?"]
+    assert run_journal.completion_warnings == ("MEMORY_WRITE_FAILED",)
     assert run_journal.transitions == [AgentRunStatus.COMPLETED_WITH_WARNINGS]
 
 

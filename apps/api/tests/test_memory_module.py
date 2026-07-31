@@ -54,6 +54,7 @@ from gerclaw_api.modules.memory.models import (
     MemoryFactRestoreRequest,
     MemoryFactUpdateRequest,
     MemoryRecallPreferenceRequest,
+    MemoryUpdateResult,
     MemoryVectorCandidate,
     MemoryVectorRecord,
 )
@@ -2393,6 +2394,28 @@ async def test_memory_short_term_compression_decision_and_adapter_fail_closed() 
         await invalid_write.add([], user_id="other")
     with pytest.raises(AgentScopeMemoryAdapterError):
         invalid_write.raise_if_failed()
+
+
+@pytest.mark.asyncio
+async def test_transient_memory_write_failure_is_a_nonfatal_warning() -> None:
+    class _FailingMemory:
+        last_update = MemoryUpdateResult(profile_version=1)
+
+        async def extract_and_update_profile(
+            self, _actor_id: str, _conversation: list[MemoryMessage]
+        ) -> None:
+            raise RuntimeError("provider unavailable")
+
+    adapter = GerClawMem0Client(
+        cast(Any, _FailingMemory()),
+        actor_id="usr_memory_unit0001",
+        source_user_message="最近两周起身时偶尔头晕",
+    )
+
+    with pytest.raises(AgentScopeMemoryAdapterError):
+        await adapter.add([], user_id="usr_memory_unit0001")
+    adapter.raise_if_failed()
+    assert adapter.warning_codes() == ("MEMORY_WRITE_FAILED",)
 
 
 @pytest.mark.asyncio

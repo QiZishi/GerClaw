@@ -185,6 +185,14 @@ class _HarnessMemory:
         self.sources.extend(message.text() for message in conversation)
 
 
+class _WriteFailingHarnessMemory(_HarnessMemory):
+    async def extract_and_update_profile(
+        self, _actor_id: str, conversation: list[MemoryMessage]
+    ) -> None:
+        self.sources.extend(message.text() for message in conversation)
+        raise RuntimeError("transient extraction failure")
+
+
 class _HarnessSearch:
     def __init__(self) -> None:
         self.calls: list[tuple[str, int, str]] = []
@@ -1942,6 +1950,36 @@ async def test_non_medical_small_talk_bypasses_evidence(unit_settings: Settings)
     assert memory.searches == []
     assert response.structured["route"] == "quick"
     assert response.structured["route_reason"] == "short_non_medical"
+
+
+@pytest.mark.asyncio
+async def test_memory_write_failure_preserves_completed_medical_answer(
+    unit_settings: Settings,
+) -> None:
+    memory = _WriteFailingHarnessMemory()
+    harness = _harness(
+        unit_settings,
+        model=_HarnessModel(text="请记录起身前后的血压和头晕时间 [E1]。"),
+        rag=_HarnessRAG([_evidence()]),
+        memory=memory,
+    )
+    context = await harness.assemble_context(
+        "108815d7-05bf-4c2a-a977-cd034f390fab",
+        "usr_patient00000001",
+        [],
+        [],
+    )
+
+    response = await harness.process_message(
+        "老年人起身头晕，就诊前应该记录什么？",
+        "108815d7-05bf-4c2a-a977-cd034f390fab",
+        context,
+        lambda _event: None,
+    )
+
+    assert "血压" in response.text
+    assert response.structured["warning_codes"] == ["MEMORY_WRITE_FAILED"]
+    assert memory.sources == ["老年人起身头晕，就诊前应该记录什么？"]
 
 
 @pytest.mark.asyncio

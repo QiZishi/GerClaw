@@ -47,7 +47,8 @@ class GerClawMem0Client:
             content=[{"type": "text", "text": source_user_message}],
         )
         self._write_done = False
-        self._error: Exception | None = None
+        self._fatal_error: Exception | None = None
+        self._write_error: Exception | None = None
 
     async def search(
         self,
@@ -66,7 +67,7 @@ class GerClawMem0Client:
                 raise ValueError("memory search limit is invalid")
             profile = await self._module.get_long_term(self._actor_id, query=query)
         except Exception as error:
-            self._error = error
+            self._fatal_error = error
             _LOGGER.warning(
                 "memory_adapter_search_failed",
                 extra={"attributes": {"exception_chain": _exception_chain(error)}},
@@ -92,27 +93,36 @@ class GerClawMem0Client:
         del messages, agent_id, infer
         try:
             if user_id != self._actor_id:
-                raise ValueError("memory write principal is invalid")
+                error = ValueError("memory write principal is invalid")
+                self._fatal_error = error
+                raise error
             if self._write_done:
                 return self._result()
             await self._module.extract_and_update_profile(self._actor_id, [self._source])
         except Exception as error:
-            self._error = error
+            if self._fatal_error is None:
+                self._write_error = error
             _LOGGER.warning(
                 "memory_adapter_write_failed",
                 extra={"attributes": {"exception_chain": _exception_chain(error)}},
             )
             raise AgentScopeMemoryAdapterError("memory write failed") from error
+        self._write_error = None
         self._write_done = True
         return self._result()
 
     def raise_if_failed(self) -> None:
-        """Counter AgentScope's intentionally fail-open static-memory hook for medical use."""
+        """Fail only when Memory could not be read or its owner boundary was invalid."""
 
-        if self._error is not None:
+        if self._fatal_error is not None:
             raise AgentScopeMemoryAdapterError("required medical memory operation failed") from (
-                self._error
+                self._fatal_error
             )
+
+    def warning_codes(self) -> tuple[str, ...]:
+        """Project a transient post-answer write failure without exposing its content."""
+
+        return ("MEMORY_WRITE_FAILED",) if self._write_error is not None else ()
 
     def _result(self) -> dict[str, list[dict[str, str]]]:
         changed = self._module.last_update.changed_fact_ids

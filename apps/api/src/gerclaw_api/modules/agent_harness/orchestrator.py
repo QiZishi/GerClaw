@@ -688,6 +688,9 @@ class ProductionAgentHarness(ProductionHarnessCompositionSetup, OrchestrationSup
                     "ANSWER_EXECUTION_FAILED",
                 )
                 raise
+            for warning_code in turn_toolkit.memory_guard.warning_codes():
+                if warning_code not in self._warning_codes:
+                    self._warning_codes.append(warning_code)
             selected_model_preference = next(
                 (item.preference for item in reversed(attempts) if item.outcome == "succeeded"),
                 None,
