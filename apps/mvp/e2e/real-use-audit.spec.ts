@@ -1,4 +1,5 @@
 import { expect, test, type Page } from "@playwright/test";
+import { readFileSync } from "node:fs";
 
 const runRealUseAudit = process.env.GERCLAW_RUN_REAL_USE_AUDIT === "1";
 const realUseTest = runRealUseAudit ? test : test.skip;
@@ -84,6 +85,41 @@ realUseTest(
       }
     });
     await enterGuestWorkspace(page);
+
+    const asrAudio = readFileSync(
+      "public/audio/cga/phq9/2026-07-16/questions/phq9_1.wav",
+    ).toString("base64");
+    const asrProbe = await page.evaluate(async (audio) => {
+      const response = await fetch("/api/gerclaw/voice/asr", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ audio, format: "wav" }),
+      });
+      return {
+        status: response.status,
+        body: await response.text(),
+      };
+    }, asrAudio);
+    expect([200, 502, 503]).toContain(asrProbe.status);
+    if (asrProbe.status === 200) {
+      const payload = JSON.parse(asrProbe.body) as {
+        schema_version?: string;
+        text?: string;
+      };
+      expect(payload.schema_version).toBe("voice-asr-response-v1");
+      expect(payload.text?.trim().length ?? 0).toBeGreaterThan(0);
+    } else {
+      expect(asrProbe.body).toMatch(
+        /VOICE_ASR_(?:UNAVAILABLE|INVALID_RESPONSE)|VOICE_UNAVAILABLE/,
+      );
+    }
+    test.info().annotations.push({
+      type: "asr-status",
+      description:
+        asrProbe.status === 200
+          ? "real provider transcription succeeded"
+          : `real provider degraded with HTTP ${asrProbe.status}`,
+    });
 
     const calculation = await sendAndRead(
       page,
