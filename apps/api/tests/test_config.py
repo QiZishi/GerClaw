@@ -118,6 +118,23 @@ def test_production_settings_accept_explicit_safe_endpoints() -> None:
     assert settings.agent_evidence_min_score == 0.3
 
 
+def test_production_settings_accept_internal_loopback_services() -> None:
+    values = _values()
+    values.update(
+        {
+            "database_url": "postgresql+asyncpg://user:strong-database-secret@localhost/gerclaw",
+            "redis_url": "redis://:strong-redis-secret@localhost:6379/0",
+            "qdrant_url": "http://127.0.0.1:6333",
+        }
+    )
+
+    settings = _settings(values)
+
+    assert settings.database_url.endswith("/gerclaw")
+    assert settings.redis_url.startswith("redis://")
+    assert str(settings.qdrant_url).startswith("http://127.0.0.1")
+
+
 @pytest.mark.parametrize(
     ("field", "value"),
     [

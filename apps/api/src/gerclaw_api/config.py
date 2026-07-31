@@ -713,22 +713,29 @@ class Settings(BaseSettings):
             if not database.password or self._is_weak_secret(database.password):
                 raise ValueError("production database password is missing or a placeholder")
             database_query = parse_qs(database.query)
-            if database.hostname not in {"postgres", "localhost"} and database_query.get("ssl") != [
-                "require"
-            ]:
+            if (
+                database.hostname not in {"postgres", "localhost", "127.0.0.1"}
+                and database_query.get("ssl") != ["require"]
+            ):
                 raise ValueError("external production PostgreSQL must require TLS")
 
             redis = urlsplit(self.redis_url)
             if not redis.password or self._is_weak_secret(redis.password):
                 raise ValueError("production Redis must require a strong password")
-            if redis.hostname != "redis" and redis.scheme != "rediss":
+            if (
+                redis.hostname not in {"redis", "localhost", "127.0.0.1"}
+                and redis.scheme != "rediss"
+            ):
                 raise ValueError("external production Redis must use TLS")
 
             if self.qdrant_api_key is None or self._is_weak_secret(
                 self.qdrant_api_key.get_secret_value()
             ):
                 raise ValueError("production Qdrant must require a strong API key")
-            if self.qdrant_url.host != "qdrant" and self.qdrant_url.scheme != "https":
+            if (
+                self.qdrant_url.host not in {"qdrant", "localhost", "127.0.0.1"}
+                and self.qdrant_url.scheme != "https"
+            ):
                 raise ValueError("external production Qdrant must use HTTPS")
 
             secrets = (

@@ -40,6 +40,8 @@ RUN npm run build
 
 FROM python:3.12-slim AS production
 
+ARG QDRANT_VERSION=1.18.2
+
 ENV PYTHONDONTWRITEBYTECODE=1 \
     PYTHONUNBUFFERED=1 \
     PATH=/app/api/.venv/bin:$PATH \
@@ -53,7 +55,18 @@ ENV PYTHONDONTWRITEBYTECODE=1 \
 WORKDIR /app
 
 RUN apt-get update \
-    && apt-get install --no-install-recommends -y ca-certificates libstdc++6 \
+    && apt-get install --no-install-recommends -y \
+        ca-certificates \
+        curl \
+        libstdc++6 \
+        postgresql \
+        redis-server \
+    && curl -fsSL --retry 5 \
+        "https://github.com/qdrant/qdrant/releases/download/v${QDRANT_VERSION}/qdrant-x86_64-unknown-linux-gnu.tar.gz" \
+        -o /tmp/qdrant.tar.gz \
+    && tar -xzf /tmp/qdrant.tar.gz -C /tmp \
+    && install -m 0755 /tmp/qdrant /usr/local/bin/qdrant \
+    && rm -f /tmp/qdrant.tar.gz /tmp/qdrant \
     && rm -rf /var/lib/apt/lists/*
 
 COPY --from=node:22-bookworm-slim /usr/local/bin/node /usr/local/bin/node
@@ -66,6 +79,7 @@ COPY docker-entrypoint.sh /app/docker-entrypoint.sh
 
 RUN addgroup --system gerclaw \
     && adduser --system --shell /bin/sh --ingroup gerclaw --home /app gerclaw \
+    && mkdir -p /app/workspaces \
     && chmod 755 /app/docker-entrypoint.sh \
     && chown -R gerclaw:gerclaw /app
 
