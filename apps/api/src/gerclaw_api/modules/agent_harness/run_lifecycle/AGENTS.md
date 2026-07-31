@@ -49,6 +49,14 @@ provenance and `reported` status; it must never become a model-inferred confirme
 Queued red flags must short-circuit before the next model call. Never expose idempotency keys,
 worker fencing tokens, or private safe-boundary identifiers in public DTOs.
 
+AgentScope model admission must run at its actual `compress_context` entry, before the
+Provider side effect and before `ModelCallStartEvent`. Tool capacity admission is one atomic
+decision over the complete AgentScope sequential/concurrent batch before any owner call.
+Capacity rejection must be returned through the governed tool failure path so the Agent can
+repair the failed step privately; it must not turn a recoverable tool mistake into a public
+Run failure. Apply queued directives after the entire outstanding tool round completes, never
+between concurrently running members.
+
 Inputs are bounded text deltas and validated lifecycle commands; outputs are safe public
 text fragments or stable typed errors. Do not import concrete Runtime, Memory, RAG, Search,
 Skill, Workflow, or persistence implementations.

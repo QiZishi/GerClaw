@@ -35,6 +35,14 @@ reasoning, or unbounded history. Unknown and absent data must remain distinguish
 - Compression must preserve recent turns verbatim and retain clinically critical user
   excerpts without converting them into diagnoses. A model compression failure must use the
   deterministic extractive fallback, never silently drop all history or fabricate a summary.
+- Successful Provider compression is not proof of retention. Profile/Memory projections,
+  ClinicalState/decision, admitted documents/evidence, runtime user directives, output repair
+  instructions, and the newest user turn must be withheld from the compressible set and
+  verified in code after compression.
+- AgentScope compresses before its public model-start event. Capacity admission must wrap the
+  actual request-scoped compression entry; an event observer is audit timing, not a pre-model
+  gate. Concurrency-safe tools must be admitted as one complete batch before any owner side
+  effect, with one combined result reserve and no shared temporary-marker race.
 - `source_hash`, strategy, before/after estimates, source budgets, and retained message counts
   are frozen. New Runs use `context-projection-v2`, including stable retained/omitted source
   IDs, source range, summary hash lineage, and opaque unresolved-item IDs. Resume accepts and

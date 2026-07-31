@@ -556,9 +556,20 @@ class ProductionAgentHarness(ProductionHarnessCompositionSetup, OrchestrationSup
                 result_limit_tokens=self._config.tool_result_reserve_tokens,
             ),
         )
+        result_reserve_by_tool = {
+            name: min(
+                self._config.tool_result_reserve_tokens,
+                capability.max_output_bytes,
+            )
+            for name, capability in turn_toolkit.capabilities.items()
+        }
         agent_session = RepairableAgentSession.from_factory(
             factory=self._agent_factory,
             base_context=state_context,
+            configure_agent=lambda agent: react_boundaries.install_on_agent(
+                agent,
+                result_reserve_by_tool=result_reserve_by_tool,
+            ),
             session_id=session_id,
             toolkit=turn_toolkit.toolkit,
             rag_middleware=turn_toolkit.rag_middleware,
@@ -627,7 +638,6 @@ class ProductionAgentHarness(ProductionHarnessCompositionSetup, OrchestrationSup
                         "RUNTIME_WALL_CLOCK_EXCEEDED"
                     ),
                     tool_result_observer=observe_tool_result,
-                    model_boundary_observer=react_boundaries.before_model,
                     safe_boundary_observer=apply_directives_after_tool,
                 )
             except RuntimeDirectiveEmergency as emergency:

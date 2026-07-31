@@ -255,7 +255,7 @@ async def project_agent_stream(
                     str(result_data["status"]),
                     result_data,
                 )
-            if safe_boundary_observer is not None:
+            if safe_boundary_observer is not None and not tool_started:
                 applied_count = await safe_boundary_observer()
                 if applied_count:
                     await emit(

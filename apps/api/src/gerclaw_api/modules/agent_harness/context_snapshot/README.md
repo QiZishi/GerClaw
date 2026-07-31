@@ -76,19 +76,29 @@ projection 仍超过有效上限时才 fail closed。
 不透明 ID 和 before/after 估算，并随 Run 冻结。v1 仍可解析，保证已中断旧 Run 不因合同升级
 丢失恢复能力。
 
-ReAct 执行期间，每个 model/tool 副作用前还会生成 `ContextBoundaryDraft`。它将实际
-AgentScope state 的 before/after Token 估算、message/summary 稳定 ID、omitted/retained
+ReAct 执行期间，每个 model 副作用和每个 AgentScope tool batch 副作用前还会生成
+`ContextBoundaryDraft`。AgentScope 的自动压缩发生在公开 `ModelCallStartEvent` 之前，因此
+生产编排直接在请求级 Agent 的 `compress_context` 入口安装边界，而不再把公开事件误当作
+压缩前门禁。它将实际 AgentScope state 的 before/after Token 估算、message/summary
+唯一稳定 ID、omitted/retained
 集合、required input hash、压缩失败状态和上下文 hash 写入私有
 `agent_run_context_boundaries`。写入必须持有当前 Run fencing token，按 Run row lock 分配
 sequence，并用 `previous_projection_hash` 形成链；该表使用加密 JSON，且不进入公开
-Run/Event/SSE。工具边界把预期 result reserve 同时放进 soft compaction 和 hard preflight，
-避免“能发出工具、却没有空间读取结果”。
+Run/Event/SSE。一个 concurrency-safe 工具批次先合并全部 name、arguments 和 result
+reserve，完成一次原子 soft compaction 与 hard preflight 后才允许任何成员进入 Runtime。
+Runtime 仍逐工具执行 Schema、权限和风险治理；若整批容量拒绝，Runtime 的原 owner
+invocation 不会发生，AgentScope 收到同批稳定私有工具失败并从该步骤继续修复。不同工具的
+临时容量 marker 不会同时写入共享 context；marker 只表示估算容量，真实 tool arguments 和
+待应用 directive 不会为了压缩而复制进摘要 Provider，实际内容仍在各自验证/应用边界处理。
 
 AgentScope 摘要失败时，运行期 fallback 由代码保护 `clinical_state`、临床决策、上传资料、
-admitted evidence、执行期用户指令和最新用户消息，再在剩余目标预算内从新到旧保留原文；
-不会从空上下文重启，也不会把失败升级为默认用户可见错误。结构化摘要 schema 的每个高价值
-字段均禁止空串。`context_trigger_ratio` 同时满足项目 soft/hard 配置和 AgentScope `<0.9`
-合同，防止合法项目配置在 Agent 构造时才失败。
+admitted evidence、Profile/Memory 投影、执行期用户指令、输出修复指令和最新用户消息，再在
+剩余目标预算内从新到旧保留原文；这些高价值 Msg 在 Provider 摘要成功时也由代码移出可压缩
+集合并逐对象校验后恢复，不能只依赖 Prompt/Schema。不会从空上下文重启，也不会把一次可修复
+的压缩或工具容量错误升级为默认用户可见错误。结构化摘要 schema 的每个高价值字段均禁止
+空串。`context_trigger_ratio` 同时满足项目 soft/hard 配置和 AgentScope
+`trigger_ratio < 0.9` 合同，
+防止合法项目配置在 Agent 构造时才失败。
 
 执行失败时，摘要、Memory 候选、assistant message 和成功终态处于同一事务；失败路径先
 rollback，再单独持久化失败 Trace/Run，旧 worker 仍受 fencing 阻断。服务/worker 丢失形成

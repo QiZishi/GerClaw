@@ -36,6 +36,7 @@ AttemptRepairObserver = Callable[
     Awaitable[None],
 ]
 StepFailureClassifier = Callable[[Exception], StepRepairDecision | None]
+AgentConfigurer = Callable[[Agent], None]
 
 OUTPUT_PROTOCOL_REPAIR_INSTRUCTION = (
     "上一尝试把内部工具调用格式写进了回答。重新完成用户要求:"
@@ -66,10 +67,12 @@ class RepairableAgentSession:
         *,
         builder: Callable[[list[Msg]], Agent],
         base_context: list[Msg],
+        configure_agent: AgentConfigurer | None = None,
     ) -> None:
         self._builder = builder
         self._base_context = base_context
-        self.agent = builder(list(base_context))
+        self._configure_agent = configure_agent
+        self.agent = self._build_agent(list(base_context))
 
     @classmethod
     def from_factory(
@@ -77,6 +80,7 @@ class RepairableAgentSession:
         *,
         factory: Any,
         base_context: list[Msg],
+        configure_agent: AgentConfigurer | None = None,
         **build_kwargs: Any,
     ) -> RepairableAgentSession:
         return cls(
@@ -85,7 +89,14 @@ class RepairableAgentSession:
                 **build_kwargs,
             ),
             base_context=base_context,
+            configure_agent=configure_agent,
         )
+
+    def _build_agent(self, context: list[Msg]) -> Agent:
+        agent = self._builder(context)
+        if self._configure_agent is not None:
+            self._configure_agent(agent)
+        return agent
 
     def rebuild(self, instruction: str = OUTPUT_PROTOCOL_REPAIR_INSTRUCTION) -> None:
         runtime_directives = [
@@ -93,7 +104,7 @@ class RepairableAgentSession:
             for message in self.agent.state.context
             if message.name == "runtime_user_directive"
         ]
-        self.agent = self._builder(
+        self.agent = self._build_agent(
             [
                 *self._base_context,
                 *runtime_directives,

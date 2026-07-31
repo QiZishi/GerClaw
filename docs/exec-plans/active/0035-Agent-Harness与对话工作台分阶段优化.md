@@ -1697,3 +1697,43 @@ Memory 10 路并发、跨主体 update/restore、vector 补偿，以及危险 Sk
   `exported → sealed_rejected`。真实集成 `1 passed`，普通 operator 单测 `2 passed, 1 skipped`，
   Ruff/Mypy 通过。该结果只证明控制链可执行和拒绝有效，不能替代真实临床病例集、医学审阅或
   生产 HSM/独立签名服务。
+
+**逐 ReAct 边界第二轮独立审阅与整改（2026-07-31）：**
+
+独立子智能体在 `abe48e37` 上判定 `REJECT（P0=0、P1=4、P2=1）`。四个阻断均属于生产
+执行时序，不得用已有绿色测试掩盖：
+
+1. AgentScope 在 `_reply_impl` 中先 `compress_context()`，之后 `_reasoning()` 才发出
+   `ModelCallStartEvent`；原 model observer 因此不是压缩前门禁。
+2. concurrency-safe 工具的多个 per-tool preflight 会并发改写共享 Context marker 和累计
+   reserve，且不能证明整批在任何 owner 副作用前一次性完成准入。
+3. `after_tool` 在每个 `ToolResultEndEvent` 都消费 queue，会在其他并发工具仍写共享 Context
+   时插入用户要求。
+4. 高价值保护只存在于压缩失败 fallback，成功的 Provider 摘要仍可能删除 Memory/Profile、
+   ClinicalState、Evidence、用户追加要求或 output repair 指令。
+
+本轮整改直接绑定 AgentScope 的真实执行入口：请求级 Agent（包括 output repair 重建的新
+Agent）在构造后安装 `compress_context` 和 sequential/concurrent batch 适配器。每次模型
+压缩先领取用户追加要求、执行 soft compaction、保存私有 lineage，再做 hard preflight；
+不再依赖晚到的公开 model-start event。工具批次在一个请求锁内合并全部 name、arguments 和
+result reserve，只执行一次 Context 准入，随后才允许任何成员进入 Runtime。Runtime 的 Schema、
+权限与风险治理所有权不变；批次容量拒绝由逐工具 governed preflight 在 owner 调用前转成
+AgentScope 私有失败结果，使 Agent 从错误步骤继续，而不是把可修复错误升级为用户可见 Run
+失败。
+
+成功压缩与失败 fallback 现在都由代码保护 `memory`、`clinical_state`、
+`clinical_decision`、上传资料、admitted evidence、`runtime_user_directive`、
+`output_contract_repair` 和最新用户消息；Provider 只接触可压缩集合，返回后逐对象验证并恢复。
+context lineage ID 由 message identity、role/name、内容 hash 和 occurrence 组合，处理同一
+Agent reply 内重复 message ID 时仍保持集合合同。stream projector 只在整个 outstanding
+tool set 清空后消费 queue，不在并发成员之间改写 Context。
+
+新增回归分别证明：成功压缩不能删除高价值消息；两个并发工具只产生一次合并 reserve 且准入
+早于 owner side effect；AgentScope 自动压缩入口早于 model hard preflight；output repair
+重建会重新安装边界；queue 只在整个工具轮结束后消费。首轮定向 `15 passed`，扩大
+Harness/Context/Directive/Resume/Repair 回归 `123 passed`，charter 指定扩大回归
+`189 passed, 14 skipped`；显式提供真实 Markdown corpus 后，PostgreSQL/Redis/Qdrant
+Directive/Recovery 集成 `14 passed`（14 条本地 Qdrant insecure-HTTP warning）。Ruff 全
+源码/测试与 Mypy 295 个源码文件通过。该整改
+仍等待原独立审阅者按四项 P1 复审，复审前 Stage 6 保持进行中；P2“resume 尚未校验 boundary
+hash chain”继续作为诚实登记的审计增强项，不虚称 mid-provider continuation。

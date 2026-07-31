@@ -5,9 +5,11 @@
 from __future__ import annotations
 
 import pytest
+from agentscope.message import AssistantMsg
 
 from gerclaw_api.modules.agent_harness.run_lifecycle.agent_stream import AgentStreamResult
 from gerclaw_api.modules.agent_harness.run_lifecycle.output_repair import (
+    RepairableAgentSession,
     run_with_output_protocol_repair,
 )
 from gerclaw_api.modules.agent_harness.run_lifecycle.step_repair import (
@@ -30,6 +32,26 @@ def _result(text: str) -> AgentStreamResult:
         input_tokens=10,
         output_tokens=5,
     )
+
+
+def test_rebuilt_agent_reinstalls_request_boundaries() -> None:
+    configured: list[object] = []
+
+    class _Agent:
+        def __init__(self, context: object) -> None:
+            self.state = type("_State", (), {"context": context})()
+
+    session = RepairableAgentSession(
+        builder=lambda context: _Agent(context),  # type: ignore[arg-type,return-value]
+        base_context=[AssistantMsg(name="base", content="基础上下文")],
+        configure_agent=configured.append,  # type: ignore[arg-type]
+    )
+
+    session.rebuild("按当前输出合同重新完成本步骤")
+
+    assert len(configured) == 2
+    assert configured[-1] is session.agent
+    assert session.agent.state.context[-1].name == "output_contract_repair"
 
 
 @pytest.mark.asyncio
