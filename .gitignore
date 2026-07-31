@@ -30,5 +30,8 @@ docs/evidence/
 .playwright-cli/
 skills-lock.json
 
-# 临时任务文件
-开发复盘.md
+# 个人文件
+DUAL_TRACK_EVOLUTION_GUIDE.md
+MEDICAL_AGENT_SYSTEM_OPTIMIZATION_GUIDE.md
+gerclaw-paper/
+

@@ -43,13 +43,6 @@ REQUIRED_FILES = {
             "## 8. 当前事实基线",
         ],
     },
-    "docs/REQUIREMENTS_MATRIX.md": {
-        "min_lines": 30,
-        "required_sections": [
-            "# GerClaw 需求→模块→验收矩阵",
-            "## 发布规则",
-        ],
-    },
     "docs/DEVELOPMENT_HARNESS.md": {
         "min_lines": 20,
         "required_sections": [
@@ -77,13 +70,6 @@ REQUIRED_FILES = {
             "## 5. 健康检查",
         ],
     },
-    "docs/QUALITY_SCORE.md": {
-        "min_lines": 20,
-        "required_sections": [
-            "## 评分规则",
-            "## 模块质量评分",
-        ],
-    },
     "docs/DESIGN.md": {
         "min_lines": 30,
         "required_sections": [
@@ -101,16 +87,6 @@ REQUIRED_FILES = {
             "## 4. 成功的定性标准",
         ],
     },
-    "docs/PLANS.md": {
-        "min_lines": 10,
-        "required_sections": [
-            "## 当前阶段",
-            "## 活跃计划",
-            "## 后续顺序",
-            "## 交付规则",
-            "## 已完成生产里程碑",
-        ],
-    },
     "docs/design-docs/index.md": {
         "min_lines": 5,
         "required_sections": ["## 模块设计文档"],
@@ -125,10 +101,6 @@ REQUIRED_FILES = {
     "docs/product-specs/index.md": {
         "min_lines": 5,
         "required_sections": ["## 模块产品规格"],
-    },
-    "docs/exec-plans/tech-debt-tracker.md": {
-        "min_lines": 5,
-        "required_sections": ["## 活跃技术债"],
     },
 }
 
@@ -254,59 +226,6 @@ def check_module_documents(workspace: Path) -> list[str]:
     return issues
 
 
-MIN_REQUIREMENT_COUNT = 59
-
-
-def _duplicates(values: list[str]) -> list[str]:
-    return sorted(item for item in set(values) if values.count(item) != 1)
-
-
-def check_requirement_matrix(workspace: Path) -> list[str]:
-    """Ensure PRD and matrix expose the same non-trivial requirement inventory."""
-
-    prd = workspace / "docs/PRD.md"
-    matrix = workspace / "docs/REQUIREMENTS_MATRIX.md"
-    if not prd.exists() or not matrix.exists():
-        return ["PRD or requirements matrix is missing"]
-    prd_ids = re.findall(r"`([A-Z]+-\d{2})`", prd.read_text(encoding="utf-8"))
-    matrix_content = matrix.read_text(encoding="utf-8")
-    matrix_ids = re.findall(
-        r"^\| ([A-Z]+-\d{2}) \|",
-        matrix_content,
-        flags=re.MULTILINE,
-    )
-    issues: list[str] = []
-    required_header = (
-        "| ID | 需求 | 设计→实现合同/模块 | 测试→运行证据 | 状态与缺口 |"
-    )
-    if required_header not in matrix_content:
-        issues.append("matrix lacks the requirement→design→implementation→test→runtime header")
-    if len(set(prd_ids)) < MIN_REQUIREMENT_COUNT:
-        issues.append(
-            f"PRD tracks only {len(set(prd_ids))} requirements; need >= {MIN_REQUIREMENT_COUNT}"
-        )
-    missing = sorted(set(prd_ids) - set(matrix_ids))
-    extra = sorted(set(matrix_ids) - set(prd_ids))
-    prd_duplicates = _duplicates(prd_ids)
-    matrix_duplicates = _duplicates(matrix_ids)
-    if missing:
-        issues.append(f"matrix missing PRD IDs: {', '.join(missing)}")
-    if extra:
-        issues.append(f"matrix has unknown IDs: {', '.join(extra)}")
-    if prd_duplicates:
-        issues.append(f"duplicate PRD IDs: {', '.join(prd_duplicates)}")
-    if matrix_duplicates:
-        issues.append(f"duplicate matrix IDs: {', '.join(matrix_duplicates)}")
-    status_ids = re.findall(
-        r"^\| ([A-Z]+-\d{2}) \|.*\| ([✅🚧❌])[^|]*\|$",
-        matrix_content,
-        flags=re.MULTILINE,
-    )
-    if len(status_ids) != len(matrix_ids):
-        issues.append("every matrix row must end in an explicit ✅/🚧/❌ status")
-    return issues
-
-
 def check_markdown_links(workspace: Path) -> list[str]:
     """Reject broken relative paths and heading anchors in governed Markdown."""
 
@@ -417,10 +336,6 @@ def verify(workspace_path: str) -> bool:
         placeholders = check_placeholders(filepath)
         for line_no, pattern, text in placeholders[:3]:
             warnings.append(f"OPTIONAL PLACEHOLDER: {rel_path}:{line_no}: {text}")
-
-    matrix_issues = check_requirement_matrix(workspace)
-    for issue in matrix_issues:
-        errors.append(f"REQ MATRIX:   {issue}")
 
     link_issues = check_markdown_links(workspace)
     for issue in link_issues:

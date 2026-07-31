@@ -1,0 +1,179 @@
+<!-- 来源：https://docs.agentscope.io/versions/2.0.6dev/zh/building-blocks/agent/human-in-the-loop -->
+
+# 人机交互
+
+当智能体遇到以下两种情况时，会暂停执行并发出特殊事件：需要**用户确认**的工具调用（权限系统返回 ASK），或标记为**外部执行**的工具（结果必须来自智能体外部）。两种情况下，都通过向 `reply` / `reply_stream` 传回结果事件来恢复智能体。
+
+暂停期间，`reply` 会返回一条 `finished_reason` 为 `None` 的等待提示消息：回复处于停靠状态而非结束，在外部结果到达之前，剩余的工具调用不会执行。
+
+## 用户确认
+
+当权限系统判断某个工具调用需要用户批准时，智能体会发出 `RequireUserConfirmEvent` 并暂停。
+
+接收 RequireUserConfirmEvent
+
+使用 `reply_stream` 检测暂停。事件结构如下：
+
+reply_id
+
+str
+
+当前回复的 ID，用于恢复智能体。
+
+tool_calls
+
+list[ToolCallBlock]
+
+等待用户确认的工具调用列表。每个 `ToolCallBlock` 包含：
+
+<details>
+<summary>显示 子属性</summary>
+
+id
+
+str
+
+name
+
+str
+
+"Bash"
+
+"Write"
+
+input
+
+str
+
+suggested_rules
+
+list[PermissionRule]
+</details>
+
+```python
+from agentscope.event import RequireUserConfirmEvent
+
+async for event in agent.reply_stream(msg):
+    if isinstance(event, RequireUserConfirmEvent):
+        for tc in event.tool_calls:
+            print(f"工具: {tc.name}, 输入: {tc.input}")
+            print(f"建议规则: {tc.suggested_rules}")
+```
+
+构建确认结果
+
+为每个待处理的工具调用创建 `ConfirmResult`，指明是否允许执行。也可以修改工具调用输入或接受建议的权限规则：
+
+```python
+from agentscope.event import ConfirmResult, UserConfirmResultEvent
+
+confirm_results = []
+for tc in event.tool_calls:
+    confirm_results.append(ConfirmResult(
+        confirmed=True,           # 或 False 表示拒绝
+        tool_call=tc,             # 传回（可选择修改）
+        rules=tc.suggested_rules, # 接受规则以便未来自动允许
+    ))
+```
+
+恢复智能体
+
+将 `UserConfirmResultEvent` 传回 `reply` 或 `reply_stream`：
+
+```python
+confirm_event = UserConfirmResultEvent(
+    reply_id=event.reply_id,
+    confirm_results=confirm_results,
+)
+result = await agent.reply(confirm_event)
+```
+
+- 已确认
+- 已拒绝
+- 已接受的规则
+
+## 外部工具执行
+
+当智能体调用 `is_external_tool = True` 的工具时，会发出 `RequireExternalExecutionEvent` 并暂停。工具的逻辑在智能体外部运行，通常由人工操作或外部系统执行。
+
+接收 RequireExternalExecutionEvent
+
+事件结构如下：
+
+reply_id
+
+str
+
+当前回复的 ID，用于恢复智能体。
+
+tool_calls
+
+list[ToolCallBlock]
+
+需要外部执行的工具调用列表。每个 `ToolCallBlock` 包含：
+
+<details>
+<summary>显示 子属性</summary>
+
+id
+
+str
+
+name
+
+str
+
+input
+
+str
+</details>
+
+```python
+from agentscope.event import RequireExternalExecutionEvent
+
+async for event in agent.reply_stream(msg):
+    if isinstance(event, RequireExternalExecutionEvent):
+        for tc in event.tool_calls:
+            print(f"外部执行: {tc.name}({tc.input})")
+```
+
+外部执行并构建结果
+
+在智能体外部执行操作，并将结果封装为 `ToolResultBlock` 对象：
+
+```python
+from agentscope.message import ToolResultBlock, TextBlock, ToolResultState
+from agentscope.event import ExternalExecutionResultEvent
+
+execution_results = []
+for tc in event.tool_calls:
+    # 执行实际操作（API 调用、人工操作等）
+    output = await run_external_operation(tc.name, tc.input)
+
+    execution_results.append(ToolResultBlock(
+        id=tc.id,
+        name=tc.name,
+        output=[TextBlock(text=output)],
+        state=ToolResultState.SUCCESS,
+    ))
+```
+
+恢复智能体
+
+传回 `ExternalExecutionResultEvent` 以恢复智能体：
+
+```python
+external_event = ExternalExecutionResultEvent(
+    reply_id=event.reply_id,
+    execution_results=execution_results,
+)
+result = await agent.reply(external_event)
+```
+
+结果会被注入智能体上下文，推理从中断处继续。
+
+> **提示** 如果多个工具调用都需要外部交互，而只传回了部分确认或执行结果，智能体不会为尚未确认或执行的工具调用重新发出请求事件。
+
+> **提示** 同一批并发的工具调用之间会对确认请求去重：若某次调用已被同批次中更早一次确认所建议的规则覆盖，就不会再次向用户发出确认请求。安全类确认请求不参与这种去重。
+
+> **提示** 构建交互式界面时使用 `reply_stream`：它可以实时检测暂停事件并立即提示用户。以编程方式处理事件的自动化流程则使用 `reply`。

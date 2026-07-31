@@ -8,12 +8,12 @@
 
 **读取顺序**（必读→按需）：
 1. **⚠️ 最高权威** `docs/references/gerclaw设计要求.md` — 产品设计的根本依据，所有设计和实现必须符合此文件要求，与其他文档冲突时以此为准
-2. `docs/PLANS.md` — 当前阶段、活跃计划与后续顺序
-3. `docs/exec-plans/active/` — 当前活跃执行计划（找编号最小的未完成任务）
+2. 生产代码、数据库迁移与运行配置 — 当前能力和完成状态的唯一事实来源
+3. `docs/exec-plans/active/` — 尚未完成的执行计划；状态必须回查生产代码
 4. `ARCHITECTURE.md` — 系统架构和分层约束
 5. `docs/PRODUCT_SENSE.md` — 产品直觉和好坏判断
 6. `docs/design-docs/core-beliefs.md` — 核心理念、代码品味、技术决策原则
-7. 按需读取：`docs/SECURITY.md`、`docs/RELIABILITY.md`、`docs/QUALITY_SCORE.md`、`docs/FRONTEND.md`、`docs/DESIGN.md`、`docs/product-specs/`、`docs/design-docs/`
+7. 按需读取：`docs/SECURITY.md`、`docs/RELIABILITY.md`、`docs/FRONTEND.md`、`docs/DESIGN.md`、`docs/product-specs/`、`docs/design-docs/`
 
 ## Agent Operating Rules
 
@@ -39,11 +39,8 @@
 2. 读取当前exec-plan，理解任务目标和验收标准
 3. 按计划编写代码+测试
 4. 实际运行测试（npm run build + npm run lint），附完整输出
-5. git commit（使用conventional commits）
-6. 提交变更汇报给审阅者
-7. 审阅者独立审查+测试+判定
-8. 若审阅通过：审阅者回写 `docs/PLANS.md`，任务移入 completed
-9. 若不通过：修复后回到步骤3
+5. 若测试失败：修复后回到步骤3
+6. git commit（使用conventional commits）
 ```
 
 ## Definition of Done
@@ -68,7 +65,7 @@
 
 ### 项目特定铁律
 
-4. **前端必验**：涉及前端的任务，必须启动headless模式让审阅者自行审阅，记录后台日志，审阅者反馈+日志修复后重新进入对抗循环，审阅者通过才能进入下一阶段
+4. **前端必验**：涉及前端的任务，必须启动headless模式进行真实测试
 5. **医疗安全底线**：禁止给出确定性诊断结论，所有医疗输出必须附带免责声明，高风险症状必须提示立即就医
 6. **循证可溯源**：所有医学建议必须标注来源依据，禁止编造医学知识或引用不存在的文献
 7. **适老化无障碍**：患者端老年模式下禁止使用<16px字体、<44px按钮、低对比度配色；禁止纯图标无文字标签按钮

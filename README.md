@@ -2,7 +2,7 @@
 
 面向老年患者与老年科医生的多模态 AI 诊疗与康养 Agent 应用。
 
-[快速开始](#快速开始) · [核心能力](#核心能力) · [系统架构](#系统架构) · [配置](#配置) · [项目结构](#项目结构) · [文档](#文档)
+[快速开始](#快速开始) · [核心能力](#核心能力) · [Agent Harness](#agent-harness) · [系统架构](#系统架构) · [配置](#配置) · [项目结构](#项目结构) · [文档](#文档)
 
 ![Python](https://img.shields.io/badge/Python-3.12%2B-3776AB)
 ![FastAPI](https://img.shields.io/badge/FastAPI-0.116%2B-009688)
@@ -24,9 +24,11 @@ GerClaw 把健康对话、CGA 老年综合评估、五大处方、用药审查�
 
 ## 为什么选择 GerClaw？
 
-- **多模态且可追溯**：文本、语音、PDF、Word、Markdown 与图片进入同一对话；图片和上传资料拥有 evidence ID，并进入受控 Trace。
-- **面向真实医疗工作流**：五大处方不是静态表单，而是最多 5 轮的信息补齐、证据检索、严格结构输出、规则审查和人工复核流程。
+- **多模态且可追溯**：文本、语音、图片、PDF、Word 与 Markdown 进入同一对话；图片和上传资料拥有 evidence ID，并进入受控 Trace。
+- **面向真实医疗工作流**：五大处方不是静态表单，而是最多 5 轮的信息补齐、证据检索、严格结构输出、规则审查和医生审核修订流程；模型初稿与医生修订版独立版本化保留，原始 AI 草稿不可变（SHA-256）。
 - **AgentScope 原生能力**：使用 AgentScope 2.0.4 组织 Agent、Memory、RAG、Skill、工具调用与流式事件，不维护第二套简化 Agent 框架。
+- **Agent Harness 核心运行边界**：每轮创建隔离的 AgentState，由 Harness 统一组装上下文、驱动 ReAct、治理证据与工具权限、执行医疗安全后处理，并以 SSE/Trace 交付可审阅终态。
+- **真实使用数据的自动采集**：执行 Trace、用户反馈（👍/👎 + 分类 + 评论）与 Bad Case（执行失败或负面反馈自动生成）由系统自动记录并加密保存，为系统评测、回归与后续演化提供数据基础。
 - **适老化交互**：患者端采用大字号、大触控区、高对比度、文字标签、可控语音播放，以及稳定不闪烁的加载状态与已执行时间。
 - **可部署、可扩展**：PostgreSQL、Redis、Qdrant、FastAPI 与 Next.js 可通过 Docker Compose 一次启动；医学知识库使用外部只读挂载，便于持续扩充。
 
@@ -37,6 +39,7 @@ GerClaw 把健康对话、CGA 老年综合评估、五大处方、用药审查�
   - [本地源码运行](#本地源码运行)
 - [开始使用](#开始使用)
 - [核心能力](#核心能力)
+- [Agent Harness](#agent-harness)
 - [系统架构](#系统架构)
 - [配置](#配置)
 - [医学知识库与 MinerU](#医学知识库与-mineru)
@@ -167,22 +170,54 @@ python3 app.py --frontend-only
 
 康复处方后端独立生成康复类型、功能评估、训练计划、辅助器具与安全注意事项。具体训练项目必须给出频次以及时长或强度；资料不足时会明确待完成的功能评估，不会用睡眠处方或普通运动建议替代。
 
+医生端可在报告面板直接编辑各处方内容，核对循证来源后点「审核通过」或「退回」；模型初稿与医生修订版分别保留，原始 AI 草稿不可变，修改内容用于改进系统。
+
 ## 核心能力
 
 | 能力 | 说明 |
 |---|---|
 | AI 健康对话 | 文本、语音、图片、文档、多轮上下文、流式输出、取消与重新生成 |
-| 五大处方 | 最多 5 轮补充、273k 文档上下文、32,768 output token、证据绑定和医生复核 |
+| Agent Harness | AgentScope ReAct、三模型 failover、Memory/RAG/Search/Skill 编排、Runtime 权限、医疗证据门、SSE、取消与重放 |
+| 五大处方 | 最多 5 轮补充、273k 文档上下文、32,768 output token、证据绑定、医生审核修订与版本化初稿 |
 | CGA | PHQ-9、SAS、PSQI、Mini-Cog、MMSE 的题目、计分、报告、导出与版本绑定音频 |
 | 用药审查 | DDI、剂量阈值、重复用药、多重用药和有限 Beers 信号，显示规则来源 |
 | Agentic RAG | Markdown 解析、章节切分、Dense + Sparse Hybrid Retrieval、RRF、Rerank 与引用定位 |
-| Memory | 账户或游客会话范围内的健康事实提取、检索、版本和生命周期管理 |
-| Skill | Markdown/ZIP 导入、自然语言生成、迭代、审阅、注册和会话级加载 |
+| Memory | 账户或匿名主体范围内的加密健康事实提取、跨会话检索、版本和生命周期管理 |
+| Skill | Markdown/ZIP 导入、自然语言生成、迭代、审阅、注册和会话级加载；低风险技能在线演化，高风险技能走离线治理 |
 | MinerU | PDF 等病例资料解析为 Markdown，进入当前患者上下文与证据链，不写入公共知识库 |
-| ASR / TTS | MiMo 语音识别、合成、预录量表音频、播放协调与降级提示 |
+| ASR / TTS | MiMo 语音识别与合成、预录量表音频、播放协调；外部语音服务不可用时返回稳定错误码，前端如实降级提示 |
 | 联网搜索 | AnySearch 主通道、Tavily 备用通道，结果经过结构校验并形成 evidence ID |
 | 文档工作台 | 单页单栏实时编辑与实时渲染，支持 Markdown、PDF、DOCX 导出 |
-| Trace / Bad Case | 请求、模型、工具、图片、证据、反馈和失败分类的可追踪记录 |
+| 隐私与脱敏 | 敏感正文加密存储、外发前脱敏、数据分类与最小披露边界 |
+| 反馈 / Trace / Bad Case | 执行 Trace、👍/👎 反馈与失败分类可追踪；执行失败或负面反馈自动生成 Bad Case，管理端可分诊 |
+
+## Agent Harness
+
+GerClaw 的核心运行单元是 Agent Harness，而不是直接把用户消息发送给 LLM。每轮请求由服务端创建隔离的 AgentScope `AgentState`，然后依次经过：
+
+```text
+ChatTurnCoordinator
+  → ProductionAgentHarness
+  → AgentScope Agent + ReActConfig
+  → MemoryMiddleware / RAGMiddleware / Search / Skill
+  → GovernedToolRegistry + PermissionEngine
+  → Model Router + 医疗安全后处理
+  → SSE / Trace / PostgreSQL 终态
+```
+
+主要设计效果：
+
+- 上下文、租户、主体和会话隔离，避免进程内用户串线；
+- 医疗输入默认 local-first 检索，无证据时不凭模型记忆伪造个体化建议；
+- 工具调用必须经过服务端 schema、scope、role、患者归属、超时和预算校验；
+- 模型只在尚未产生可见内容时 fallback，部分输出断流时 fail closed；
+- SSE 只展示安全的 reasoning summary、工具状态、引用和文本增量，不暴露原始 Chain-of-Thought；
+- 红旗症状在模型调用前短路，医疗输出统一执行诊断措辞防护和免责声明；
+- Trace、session lease、fencing、取消和 completed replay 保证一次 turn 只有一个可靠终态。
+
+当前主路径是“单 Agent ReAct + 受治理 Middleware/Tools”，不是已完成的多智能体临床复核系统。CGA、陪伴和处方通过服务端 Workflow Registry 约束能力范围；其中陪伴 workflow 禁用医疗 Memory/RAG/Search/Skill/上传上下文，CGA 禁用联网搜索，处方保持证据绑定和审核优先。
+
+完整的组件设计、设计原因、实际效果、上下文压缩、Memory、RAG、安全边界和后续缺口见 [Agent Harness 架构与安全边界](docs/AGENT_HARNESS.md)。
 
 ## 系统架构
 
@@ -191,15 +226,19 @@ Browser
   └─ Next.js Web + server-only BFF
        └─ FastAPI API
             ├─ AgentScope Runtime / Harness
+            │    ├─ ProductionAgentHarness（每轮隔离 AgentState）
             │    ├─ Model Router（主模型 + 两级备用）
-            │    ├─ Memory / Skill / Tool / Workflow
-            │    └─ RAG / Search / Voice / MinerU
+            │    ├─ Memory / RAG / Search / Skill Middleware/Tools
+            │    ├─ Runtime Permission / Budget / HITL
+            │    └─ SSE / Trace / Lease / Fencing / Replay
             ├─ PostgreSQL（账户、会话、临床产物、Trace）
             ├─ Redis（限流、lease、取消与短期状态）
             └─ Qdrant（医学知识向量与 PHI-free Memory reference）
 ```
 
 前端只通过同源 BFF 访问后端和外部 Provider；模型、搜索、语音、Embedding、Rerank 与 MinerU 密钥不会进入浏览器 bundle。Agent 输出、工具参数、RAG 证据、流式事件和 API 响应均在边界处执行 Pydantic 或 Zod 结构校验。
+
+上下文不是共享的全局缓存：加密 PostgreSQL 保存消息、画像和压缩摘要，Redis 负责 lease/限流/取消，Qdrant 只保存医学知识向量和无 PHI 的 Memory reference；每轮 AgentState 从这些事实源重新组装。当前尚未实现 Provider-side Prompt Cache。
 
 更完整的模块边界、数据流、部署拓扑和扩展策略见 [ARCHITECTURE.md](ARCHITECTURE.md)。
 
@@ -222,11 +261,13 @@ python3 scripts/check-root-env.py
 | 应用与端口 | `GERCLAW_APP_ENV`、`WEB_PORT`、`API_PORT`、`GERCLAW_API_URL` |
 | 身份与加密 | `GERCLAW_AUTH_JWT_SECRET`、`GERCLAW_GUEST_IDENTITY_SECRET`、`GERCLAW_DATA_ENCRYPTION_KEY` |
 | Agent 模型链 | `AGENT_PRIMARY_*`、`AGENT_BACKUP1_*`、`AGENT_BACKUP2_*` |
+| Agent 运行参数 | `GERCLAW_AGENT_*`（路由、证据、上下文预算、ReAct 上限、运行恢复） |
 | RAG | `SILICONFLOW_*`、`EMBEDDING_MODEL`、`RERANK_MODEL`、`GERCLAW_RAG_*` |
 | 搜索 | `ANYSEARCH_*`、`TAVILY_*` |
 | 语音 | `MIMO_*`、`ASR_MODEL`、`TTS_MODEL`、`TTS_VOICE` |
 | MinerU | `MINERU_URL`、`MINERU_API_KEY`、`MINERU_ALLOWED_HOSTS` |
 | 外挂知识库 | `GERCLAW_KNOWLEDGE_BASE_HOST_PATH`、`GERCLAW_KNOWLEDGE_BASE_PATH` |
+| 演化信号 | `GERCLAW_EVOLUTION_SIGNAL_*`（HMAC 密钥、采集并发与超时） |
 
 ### API 与密钥获取入口
 
@@ -244,7 +285,7 @@ python3 scripts/check-root-env.py
 
 ## 医学知识库与 MinerU
 
-仓库随附 `knowledge-base/md/` 初始医学语料。新用户从 `.env.example` 创建配置后，无需另行准备文档即可构建 RAG 索引：
+仓库随附 `knowledge-base/md/` 初始医学语料，覆盖跌倒、衰弱、谵妄、肌少症、睡眠障碍等 18 个老年科高频主题。新用户从 `.env.example` 创建配置后，无需另行准备文档即可构建 RAG 索引：
 
 ```dotenv
 GERCLAW_KNOWLEDGE_BASE_HOST_PATH=./knowledge-base/md
@@ -290,14 +331,16 @@ gerclaw-main-codex/
 ├── requirements.txt                     pip 后端运行依赖与本地 API 包安装入口
 ├── requirements-dev.txt                 pip 测试、类型与代码质量依赖
 ├── app.py                               本地 API/Web/迁移/RAG 索引统一入口
+├── start.sh                             本地开发一键启动脚本（Docker 检查与命令入口）
 ├── docker.sh                            Docker 初始化、启停、索引、日志和测试入口
 ├── docker-compose.yml                   生产编排与运维任务
 ├── docker-compose.dev.yml               本地数据服务端口映射
 ├── README.md                            产品与使用说明
 ├── ARCHITECTURE.md                      系统架构与模块边界
+├── AGENTS.md                            开发者代理操作规则与读取顺序
 ├── knowledge-base/
 │   ├── README.md                        初始语料使用与扩展说明
-│   └── md/                              按医学主题组织的 Markdown 知识库
+│   └── md/                              按医学主题组织的 Markdown 知识库（18 个老年科主题）
 ├── apps/
 │   ├── api/                             FastAPI + AgentScope 后端
 │   │   ├── Dockerfile                   production/test 多阶段 Python 镜像
@@ -315,13 +358,16 @@ gerclaw-main-codex/
 │   │       ├── config.py                根环境配置与 Provider 能力校验
 │   │       ├── auth.py                  JWT、角色、账户和游客身份
 │   │       ├── encryption.py            临床数据字段级加密
+│   │       ├── security.py              安全原语与边界
+│   │       ├── context.py / context_capacity.py  上下文预算与容量控制
+│   │       ├── metrics.py / logging.py  运行指标与日志边界
 │   │       ├── middleware.py            请求边界、限流、Trace 与错误处理
 │   │       ├── api/routes/              Chat、Auth、CGA、处方、RAG、Skill、Voice 路由
 │   │       ├── database/                SQLAlchemy 模型与异步会话
 │   │       ├── repositories/            账户、会话、处方、Memory、Trace 数据访问
 │   │       ├── services/                Chat、CGA、模型路由、处方与审计应用服务
 │   │       └── modules/
-│   │           ├── agent_harness/        Agent 执行、证据与输出治理
+│   │           ├── agent_harness/        Agent 执行、证据与输出治理（含 routing/planning/evidence/evolution）
 │   │           ├── runtime/              注册、权限、预算、版本和工具契约
 │   │           ├── orchestration/        对话协调与状态推进
 │   │           ├── workflows/            医疗工作流注册与 profile
@@ -337,7 +383,9 @@ gerclaw-main-codex/
 │   │           ├── search/               AnySearch/Tavily、证据与降级
 │   │           ├── chronic_care/         慢病记录与随访结构
 │   │           ├── risk_alert/           风险信号与状态管理
-│   │           ├── observability_feedback/ Trace、反馈与 Bad Case
+│   │           ├── privacy_redaction/    统一隐私脱敏与数据分类
+│   │           ├── security_evaluation/  运行时安全评测基线
+│   │           ├── observability_feedback/ Trace、反馈与 Bad Case 聚合
 │   │           ├── validation/           版本化结构校验
 │   │           ├── consent/              授权数据结构
 │   │           ├── identity/             账户密码能力
@@ -350,17 +398,24 @@ gerclaw-main-codex/
 │       ├── next.config.ts                根配置加载与公开变量白名单
 │       ├── public/audio/cga/              版本绑定的量表预录音频与 manifest
 │       ├── scripts/                      根配置启动与量表音频生成脚本
+│       ├── e2e/                          Playwright 端到端测试
 │       └── src/
 │           ├── app/                      页面入口和同源 API Routes
 │           ├── components/
-│           │   ├── account/role/layout/  登录、角色工作台与三栏布局
-│           │   ├── chat/voice/           多模态对话、流式状态与播放控制
+│           │   ├── account/              登录、注册、角色账户与管理员仪表盘
+│           │   ├── chat/                 对话工作台、消息操作与反馈（👍/👎 + 评论）
+│           │   ├── artifact/             产物工作台与导出
 │           │   ├── prescription/         五大处方补充对话、报告与医生复核
-│           │   ├── cga/drug-review/      CGA 和用药审查界面
-│           │   ├── editor/document/      实时编辑渲染与文件预览
-│           │   ├── skills/search/health/ Skill、搜索与健康画像
+│           │   ├── cga/                  CGA 评估界面
+│           │   ├── chronic/              慢病账本
+│           │   ├── consent/              患者授权
+│           │   ├── risk-alert/           风险警报
+│           │   ├── document/editor/      文档工作台与实时编辑渲染
+│           │   ├── skills/               Skill 列表与生成
+│           │   ├── search/health/        Web 搜索与健康画像
 │           │   ├── settings/help/        模型配置与角色分离教程
-│           │   └── ui/runtime/           无障碍组件、加载状态与执行时间线
+│           │   ├── layout/runtime/       工作台布局与运行时状态
+│           │   └── ui/                   无障碍组件、加载状态与执行时间线
 │           ├── server/                   BFF 地址、游客身份与服务端访问
 │           ├── services/                 API client、Zod schema、导出与 Provider 适配
 │           ├── stores/                   会话与界面状态
@@ -368,36 +423,43 @@ gerclaw-main-codex/
 │           ├── hooks/                    交互与数据 hooks
 │           ├── lib/                      Markdown、导出、语音与共享工具
 │           ├── generated/                CGA 音频版本 manifest
-│           ├── styles/                   全局视觉样式
-│           ├── types/                    前端 TypeScript 类型
-│           └── config/                   前端模型与显示配置
+│           └── types/                    前端 TypeScript 类型
 ├── docs/
 │   ├── references/                       产品设计要求与五大处方模板
 │   ├── product-specs/                    各业务功能产品契约
 │   ├── design-docs/                      核心原则与技术设计
 │   ├── exec-plans/                       版本化执行计划
 │   ├── PRD.md                            产品需求基线
+│   ├── AGENT_HARNESS.md                  Agent Harness 组件、上下文、Memory、RAG 与安全边界
 │   ├── FRONTEND.md                       前端工程与交互规范
 │   ├── DESIGN.md                         视觉设计规范
 │   ├── SECURITY.md                       安全与医疗输出边界
 │   ├── RELIABILITY.md                    超时、重试与降级规范
-│   └── QUALITY_SCORE.md                  质量评价维度
+│   ├── PRODUCT_SENSE.md                  产品直觉与好坏判断
+│   ├── DEVELOPMENT_HARNESS.md            开发运行时与测试基建
+│   ├── SYSTEM_DESIGN_SPEC.md             系统设计规格
+│   └── SUPPLY_CHAIN.md                   供应链安全基线
 └── scripts/
     ├── check-root-env.py                 根环境配置一致性检查
     ├── docker-smoke.sh                   隔离 Docker 启动检查
     ├── quality-gate.sh                   测试、迁移与 E2E 命令入口
+    ├── verify-docs.py                    文档与实现一致性检查
     └── generate_runtime_sbom.py          运行镜像 SBOM 生成
 ```
 
 ## 文档
 
 - [系统架构](ARCHITECTURE.md)
+- [Agent Harness 架构与安全边界](docs/AGENT_HARNESS.md)
 - [产品需求](docs/PRD.md)
+- [产品直觉](docs/PRODUCT_SENSE.md)
 - [前端规范](docs/FRONTEND.md)
 - [视觉设计](docs/DESIGN.md)
 - [安全边界](docs/SECURITY.md)
 - [可靠性](docs/RELIABILITY.md)
-- [质量标准](docs/QUALITY_SCORE.md)
+- [供应链安全](docs/SUPPLY_CHAIN.md)
+- [开发运行时与测试基建](docs/DEVELOPMENT_HARNESS.md)
+- [系统设计规格](docs/SYSTEM_DESIGN_SPEC.md)
 - [五大处方产品规格](docs/product-specs/五大处方.md)
 
 ## 医疗使用边界
