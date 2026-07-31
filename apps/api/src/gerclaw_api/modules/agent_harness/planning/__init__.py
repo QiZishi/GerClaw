@@ -5,6 +5,9 @@ from gerclaw_api.modules.agent_harness.planning.agent_factory import (
     AgentFactory,
     ProductionAgentFactory,
 )
+from gerclaw_api.modules.agent_harness.planning.answer_presentation import (
+    answer_presentation_contract,
+)
 from gerclaw_api.modules.agent_harness.planning.clarification import (
     emit_deterministic_clarification,
 )
@@ -76,6 +79,7 @@ __all__ = [
     "TurnClinicalDecision",
     "TurnExecutionGovernance",
     "TurnPlanningCoordinator",
+    "answer_presentation_contract",
     "approximate_input_tokens",
     "emit_deterministic_clarification",
     "requests_report",

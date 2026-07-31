@@ -30,6 +30,7 @@ from gerclaw_api.modules.agent_harness.planning import (
     PlanRequest,
     SAVIActionSelector,
     TurnExecutionGovernance,
+    answer_presentation_contract,
     validate_plan_execution_transition,
 )
 from gerclaw_api.modules.agent_harness.routing import RouteKind
@@ -64,6 +65,22 @@ def _reported_state(*, unknowns: tuple[str, ...] = ()) -> ClinicalState:
         ),
         unknowns=unknowns,
     )
+
+
+def test_explicit_list_request_builds_concise_reader_contract() -> None:
+    contract = answer_presentation_contract(
+        "请改成给家属看的三点清单, 并保留什么时候需要及时就医。"
+    )
+
+    assert contract is not None
+    assert "只输出 3 个编号顶层条目" in contract
+    assert "不超过 600 个中文字符" in contract
+    assert "家属容易扫读和照做" in contract
+    assert "不要把用户已明确否认的症状" in contract
+
+
+def test_answer_presentation_contract_does_not_reformat_open_questions() -> None:
+    assert answer_presentation_contract("请解释最近两周起身头晕可能要记录什么。") is None
 
 
 def test_dynamic_plan_changes_with_route_attachments_and_capabilities() -> None:
