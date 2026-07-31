@@ -134,11 +134,7 @@ class SkillOfflineActivator:
                 return SkillActivationOutcome(
                     status="stale",
                     proposal_id=str(proposal.id),
-                    revision=(
-                        record.revision
-                        if record is not None
-                        else proposal.base_revision
-                    ),
+                    revision=(record.revision if record is not None else proposal.base_revision),
                     artifact_sha256=artifact_sha256,
                 )
             candidate = self._validated_candidate(proposal)
@@ -191,9 +187,7 @@ class SkillOfflineActivator:
             authorization.payload.governance_manifest_sha256,
             governance_manifest_digest(),
         ):
-            raise SkillEvolutionControlConflictError(
-                "SKILL_ACTIVATION_GOVERNANCE_MANIFEST_CHANGED"
-            )
+            raise SkillEvolutionControlConflictError("SKILL_ACTIVATION_GOVERNANCE_MANIFEST_CHANGED")
         now = self._clock.now()
         if now.tzinfo is None:
             raise SkillEvolutionControlConflictError("SKILL_ACTIVATION_CLOCK_INVALID")

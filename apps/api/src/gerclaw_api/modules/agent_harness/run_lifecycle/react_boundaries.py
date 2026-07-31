@@ -54,9 +54,7 @@ _PROTECTED_CONTEXT_NAMES = frozenset(
 
 
 def _message_text(message: Msg) -> str:
-    return "\n".join(
-        block.text for block in message.get_content_blocks("text") if block.text
-    )
+    return "\n".join(block.text for block in message.get_content_blocks("text") if block.text)
 
 
 def _context_projection(agent: Any) -> tuple[tuple[str, ...], tuple[str, ...], str]:
@@ -99,16 +97,10 @@ def _deterministic_extractive_fallback(
     if not context:
         return
     protected_indices = {
-        index
-        for index, message in enumerate(context)
-        if message.name in _PROTECTED_CONTEXT_NAMES
+        index for index, message in enumerate(context) if message.name in _PROTECTED_CONTEXT_NAMES
     }
     newest_user_index = next(
-        (
-            index
-            for index in range(len(context) - 1, -1, -1)
-            if context[index].role == "user"
-        ),
+        (index for index in range(len(context) - 1, -1, -1) if context[index].role == "user"),
         None,
     )
     if newest_user_index is not None:
@@ -119,8 +111,7 @@ def _deterministic_extractive_fallback(
     target_tokens = max(1, int(context_size * trigger_ratio) - required_tokens)
     selected = set(protected_indices)
     selected_tokens = sum(
-        estimate_context_tokens(_message_text(context[index]))
-        for index in selected
+        estimate_context_tokens(_message_text(context[index])) for index in selected
     )
     for index in range(len(context) - 1, -1, -1):
         if index in selected:
@@ -130,9 +121,7 @@ def _deterministic_extractive_fallback(
             continue
         selected.add(index)
         selected_tokens += item_tokens
-    agent.state.context = [
-        message for index, message in enumerate(context) if index in selected
-    ]
+    agent.state.context = [message for index, message in enumerate(context) if index in selected]
 
 
 async def prepare_react_context(
@@ -154,11 +143,7 @@ async def prepare_react_context(
     required_tokens = estimate_context_tokens(*extra_text_values) + reserved_tokens
     marker = None
     if extra_text_values or reserved_tokens:
-        reserve_marker = (
-            ""
-            if reserved_tokens <= 0
-            else "\n" + ("x " * reserved_tokens)
-        )
+        reserve_marker = "" if reserved_tokens <= 0 else "\n" + ("x " * reserved_tokens)
         marker = UserMsg(
             name="context_capacity_reserve",
             content="\n\n".join(extra_text_values) + reserve_marker,
@@ -172,9 +157,7 @@ async def prepare_react_context(
     except Exception:
         compression_failed = True
         if marker is not None:
-            agent.state.context = [
-                item for item in agent.state.context if item is not marker
-            ]
+            agent.state.context = [item for item in agent.state.context if item is not marker]
             marker = None
         _deterministic_extractive_fallback(
             agent,

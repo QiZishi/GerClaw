@@ -117,9 +117,7 @@ class AgentRunService:
             raise RunFenceConflictError("agent run context boundary fence is stale")
         if AgentRunStatus(run.status) in RUN_EVENT_CLOSED_STATUSES:
             await self._repository.rollback()
-            raise RunTerminalConflictError(
-                "closed agent run cannot accept context boundaries"
-            )
+            raise RunTerminalConflictError("closed agent run cannot accept context boundaries")
         previous = await self._repository.latest_context_boundary(run.id)
         sequence = 1 if previous is None else previous.sequence + 1
         payload = {

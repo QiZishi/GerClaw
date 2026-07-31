@@ -11,6 +11,7 @@ from types import SimpleNamespace
 import pytest
 from cryptography.hazmat.primitives import serialization
 from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
+from cryptography.hazmat.primitives.asymmetric.x25519 import X25519PrivateKey
 from httpx import AsyncClient
 from sqlalchemy import func, select
 
@@ -29,6 +30,11 @@ from gerclaw_api.modules.skill.models import SkillDefinition
 from gerclaw_api.modules.skill.offline_activation import (
     SkillActivationVerificationKey,
     SkillOfflineActivator,
+)
+from gerclaw_api.modules.skill.offline_bridge import (
+    SkillProposalExporter,
+    SkillProposalExporterKey,
+    SkillProposalRecipientKey,
 )
 from gerclaw_api.modules.skill.offline_contracts import (
     SkillActivationAuthorization,
@@ -210,9 +216,7 @@ def _authorization(
         candidate_revision=proposal.candidate_revision,
         base_content_sha256=proposal.base_content_hash,
         candidate_content_sha256=proposal.candidate_content_hash,
-        governance_manifest_sha256=(
-            governance_manifest_sha256 or governance_manifest_digest()
-        ),
+        governance_manifest_sha256=(governance_manifest_sha256 or governance_manifest_digest()),
         frozen_manifest_sha256="1" * 64,
         paired_report_sha256="2" * 64,
         sealed_attestation_sha256="3" * 64,
@@ -253,6 +257,99 @@ def _verification_key() -> SkillActivationVerificationKey:
         public_key=public_key,
         active=True,
     )
+
+
+@pytest.mark.asyncio
+async def test_dangerous_skill_export_is_encrypted_signed_and_ledgered() -> None:
+    proposal, record = _proposal_and_record()
+    repository = _Repository(proposal, record)
+    recipient_private = X25519PrivateKey.from_private_bytes(b"r" * 32)
+    recipient_public = recipient_private.public_key().public_bytes(
+        encoding=serialization.Encoding.Raw,
+        format=serialization.PublicFormat.Raw,
+    )
+    exporter = SkillProposalExporter(
+        repository,  # type: ignore[arg-type]
+        exporter_key=SkillProposalExporterKey(
+            key_id="api.skill-export",
+            private_key_seed=b"e" * 32,
+        ),
+        owner_binding_secret=b"o" * 32,
+        allowed_tools=_ALLOWED_TOOLS,
+    )
+
+    envelope = await exporter.export(
+        proposal.id,
+        recipient=SkillProposalRecipientKey(
+            key_id="controller.skill-review",
+            public_key=recipient_public,
+        ),
+    )
+
+    assert envelope.exporter_key_id == "api.skill-export"
+    assert envelope.recipient_key_id == "controller.skill-review"
+    assert len(envelope.exporter_signature) == 128
+    assert "用药复诊准备" not in envelope.model_dump_json()
+    assert [item.event_type for item in repository.events] == ["exported"]
+    assert repository.events[0].artifact_sha256 is not None
+
+
+@pytest.mark.asyncio
+async def test_dangerous_skill_export_rejects_stale_or_reclassified_candidate() -> None:
+    proposal, record = _proposal_and_record()
+    recipient_private = X25519PrivateKey.from_private_bytes(b"r" * 32)
+    recipient = SkillProposalRecipientKey(
+        key_id="controller.skill-review",
+        public_key=recipient_private.public_key().public_bytes(
+            encoding=serialization.Encoding.Raw,
+            format=serialization.PublicFormat.Raw,
+        ),
+    )
+
+    stale_repository = _Repository(proposal, record)
+    record.revision = 2
+    with pytest.raises(
+        SkillEvolutionControlConflictError,
+        match="SKILL_PROPOSAL_IDENTITY_STALE",
+    ):
+        await SkillProposalExporter(
+            stale_repository,  # type: ignore[arg-type]
+            exporter_key=SkillProposalExporterKey(
+                key_id="api.skill-export",
+                private_key_seed=b"e" * 32,
+            ),
+            owner_binding_secret=b"o" * 32,
+            allowed_tools=_ALLOWED_TOOLS,
+        ).export(proposal.id, recipient=recipient)
+
+    changed_proposal, changed_record = _proposal_and_record()
+    changed_proposal.reason_codes = ["SKILL_TOOL_PERMISSION_CHANGED"]
+    with pytest.raises(
+        SkillEvolutionControlConflictError,
+        match="SKILL_PROPOSAL_POLICY_MISMATCH",
+    ):
+        await SkillProposalExporter(
+            _Repository(changed_proposal, changed_record),  # type: ignore[arg-type]
+            exporter_key=SkillProposalExporterKey(
+                key_id="api.skill-export",
+                private_key_seed=b"e" * 32,
+            ),
+            owner_binding_secret=b"o" * 32,
+            allowed_tools=_ALLOWED_TOOLS,
+        ).export(changed_proposal.id, recipient=recipient)
+
+
+def test_dangerous_skill_export_key_material_has_exact_boundaries() -> None:
+    with pytest.raises(ValueError, match="signing seed"):
+        SkillProposalExporterKey(
+            key_id="api.skill-export",
+            private_key_seed=b"short",
+        )
+    with pytest.raises(ValueError, match="recipient public key"):
+        SkillProposalRecipientKey(
+            key_id="controller.skill-review",
+            public_key=b"short",
+        )
 
 
 @pytest.mark.asyncio

@@ -532,9 +532,7 @@ class _RunJournal:
         del tenant_id, actor_id
         assert run_id == self.run_id
         assert fencing_token == 17
-        self.context_boundaries.append(
-            (boundary_kind, model_call_count, draft)
-        )
+        self.context_boundaries.append((boundary_kind, model_call_count, draft))
         return object()
 
     async def update_plan_execution(

@@ -38,28 +38,20 @@ def upgrade() -> None:
         ),
         sa.CheckConstraint(
             "boundary_kind IN ('before-model','before-tool')",
-            name=op.f(
-                "ck_agent_run_context_boundaries_valid_context_boundary_kind"
-            ),
+            name=op.f("ck_agent_run_context_boundaries_valid_context_boundary_kind"),
         ),
         sa.CheckConstraint(
             "fencing_token > 0",
-            name=op.f(
-                "ck_agent_run_context_boundaries_positive_context_boundary_fence"
-            ),
+            name=op.f("ck_agent_run_context_boundaries_positive_context_boundary_fence"),
         ),
         sa.CheckConstraint(
             "sequence > 0",
-            name=op.f(
-                "ck_agent_run_context_boundaries_positive_context_boundary_sequence"
-            ),
+            name=op.f("ck_agent_run_context_boundaries_positive_context_boundary_sequence"),
         ),
         sa.ForeignKeyConstraint(
             ["run_id"],
             ["agent_runs.id"],
-            name=op.f(
-                "fk_agent_run_context_boundaries_run_id_agent_runs"
-            ),
+            name=op.f("fk_agent_run_context_boundaries_run_id_agent_runs"),
             ondelete="CASCADE",
         ),
         sa.PrimaryKeyConstraint(

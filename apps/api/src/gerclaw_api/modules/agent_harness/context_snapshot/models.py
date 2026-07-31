@@ -207,8 +207,7 @@ class ContextBoundaryDraft(BaseModel):
             or retained & omitted
             or retained | omitted != source
             or any(
-                len(value) != 64
-                or any(character not in "0123456789abcdef" for character in value)
+                len(value) != 64 or any(character not in "0123456789abcdef" for character in value)
                 for value in self.required_input_hashes
             )
         ):
