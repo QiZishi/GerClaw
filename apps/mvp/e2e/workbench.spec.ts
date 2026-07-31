@@ -155,10 +155,23 @@ test("provider protocol markup never reaches the visible answer", async ({
   test.setTimeout(90_000);
   await page.setViewportSize({ width: 1440, height: 1000 });
   const consoleErrors: string[] = [];
+  let ttsUnavailableResponses = 0;
   page.on("console", (message) => {
     if (message.type() === "error") consoleErrors.push(message.text());
   });
+  page.on("response", (response) => {
+    if (
+      response.status() === 503 &&
+      response.url().endsWith("/api/gerclaw/voice/tts")
+    ) {
+      ttsUnavailableResponses += 1;
+    }
+  });
   await enterGuestWorkspace(page);
+  const assistantBubbles = page.locator(
+    '[data-message-bubble][data-message-role="assistant"]',
+  );
+  const assistantCountBefore = await assistantBubbles.count();
   const input = page.getByRole("textbox", {
     name: "请描述您想咨询的健康问题…",
   });
@@ -178,19 +191,29 @@ test("provider protocol markup never reaches the visible answer", async ({
       /<invoke|<parameter|<tool_call|未通过最终安全校验|正在修复|内部错误/,
     ),
   ).toHaveCount(0);
+  await expect(assistantBubbles).toHaveCount(assistantCountBefore + 1);
+  const answer = await assistantBubbles.last().innerText();
+  expect(answer.trim().length).toBeGreaterThan(20);
+  expect(answer).not.toMatch(
+    /trace[_\s-]?id|CHAT_[A-Z_]+|provider|checkpoint|schema|内部错误|正在修复/i,
+  );
   const helpful = page.getByRole("button", { name: "有帮助" });
-  if ((await helpful.count()) > 0) {
-    await expect(helpful).toBeVisible();
-  } else {
-    await expect(page.locator("[data-message-bubble]")).toHaveCount(1);
-    await expect(page.getByRole("button", { name: "语音输入" })).toBeEnabled();
-  }
+  await expect(helpful).toBeVisible();
   await expectNoBlockingAxeViolations(page);
   await page.screenshot({
     path: "output/playwright/stage6-output-repair/desktop.png",
     fullPage: true,
   });
-  expect(consoleErrors).toEqual([]);
+  expect(ttsUnavailableResponses).toBeLessThanOrEqual(1);
+  expect(
+    consoleErrors.filter(
+      (message) =>
+        !(
+          ttsUnavailableResponses > 0 &&
+          /Failed to load resource:.*503/.test(message)
+        ),
+    ),
+  ).toEqual([]);
 });
 
 test("a Run in another conversation does not take over the current Composer", async ({
