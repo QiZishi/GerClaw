@@ -224,13 +224,17 @@ class HumanApprovalVerifier:
         attestation_verifier: SealedAttestationVerifier,
         clock: ApprovalClock | None = None,
         max_future_skew: timedelta = timedelta(minutes=2),
+        max_approval_age: timedelta = timedelta(hours=24),
     ) -> None:
         if not records or len({record.key_id for record in records}) != len(records):
             raise CandidateControlError("EVOLUTION_APPROVAL_KEYRING_INVALID")
+        if max_approval_age <= timedelta(0):
+            raise CandidateControlError("EVOLUTION_APPROVAL_POLICY_INVALID")
         self._records = MappingProxyType({record.key_id: record for record in records})
         self._attestation_verifier = attestation_verifier
         self._clock = clock or SystemApprovalClock()
         self._max_future_skew = max_future_skew
+        self._max_approval_age = max_approval_age
 
     def verify(
         self,
@@ -267,14 +271,17 @@ class HumanApprovalVerifier:
             or payload.sealed_attestation_sha256 != attestation_digest(sealed_attestation)
         ):
             raise CandidateControlError("EVOLUTION_APPROVAL_IDENTITY_MISMATCH")
+        trusted_now = _trusted_now(self._clock)
         _assert_time_order(
             frozen,
             report,
             sealed_payload,
             approved_at=payload.approved_at,
-            trusted_now=_trusted_now(self._clock),
+            trusted_now=trusted_now,
             max_future_skew=self._max_future_skew,
         )
+        if trusted_now - payload.approved_at > self._max_approval_age:
+            raise CandidateControlError("EVOLUTION_HUMAN_APPROVAL_EXPIRED")
         return payload
 
     def _record(self, key_id: str) -> ApprovalVerificationKeyRecord:

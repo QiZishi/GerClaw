@@ -36,7 +36,7 @@ Memory/Skill 的治理机制。
 | 3 | ClinicalState、动态规划与医疗门禁 | 已完成：四轮独立审阅修复、真实 GUI 与最终 ACCEPT |
 | 4 | 证据、Memory 与受治理能力组合 | 已完成：三项 P1 修复、真实 GUI/数据库复验、最终独立复审 ACCEPT |
 | 5 | 对话工作台 UI 与交互重构 | 已完成：独立审阅 3 项 P1 修复，真实 Playwright/axe 复验，最终 ACCEPT |
-| 6 | 双轨受控自进化与执行期上下文治理 | 进行中：在线 Memory/低风险 Skill、steer/queue、PlanNode、私有 step repair、逐 ReAct 压缩 lineage 与危险 Skill 加密离线桥接已落地；逐 ReAct 第二轮复审新增 3 项 P1 已整改，等待复审；离线 Skill 终审并行复验中 |
+| 6 | 双轨受控自进化与执行期上下文治理 | 进行中：Memory、steer/queue、PlanNode、私有 step repair 与逐 ReAct 上下文治理已通过独立复审；离线 Skill 终审发现普通写入口绕轨和批准 freshness 两项 P1，正在分提交整改 |
 | 7 | 最终回归、真实 GUI 对抗审阅与发布 | 已执行首轮全量回归与真实 Playwright/axe；因阶段 6 终审 REJECT 暂停归档，待 P1 修复后重跑受影响门禁和最终复审 |
 
 ## 3. 阶段 0：冻结基线与真实运行审计
@@ -1781,3 +1781,22 @@ summary/context 原子回滚均已成立，但仍以 `REJECT（P0=0、P1=1、P2=
 `23 passed`，Ruff/Mypy 通过且无新回归。两个 P2 是不参与当前恢复门禁的 boundary audit
 hash chain，以及尚未启用的 HITL/external resume 工具轮识别；继续作为显式兼容性任务，
 不影响当前普通 ReAct/steer/queue 的关闭结论。
+
+**Stage 6 双轨终审纠偏（2026-07-31）：**
+
+独立子智能体对 Memory、Skill 和隔离 operator 全链做只读复核，结论
+`REJECT（P0=0、P1=2、P2=0）`。已确认 Memory owner-scoped 在线 CRUD、乐观并发、
+revision、冲突、tombstone、删除/恢复和确认后召回均保持核心机制；proposal → public pair
+→ sealed → human → atomic activate/reject 以及生产镜像隔离也成立。两个阻断是：
+
+1. 普通 Skill register/upload/PATCH 仍可绕过 `SkillEvolutionPolicy`，把会被分类为
+   `skill.clinical + offline_review_required` 的危险自由文本直接写成 active revision；
+2. Skill 专用 `HumanApprovalVerifier → SkillActivationAuthorizer` 没有批准最大年龄，
+   365 天前但尚未消费的 proof 可以重新签发当前一小时 activation grant。
+
+批准 freshness 先作为独立控制面修复：public-key verifier 注入正数
+`max_approval_age`（默认 24 小时），在所有 release/Skill 使用者签发后续授权前统一校验；
+过期返回稳定 `EVOLUTION_HUMAN_APPROVAL_EXPIRED`。新增 365 天旧 proof 反例和非法非正窗口
+测试，Approval/Skill authorization 聚焦 `12 passed`，Evolution Ruff 与 Mypy 通过。
+普通 Skill 写入口的分类与 immutable proposal 闭环必须在下一独立提交完成，完成前 Stage 6
+仍保持 REJECT。

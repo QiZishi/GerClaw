@@ -136,6 +136,48 @@ def test_human_approval_binds_actor_track_candidate_and_all_evaluation_artifacts
     assert not hasattr(proof, "approved")
 
 
+def test_verifier_rejects_stale_approval_before_skill_authorization() -> None:
+    frozen, report, attestation, attestation_verifier = _artifacts()
+    signer, _ = _authorities(attestation_verifier, now=_NOW)
+    proof = _approve(signer, frozen, report, attestation)
+    _, stale_verifier = _authorities(
+        attestation_verifier,
+        now=_NOW + timedelta(days=365),
+    )
+
+    with pytest.raises(
+        CandidateControlError,
+        match="EVOLUTION_HUMAN_APPROVAL_EXPIRED",
+    ):
+        stale_verifier.verify(
+            proof,
+            frozen=frozen,
+            report=report,
+            sealed_attestation=attestation,
+        )
+
+
+def test_verifier_requires_positive_approval_freshness_window() -> None:
+    _, _, _, attestation_verifier = _artifacts()
+    signing_record = ApprovalSigningKeyRecord(
+        key_id="approval-key-v1",
+        private_key_seed=b"a" * 32,
+        approver_principal_id="approver.clinical-lead",
+        allowed_tracks=frozenset({"immutable"}),
+        promotion_active=True,
+    )
+
+    with pytest.raises(
+        CandidateControlError,
+        match="EVOLUTION_APPROVAL_POLICY_INVALID",
+    ):
+        HumanApprovalVerifier(
+            (signing_record.verification_record(),),
+            attestation_verifier=attestation_verifier,
+            max_approval_age=timedelta(0),
+        )
+
+
 def test_promotion_verifier_has_public_key_only_and_no_approval_api() -> None:
     _, _, _, attestation_verifier = _artifacts()
     signer, verifier = _authorities(attestation_verifier)

@@ -79,7 +79,9 @@ approve/sign operation. The API accepts neither `approved=true`, a caller-provid
 identity, nor a caller-provided timestamp. It re-verifies the sealed gate and enforces
 freeze → paired evaluation → sealed evaluation → approval ordering. Inactive keys and keys
 whose allowed tracks exclude the proposal fail closed; immutable approval therefore cannot be
-disabled by an ordinary deployment flag.
+disabled by an ordinary deployment flag. The public-key verifier also enforces a positive,
+injected approval-freshness window (24 hours by default), so an old unconsumed ticket cannot be
+reused to mint a new Skill activation grant.
 
 The final Skill activation authorization additionally signs the current governance-manifest
 digest. Production verifies it against its own manifest before loading proposal state, and
