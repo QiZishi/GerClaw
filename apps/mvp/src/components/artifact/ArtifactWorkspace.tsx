@@ -3,7 +3,12 @@
 import { AlertTriangle, Check, Copy, Loader2, RefreshCw } from "lucide-react";
 
 import { useArtifactWorkspace } from "@/components/artifact/useArtifactWorkspace";
-import { MarkdownEditor } from "@/components/editor/MarkdownEditor";
+import { RichTextArtifactEditor } from "@/components/artifact/RichTextArtifactEditor";
+import {
+  artifactMarkdownToRichHtml,
+  richHtmlToPlainText,
+  sanitizeRichHtml,
+} from "@/components/artifact/rich-text-document";
 import { ExportButton } from "@/components/prescription/ExportButton";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -49,10 +54,13 @@ function ArtifactEditor({
   const busy = workspace.status === "creating" || workspace.status === "saving";
   const saved = workspace.status === "saved";
 
-  const copyMarkdown = async () => {
+  const copyDocument = async () => {
     try {
-      await navigator.clipboard.writeText(workspace.markdown);
-      toast.show("Markdown 已复制");
+      const plainText = richHtmlToPlainText(
+        artifactMarkdownToRichHtml(workspace.markdown),
+      );
+      await navigator.clipboard.writeText(plainText);
+      toast.show("文档文字已复制");
     } catch {
       toast.show("复制失败，请手动选择文字");
     }
@@ -98,15 +106,19 @@ function ArtifactEditor({
               variant="outline"
               size="sm"
               className="gap-1.5"
-              onClick={() => void copyMarkdown()}
+              onClick={() => void copyDocument()}
               disabled={!workspace.markdown}
             >
               <Copy className="size-4" />
-              复制
+              复制文档
             </Button>
             <ExportButton
               title={workspace.title.trim() || "GerClaw 文档"}
               content={workspace.markdown}
+              renderedHtml={sanitizeRichHtml(
+                artifactMarkdownToRichHtml(workspace.markdown),
+              )}
+              formats={["docx", "pdf", "png", "jpg", "html"]}
               variant="dropdown"
             />
           </div>
@@ -137,12 +149,11 @@ function ArtifactEditor({
         )}
       </div>
 
-      <MarkdownEditor
+      <RichTextArtifactEditor
         value={workspace.markdown}
         onChange={workspace.setMarkdown}
         className="min-h-0 flex-1"
         seniorMode={isSeniorPatient}
-        autoFocus={false}
       />
     </div>
   );

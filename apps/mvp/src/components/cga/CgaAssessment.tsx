@@ -5,7 +5,7 @@ import { AlertTriangle, ArrowLeft, CheckCircle2, ClipboardList, Download, FileTe
 import { Button } from "@/components/ui/button";
 import { InlineLoadingState } from "@/components/ui/inline-loading-state";
 import { cn } from "@/lib/utils";
-import { exportToDocx, exportToMarkdown, exportToPdf } from "@/lib/export";
+import { exportToDocx, exportToHtml, exportToPdf } from "@/lib/export";
 import { recordedCgaOptionAudio, recordedCgaQuestionAudio } from "@/lib/cga-audio";
 import { useAudioPlayer } from "@/hooks/useAudioPlayer";
 import { useAppStore } from "@/stores/appStore";
@@ -146,7 +146,7 @@ export function CgaAssessment({ onExit }: CgaAssessmentProps) {
   const [manualInput, setManualInput] = useState("");
   const [selectedOrdinalScore, setSelectedOrdinalScore] = useState<number | null>(null);
   const [supplementalDetail, setSupplementalDetail] = useState("");
-  const [exportingFormat, setExportingFormat] = useState<"markdown" | "docx" | "pdf" | null>(null);
+  const [exportingFormat, setExportingFormat] = useState<"html" | "docx" | "pdf" | null>(null);
   const autoReadQuestionKeyRef = useRef<string | null>(null);
   const reportExportRef = useRef<HTMLDivElement | null>(null);
   const {
@@ -378,21 +378,21 @@ export function CgaAssessment({ onExit }: CgaAssessmentProps) {
     void begin(selectedScale, { restart: true });
   };
 
-  const exportReport = async (format: "markdown" | "docx" | "pdf") => {
+  const exportReport = async (format: "html" | "docx" | "pdf") => {
     if (!report || !selectedScale) return;
     setExportingFormat(format);
     const title = buildCgaExportTitle(selectedScale.name);
     const content = buildReportExportContent(report);
     try {
-      if (format === "markdown") {
-        exportToMarkdown({ title, subtitle: "结果由服务端确定性规则生成", content });
+      if (format === "html") {
+        exportToHtml({ title, subtitle: "结果由服务端确定性规则生成", content });
       } else if (format === "docx") {
         await exportToDocx(title, content, "结果由服务端确定性规则生成");
       } else {
         if (!reportExportRef.current) throw new Error("CGA report is not ready for PDF export");
         await exportToPdf(reportExportRef.current, title);
       }
-      setNotice(`筛查报告已导出为${format === "markdown" ? " Markdown" : format === "docx" ? " Word" : " PDF"} 文件。报告仅供筛查参考，不能替代医生诊断。`);
+      setNotice(`筛查报告已导出为${format === "html" ? "渲染网页文档" : format === "docx" ? " Word" : " PDF"} 文件。报告仅供筛查参考，不能替代医生诊断。`);
     } catch {
       toast.show("导出暂时失败，请重试或改用其他格式。");
     } finally {
@@ -789,8 +789,8 @@ export function CgaAssessment({ onExit }: CgaAssessmentProps) {
                     <DropdownMenuItem className={cn(seniorMode && "min-h-12")} onClick={() => void exportReport("docx")}>
                       <FileType className="size-4" />Word（便于编辑）
                     </DropdownMenuItem>
-                    <DropdownMenuItem className={cn(seniorMode && "min-h-12")} onClick={() => void exportReport("markdown")}>
-                      <FileText className="size-4" />Markdown（便于保存）
+                    <DropdownMenuItem className={cn(seniorMode && "min-h-12")} onClick={() => void exportReport("html")}>
+                      <FileText className="size-4" />网页文档（保留排版）
                     </DropdownMenuItem>
                   </DropdownMenuContent>
                 </DropdownMenu>

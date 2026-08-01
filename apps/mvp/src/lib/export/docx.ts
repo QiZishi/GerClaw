@@ -4,87 +4,128 @@ import {
   Paragraph,
   TextRun,
   HeadingLevel,
+  ExternalHyperlink,
+  UnderlineType,
+  type ParagraphChild,
 } from "docx";
 import { saveAs } from "file-saver";
 import { sanitizeFilename } from "./utils";
 import { MEDICAL_EXPORT_DISCLAIMER } from "./template";
+import {
+  artifactMarkdownToRichHtml,
+  sanitizeRichHtml,
+} from "@/components/artifact/rich-text-document";
 
-function markdownToDocxParagraphs(markdown: string): Paragraph[] {
-  const paragraphs: Paragraph[] = [];
-  const lines = markdown.split("\n");
+interface InlineStyle {
+  bold?: boolean;
+  italics?: boolean;
+  underline?: boolean;
+  color?: string;
+  size?: number;
+}
 
-  for (const line of lines) {
-    const trimmed = line.trim();
-    if (!trimmed) {
-      paragraphs.push(new Paragraph({ children: [] }));
-      continue;
-    }
+function docxColor(value: string): string | undefined {
+  const hex = /^#([0-9a-f]{6})$/i.exec(value.trim());
+  if (hex) return hex[1].toUpperCase();
+  const rgb = /^rgb\(\s*(\d+)\s*,\s*(\d+)\s*,\s*(\d+)\s*\)$/i.exec(value.trim());
+  if (!rgb) return undefined;
+  return rgb
+    .slice(1)
+    .map((part) => Number(part).toString(16).padStart(2, "0"))
+    .join("")
+    .toUpperCase();
+}
 
-    if (trimmed.startsWith("# ")) {
-      paragraphs.push(
-        new Paragraph({
-          text: trimmed.slice(2),
-          heading: HeadingLevel.HEADING_1,
-        })
-      );
-    } else if (trimmed.startsWith("## ")) {
-      paragraphs.push(
-        new Paragraph({
-          text: trimmed.slice(3),
-          heading: HeadingLevel.HEADING_2,
-        })
-      );
-    } else if (trimmed.startsWith("### ")) {
-      paragraphs.push(
-        new Paragraph({
-          text: trimmed.slice(4),
-          heading: HeadingLevel.HEADING_3,
-        })
-      );
-    } else if (trimmed === "---") {
-      paragraphs.push(new Paragraph({ children: [] }));
-    } else if (trimmed.startsWith("> ")) {
-      paragraphs.push(
-        new Paragraph({
-          children: [
-            new TextRun({
-              text: trimmed.slice(2).replace(/\*\*/g, ""),
-              italics: true,
-              color: "666666",
-            }),
-          ],
-        })
-      );
-    } else if (trimmed.startsWith("- ") || trimmed.startsWith("* ")) {
-      paragraphs.push(
-        new Paragraph({
-          children: [
-            new TextRun({ text: "• " }),
-            new TextRun({ text: trimmed.slice(2).replace(/\*\*/g, "") }),
-          ],
-        })
-      );
-    } else {
-      const runs: TextRun[] = [];
-      const parts = trimmed.split(/(\*\*[^*]+\*\*)/g);
-      for (const part of parts) {
-        if (part.startsWith("**") && part.endsWith("**")) {
-          runs.push(new TextRun({ text: part.slice(2, -2), bold: true }));
-        } else {
-          runs.push(new TextRun({ text: part }));
-        }
-      }
-      paragraphs.push(new Paragraph({ children: runs }));
-    }
+function docxSize(value: string): number | undefined {
+  const match = /^(\d+(?:\.\d+)?)px$/.exec(value.trim());
+  if (!match) return undefined;
+  return Math.max(16, Math.min(72, Math.round(Number(match[1]) * 1.5)));
+}
+
+function textRun(text: string, style: InlineStyle): TextRun {
+  return new TextRun({
+    text,
+    bold: style.bold,
+    italics: style.italics,
+    underline: style.underline ? { type: UnderlineType.SINGLE } : undefined,
+    color: style.color,
+    size: style.size,
+  });
+}
+
+function safeExternalHref(value: string | null): string | null {
+  if (!value) return null;
+  try {
+    const url = new URL(value, window.location.origin);
+    return ["http:", "https:", "mailto:"].includes(url.protocol) ? url.href : null;
+  } catch {
+    return null;
   }
-  return paragraphs;
+}
+
+function inlineChildren(node: Node, inherited: InlineStyle = {}): ParagraphChild[] {
+  if (node.nodeType === Node.TEXT_NODE) {
+    return node.textContent ? [textRun(node.textContent, inherited)] : [];
+  }
+  if (node.nodeType !== Node.ELEMENT_NODE) return [];
+  const element = node as HTMLElement;
+  if (element.tagName === "BR") return [textRun("\n", inherited)];
+  const next: InlineStyle = { ...inherited };
+  if (["STRONG", "B"].includes(element.tagName)) next.bold = true;
+  if (["EM", "I"].includes(element.tagName)) next.italics = true;
+  if (element.tagName === "U") next.underline = true;
+  const color = docxColor(element.style.color || element.getAttribute("color") || "");
+  const size = docxSize(element.style.fontSize || "");
+  if (color) next.color = color;
+  if (size) next.size = size;
+  const children = Array.from(element.childNodes).flatMap((child) => inlineChildren(child, next));
+  if (element.tagName !== "A") return children;
+  const href = safeExternalHref(element.getAttribute("href"));
+  const linkRuns = children.filter((child): child is TextRun => child instanceof TextRun);
+  return href && linkRuns.length > 0
+    ? [new ExternalHyperlink({ link: href, children: linkRuns })]
+    : children;
+}
+
+function renderedHtmlToDocxParagraphs(html: string): Paragraph[] {
+  const parsed = new DOMParser().parseFromString(sanitizeRichHtml(html), "text/html");
+  const paragraphs: Paragraph[] = [];
+  const appendBlock = (element: Element, listKind?: "ul" | "ol", index = 0) => {
+    if (element.tagName === "UL" || element.tagName === "OL") {
+      Array.from(element.children).forEach((child, itemIndex) =>
+        appendBlock(child, element.tagName.toLowerCase() as "ul" | "ol", itemIndex),
+      );
+      return;
+    }
+    const heading = {
+      H1: HeadingLevel.HEADING_1,
+      H2: HeadingLevel.HEADING_2,
+      H3: HeadingLevel.HEADING_3,
+      H4: HeadingLevel.HEADING_4,
+      H5: HeadingLevel.HEADING_5,
+      H6: HeadingLevel.HEADING_6,
+    }[element.tagName];
+    const children = Array.from(element.childNodes).flatMap((child) => inlineChildren(child));
+    if (listKind === "ol") children.unshift(new TextRun({ text: `${index + 1}. ` }));
+    paragraphs.push(
+      new Paragraph({
+        children,
+        heading,
+        bullet: listKind === "ul" ? { level: 0 } : undefined,
+        indent: element.tagName === "BLOCKQUOTE" ? { left: 480 } : undefined,
+      }),
+    );
+  };
+  for (const child of Array.from(parsed.body.children)) appendBlock(child);
+  return paragraphs.length > 0 ? paragraphs : [new Paragraph({ children: [] })];
 }
 
 export async function exportToDocx(
   title: string,
   content: string,
   subtitle?: string,
-  date?: string
+  date?: string,
+  renderedHtml?: string,
 ): Promise<void> {
   const children: Paragraph[] = [];
 
@@ -113,7 +154,11 @@ export async function exportToDocx(
   );
   children.push(new Paragraph({ children: [] }));
 
-  children.push(...markdownToDocxParagraphs(content));
+  children.push(
+    ...renderedHtmlToDocxParagraphs(
+      renderedHtml ?? artifactMarkdownToRichHtml(content),
+    ),
+  );
 
   const doc = new Document({
     sections: [
@@ -164,7 +209,11 @@ export async function exportConversationToDocx(
         heading: HeadingLevel.HEADING_3,
       })
     );
-    children.push(...markdownToDocxParagraphs(msg.content.trim()));
+    children.push(
+      ...renderedHtmlToDocxParagraphs(
+        artifactMarkdownToRichHtml(msg.content.trim()),
+      ),
+    );
     children.push(new Paragraph({ children: [] }));
   }
   children.push(new Paragraph({ children: [] }));

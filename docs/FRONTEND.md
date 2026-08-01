@@ -18,7 +18,7 @@
 | 数据获取 | 同源 BFF + fetch + Zod | latest | FastAPI REST/SSE 经 `/api/gerclaw/*` 转发并在信任边界校验 |
 | 表单处理 | React Hook Form + Zod | latest | 类型安全的表单验证（设置、技能上传等） |
 | 音频处理 | Web Audio API + MediaRecorder | 浏览器原生 | 麦克风录音(WAV/MP3)、PCM16流式播放 |
-| 文档导出 | jsPDF + docx + marked | latest | PDF导出、DOCX导出、Markdown渲染 |
+| 文档导出 | jsPDF + docx + html2canvas | latest | 渲染 HTML、PDF、DOCX 与图片导出 |
 | Markdown渲染 | react-markdown + remark-gfm + rehype-highlight | latest | Markdown渲染、GFM表格/任务列表、代码语法高亮 |
 | 测试框架 | Vitest + React Testing Library + Playwright | latest | 单元测试/组件测试/E2E测试 |
 | 构建工具 | Turbopack build + Webpack dev | Next.js 16.2.10 | 生产 build 使用 Turbopack；本机 dev 固定 Webpack，规避已复现的首次编译挂起 |
@@ -48,7 +48,8 @@ apps/mvp/
 │   │   ├── health/             # 健康档案
 │   │   ├── risk-alert/         # 风险预警
 │   │   ├── skills/             # Skill 生成、导入与管理
-│   │   ├── editor/             # 单栏实时 Markdown 编辑/渲染
+│   │   ├── editor/             # Skill 等源码型 Markdown 编辑器
+│   │   ├── artifact/           # Word 风格渲染文档编辑与防抖保存
 │   │   ├── document/           # 文档上传、解析和工具状态
 │   │   ├── search/             # 联网与本地证据引用
 │   │   ├── settings/           # 通用设置和账号级模型配置
@@ -126,6 +127,7 @@ Web 前端以 `apps/mvp/` 为唯一实现入口，并通过同源 BFF 整合 `ap
 - 聊天 SSE 以受 Zod 校验的 `error` 终止、且尚无可展示正文时，必须展示后端的安全原因（例如“本地医学依据不足，本次不生成医学建议”），再附加未完成警示；不得以泛泛的“系统未完成”吞掉用户可行动的失败说明。
 - 回答正文保留 `[1][2]` 引用角标，回答末尾另列完整来源；引用卡必须展示本次回答实际采用的原文段落与 locator。引用的“打开原文”仅可指向真实 `http`/`https` 地址；上传文档和本地知识库没有公开链接时展示题名、采用原文与来源定位，不得渲染空链接、无效跳转或假装可预览的操作。
 - Markdown 保留 GFM 表格、代码和明确的 `~~删除线~~`；单个 `~` 必须按普通字符渲染，避免把临床常用范围写法（如 `2~3次`、`5~7天`）误画为已撤销的数字。
+- “转为文档”后的 Artifact 使用单页 `contenteditable` 成品文档，不再展示 Markdown 源码/预览上下分屏。编辑工具保留标题、字号、加粗、下划线、颜色、列表、链接和撤销/重做；HTML 在进入 DOM、复制或导出前按 allowlist 净化，仍通过既有 revision-fenced Artifact API 防抖保存。DOCX 将文档 DOM 映射为 Word 段落与文本格式，PDF/PNG/JPG/HTML 从同一渲染纸张生成；面向用户的导出入口不再把 Markdown 标记当成文档正文。
 - 面向患者的工具状态使用可理解且在手机宽度完整可见的中文动作名（如“健康记录”“医学检索”），不得直接暴露 `search_memory` 等内部工具标识；公开执行摘要、工具结果摘要、实际耗时、Trace ID 以及服务端选中的 Provider adapter/模型显示名可展开查看。不得展示隐藏 Chain-of-Thought、endpoint、凭据、私有 Prompt、内部协议或 Provider 原始载荷。
 - 手机宽度的对话气泡必须为头像、长医学文本和工具状态保留足够阅读宽度；桌面端仍保持适中的最大行宽，避免长句难扫读。
 - 切换既有会话或退出当前会话时，输入框的未发送文字、图片、文档和进行中的录音/识别都会在切换前清理；浏览器撤销图片 Object URL，并用稳定文字说明资料不会自动带入新会话。首次发送自动创建会话时保留当前草稿，确保用户的明确发送意图不被清空。

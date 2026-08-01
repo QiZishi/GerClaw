@@ -9,7 +9,6 @@ import {
   FileText,
   FileImage,
   FileType,
-  File,
   Check,
   Loader2,
 } from "lucide-react";
@@ -22,7 +21,7 @@ import {
 } from "@/components/ui/dropdown-menu";
 import { cn } from "@/lib/utils";
 import {
-  exportToMarkdown,
+  exportToHtml,
   exportToDocx,
   exportToPdf,
   exportToPng,
@@ -30,9 +29,10 @@ import {
 } from "@/lib/export";
 import { MarkdownRenderer } from "@/components/chat/MarkdownRenderer";
 import { toast } from "@/components/ui/toast";
+import { sanitizeRichHtml } from "@/components/artifact/rich-text-document";
 
 /** Export is a presentation concern; it must not depend on clinical-report types. */
-type ExportFormat = "markdown" | "png" | "jpg" | "pdf" | "docx";
+type ExportFormat = "html" | "png" | "jpg" | "pdf" | "docx";
 
 interface ExportButtonProps {
   className?: string;
@@ -40,6 +40,8 @@ interface ExportButtonProps {
   content: string;
   subtitle?: string;
   variant?: "buttons" | "dropdown";
+  renderedHtml?: string;
+  formats?: readonly ExportFormat[];
 }
 
 const FORMAT_OPTIONS: {
@@ -47,7 +49,7 @@ const FORMAT_OPTIONS: {
   label: string;
   icon: React.ReactNode;
 }[] = [
-  { value: "markdown", label: "Markdown (.md)", icon: <File className="size-4" /> },
+  { value: "html", label: "网页文档 (.html)", icon: <FileText className="size-4" /> },
   { value: "png", label: "PNG 图片", icon: <FileImage className="size-4" /> },
   { value: "jpg", label: "JPG 图片", icon: <FileImage className="size-4" /> },
   { value: "pdf", label: "PDF (.pdf)", icon: <FileText className="size-4" /> },
@@ -57,7 +59,8 @@ const FORMAT_OPTIONS: {
 async function renderToTempElement(
   content: string,
   title: string,
-  subtitle?: string
+  subtitle?: string,
+  renderedHtml?: string,
 ): Promise<{ element: HTMLElement; cleanup: () => void }> {
   const tempContainer = document.createElement("div");
   tempContainer.style.position = "absolute";
@@ -96,20 +99,26 @@ async function renderToTempElement(
   tempContainer.appendChild(tempContent);
   document.body.appendChild(tempContainer);
 
-  const root = createRoot(tempContent);
-  flushSync(() => {
-    root.render(
-      React.createElement(MarkdownRenderer, {
-        content,
-        className: "text-sm leading-relaxed",
-      })
-    );
-  });
+  const root = renderedHtml ? null : createRoot(tempContent);
+  if (renderedHtml) {
+    tempContent.innerHTML = sanitizeRichHtml(renderedHtml);
+    tempContent.style.fontSize = "16px";
+    tempContent.style.lineHeight = "1.8";
+  } else {
+    flushSync(() => {
+      root?.render(
+        React.createElement(MarkdownRenderer, {
+          content,
+          className: "text-sm leading-relaxed",
+        }),
+      );
+    });
+  }
   await document.fonts?.ready;
   await new Promise<void>((resolve) => requestAnimationFrame(() => resolve()));
 
   const cleanup = () => {
-    root.unmount();
+    root?.unmount();
     tempContainer.remove();
   };
 
@@ -122,6 +131,8 @@ export function ExportButton({
   content,
   subtitle,
   variant = "buttons",
+  renderedHtml,
+  formats,
 }: ExportButtonProps) {
   const [exported, setExported] = useState(false);
   const [exportingFormat, setExportingFormat] = useState<ExportFormat | null>(null);
@@ -132,24 +143,25 @@ export function ExportButton({
 
     try {
       switch (format) {
-        case "markdown":
-          exportToMarkdown({ title, content, subtitle });
-          toast.show("Markdown 文件已下载");
+        case "html":
+          exportToHtml({ title, content, subtitle }, renderedHtml);
+          toast.show("渲染文档已下载");
           break;
         case "docx":
-          await exportToDocx(title, content, subtitle);
+          await exportToDocx(title, content, subtitle, undefined, renderedHtml);
           toast.show("Word 文档已下载");
           break;
         case "pdf": {
-          let exportElement: HTMLElement | null = document.getElementById(
-            "panel-export-content"
-          );
+          let exportElement: HTMLElement | null = renderedHtml
+            ? null
+            : document.getElementById("panel-export-content");
 
           if (!exportElement) {
             const { element, cleanup } = await renderToTempElement(
               content,
               title,
-              subtitle
+              subtitle,
+              renderedHtml,
             );
             exportElement = element;
             tempCleanup = cleanup;
@@ -163,7 +175,8 @@ export function ExportButton({
           const { element, cleanup } = await renderToTempElement(
             content,
             title,
-            subtitle
+            subtitle,
+            renderedHtml,
           );
           tempCleanup = cleanup;
           await exportToPng(element, title);
@@ -174,7 +187,8 @@ export function ExportButton({
           const { element, cleanup } = await renderToTempElement(
             content,
             title,
-            subtitle
+            subtitle,
+            renderedHtml,
           );
           tempCleanup = cleanup;
           await exportToJpg(element, title);
@@ -186,7 +200,7 @@ export function ExportButton({
       setTimeout(() => setExported(false), 2000);
     } catch {
       const formatLabels: Record<ExportFormat, string> = {
-        markdown: "Markdown",
+        html: "网页文档",
         png: "PNG",
         jpg: "JPG",
         pdf: "PDF",
@@ -202,6 +216,9 @@ export function ExportButton({
   };
 
   if (variant === "dropdown") {
+    const availableOptions = FORMAT_OPTIONS.filter(
+      (option) => !formats || formats.includes(option.value),
+    );
     return (
       <div className={cn("relative", className)}>
         <DropdownMenu>
@@ -232,7 +249,7 @@ export function ExportButton({
               </span>
           </DropdownMenuTrigger>
           <DropdownMenuContent align="end" sideOffset={4}>
-            {FORMAT_OPTIONS.map((opt) => (
+            {availableOptions.map((opt) => (
               <DropdownMenuItem
                 key={opt.value}
                 onClick={() => handleExport(opt.value)}
@@ -250,7 +267,7 @@ export function ExportButton({
 
   return (
     <div className={cn("flex items-center gap-1.5", className)}>
-      {FORMAT_OPTIONS.map((opt) => {
+      {FORMAT_OPTIONS.filter((option) => !formats || formats.includes(option.value)).map((opt) => {
         const isExporting = exportingFormat === opt.value;
         return (
           <Button
@@ -270,8 +287,8 @@ export function ExportButton({
               opt.icon
             )}
             <span className="text-xs">
-              {opt.value === "markdown"
-                ? "MD"
+              {opt.value === "html"
+                ? "HTML"
                 : opt.value === "docx"
                 ? "DOCX"
                 : opt.value.toUpperCase()}

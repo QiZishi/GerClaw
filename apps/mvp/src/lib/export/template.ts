@@ -8,6 +8,19 @@ export interface ExportConfig {
 export const MEDICAL_EXPORT_DISCLAIMER = "本内容由 GerClaw AI 生成，仅供参考，不能替代专业医疗诊断和治疗建议。身体不适请及时就医，用药请遵医嘱。";
 const DISCLAIMER = `> ⚠️ **医疗免责声明**：${MEDICAL_EXPORT_DISCLAIMER}`;
 
+function markdownToReadableText(value: string): string {
+  return value
+    .replace(/^#{1,6}\s+/gm, "")
+    .replace(/^\s*[-*+]\s+/gm, "• ")
+    .replace(/^\s*\d+[.)]\s+/gm, (marker) => marker.trimEnd() + " ")
+    .replace(/!?\[([^\]]+)\]\([^)]+\)/g, "$1")
+    .replace(/\*\*([^*]+)\*\*/g, "$1")
+    .replace(/__([^_]+)__/g, "$1")
+    .replace(/[*_`~]/g, "")
+    .replace(/<[^>]+>/g, "")
+    .trim();
+}
+
 export function buildMarkdownDocument(config: ExportConfig): string {
   const date = config.date ?? new Date().toLocaleString("zh-CN", {
     year: "numeric",
@@ -83,7 +96,10 @@ export function buildConversationPlainText(
   ];
   for (const message of messages) {
     parts.push(message.role === "user" ? "用户：" : "GerClaw：");
-    parts.push(message.content.trim(), "");
+    parts.push(
+      markdownToReadableText(message.content),
+      "",
+    );
   }
   parts.push("医疗免责声明：", MEDICAL_EXPORT_DISCLAIMER, "");
   return parts.join("\n");

@@ -24,7 +24,7 @@ import type { Message } from "@/types";
 import {
   buildConversationPlainText,
   exportConversationToDocx,
-  exportConversationToMarkdown,
+  exportConversationToHtml,
   exportToJpg,
   exportToPdf,
   exportToPng,
@@ -32,8 +32,9 @@ import {
   downloadBlob,
   sanitizeFilename,
 } from "@/lib/export";
+import { MarkdownRenderer } from "@/components/chat/MarkdownRenderer";
 
-type ExportFormat = "png" | "jpg" | "pdf" | "docx" | "md" | "txt";
+type ExportFormat = "png" | "jpg" | "pdf" | "docx" | "html" | "txt";
 
 interface ExportDialogProps {
   open: boolean;
@@ -44,7 +45,7 @@ interface ExportDialogProps {
 }
 
 const FORMAT_OPTIONS: { value: ExportFormat; label: string; icon: React.ReactNode }[] = [
-  { value: "md", label: "Markdown", icon: <File className="size-4" /> },
+  { value: "html", label: "网页文档", icon: <File className="size-4" /> },
   { value: "txt", label: "文本", icon: <File className="size-4" /> },
   { value: "png", label: "PNG", icon: <FileImage className="size-4" /> },
   { value: "jpg", label: "JPG", icon: <FileImage className="size-4" /> },
@@ -95,7 +96,7 @@ export function ExportDialog({
   defaultSelectedIds = [],
   title = "对话导出",
 }: ExportDialogProps) {
-  const [format, setFormat] = useState<ExportFormat>("md");
+  const [format, setFormat] = useState<ExportFormat>("html");
   const [selectedIds, setSelectedIds] = useState<Set<string>>(() => new Set(defaultSelectedIds));
   const [exporting, setExporting] = useState(false);
   const exportContainerRef = useRef<HTMLDivElement>(null);
@@ -130,9 +131,9 @@ export function ExportDialog({
     setExporting(true);
     try {
       switch (format) {
-        case "md":
-          exportConversationToMarkdown(title, exportableMessages(selectedMessages));
-          toast.show("已导出为 Markdown");
+        case "html":
+          exportConversationToHtml(title, exportableMessages(selectedMessages));
+          toast.show("已导出为渲染网页文档");
           break;
         case "txt":
           downloadBlob(
@@ -314,11 +315,11 @@ export function ExportDialog({
               {new Date(msg.createdAt).toLocaleString("zh-CN")}
             </div>
             <div
-              className={`p-3 rounded-lg text-sm leading-relaxed whitespace-pre-wrap ${
+              className={`p-3 rounded-lg text-sm leading-relaxed ${
                 msg.role === "user" ? "bg-blue-50 text-gray-900" : "bg-gray-50 text-gray-900"
               }`}
             >
-              {getMessageText(msg)}
+              <MarkdownRenderer content={getMessageText(msg)} />
             </div>
           </div>
         ))}
