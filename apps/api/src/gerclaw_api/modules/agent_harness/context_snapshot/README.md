@@ -4,6 +4,9 @@ This package owns the versioned, immutable `AgentContext`, bounded conversation-
 models, `ProductionContextSnapshotAssembler`, encrypted persistence contracts, and uploaded
 input projector. The composition entry consumes the assembler through `HarnessComponents`;
 `ProductionAgentHarness`, `ChatService`, and `RunResumeService` are the consumers.
+`build_agent_state_context` assembles the already validated history, clinical projection,
+uploaded-document projection and admitted evidence into AgentScope messages while preserving
+their trust delimiters and established high-value ordering; it does not fetch or mutate them.
 
 Validation forbids unknown fields and caps every collection/text field. A validation failure
 stops the turn before model construction.

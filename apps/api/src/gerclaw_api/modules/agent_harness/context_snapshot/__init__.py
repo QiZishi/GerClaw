@@ -30,6 +30,9 @@ from gerclaw_api.modules.agent_harness.context_snapshot.persisted import (
     PersistedContextSnapshot,
     PersistedRunPlan,
 )
+from gerclaw_api.modules.agent_harness.context_snapshot.prompt_context import (
+    build_agent_state_context,
+)
 from gerclaw_api.modules.agent_harness.context_snapshot.uploaded_input import (
     UploadedInputProjector,
 )
@@ -53,6 +56,7 @@ __all__ = [
     "PersistedRunPlan",
     "ProductionContextSnapshotAssembler",
     "UploadedInputProjector",
+    "build_agent_state_context",
     "compose_context_snapshot",
     "estimate_context_tokens",
     "render_untrusted_clinical_state",
