@@ -16,6 +16,7 @@ from gerclaw_api.modules.agent_harness.safety import (
     citations_from_results,
     detect_high_risk,
     is_medical_message,
+    requires_clinical_evidence,
     requires_patient_clinical_risk_notice,
     safety_decision,
     sanitize_medical_text,
@@ -59,6 +60,14 @@ def test_medical_classifier_fails_safe_outside_small_talk() -> None:
     assert is_medical_message("我最近起身头晕，请给记录建议，但不要下诊断建议。")
     assert is_medical_message("总结这份病历，不要扩展到治疗建议。")
     assert not is_medical_message("请解读这张图片里的画面元素和主色")
+
+
+def test_claim_classifier_keeps_low_risk_record_workflow_usable() -> None:
+    assert not requires_clinical_evidence("记录每次头晕发生的时间和持续多久。")
+    assert not requires_clinical_evidence("写下起身前后的血压读数。")
+    assert not requires_clinical_evidence("就诊时把这份记录带给医生。")
+    assert requires_clinical_evidence("建议立即停药。")
+    assert requires_clinical_evidence("若出现胸痛，请立即拨打 120。")
 
 
 def test_red_flags_use_stable_codes_without_echoing_input() -> None:

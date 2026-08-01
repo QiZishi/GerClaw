@@ -72,6 +72,7 @@ from gerclaw_api.modules.agent_harness.safety import (
     citations_from_results,
     detect_high_risk,
     is_medical_message,
+    requires_clinical_evidence,
     requires_patient_clinical_risk_notice,
     safety_decision,
 )
@@ -105,6 +106,10 @@ _EVIDENCE_UNAVAILABLE_CLARIFICATION = (
 _SafeSentenceBuffer = SafeSentenceBuffer
 _CanonicalTextStream = CanonicalTextStream
 _final_agent_text = final_agent_text
+
+
+def _not_clinical(_segment: str) -> bool:
+    return False
 
 
 class ProductionAgentHarness(ProductionHarnessCompositionSetup, OrchestrationSupportMixin):
@@ -185,6 +190,7 @@ class ProductionAgentHarness(ProductionHarnessCompositionSetup, OrchestrationSup
         )
         companion = is_companion_workflow(self._workflow)
         medical_content = is_medical_message(user_message) and not companion
+        clinical_claim_detector = requires_clinical_evidence if medical_content else _not_clinical
         high_risk_codes = detect_high_risk(user_message)
         clinical_decision = self._clinical_decision or ClinicalDecisionCoordinator(
             minimum_score=self._config.savi_minimum_score
@@ -560,9 +566,7 @@ class ProductionAgentHarness(ProductionHarnessCompositionSetup, OrchestrationSup
                     additional_local=candidate_local,
                     web=candidate_web,
                     attachments=candidate_attachments,
-                    is_clinical_claim=(
-                        is_medical_message if medical_content else (lambda _segment: False)
-                    ),
+                    is_clinical_claim=clinical_claim_detector,
                     high_risk_codes=high_risk_codes,
                     medical_content=medical_content,
                     patient_facing=bool(
@@ -585,17 +589,13 @@ class ProductionAgentHarness(ProductionHarnessCompositionSetup, OrchestrationSup
                     additional_local=candidate_local,
                     web=candidate_web,
                     attachments=candidate_attachments,
-                    is_clinical_claim=(
-                        is_medical_message if medical_content else (lambda _segment: False)
-                    ),
+                    is_clinical_claim=clinical_claim_detector,
                     markers_already_bound=True,
                 )
                 recovered_text, removed_count = prune_unbound_clinical_claims(
                     bound.text,
                     citations=list(bound.citations),
-                    is_clinical_claim=(
-                        is_medical_message if medical_content else (lambda _segment: False)
-                    ),
+                    is_clinical_claim=clinical_claim_detector,
                 )
                 if removed_count == 0:
                     return None
@@ -679,9 +679,7 @@ class ProductionAgentHarness(ProductionHarnessCompositionSetup, OrchestrationSup
                     *attachment_projector.document_citations(),
                     *attachment_projector.image_citations(),
                 ],
-                is_clinical_claim=(
-                    is_medical_message if medical_content else (lambda _segment: False)
-                ),
+                is_clinical_claim=clinical_claim_detector,
                 markers_already_bound=True,
             )
             model_text = bound_evidence.text

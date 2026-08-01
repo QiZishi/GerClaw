@@ -2249,6 +2249,44 @@ async def test_unbound_clinical_claim_is_retried_then_pruned_without_losing_answ
 
 
 @pytest.mark.asyncio
+async def test_low_risk_record_checklist_is_not_erased_by_claim_repair(
+    unit_settings: Settings,
+) -> None:
+    model = _HarnessModel(
+        text=(
+            "1. 记录每次头晕发生的时间和持续多久。\n"
+            "2. 写下起身前后的血压读数。\n"
+            "3. 就诊时把这份记录带给医生。"
+        )
+    )
+    harness = _harness(
+        unit_settings,
+        model=model,
+        rag=_HarnessRAG([_evidence()]),
+    )
+    context = await harness.assemble_context(
+        "108815d7-05bf-4c2a-a977-cd034f390fab",
+        "usr_patient00000001",
+        [],
+        [],
+    )
+
+    response = await harness.process_message(
+        "我70岁，近期起身头晕，请给三条就诊前记录建议。",
+        "108815d7-05bf-4c2a-a977-cd034f390fab",
+        context,
+        lambda _event: None,
+    )
+
+    assert model.calls == 1
+    assert "记录每次头晕" in response.text
+    assert "起身前后的血压" in response.text
+    assert "带给医生" in response.text
+    assert response.structured["output_contract_retries"] == 0
+    assert response.structured["pruned_unsupported_claim_count"] == 0
+
+
+@pytest.mark.asyncio
 async def test_context_rejects_unimplemented_skill_and_identity(
     unit_settings: Settings,
 ) -> None:

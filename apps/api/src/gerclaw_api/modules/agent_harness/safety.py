@@ -121,6 +121,16 @@ _PATIENT_RISK_NOTICE_TRIGGER = re.compile(
     r")"
 )
 _OUTPUT_CLAIM_SEGMENT = re.compile(r"[^。！？!?\n]+(?:[。！？!?]+|\n+|$)")
+_LOW_RISK_RECORD_ACTION = re.compile(
+    r"^\s*(?:(?:[-*]|•|\d+[.、])\s*)?(?:请|可|可以|建议)?\s*"
+    r"(?:记录|记下|写下|整理|列出|汇总|标注|注明|保存|拍照|携带|带上)|"
+    r"就诊时[^\n。！？!?]{0,32}带给(?:医生|家属)"
+)
+_EVIDENCE_REQUIRED_ACTION = re.compile(
+    r"确诊|诊断|患有|治疗|手术|处方|药物|用药|服药|停药|加药|"
+    r"换药|减量|增量|剂量|禁忌|相互作用|不良反应|立即就医|"
+    r"尽快就医|前往急诊|拨打\s*120|高风险|危险"
+)
 
 
 class EvidenceUnavailableError(RuntimeError):
@@ -147,6 +157,24 @@ def is_medical_message(text: str) -> bool:
     # input, so this cannot suppress an emergency short circuit.
     scoped_candidate = _NEGATED_MEDICAL_SCOPE_CLAUSE.sub(" ", candidate)
     return _MEDICAL_SIGNAL.search(scoped_candidate) is not None
+
+
+def requires_clinical_evidence(text: str) -> bool:
+    """Distinguish medical claims from harmless record-keeping instructions.
+
+    A whole turn can be medical while individual sentences merely help the
+    user record or carry their own observations. Treating those workflow
+    instructions as clinical claims made the evidence repair loop erase useful
+    answers. Diagnosis, treatment, medication and urgent-care directives keep
+    the strict claim-level citation requirement.
+    """
+
+    if not is_medical_message(text):
+        return False
+    return not (
+        _LOW_RISK_RECORD_ACTION.search(text)
+        and not _EVIDENCE_REQUIRED_ACTION.search(text)
+    )
 
 
 def detect_high_risk(text: str) -> list[str]:
