@@ -23,7 +23,7 @@ from gerclaw_api.auth import (
 )
 from gerclaw_api.database.session import Database
 from gerclaw_api.dependencies import get_database_session
-from gerclaw_api.domain.chat_error_codes import public_chat_error
+from gerclaw_api.domain.chat_error_codes import public_chat_fallback
 from gerclaw_api.domain.chat_schemas import (
     ChatCancelledData,
     ChatCancelRead,
@@ -696,7 +696,7 @@ async def _stream_chat(
                 type(error).__name__,
                 safe_stack or "unknown",
             )
-            message, retriable = public_chat_error(code)
+            message, retriable = public_chat_fallback(code)
             _force_enqueue(
                 queue,
                 ChatErrorData(

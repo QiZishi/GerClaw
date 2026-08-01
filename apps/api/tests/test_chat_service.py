@@ -20,7 +20,7 @@ from gerclaw_api.api.routes.chat import _encode_sse
 from gerclaw_api.auth import AuthContext
 from gerclaw_api.config import Settings
 from gerclaw_api.database.models import ConversationSession, ExecutionTrace, Message
-from gerclaw_api.domain.chat_error_codes import public_chat_error
+from gerclaw_api.domain.chat_error_codes import public_chat_error, public_chat_fallback
 from gerclaw_api.domain.chat_schemas import ChatRequest
 from gerclaw_api.domain.enums import TraceStatus
 from gerclaw_api.domain.run_schemas import (
@@ -2329,7 +2329,7 @@ async def test_terminal_trace_failure_rolls_back_assistant_before_recording_fail
     assert conversation.rollback_count == 2
     assert memory.compensation_count == 1
     assert memory.committed_count == 0
-    assert conversation.failure_text == "这次回答没有完整生成，请重试。"
+    assert conversation.failure_text == public_chat_fallback("CHAT_EXECUTION_FAILED")[0]
     assert traces.trace.status == TraceStatus.FAILED.value
     assert traces.finishes[-1].status is TraceStatus.FAILED
     assert all(cast(Any, event).event_type != "done" for event in events)
@@ -2394,4 +2394,7 @@ def test_sse_encoding_and_public_errors_are_stable() -> None:
     assert public_chat_error("UNRECOGNIZED_INTERNAL_ERROR") == (
         "这次回答没有完整生成，请重试。",
         True,
+    )
+    assert public_chat_fallback("CHAT_MODEL_UNAVAILABLE")[0].startswith(
+        "我先给你一个可继续执行的回答框架："
     )

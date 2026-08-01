@@ -54,6 +54,14 @@ test("chat failure presentation separates sensitive input from service failures"
     presentChatError({ code: "OUTPUT_CONTRACT_INVALID", status: 422 }),
     "这次回答没有完整生成，请重试",
   );
+  assert.equal(
+    presentChatError({
+      code: "CHAT_MODEL_UNAVAILABLE",
+      status: 500,
+      message: "我先给你一个可继续执行的回答框架：\n\n已保留可用信息。",
+    }),
+    "我先给你一个可继续执行的回答框架：\n\n已保留可用信息。",
+  );
 });
 
 test("completion event rejects undeclared transport fields", () => {

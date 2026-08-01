@@ -179,7 +179,9 @@ async def run_with_output_protocol_repair(
                 if classify_failure is not None
                 else None
             )
-            repeated_failure = decision is not None and decision.signature in seen_failures
+            repeated_failure = decision is not None and (
+                decision.signature in seen_failures or repair_count >= 1
+            )
             if decision is None or repeated_failure:
                 recovered = (
                     recover_repeated_failure(result, error)
@@ -194,7 +196,10 @@ async def run_with_output_protocol_repair(
                 validate_public_answer_text(public_text)
                 result = replace(recovered, text=public_text)
                 if validate_result is not None:
-                    validated_result = validate_result(result)
+                    try:
+                        validated_result = validate_result(result)
+                    except Exception:
+                        validated_result = None
                     if validated_result is not None:
                         result = validated_result
                         public_text = result.text

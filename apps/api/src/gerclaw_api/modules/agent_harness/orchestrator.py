@@ -1,6 +1,5 @@
 """Production composition entry for one modular Agent Harness turn."""
 
-# ruff: noqa: RUF001
 from __future__ import annotations
 
 from collections.abc import Awaitable, Callable
@@ -56,7 +55,6 @@ from gerclaw_api.modules.agent_harness.run_lifecycle import (
     EmptyAgentResponseError,
     RepairableAgentSession,
     SafeSentenceBuffer,
-    UnboundClinicalClaimsError,
     UnsupportedAgentContextError,
     project_with_output_protocol_repair,
     validate_terminal_response_candidate,
@@ -570,32 +568,36 @@ class ProductionAgentHarness(ProductionHarnessCompositionSetup, OrchestrationSup
                 result: AgentStreamResult,
                 error: Exception,
             ) -> AgentStreamResult | None:
-                nonlocal pruned_claim_count
-                if not isinstance(error, UnboundClinicalClaimsError):
-                    return None
+                nonlocal pruned_claim_count, validated_evidence
                 candidate_local, candidate_web, candidate_attachments = candidate_evidence()
-                bound = bind_turn_evidence(
-                    result.text,
-                    initial_local=initial_citations,
-                    additional_local=candidate_local,
-                    web=candidate_web,
-                    attachments=candidate_attachments,
-                    is_clinical_claim=clinical_claim_detector,
-                    markers_already_bound=True,
-                )
+                try:
+                    bound = bind_turn_evidence(
+                        result.text,
+                        initial_local=initial_citations,
+                        additional_local=candidate_local,
+                        web=candidate_web,
+                        attachments=candidate_attachments,
+                        is_clinical_claim=clinical_claim_detector,
+                        markers_already_bound=True,
+                    )
+                except Exception:
+                    bound = bind_turn_evidence(
+                        result.text,
+                        initial_local=initial_citations,
+                        additional_local=candidate_local,
+                        web=candidate_web,
+                        attachments=candidate_attachments,
+                        is_clinical_claim=clinical_claim_detector,
+                        markers_already_bound=False,
+                    )
                 recovered_text, removed_count = prune_unbound_clinical_claims(
                     bound.text,
                     citations=list(bound.citations),
                     is_clinical_claim=clinical_claim_detector,
                 )
-                if removed_count == 0:
-                    return None
                 pruned_claim_count = removed_count
-                if not recovered_text:
-                    recovered_text = (
-                        "现有资料不足以支持具体结论。"
-                        "请补充相关资料或允许继续检索，我会据此继续回答。"
-                    )
+                recovered_text = recovered_text or bound.text
+                validated_evidence = replace(bound, text=recovered_text)
                 return replace(result, text=recovered_text)
 
             try:

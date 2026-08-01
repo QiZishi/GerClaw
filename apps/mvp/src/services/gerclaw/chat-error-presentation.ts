@@ -7,9 +7,18 @@ import type { GerclawApiError } from "./client";
  * reading a consultation.
  */
 export function presentChatError(
-  error: Pick<GerclawApiError, "code" | "status">,
+  error: Pick<GerclawApiError, "code" | "status"> &
+    Partial<Pick<GerclawApiError, "message">>,
 ): string {
   const code = error.code.toUpperCase();
+
+  if (
+    code.startsWith("CHAT_") &&
+    code !== "CHAT_CLIENT_FAILED" &&
+    error.message?.trim()
+  ) {
+    return error.message.trim();
+  }
 
   if (
     /(?:POLICY|SENSITIVE|MODERATION|CONTENT(?:_|-)?(?:FILTER|BLOCK)|PRIVACY)/.test(
@@ -29,4 +38,13 @@ export function presentChatError(
   }
 
   return "这次回答没有完整生成，请重试";
+}
+
+export function isReaderFacingChatFallback(
+  error: Pick<GerclawApiError, "code" | "message">,
+): boolean {
+  return (
+    error.code.toUpperCase().startsWith("CHAT_") &&
+    error.message.startsWith("我先给你一个可继续执行的回答框架：")
+  );
 }

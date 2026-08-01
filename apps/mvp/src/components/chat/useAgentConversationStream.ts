@@ -12,7 +12,10 @@ import {
   steerAgentChat,
   streamAgentChat,
 } from "@/services/gerclaw/chat";
-import { presentChatError } from "@/services/gerclaw/chat-error-presentation";
+import {
+  isReaderFacingChatFallback,
+  presentChatError,
+} from "@/services/gerclaw/chat-error-presentation";
 import { useAppStore } from "@/stores/appStore";
 import { useChatStore } from "@/stores/chatStore";
 import type { ImageAttachment, Message, MessageBlock } from "@/types";
@@ -478,7 +481,7 @@ export function useAgentConversationStream(): {
                   streaming: false,
                 },
               ],
-              status: "error",
+              status: isReaderFacingChatFallback(error) ? "done" : "error",
               createdAt: Date.now(),
               hasDisclaimer: false,
               workflow,
@@ -512,7 +515,7 @@ export function useAgentConversationStream(): {
           } else {
             const visibleError = presentChatError(error);
             updateMessage(assistantMessageId, {
-              status: "error",
+              status: isReaderFacingChatFallback(error) ? "done" : "error",
               blocks: [
                 {
                   kind: "text",
@@ -664,7 +667,7 @@ export function useAgentConversationStream(): {
             previousController.abort();
             if (activeTurnsRef.current.get(sessionId) === active) {
               updateMessage(active.assistantMessageId, {
-                status: "error",
+                status: isReaderFacingChatFallback(error) ? "done" : "error",
                 blocks: [
                   {
                     kind: "text",

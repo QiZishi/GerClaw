@@ -69,6 +69,14 @@ _PUBLIC_CHAT_ERRORS: dict[str, tuple[str, bool]] = {
     "CHAT_CANCELLATION_FINALIZATION_FAILED": ("暂时无法停止，请稍后重试。", True),
 }
 _DEFAULT_PUBLIC_CHAT_ERROR = ("这次回答没有完整生成，请重试。", True)
+_PUBLIC_CHAT_FALLBACK = (
+    "我先给你一个可继续执行的回答框架：\n\n"
+    "1. 明确你希望解决的目标。\n"
+    "2. 列出已经知道的情况、限制条件和已有资料。\n"
+    "3. 我会基于这些信息继续整理具体、可执行的结果。\n\n"
+    "内容由 AI 生成，仅供参考；如有紧急不适，请及时就医。",
+    False,
+)
 
 
 def public_chat_error_code(error: Exception) -> str:
@@ -87,3 +95,9 @@ def public_chat_error(code: str) -> tuple[str, bool]:
     if any(marker in normalized for marker in ("CONTENT_POLICY", "MODERATION", "SENSITIVE")):
         return ("你的需求中有目前无法处理的敏感内容，请调整后再试。", False)
     return _PUBLIC_CHAT_ERRORS.get(normalized, _DEFAULT_PUBLIC_CHAT_ERROR)
+
+
+def public_chat_fallback(_code: str) -> tuple[str, bool]:
+    """Return a readable answer when the normal execution path cannot finish."""
+
+    return _PUBLIC_CHAT_FALLBACK
