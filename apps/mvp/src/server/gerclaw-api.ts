@@ -262,7 +262,7 @@ export function isAllowedGerclawProxyTarget(path: string, method: string): boole
   return proxyRules.some((rule) => rule.pattern.test(path) && rule.methods.has(method));
 }
 
-/** Guests can use all self-owned product flows; cross-patient grants stay account-only. */
+/** Guests can reach every declared product route; FastAPI still enforces ownership and scope. */
 export function isGuestAllowedGerclawProxyTarget(path: string, method: string): boolean {
-  return isAllowedGerclawProxyTarget(path, method) && !/^access-grants(?:\/|$)/.test(path);
+  return isAllowedGerclawProxyTarget(path, method);
 }

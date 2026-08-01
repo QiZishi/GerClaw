@@ -795,8 +795,7 @@ curl --location --request POST 'https://api.xiaomimimo.com/v1/chat/completions' 
         }
     ],
     "audio": {
-        "format": "pcm16",
-        "voice": "冰糖"
+        "format": "pcm16"
     },
     "stream": true
 }'
@@ -829,8 +828,7 @@ completion = client.chat.completions.create(
         }
     ],
     audio={
-        "format": "pcm16",
-        "voice": "冰糖"
+        "format": "pcm16"
     },
     stream=True
 )

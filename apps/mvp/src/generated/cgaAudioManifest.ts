@@ -6,7 +6,6 @@ export const CGA_AUDIO_MANIFEST = {
   "generator": {
     "kind": "live_tts_release_asset",
     "model": "mimo-v2.5-tts",
-    "voice": "冰糖",
     "audio_format": "wav"
   },
   "scales": [

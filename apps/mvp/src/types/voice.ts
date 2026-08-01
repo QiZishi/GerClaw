@@ -17,18 +17,8 @@ export interface ASRResult {
 /** TTS 合成请求 */
 export interface TTSRequest {
   text: string;
-  voice?: string; // 默认 冰糖
   style?: string; // 风格描述
   format?: AudioFormat;
-}
-
-/** TTS 音色 */
-export interface TTSVoice {
-  id: string;
-  name: string;
-  language: "zh" | "en";
-  gender: "male" | "female";
-  description: string;
 }
 
 /** 录音状态 */

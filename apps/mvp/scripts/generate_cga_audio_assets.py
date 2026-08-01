@@ -200,14 +200,13 @@ def question_path(definition: QuestionDefinition) -> Path:
     )
 
 
-def tts_release_configuration(environment: dict[str, str]) -> tuple[str, str]:
-    """Return the root-env TTS model and voice without hidden defaults."""
+def tts_release_configuration(environment: dict[str, str]) -> str:
+    """Return the root-env TTS model; the provider chooses the default voice."""
 
     model = environment.get("TTS_MODEL")
-    voice = environment.get("TTS_VOICE")
-    if not model or not voice:
-        raise RuntimeError("缺少 TTS_MODEL 或 TTS_VOICE，无法生成预录制音频。")
-    return model, voice
+    if not model:
+        raise RuntimeError("缺少 TTS_MODEL，无法生成预录制音频。")
+    return model
 
 
 def tts_wav(text: str, environment: dict[str, str], *, attempts: int = 4) -> bytes:
@@ -218,7 +217,7 @@ def tts_wav(text: str, environment: dict[str, str], *, attempts: int = 4) -> byt
             "缺少 MIMO_TTS_URL/TTS_URL 或 MIMO_API_KEY/TTS_API_KEY，无法生成预录制音频。"
         )
 
-    model, voice = tts_release_configuration(environment)
+    model = tts_release_configuration(environment)
     authorization_header = environment.get("GERCLAW_MIMO_AUTH_HEADER", "authorization").lower()
     headers = {"Content-Type": "application/json"}
     if authorization_header == "api-key":
@@ -230,7 +229,7 @@ def tts_wav(text: str, environment: dict[str, str], *, attempts: int = 4) -> byt
         {
             "model": model,
             "messages": [{"role": "assistant", "content": text}],
-            "audio": {"format": "wav", "voice": voice},
+            "audio": {"format": "wav"},
             "stream": False,
         },
         ensure_ascii=False,
@@ -310,14 +309,13 @@ def main() -> int:
         parser.error("生成会调用真实 TTS 服务；请显式传入 --confirm-live-provider。")
 
     environment = read_environment()
-    tts_model, tts_voice = tts_release_configuration(environment)
+    tts_model = tts_release_configuration(environment)
     manifest: dict[str, Any] = {
         "schema_version": 1,
         "generated_at": datetime.now(UTC).isoformat(),
         "generator": {
             "kind": "live_tts_release_asset",
             "model": tts_model,
-            "voice": tts_voice,
             "audio_format": "wav",
         },
         "scales": [],

@@ -2,10 +2,9 @@ import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
 import {
   getGerclawApiBaseUrl,
-  isGuestAllowedGerclawProxyTarget,
   isAllowedGerclawProxyTarget,
 } from "@/server/gerclaw-api";
-import { hasGerclawAccountAccess, resolveGerclawAccess } from "@/server/gerclaw-access";
+import { resolveGerclawAccess } from "@/server/gerclaw-access";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -96,13 +95,6 @@ async function proxy(request: NextRequest, context: RouteContext): Promise<Respo
       { status: 404 }
     );
   }
-  if (!hasGerclawAccountAccess(request) && !isGuestAllowedGerclawProxyTarget(path, request.method)) {
-    return NextResponse.json(
-      { error: { code: "GUEST_ROUTE_RESTRICTED", message: "请登录后使用技能管理" } },
-      { status: 403 },
-    );
-  }
-
   let apiBase: string;
   try {
     apiBase = getGerclawApiBaseUrl();
