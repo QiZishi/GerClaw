@@ -2395,6 +2395,10 @@ def test_sse_encoding_and_public_errors_are_stable() -> None:
         "这次回答没有完整生成，请重试。",
         True,
     )
-    assert public_chat_fallback("CHAT_MODEL_UNAVAILABLE")[0].startswith(
-        "我先给你一个可继续执行的回答框架："
+    fallback_text, retriable = public_chat_fallback(
+        "CHAT_MODEL_UNAVAILABLE",
+        "你是谁？",
     )
+    assert fallback_text.startswith("我理解你想问的是：“你是谁？”")
+    assert "可继续执行的回答框架" not in fallback_text
+    assert retriable is True

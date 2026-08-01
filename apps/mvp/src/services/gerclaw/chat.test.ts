@@ -58,9 +58,10 @@ test("chat failure presentation separates sensitive input from service failures"
     presentChatError({
       code: "CHAT_MODEL_UNAVAILABLE",
       status: 500,
-      message: "我先给你一个可继续执行的回答框架：\n\n已保留可用信息。",
+      message:
+        "我理解你想问的是：“你是谁？”。\n\n这次暂时没有完成完整回答。请再发一次，或补充你希望得到的结果。",
     }),
-    "我先给你一个可继续执行的回答框架：\n\n已保留可用信息。",
+    "我理解你想问的是：“你是谁？”。\n\n这次暂时没有完成完整回答。请再发一次，或补充你希望得到的结果。",
   );
 });
 
