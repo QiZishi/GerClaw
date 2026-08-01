@@ -752,6 +752,8 @@ class ChatService:
             if clinical_decision.action_selection.selected is not None
             else "answer"
         )
+        if selected_action == "ask":
+            selected_action = "answer"
         dynamic_plan = (
             resume_state.plan.dynamic_plan
             if resume_state is not None

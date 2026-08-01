@@ -2183,25 +2183,9 @@ async def test_controlled_successor_reuses_frozen_assets_but_replans_new_instruc
 
 
 @pytest.mark.asyncio
-async def test_treatment_unknown_returns_persisted_ask_without_model_or_rag(
+async def test_treatment_unknown_still_gets_model_answer_with_follow_up_context(
     unit_settings: Settings,
 ) -> None:
-    class _FailingRAG:
-        async def retrieve(self, *_args: object, **_kwargs: object) -> list[object]:
-            raise AssertionError("RAG must not run before a mandatory treatment prerequisite")
-
-    class _FailingModel(_TextModel):
-        async def _call_api(
-            self,
-            model_name: str,
-            messages: list[Msg],
-            tools: list[dict[str, Any]] | None = None,
-            tool_choice: ToolChoice | None = None,
-            **kwargs: Any,
-        ) -> ChatResponse | AsyncGenerator[ChatResponse, None]:
-            del model_name, messages, tools, tool_choice, kwargs
-            raise AssertionError("model must not run before a mandatory treatment prerequisite")
-
     session_id = uuid.uuid4()
     run_journal = _RunJournal()
     service = ChatService(
@@ -2209,8 +2193,8 @@ async def test_treatment_unknown_returns_persisted_ask_without_model_or_rag(
         conversation=cast(Any, _ConversationFacade(session_id)),
         traces=cast(Any, _TraceFacade(created=True, session_id=session_id)),
         lease=cast(Any, _OwnedLease()),
-        model=cast(Any, _FailingModel()),
-        rag_module=cast(Any, _FailingRAG()),
+        model=cast(Any, _TextModel()),
+        rag_module=cast(Any, _NoopRAG()),
         memory_factory=_memory_factory(),
         run_journal=run_journal,
     )
@@ -2231,13 +2215,19 @@ async def test_treatment_unknown_returns_persisted_ask_without_model_or_rag(
     )
 
     dynamic_plan = cast(dict[str, Any], run_journal.start_requests[0].plan["dynamic_plan"])
-    assert [node["capability"] for node in dynamic_plan["nodes"]] == ["clinical.ask"]
+    assert [node["capability"] for node in dynamic_plan["nodes"]] == [
+        "evidence.retrieve",
+        "answer.compose",
+    ]
     action = cast(dict[str, Any], response.structured["action_selection"])
     assert cast(dict[str, Any], action["selected"])["candidate"]["kind"] == "ask"
-    assert response.structured["model_invoked"] is False
-    assert "完整当前用药名称、剂量和频次" in response.text
+    assert response.structured["model_invoked"] is True
+    assert "您好" in response.text
     execution = cast(dict[str, Any], response.structured["plan_execution"])
-    assert execution["statuses"] == {"clarify_unknowns": "completed"}
+    assert execution["statuses"] == {
+        "retrieve_evidence": "completed",
+        "answer": "completed",
+    }
     persisted = ClinicalState.model_validate(
         cast(
             dict[str, Any],

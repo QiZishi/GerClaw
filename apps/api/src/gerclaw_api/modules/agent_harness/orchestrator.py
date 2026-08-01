@@ -6,6 +6,7 @@ from __future__ import annotations
 from collections.abc import Awaitable, Callable
 from dataclasses import replace
 from functools import partial
+from typing import Literal
 
 from gerclaw_api.modules.agent_harness.composition_setup import (
     ProductionHarnessCompositionSetup,
@@ -29,6 +30,7 @@ from gerclaw_api.modules.agent_harness.orchestration_support import (
     classify_answer_step_failure,
 )
 from gerclaw_api.modules.agent_harness.planning import (
+    ActionKind,
     ClinicalDecisionCoordinator,
     PlanExecutionSnapshot,
     PlanNodeStatus,
@@ -198,6 +200,12 @@ class ProductionAgentHarness(ProductionHarnessCompositionSetup, OrchestrationSup
             has_attachments=bool(self._uploaded_documents or self._uploaded_images),
         )
         selected = clinical_decision.action_selection.selected
+        # ASK remains advisory; the model still answers with known facts.
+        selected_action_for_plan: Literal["ask", "exam", "answer"] = (
+            "answer"
+            if selected is not None and selected.candidate.kind is ActionKind.ASK
+            else (selected.candidate.kind.value if selected is not None else "answer")
+        )
         prepared_turn = self._turn_planning.prepare(
             message=user_message,
             medical_content=medical_content,
@@ -205,7 +213,7 @@ class ProductionAgentHarness(ProductionHarnessCompositionSetup, OrchestrationSup
             document_count=len(self._uploaded_documents),
             capabilities=tuple([*self._loaded_skill_ids, *self._governed_capability_ids]),
             high_risk_detected=bool(high_risk_codes),
-            selected_action=(selected.candidate.kind.value if selected is not None else "answer"),
+            selected_action=selected_action_for_plan,
         )
         route_decision = prepared_turn.route_decision
         dynamic_plan = prepared_turn.dynamic_plan
@@ -247,7 +255,12 @@ class ProductionAgentHarness(ProductionHarnessCompositionSetup, OrchestrationSup
                 },
                 emergency_short_circuit=True,
             )
-        if governance.should_ask:
+        # Keep legacy clarification-only plans replayable.
+        has_answer_node = any(
+            node.capability in {"answer.quick", "answer.compose", "report.compose"}
+            for node in dynamic_plan.nodes
+        )
+        if governance.should_ask and not has_answer_node:
             if governance.status_for("clinical.ask") is not PlanNodeStatus.COMPLETED:
                 ask_node = await governance.checkpoint_persisted("clinical.ask")
                 await governance.complete_persisted(ask_node)
