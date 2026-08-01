@@ -7,6 +7,7 @@ from gerclaw_api.modules.agent_harness.evidence import (
     ModelCitationBindingScope,
     audit_claim_evidence,
     bind_citation_markers,
+    bind_turn_evidence,
     prune_unbound_clinical_claims,
     segment_has_admitted_model_marker,
 )
@@ -241,3 +242,39 @@ def test_prune_unbound_claims_preserves_supported_and_nonclinical_segments() -> 
     assert "血压管理应结合日常记录 [C1]。" in text
     assert "停药" not in text
     assert "祝您生活愉快。" in text
+
+
+def test_turn_binding_projects_only_adopted_sources_and_renumbers_markers() -> None:
+    initial = [
+        Citation(
+            source_id=f"local-{index}",
+            title=f"本地资料 {index}",
+            locator=f"local-{index}.md",
+            excerpt=f"本地原文 {index}",
+            score=0.9,
+            corpus="local_knowledge_base",
+        )
+        for index in (1, 2)
+    ]
+    attachment = Citation(
+        source_id="attachment-1",
+        title="用户上传资料",
+        locator="attachment.pdf | 第 1 页",
+        excerpt="血压记录为 146/82 mmHg。",
+        score=1.0,
+        corpus="uploaded_document",
+    )
+
+    bound = bind_turn_evidence(
+        "上传记录显示收缩压为 146 mmHg [A1]。",
+        initial_local=initial,
+        additional_local=[],
+        web=[],
+        attachments=[attachment],
+        is_clinical_claim=lambda _segment: True,
+        adopted_only=True,
+    )
+
+    assert bound.text == "上传记录显示收缩压为 146 mmHg [C1]。"
+    assert bound.citations == (attachment,)
+    assert bound.claim_audit.claims[0].source_ids == ("attachment-1",)

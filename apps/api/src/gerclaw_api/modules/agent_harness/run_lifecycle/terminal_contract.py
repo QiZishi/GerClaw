@@ -6,7 +6,7 @@ from collections.abc import Callable
 
 from pydantic import ValidationError
 
-from gerclaw_api.modules.agent_harness.evidence import bind_turn_evidence
+from gerclaw_api.modules.agent_harness.evidence import BoundTurnEvidence, bind_turn_evidence
 from gerclaw_api.modules.agent_harness.run_lifecycle.agent_stream import AgentStreamResult
 from gerclaw_api.modules.agent_harness.safety import (
     MEDICAL_DISCLAIMER,
@@ -37,7 +37,7 @@ def validate_terminal_response_candidate(
     high_risk_codes: list[str],
     medical_content: bool,
     patient_facing: bool,
-) -> None:
+) -> BoundTurnEvidence:
     """Reject a repairable terminal-contract defect before publishing text."""
 
     bound = bind_turn_evidence(
@@ -48,6 +48,7 @@ def validate_terminal_response_candidate(
         attachments=attachments,
         is_clinical_claim=is_clinical_claim,
         markers_already_bound=True,
+        adopted_only=True,
     )
     claims_complete = bound.claim_audit.all_clinical_claims_bound
     unbound_claim_ids = tuple(
@@ -79,3 +80,4 @@ def validate_terminal_response_candidate(
         raise ModelOutputContractValidationError(
             "candidate answer violates the public response contract"
         ) from error
+    return bound

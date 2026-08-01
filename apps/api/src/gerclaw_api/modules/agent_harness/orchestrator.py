@@ -18,6 +18,7 @@ from gerclaw_api.modules.agent_harness.context_snapshot import (
     render_untrusted_clinical_state,
 )
 from gerclaw_api.modules.agent_harness.evidence import (
+    BoundTurnEvidence,
     ModelCitationBindingScope,
     bind_turn_evidence,
     prune_unbound_clinical_claims,
@@ -507,6 +508,7 @@ class ProductionAgentHarness(ProductionHarnessCompositionSetup, OrchestrationSup
         skill_metadata = self._skill_metadata(self._agent_skills)
         output_contract_retries = 0
         pruned_claim_count = 0
+        validated_evidence: BoundTurnEvidence | None = None
         with (
             capture_model_attempts() as attempts,
             capture_agentic_rag_results() as agentic_results,
@@ -558,9 +560,10 @@ class ProductionAgentHarness(ProductionHarnessCompositionSetup, OrchestrationSup
                     ],
                 )
 
-            def validate_candidate(result: AgentStreamResult) -> None:
+            def validate_candidate(result: AgentStreamResult) -> AgentStreamResult:
+                nonlocal validated_evidence
                 candidate_local, candidate_web, candidate_attachments = candidate_evidence()
-                validate_terminal_response_candidate(
+                validated_evidence = validate_terminal_response_candidate(
                     result,
                     initial_local=initial_citations,
                     additional_local=candidate_local,
@@ -574,6 +577,7 @@ class ProductionAgentHarness(ProductionHarnessCompositionSetup, OrchestrationSup
                         and self._runtime_principal.role in {ActorRole.GUEST, ActorRole.PATIENT}
                     ),
                 )
+                return replace(result, text=validated_evidence.text)
 
             def recover_repeated_claim_failure(
                 result: AgentStreamResult,
@@ -659,29 +663,9 @@ class ProductionAgentHarness(ProductionHarnessCompositionSetup, OrchestrationSup
             )
             raise EmptyAgentResponseError("model completed without public text")
         try:
-            reusable_evidence = turn_results.evidence_for(
-                "report.compose"
-                if governance.answer_capability() == "report.compose"
-                else "answer.compose"
-            )
-            additional_local_citations = citations_from_results(
-                reusable_evidence + agentic_results,
-                minimum_score=self._config.evidence_min_score,
-                limit=self._config.evidence_top_k,
-            )
-            web_citations = citations_from_search_results(search_results)
-            bound_evidence = bind_turn_evidence(
-                model_text,
-                initial_local=initial_citations,
-                additional_local=additional_local_citations,
-                web=web_citations,
-                attachments=[
-                    *attachment_projector.document_citations(),
-                    *attachment_projector.image_citations(),
-                ],
-                is_clinical_claim=clinical_claim_detector,
-                markers_already_bound=True,
-            )
+            if validated_evidence is None:
+                raise RuntimeError("terminal evidence was not validated")
+            bound_evidence = validated_evidence
             model_text = bound_evidence.text
             citations = list(bound_evidence.citations)
             claim_audit = bound_evidence.claim_audit

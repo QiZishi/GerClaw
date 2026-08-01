@@ -31,7 +31,7 @@ from gerclaw_api.security import JsonValue
 BufferedEvent = tuple[str, dict[str, JsonValue]]
 BufferedEmitter = Callable[[str, dict[str, JsonValue]], Awaitable[None]]
 AttemptRunner = Callable[[BufferedEmitter], Awaitable[AgentStreamResult]]
-AttemptValidator = Callable[[AgentStreamResult], None]
+AttemptValidator = Callable[[AgentStreamResult], AgentStreamResult | None]
 AttemptRecovery = Callable[[AgentStreamResult, Exception], AgentStreamResult | None]
 AttemptRepairObserver = Callable[
     [str, tuple[str, ...], str, str, str],
@@ -166,7 +166,11 @@ async def run_with_output_protocol_repair(
             validate_public_answer_text(public_text)
             result = replace(result, text=public_text)
             if validate_result is not None:
-                validate_result(result)
+                validated_result = validate_result(result)
+                if validated_result is not None:
+                    result = validated_result
+                    public_text = result.text
+                    validate_public_answer_text(public_text)
         except Exception as error:
             decision = (
                 OUTPUT_PROTOCOL_REPAIR
@@ -190,7 +194,11 @@ async def run_with_output_protocol_repair(
                 validate_public_answer_text(public_text)
                 result = replace(recovered, text=public_text)
                 if validate_result is not None:
-                    validate_result(result)
+                    validated_result = validate_result(result)
+                    if validated_result is not None:
+                        result = validated_result
+                        public_text = result.text
+                        validate_public_answer_text(public_text)
             else:
                 seen_failures.add(decision.signature)
                 budget.add_retry()

@@ -525,7 +525,11 @@ async def test_answer_checkpoint_completes_only_after_evidence_finalization(
     def reject_finalization(*_args: object, **_kwargs: object) -> object:
         raise RuntimeError("citation finalization failed")
 
-    monkeypatch.setattr(orchestrator_module, "bind_turn_evidence", reject_finalization)
+    monkeypatch.setattr(
+        orchestrator_module,
+        "validate_terminal_response_candidate",
+        reject_finalization,
+    )
     harness = _harness(
         unit_settings,
         model=_HarnessModel(text="建议改善照明并核对步态风险 [E1]。"),
@@ -1660,7 +1664,7 @@ async def test_resume_reconstructs_completed_attachment_without_reopening_node(
 
     harness = _harness(
         unit_settings,
-        model=_HarnessModel(text="图片资料需结合症状和原始报告复核 [E1]。"),
+        model=_HarnessModel(text="图片资料需结合症状和原始报告复核 [E1][A1]。"),
         rag=_HarnessRAG([_evidence()]),
         uploaded_images=[image],
         route_decision=RouteDecision(

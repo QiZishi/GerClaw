@@ -19,6 +19,7 @@ _REFERENTIAL_FOLLOW_UP = re.compile(
     r"基于(?:刚才|之前|上述|上面)|(?:刚才|之前|上述|上面|这个情况|这些情况)"
 )
 _MAX_EVIDENCE_QUERY_CHARACTERS = 4_000
+_PUBLIC_CITATION_MARKER = re.compile(r"\[C(?P<index>\d+)\]", re.IGNORECASE)
 
 
 @dataclass(frozen=True, slots=True)
@@ -66,8 +67,9 @@ def bind_turn_evidence(
     attachments: list[Citation],
     is_clinical_claim: Callable[[str], bool],
     markers_already_bound: bool = False,
+    adopted_only: bool = False,
 ) -> BoundTurnEvidence:
-    """Deduplicate sources, bind E/W markers, then audit every claim segment."""
+    """Bind, optionally project to adopted sources, then audit every claim."""
 
     initial_source_ids = {item.source_id for item in initial_local}
     additional = [item for item in additional_local if item.source_id not in initial_source_ids]
@@ -86,6 +88,23 @@ def bind_turn_evidence(
             attachment_citation_offset=len(initial_local) + len(web),
         )
     )
+    if adopted_only:
+        adopted_indices = tuple(
+            dict.fromkeys(
+                int(match.group("index"))
+                for match in _PUBLIC_CITATION_MARKER.finditer(normalized_text)
+            )
+        )
+        if adopted_indices:
+            index_mapping = {
+                previous_index: public_index
+                for public_index, previous_index in enumerate(adopted_indices, start=1)
+            }
+            normalized_text = _PUBLIC_CITATION_MARKER.sub(
+                lambda match: f"[C{index_mapping[int(match.group('index'))]}]",
+                normalized_text,
+            )
+            citations = [citations[index - 1] for index in adopted_indices]
     return BoundTurnEvidence(
         text=normalized_text,
         citations=tuple(citations),

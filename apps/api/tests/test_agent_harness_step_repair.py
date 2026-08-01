@@ -150,6 +150,37 @@ async def test_terminal_contract_validation_replays_before_any_text_is_published
 
 
 @pytest.mark.asyncio
+async def test_terminal_validator_can_replace_text_before_publication() -> None:
+    published: list[str] = []
+    budget = _Budget()
+
+    async def run_attempt(emit: object) -> AgentStreamResult:
+        await emit("text_delta", {"content": "采用上传资料 [C3]。"})  # type: ignore[operator]
+        return _result("采用上传资料 [C3]。")
+
+    async def publish(_kind: str, data: dict[str, object]) -> None:
+        published.append(str(data["content"]))
+
+    result, repair_count = await run_with_output_protocol_repair(
+        run_attempt=run_attempt,
+        rebuild_agent=lambda _instruction: None,
+        publish=publish,  # type: ignore[arg-type]
+        budget=budget,  # type: ignore[arg-type]
+        observer=None,
+        validate_result=lambda result: AgentStreamResult(
+            text=result.text.replace("[C3]", "[C1]"),
+            deterministic_diagnosis_blocked=result.deterministic_diagnosis_blocked,
+            input_tokens=result.input_tokens,
+            output_tokens=result.output_tokens,
+        ),
+    )
+
+    assert repair_count == 0
+    assert result.text == "采用上传资料 [C1]。"
+    assert published == ["采用上传资料 [C1]。"]
+
+
+@pytest.mark.asyncio
 async def test_repeated_failure_signature_is_not_retried_in_a_loop() -> None:
     attempts = 0
     budget = _Budget()
