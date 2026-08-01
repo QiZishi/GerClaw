@@ -60,10 +60,10 @@ test("guest completes and exports a real PHQ-9 assessment", async ({
   await page.getByRole("button", { name: "导出报告" }).click();
   const download = page.waitForEvent("download");
   await page
-    .getByRole("menuitem", { name: "Markdown（便于保存）" })
+    .getByRole("menuitem", { name: "网页文档（保留排版）" })
     .click();
   const artifact = await download;
-  expect(artifact.suggestedFilename()).toMatch(/\.md$/);
+  expect(artifact.suggestedFilename()).toMatch(/\.html$/);
 });
 
 test("guest uploads a document and receives a source-bound model answer", async ({
@@ -107,8 +107,22 @@ test("guest uploads a document and receives a source-bound model answer", async 
   expect(answer).toContain("146");
   expect(answer).toContain("氨氯地平");
   expect(answer).not.toMatch(
-    /内部错误|正在修复|trace[_\s-]?id|provider|checkpoint|schema|policy/i,
+    /内部错误|正在修复|checkpoint|schema|policy/i,
   );
+  const sourceSummary = assistantBubbles
+    .last()
+    .getByRole("button", { name: /参考来源/ });
+  await expect(sourceSummary).toBeVisible();
+  await sourceSummary.click();
+  await expect(
+    assistantBubbles
+      .last()
+      .getByText("模型采用的原文", { exact: true })
+      .first(),
+  ).toBeVisible();
+  await expect(
+    assistantBubbles.last().getByText(/来源定位：/).first(),
+  ).toBeVisible();
   await page.screenshot({
     path: "output/playwright/stage7-real-use/document-upload.png",
     fullPage: true,
@@ -160,7 +174,7 @@ test("guest uploads an image and the real model reads its content", async ({
     /并非患者|无法提取病历|如需分析患者|请上传包含相关医疗信息/,
   );
   expect(answer).not.toMatch(
-    /内部错误|正在修复|trace[_\s-]?id|provider|checkpoint|schema|policy/i,
+    /内部错误|正在修复|checkpoint|schema|policy/i,
   );
   await page.screenshot({
     path: "output/playwright/stage7-real-use/image-understanding.png",
@@ -220,7 +234,7 @@ test("guest creates a source-bound five-prescription draft", async ({
   await expect(reportPanel).toBeVisible();
   await expect(reportPanel).toContainText("证据");
   await expect(
-    page.getByText(/内部错误|正在修复|trace[_\s-]?id|provider|checkpoint/i),
+    page.getByText(/内部错误|正在修复|checkpoint|schema|policy/i),
   ).toHaveCount(0);
 });
 
@@ -270,7 +284,7 @@ test("answer feedback, regeneration, export and artifact editing are durable", a
   ).toBeVisible();
   const download = page.waitForEvent("download");
   await page.getByRole("button", { name: "导出", exact: true }).click();
-  expect((await download).suggestedFilename()).toMatch(/\.md$/);
+  expect((await download).suggestedFilename()).toMatch(/\.html$/);
 
   await assistant.getByRole("button", { name: "更多" }).click();
   await page.getByRole("menuitem", { name: "转为文档编辑" }).click();
@@ -279,9 +293,22 @@ test("answer feedback, regeneration, export and artifact editing are durable", a
   await expect(artifactPanel.getByRole("status")).toContainText("已保存", {
     timeout: 30_000,
   });
-  const editor = page.getByPlaceholder("开始输入 Markdown...");
-  await editor.fill("# 计算结果\n\n25 乘以 4 等于 100。");
+  const editor = page.getByRole("textbox", { name: "可编辑文档正文" });
+  await editor.fill("计算结果\n25 乘以 4 等于 100。");
+  await editor.selectText();
+  await page.getByRole("button", { name: "加粗", exact: true }).click();
+  await expect
+    .poll(() => editor.locator("b, strong").count())
+    .toBeGreaterThan(0);
   await expect(artifactPanel.getByRole("status")).toContainText("已保存", {
     timeout: 30_000,
+  });
+  await artifactPanel.getByRole("button", { name: "导出", exact: true }).click();
+  const wordDownload = page.waitForEvent("download");
+  await page.getByRole("menuitem", { name: "Word (.docx)" }).click();
+  expect((await wordDownload).suggestedFilename()).toMatch(/\.docx$/);
+  await page.screenshot({
+    path: "output/playwright/stage7-real-use/artifact-rich-editor.png",
+    fullPage: true,
   });
 });

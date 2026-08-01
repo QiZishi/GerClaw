@@ -149,7 +149,7 @@ test("mobile workbench uses an accessible session drawer", async ({ page }) => {
   await expect(profilePanel).toBeHidden();
 });
 
-test("provider protocol markup never reaches the visible answer", async ({
+test("raw provider protocol markup never reaches the visible answer", async ({
   page,
 }) => {
   test.setTimeout(90_000);
@@ -195,8 +195,11 @@ test("provider protocol markup never reaches the visible answer", async ({
   const answer = await assistantBubbles.last().innerText();
   expect(answer.trim().length).toBeGreaterThan(20);
   expect(answer).not.toMatch(
-    /trace[_\s-]?id|CHAT_[A-Z_]+|provider|checkpoint|schema|内部错误|正在修复/i,
+    /CHAT_[A-Z_]+|checkpoint|schema|内部错误|正在修复/i,
   );
+  await expect(
+    assistantBubbles.last().getByText("执行详情", { exact: true }),
+  ).toBeVisible();
   const helpful = page.getByRole("button", { name: "有帮助" });
   await expect(helpful).toBeVisible();
   await expectNoBlockingAxeViolations(page);

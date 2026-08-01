@@ -3,7 +3,7 @@ import { expect, test, type Locator, type Page } from "@playwright/test";
 
 const DISCLAIMER = "内容由 AI 生成，仅供参考。身体不适请及时就医。";
 const INTERNAL_DETAIL =
-  /trace[_\s-]?id|CHAT_[A-Z_]+|EVOLUTION_[A-Z_]+|checkpoint|schema|provider|tool_call|内部错误|正在修复|校验失败|安全边界|模型供应商/i;
+  /CHAT_[A-Z_]+|EVOLUTION_[A-Z_]+|checkpoint|schema|tool_call|内部错误|正在修复|校验失败|安全边界|模型供应商/i;
 
 async function enterGuestWorkspace(page: Page) {
   await page.goto("/");

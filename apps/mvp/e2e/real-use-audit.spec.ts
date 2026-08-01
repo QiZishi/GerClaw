@@ -4,7 +4,7 @@ import { readFileSync } from "node:fs";
 const runRealUseAudit = process.env.GERCLAW_RUN_REAL_USE_AUDIT === "1";
 const realUseTest = runRealUseAudit ? test : test.skip;
 const INTERNAL_DETAIL =
-  /trace[_\s-]?id|trace_[0-9a-f]|CHAT_[A-Z_]+|EVOLUTION_[A-Z_]+|checkpoint|schema|provider|policy|tool_call|<invoke|<parameter|<tool_call|内部错误|正在修复|校验失败|安全边界|模型供应商/i;
+  /CHAT_[A-Z_]+|EVOLUTION_[A-Z_]+|checkpoint|schema|policy|tool_call|<invoke|<parameter|<tool_call|内部错误|正在修复|校验失败|安全边界|模型供应商/i;
 const PUBLIC_FAILURE =
   /这次回答没有完整生成|本次回复未完整生成|本次执行未完成|暂时无法完成|服务暂时不可用|请稍后重试/;
 const DISCLAIMER = "内容由 AI 生成，仅供参考。身体不适请及时就医。";
@@ -61,14 +61,12 @@ async function sendAndRead(page: Page, message: string) {
   expect(visible).not.toMatch(INTERNAL_DETAIL);
   expect(visible).not.toMatch(PUBLIC_FAILURE);
   expect(visible.split(DISCLAIMER).length - 1).toBeLessThanOrEqual(1);
-  await expect(
-    page.getByText(/分析已完成|医学检索\s*完成|已执行\s+\d{2}:\d{2}/),
-  ).toHaveCount(0);
+  await expect(assistantBubbles.last().getByText("执行详情", { exact: true })).toBeVisible();
   return visible;
 }
 
 realUseTest(
-  "real model tasks stay useful while production details remain private",
+  "real model tasks stay useful with public execution details and no private internals",
   async ({ page }) => {
     test.setTimeout(360_000);
     await page.setViewportSize({ width: 1440, height: 1000 });
@@ -134,6 +132,12 @@ realUseTest(
     );
     expect(calculation).toContain("126");
     expect(calculation).not.toContain(DISCLAIMER);
+    const calculationBubble = page
+      .locator('[data-message-bubble][data-message-role="assistant"]')
+      .last();
+    await calculationBubble.getByText("执行详情", { exact: true }).click();
+    await expect(calculationBubble.getByText("模型服务", { exact: true })).toBeVisible();
+    await expect(calculationBubble.getByText("Trace", { exact: true })).toBeVisible();
     await page.screenshot({
       path: "output/playwright/stage7-real-use/calculation.png",
       fullPage: true,
@@ -145,6 +149,12 @@ realUseTest(
       "我70岁，没有胸痛或呼吸困难，最近两周起身时偶尔头晕。请给三条就诊前可执行的记录建议，不要下诊断。",
     );
     expect(consultation).toMatch(/头晕|记录|起身|血压/);
+    const consultationBubble = page
+      .locator('[data-message-bubble][data-message-role="assistant"]')
+      .last();
+    await expect(
+      consultationBubble.getByText(/医学检索/).first(),
+    ).toBeVisible();
 
     const familyChecklist = await sendAndRead(
       page,
@@ -194,7 +204,7 @@ realUseTest(
       consoleErrors.filter(
         (message) =>
           !(
-            ttsUnavailableResponses > 0 &&
+            (ttsUnavailableResponses > 0 || asrProbe.status === 503) &&
             /Failed to load resource:.*503/.test(message)
           ),
       ),
