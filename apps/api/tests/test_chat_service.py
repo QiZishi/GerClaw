@@ -108,7 +108,13 @@ class _TextModel(ChatModelBase):
         self.last_messages = messages
 
         async def stream() -> AsyncGenerator[ChatResponse, None]:
-            text = "您好, 很高兴为您服务。"
+            text = (
+                "1. 保留最重要的晨间安排。\n"
+                "2. 保留最重要的日间安排。\n"
+                "3. 保留最重要的晚间安排。"
+                if any(message.name == "answer_presentation_contract" for message in messages)
+                else "您好, 很高兴为您服务。"
+            )
             yield ChatResponse(content=[TextBlock(text=text)], is_last=False)
             yield ChatResponse(
                 content=[TextBlock(text=text)],
@@ -138,7 +144,7 @@ class _ProtocolRepairModel(_TextModel):
         text = (
             '<invoke name="search_knowledge"><parameter name="query">作息</parameter></invoke>'
             if self.calls == 1
-            else "固定起床时间, 白天适量活动, 睡前减少刺激。"
+            else "1. 固定起床时间。\n2. 白天适量活动。\n3. 睡前减少刺激。"
         )
 
         async def stream() -> AsyncGenerator[ChatResponse, None]:
