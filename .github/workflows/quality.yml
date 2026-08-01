@@ -31,7 +31,7 @@ jobs:
       - name: Install frontend
         working-directory: apps/mvp
         run: npm ci
-      - name: Run quick Development Harness
+      - name: Run quick static and build gate
         run: scripts/quality-gate.sh quick
 
   security:
