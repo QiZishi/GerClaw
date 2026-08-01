@@ -17,9 +17,7 @@ export function ThinkingBlock({ data }: ThinkingBlockProps) {
   const isThinking = data.status === "thinking";
   const projection = projectPublicAnalysis(data);
 
-  if (!isThinking || !projection.detail) {
-    // The message-level status bar owns the single animated indicator and
-    // completed attempts disappear once the reader-facing answer is ready.
+  if (!projection.detail) {
     return null;
   }
 
@@ -43,7 +41,7 @@ export function ThinkingBlock({ data }: ThinkingBlockProps) {
             )} 
           />
           <span className="font-medium">
-            {isThinking && expanded ? "收起分析" : projection.label}
+            {expanded ? "收起公开执行摘要" : isThinking ? projection.label : "查看公开执行摘要"}
           </span>
         </span>
         {projection.expandable && (

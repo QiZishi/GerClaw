@@ -7,7 +7,7 @@ from collections.abc import AsyncGenerator, Iterator
 from contextlib import contextmanager
 from contextvars import ContextVar
 from dataclasses import dataclass
-from typing import Any, Literal, Protocol
+from typing import Any, Literal, Protocol, cast
 
 from agentscope.message import Msg, TextBlock, ThinkingBlock
 from agentscope.model import ChatModelBase, ChatResponse, StructuredResponse
@@ -63,6 +63,8 @@ class ModelAttempt:
 class _Candidate:
     preference: Literal["primary", "backup1", "backup2"]
     model: ChatModelBase
+    provider: Literal["OpenAI-compatible", "DashScope", "Anthropic"]
+    model_name: str
     timeout_seconds: float
     capability_version: str
     supports_image_input: bool
@@ -286,6 +288,15 @@ class FailoverChatModel(ChatModelBase):
             _Candidate(
                 config.preference,
                 build_agentscope_model(config),
+                cast(
+                    Literal["OpenAI-compatible", "DashScope", "Anthropic"],
+                    {
+                        "openai": "OpenAI-compatible",
+                        "dashscope": "DashScope",
+                        "anthropic": "Anthropic",
+                    }[config.protocol],
+                ),
+                config.model_name,
                 config.timeout_seconds,
                 config.capability_version,
                 config.supports_image_input,
@@ -303,6 +314,24 @@ class FailoverChatModel(ChatModelBase):
             max_retries=0,
             context_size=min(candidate.model.context_size for candidate in candidates),
         )
+
+    def public_execution_descriptor(
+        self,
+        preference: Literal["primary", "backup1", "backup2"],
+    ) -> dict[str, str]:
+        """Return server-owned display metadata without endpoint or credentials."""
+
+        candidate = next(
+            (item for item in self._candidates if item.preference == preference),
+            None,
+        )
+        if candidate is None:
+            raise ValueError("unknown model preference")
+        return {
+            "provider": candidate.provider,
+            "model": candidate.model_name,
+            "model_slot": candidate.preference,
+        }
 
     @staticmethod
     def _attempt(

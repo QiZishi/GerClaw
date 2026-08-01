@@ -1507,6 +1507,7 @@ class ChatService:
                 safety=cast(Any, rendered["safety"]),
                 trace_id=trace_id,
                 session_id=payload.session_id,
+                model_execution=self._public_model_execution(response),
             )
             raw_warning_codes = response.structured.get("warning_codes", [])
             run_warning_codes = (
@@ -1707,6 +1708,7 @@ class ChatService:
                 duration_ms=duration_ms,
                 commit=commit,
             )
+
         if model_invoked:
             await self._append_event(
                 tenant_id,
@@ -1794,6 +1796,14 @@ class ChatService:
             },
             commit=commit,
         )
+
+    def _public_model_execution(self, response: AgentResponse) -> dict[str, str] | None:
+        """Project only configured display metadata for the model that succeeded."""
+
+        preference = response.structured.get("model_preference")
+        if preference not in {"primary", "backup1", "backup2"}:
+            return None
+        return self._model.public_execution_descriptor(cast(Any, preference))
 
     async def _append_event(
         self,
@@ -2082,6 +2092,7 @@ class ChatService:
             answer_group_run_id=(answer.answer_group_run_id if answer is not None else None),
             answer_version_id=(answer.answer_version_id if answer is not None else None),
             answer_version=answer.answer_version if answer is not None else None,
+            model_execution=self._public_model_execution(response),
             replayed=True,
         )
         await callback(

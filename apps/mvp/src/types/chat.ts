@@ -84,6 +84,14 @@ export interface ToolCallBlock {
   startedAt: number;
   endedAt?: number;
   durationMs?: number;
+  resultSummary?: string;
+  resultCount?: number;
+}
+
+export interface ModelExecutionPresentation {
+  provider: "OpenAI-compatible" | "DashScope" | "Anthropic";
+  model: string;
+  modelSlot: "primary" | "backup1" | "backup2";
 }
 
 /** 子智能体节点（§4.2.3 SubAgentTree） */
@@ -247,6 +255,9 @@ export interface Message {
   autoTtsPending?: boolean;
   /** 服务端完成本次聊天执行后返回的 Trace ID；只允许用于同主体反馈。 */
   traceId?: string;
+  /** 服务端选中的安全 Provider/模型显示信息，不含 endpoint 或凭据。 */
+  modelExecution?: ModelExecutionPresentation;
+  completedAt?: number;
   /** 生成本可见版本的执行 Run。 */
   executionRunId?: string;
   /** 版本组所属 Run；重新生成必须由服务端核对。 */

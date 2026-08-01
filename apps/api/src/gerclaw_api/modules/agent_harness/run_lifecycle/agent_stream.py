@@ -169,6 +169,11 @@ async def project_agent_stream(
                     "tool_name": tool_name,
                     "status": terminal_status,
                     "duration_ms": bounded_trace_duration_ms(time.monotonic() - started_at),
+                    "result_summary": (
+                        "已停止，未采用本步骤结果"  # noqa: RUF001
+                        if terminal_status == "cancelled"
+                        else "本步骤未完成，未采用结果"  # noqa: RUF001
+                    ),
                 }
                 if tool_name == "Skill":
                     result_data.update(
@@ -247,7 +252,19 @@ async def project_agent_stream(
             if tool_name == "web_search" and len(search_results) > search_emitted:
                 current_results = search_results[search_emitted:]
                 result_data["results"] = [item.model_dump(mode="json") for item in current_results]
+                result_data["result_count"] = len(current_results)
                 search_emitted = len(search_results)
+            public_status = str(result_data["status"])
+            result_count = result_data.get("result_count")
+            result_data["result_summary"] = (
+                f"已找到 {result_count} 条可核对结果"
+                if public_status == "success" and isinstance(result_count, int)
+                else "已完成，结果已用于下一步"  # noqa: RUF001
+                if public_status == "success"
+                else "已停止，未采用本步骤结果"  # noqa: RUF001
+                if public_status == "cancelled"
+                else "本步骤未完成，已继续使用其他可用信息"  # noqa: RUF001
+            )
             await emit("tool_result", result_data)
             if tool_result_observer is not None:
                 await tool_result_observer(

@@ -37,6 +37,7 @@ function getSearchQuery(data: ToolCallBlockData): string {
 }
 
 function getSearchResultCount(data: ToolCallBlockData): number {
+  if (data.resultCount !== undefined) return data.resultCount;
   if (!data.result) return 0;
   try {
     const r = data.result as { results?: unknown[] };
@@ -52,6 +53,7 @@ function getLocalKBCategory(data: ToolCallBlockData): string {
 }
 
 function getLocalKBResultCount(data: ToolCallBlockData): number {
+  if (data.resultCount !== undefined) return data.resultCount;
   if (!data.result) return 0;
   try {
     const r = data.result as { chunks?: unknown[] };
@@ -455,7 +457,17 @@ export function ToolCallBlock({ data, onRetry }: ToolCallBlockProps) {
 
   return (
     <div className="rounded-xl border border-border/40 bg-muted/30 overflow-hidden mb-2">
-      <div className="flex w-full items-center justify-between gap-2 px-3 py-2 text-left">
+      <div className="flex items-center">
+      <button
+        type="button"
+        className={cn(
+          "flex min-w-0 flex-1 items-center justify-between gap-2 px-3 py-2 text-left",
+          projection.expandable && "hover:bg-muted/50",
+        )}
+        onClick={() => projection.expandable && setExpanded((value) => !value)}
+        aria-expanded={projection.expandable ? expanded : false}
+        disabled={!projection.expandable}
+      >
           <span className="flex min-w-0 items-center gap-2 text-sm text-muted-foreground/80">
             {toolIconEl}
           <span className="min-w-0 truncate font-medium">{projection.label}</span>
@@ -468,7 +480,11 @@ export function ToolCallBlock({ data, onRetry }: ToolCallBlockProps) {
             </span>
           )}
         </span>
-        {data.status === "failed" && onRetry && (
+        {projection.expandable && (
+          <ChevronDown className={cn("size-4 shrink-0 transition-transform", expanded && "rotate-180")} aria-hidden />
+        )}
+      </button>
+      {data.status === "failed" && onRetry && (
           <Button
             size="sm"
             variant="outline"
@@ -480,6 +496,12 @@ export function ToolCallBlock({ data, onRetry }: ToolCallBlockProps) {
           </Button>
         )}
       </div>
+      {projection.expandable && expanded && projection.resultSummary && (
+        <div className="border-t border-border/40 px-3 py-2 text-sm leading-6 text-foreground/80">
+          <span className="font-medium text-foreground">结果：</span>
+          {projection.resultSummary}
+        </div>
+      )}
     </div>
   );
 }

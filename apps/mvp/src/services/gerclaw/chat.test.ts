@@ -21,6 +21,7 @@ test("completion event accepts server-owned SSE observability metadata", () => {
     answer_group_run_id: null,
     answer_version_id: null,
     answer_version: null,
+    model_execution: null,
     safety: {
       reviewed: true,
       disclaimer_applied: true,
@@ -45,6 +46,7 @@ test("completion event rejects undeclared transport fields", () => {
     answer_group_run_id: null,
     answer_version_id: null,
     answer_version: null,
+    model_execution: null,
     safety: {
       reviewed: true,
       disclaimer_applied: true,
@@ -70,6 +72,11 @@ test("completion event accepts a durable Run sequence cursor", () => {
     answer_group_run_id: "5dd4df02-c17f-44fb-ad36-4da60cbb2dd7",
     answer_version_id: "11d8099d-50ba-413c-b683-b629bec33478",
     answer_version: 1,
+    model_execution: {
+      provider: "DashScope",
+      model: "qwen-plus",
+      model_slot: "primary",
+    },
     safety: {
       reviewed: true,
       disclaimer_applied: true,
@@ -102,6 +109,7 @@ test("completion citation preserves the exact adopted source passage and locator
     answer_group_run_id: null,
     answer_version_id: null,
     answer_version: null,
+    model_execution: null,
     safety: {
       reviewed: true,
       disclaimer_applied: true,

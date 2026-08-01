@@ -6,6 +6,7 @@ import { Stethoscope } from "lucide-react";
 import { MessageBody } from "@/components/chat/message/MessageBody";
 import { MessageActions } from "@/components/chat/message/MessageActions";
 import {
+  AgentExecutionSummary,
   AssistantRunStatus,
   IncompleteAnswerWarning,
 } from "@/components/chat/message/MessageStatusNotices";
@@ -107,6 +108,8 @@ export function MessageBubble({
           <AssistantRunStatus
             phase={hasActiveThinking ? "正在分析您的问题" : "正在生成答复"}
             seniorMode={seniorMode}
+            startedAt={message.createdAt}
+            traceId={message.traceId}
           />
         )}
         {!isUser && message.status === "error" && (
@@ -134,6 +137,9 @@ export function MessageBubble({
             <SourceReferences citations={message.citations} />
           </div>
         ) : null}
+        {!isUser && message.status === "done" && (
+          <AgentExecutionSummary message={message} seniorMode={seniorMode} />
+        )}
         {message.hasDisclaimer && !hasInlineDisclaimer && (
           <div className={cn("px-2 text-muted-foreground", seniorMode ? "text-lg leading-relaxed" : "text-[11px]")}>
             {companionMode

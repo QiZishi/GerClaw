@@ -429,6 +429,10 @@ export const useChatStore = create<ChatState>()((set, get) => ({
   completeMessageToolCall: (id, toolBlockId, args, result) =>
     set((s) => {
       const now = Date.now();
+      const resultRecord =
+        result && typeof result === "object"
+          ? (result as Record<string, unknown>)
+          : {};
       const next = { ...s.messagesBySession };
       for (const sid of Object.keys(next)) {
         next[sid] = next[sid].map((m) => {
@@ -437,7 +441,11 @@ export const useChatStore = create<ChatState>()((set, get) => ({
             ...m,
             blocks: m.blocks.map((b) => {
               if (b.kind !== "tool_call" || b.id !== toolBlockId) return b;
-              const durationMs = b.data.startedAt ? now - b.data.startedAt : undefined;
+              const measuredDuration = b.data.startedAt ? now - b.data.startedAt : undefined;
+              const durationMs =
+                typeof resultRecord.duration_ms === "number"
+                  ? resultRecord.duration_ms
+                  : measuredDuration;
               return {
                 ...b,
                 data: {
@@ -447,6 +455,14 @@ export const useChatStore = create<ChatState>()((set, get) => ({
                   result,
                   endedAt: now,
                   durationMs,
+                  resultSummary:
+                    typeof resultRecord.result_summary === "string"
+                      ? resultRecord.result_summary
+                      : undefined,
+                  resultCount:
+                    typeof resultRecord.result_count === "number"
+                      ? resultRecord.result_count
+                      : undefined,
                 },
               };
             }),

@@ -6,6 +6,10 @@ projector extracted without behavior changes. The root `harness.py` is a small c
 facade; the composition entry remains outside this package and injects budgets, approvals,
 evidence state, Memory failure checks, and timeout error construction.
 
+Public execution projection keeps the server-authored reasoning summaries and one bounded
+tool result summary with status and measured duration. It may expose validated search result
+cards, but never raw tool/provider payloads, hidden reasoning, prompts, endpoints or credentials.
+
 Unsafe or empty output raises a typed, repairable error; trailing whitespace is never
 published as a new semantic delta. A valid `final-clinical-state` private envelope is
 deterministically reduced to its reader-facing recommendation details before publication;

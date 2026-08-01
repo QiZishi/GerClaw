@@ -54,6 +54,7 @@ const toolResultSchema = z
     tool_name: z.string().min(1).max(128),
     status: z.enum(["success", "failed", "cancelled"]),
     duration_ms: z.number().int().nonnegative(),
+    result_summary: z.string().min(1).max(300).optional(),
     result_count: z.number().int().nonnegative().max(100).optional(),
     results: z.array(z.record(z.string(), z.unknown())).max(50).optional(),
     skill: z.string().min(1).max(100).optional(),
@@ -114,6 +115,8 @@ export interface AgentToolEvent {
   name: string;
   status: string;
   durationMs?: number;
+  resultSummary?: string;
+  resultCount?: number;
   results?: unknown[];
 }
 
@@ -143,6 +146,11 @@ export interface AgentChatCallbacks {
     } | null,
     presentation: {
       disclaimerApplied: boolean;
+      modelExecution: {
+        provider: "OpenAI-compatible" | "DashScope" | "Anthropic";
+        model: string;
+        modelSlot: "primary" | "backup1" | "backup2";
+      } | null;
     },
   ) => void;
   onCancelled?: (traceId: string, message: string) => void;
@@ -262,6 +270,8 @@ async function consumeAgentStream(
         name: tool.tool_name,
         status: tool.status,
         durationMs: tool.duration_ms,
+        resultSummary: tool.result_summary,
+        resultCount: tool.result_count,
         results: tool.results,
       });
     } else if (parsed.event === "approval_required") {
@@ -305,6 +315,13 @@ async function consumeAgentStream(
             },
         {
           disclaimerApplied: doneEvent.safety.disclaimer_applied,
+          modelExecution: doneEvent.model_execution
+            ? {
+                provider: doneEvent.model_execution.provider,
+                model: doneEvent.model_execution.model,
+                modelSlot: doneEvent.model_execution.model_slot,
+              }
+            : null,
         },
       );
     } else if (parsed.event === "cancelled") {

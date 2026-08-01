@@ -108,6 +108,34 @@ def test_public_tool_result_omits_absent_optional_fields() -> None:
     }
 
 
+def test_public_terminal_exposes_only_safe_selected_model_metadata() -> None:
+    event = StreamEvent(
+        event_type="done",
+        data={
+            "full_text": "请携带检查资料就医。",
+            "references": [],
+            "safety": _safety(),
+            "trace_id": "trace_validation_0002",
+            "session_id": str(uuid.uuid4()),
+            "model_execution": {
+                "provider": "DashScope",
+                "model": "qwen-plus",
+                "model_slot": "primary",
+            },
+        },
+        timestamp=datetime.now(UTC),
+    )
+
+    validated = validate_public_chat_stream_event(event)
+
+    assert validated.data["model_execution"] == {
+        "provider": "DashScope",
+        "model": "qwen-plus",
+        "model_slot": "primary",
+    }
+    assert "url" not in str(validated.data["model_execution"])
+
+
 def test_public_boundary_rejects_harness_only_done_and_unknown_event_fields() -> None:
     harness_done = StreamEvent(
         event_type="done",

@@ -8,6 +8,7 @@ import { RuntimeApprovalCard } from "@/components/chat/blocks/RuntimeApprovalCar
 import { StreamingText } from "@/components/chat/blocks/StreamingText";
 import { SubAgentTree } from "@/components/chat/blocks/SubAgentTree";
 import { ThinkingBlock } from "@/components/chat/blocks/ThinkingBlock";
+import { ToolCallBlock } from "@/components/chat/blocks/ToolCallBlock";
 import { EmergencyWarningCard } from "@/components/chat/message/MessageStatusNotices";
 import { InfoCollectionCard, StageIndicator } from "@/components/chat/InfoCollectionCard";
 import { MarkdownRenderer } from "@/components/chat/MarkdownRenderer";
@@ -66,9 +67,7 @@ export function MessageBody({
           case "thinking":
             return <ThinkingBlock key={block.id} data={block.data} />;
           case "tool_call":
-            // Tool names, durations and completion states belong in telemetry.
-            // The running answer already has one concise reader-facing status.
-            return null;
+            return <ToolCallBlock key={block.id} data={block.data} />;
           case "sub_agent":
             return <SubAgentTree key={block.id} data={block.data} />;
           case "decision":

@@ -21,6 +21,14 @@ const safetySchema = z
   })
   .strict();
 
+const modelExecutionSchema = z
+  .object({
+    provider: z.enum(["OpenAI-compatible", "DashScope", "Anthropic"]),
+    model: z.string().min(1).max(128),
+    model_slot: z.enum(["primary", "backup1", "backup2"]),
+  })
+  .strict();
+
 /**
  * Required final payload and the exact server-owned transport metadata. New
  * fields require a versioned backend/frontend contract change; silently
@@ -36,6 +44,7 @@ export const chatDoneEventSchema = z
     answer_group_run_id: z.string().uuid().nullable(),
     answer_version_id: z.string().uuid().nullable(),
     answer_version: z.number().int().positive().nullable(),
+    model_execution: modelExecutionSchema.nullable(),
     safety: safetySchema,
     replayed: z.boolean(),
     timestamp: z.number().finite().nonnegative(),

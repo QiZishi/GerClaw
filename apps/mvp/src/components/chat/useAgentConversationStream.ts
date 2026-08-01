@@ -253,6 +253,7 @@ export function useAgentConversationStream(): {
         onStarted: (traceId) => {
           if (activeTurnsRef.current.get(sessionId) === activeTurn) {
             activeTurn.traceId = traceId;
+            updateMessage(assistantMessageId, { traceId });
           }
         },
         onThinking: (content) => {
@@ -281,7 +282,7 @@ export function useAgentConversationStream(): {
           toolCallBlockMap.set(id, toolBlockId);
           initMessageToolCall(assistantMessageId, toolBlockId, id, name);
         },
-        onToolResult: ({ id, status, durationMs, results }) => {
+        onToolResult: ({ id, status, durationMs, resultSummary, resultCount, results }) => {
           if (emergencyShortCircuit) return;
           const toolBlockId = toolCallBlockMap.get(id);
           if (!toolBlockId) return;
@@ -300,6 +301,8 @@ export function useAgentConversationStream(): {
           completeMessageToolCall(assistantMessageId, toolBlockId, {}, {
             status,
             duration_ms: durationMs,
+            result_summary: resultSummary,
+            result_count: resultCount,
             results,
           });
         },
@@ -398,6 +401,8 @@ export function useAgentConversationStream(): {
                 : citations,
             hasDisclaimer: presentation.disclaimerApplied,
             traceId,
+            modelExecution: presentation.modelExecution ?? undefined,
+            completedAt: Date.now(),
             executionRunId: answer?.runId,
             answerGroupRunId: answer?.answerGroupRunId,
             answerVersionId: answer?.answerVersionId,

@@ -5,7 +5,9 @@ production consumers are:
 
 - `public-chat-sse-v2`: Harness events are validated before callback delivery;
   terminal `done` may additionally carry one complete Run/AnswerVersion tuple
-  for server-side replacement generation, and public events are validated again
+  for server-side replacement generation plus a bounded `model_execution`
+  display projection (Provider adapter、模型名、主备槽位，不含 endpoint 或凭据);
+  tool terminal events may carry one bounded reader-facing result summary, and public events are validated again
   immediately before entering the FastAPI SSE queue.
 - `local-rag-evidence-v1`: `HybridRAGModule` validates every returned local
   chunk's provenance; the AgentScope adapter, public citation projection and

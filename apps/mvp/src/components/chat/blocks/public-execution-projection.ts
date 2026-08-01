@@ -9,7 +9,8 @@ export interface PublicAnalysisProjection {
 export interface PublicToolProjection {
   label: string;
   statusLabel: string;
-  expandable: false;
+  resultSummary: string | null;
+  expandable: boolean;
 }
 
 const PUBLIC_TOOL_NAMES: Readonly<Record<string, string>> = {
@@ -23,10 +24,11 @@ const PUBLIC_TOOL_NAMES: Readonly<Record<string, string>> = {
 
 export function projectPublicAnalysis(data: ThinkingBlock): PublicAnalysisProjection {
   if (data.status !== "thinking") {
+    const detail = data.content.trim();
     return {
-      label: "分析已完成",
-      detail: null,
-      expandable: false,
+      label: "公开执行摘要",
+      detail: detail || null,
+      expandable: detail.length > 0,
     };
   }
 
@@ -50,6 +52,9 @@ export function projectPublicTool(data: ToolCallBlock): PublicToolProjection {
   return {
     label,
     statusLabel,
-    expandable: false,
+    resultSummary:
+      data.resultSummary?.trim() ||
+      (data.status === "done" ? "已完成，结果已用于下一步" : null),
+    expandable: Boolean(data.resultSummary?.trim()),
   };
 }

@@ -176,6 +176,26 @@ def test_router_identity_uses_configured_primary_model() -> None:
     assert router.model == "configured-primary-model"
 
 
+def test_router_projects_only_safe_selected_model_display_metadata() -> None:
+    models = [
+        _ScriptedModel("configured-primary-model", []),
+        _ScriptedModel("configured-backup1-model", []),
+        _ScriptedModel("configured-backup2-model", []),
+    ]
+    router = _router(
+        models,
+        protocols=("openai", "dashscope", "anthropic"),
+    )
+
+    assert router.public_execution_descriptor("backup1") == {
+        "provider": "DashScope",
+        "model": "backup1-model",
+        "model_slot": "backup1",
+    }
+    assert "url" not in router.public_execution_descriptor("backup1")
+    assert "api_key" not in router.public_execution_descriptor("backup1")
+
+
 async def _consume(router: FailoverChatModel) -> str:
     return await _consume_with_messages(router, [UserMsg(name="user", content="hello")])
 

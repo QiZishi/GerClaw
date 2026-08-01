@@ -101,6 +101,7 @@ class _ToolResultData(BaseModel):
     tool_name: str = Field(min_length=1, max_length=128)
     status: Literal["success", "failed", "cancelled"]
     duration_ms: int = Field(ge=0, le=3_600_000)
+    result_summary: str | None = Field(default=None, min_length=1, max_length=300)
     result_count: int | None = Field(default=None, ge=0, le=100)
     results: list[dict[str, JsonValue]] | None = Field(default=None, max_length=50)
     skill: str | None = Field(default=None, min_length=1, max_length=100)
@@ -137,6 +138,16 @@ class _HarnessDoneData(_DoneData):
     """The Harness terminal payload before Chat Service adds provenance."""
 
 
+class PublicModelExecution(BaseModel):
+    """Safe model identity selected by the server, excluding endpoint and credentials."""
+
+    model_config = STRICT
+
+    provider: Literal["OpenAI-compatible", "DashScope", "Anthropic"]
+    model: str = Field(min_length=1, max_length=128)
+    model_slot: Literal["primary", "backup1", "backup2"]
+
+
 class PublicChatDoneData(_DoneData):
     """Terminal browser payload, versioned by ``PUBLIC_CHAT_SSE_SCHEMA_VERSION``."""
 
@@ -146,6 +157,7 @@ class PublicChatDoneData(_DoneData):
     answer_group_run_id: uuid.UUID | None = None
     answer_version_id: uuid.UUID | None = None
     answer_version: int | None = Field(default=None, ge=1)
+    model_execution: PublicModelExecution | None = None
     replayed: bool = False
 
     @model_validator(mode="after")

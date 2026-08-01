@@ -124,6 +124,7 @@ class TurnResultReuse:
                     "tool_name": "search_knowledge",
                     "status": "failed",
                     "duration_ms": max(0, int((time.monotonic() - started_at) * 1_000)),
+                    "result_summary": "本地医学证据暂时不可用",
                 },
             )
             if tolerate_failure:
@@ -146,6 +147,7 @@ class TurnResultReuse:
                 "status": "success",
                 "duration_ms": max(0, int((time.monotonic() - started_at) * 1_000)),
                 "result_count": len(evidence),
+                "result_summary": f"已找到 {len(evidence)} 条相关医学证据",
             },
         )
         return evidence
