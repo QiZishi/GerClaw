@@ -1105,7 +1105,7 @@ agent_harness/
 ├── context.py           # 上下文组装逻辑（9源上下文）
 ├── react_loop.py        # ReAct 推理循环封装
 ├── team.py              # 多智能体团队调度（Coordinator-Expert）
-├── safety.py            # 安全检查点（诊断拦截、PHI过滤、免责声明）
+├── safety.py            # 安全检查点（输出措辞治理、PHI边界处理、免责声明）
 ├── stream_events.py     # SSE 事件类型定义与序列化
 ├── protocols.py         # 接口定义（Protocol/ABC）
 └── README.md            # 模块说明文档
@@ -1534,15 +1534,15 @@ class PrivacyModule(Protocol):
         """
         ...
 
-    async def filter_input(
+    async def process_input_boundary(
         self,
         user_input: str,
     ) -> FilterResult:
         """
-        输入安全过滤
+        输入边界处理（不拦截用户问题）
 
         输入：用户原始输入
-        输出：过滤结果（是否安全、过滤后文本、拦截原因）
+        输出：边界处理结果（供外部服务使用的脱敏文本、审计标记）；原始问题始终继续交付
         """
         ...
 
@@ -1576,7 +1576,7 @@ privacy/
 ├── privacy_module.py    # PrivacyModule 主类实现
 ├── phi_detector.py      # PHI 检测器（正则+NER）
 ├── desensitizer.py      # 脱敏执行器
-├── input_filter.py      # 输入安全过滤
+├── input_boundary.py    # 输入边界处理，不拦截用户问题
 ├── disclaimer.py        # 免责声明管理
 ├── audit_logger.py      # 审计日志记录
 ├── protocols.py         # 接口定义
