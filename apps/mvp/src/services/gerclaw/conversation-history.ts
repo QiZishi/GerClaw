@@ -37,6 +37,7 @@ export function toFrontendCitation(
     id: index + 1,
     title: source.title,
     snippet: source.excerpt,
+    locator: source.locator,
     url: source.corpus === "web" ? source.locator : "",
     source:
       source.corpus === "local_knowledge_base"
@@ -46,6 +47,7 @@ export function toFrontendCitation(
           : source.corpus === "uploaded_image"
             ? "上传图片"
             : source.locator,
+    corpus: source.corpus,
   };
 }
 

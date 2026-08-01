@@ -85,6 +85,39 @@ test("completion event accepts a durable Run sequence cursor", () => {
   assert.equal(parsed.sequence, 8);
 });
 
+test("completion citation preserves the exact adopted source passage and locator", () => {
+  const parsed = chatDoneEventSchema.parse({
+    full_text: "建议先记录一周家庭血压 [C1]。",
+    references: [{
+      source_id: "source_guide_01",
+      title: "老年高血压管理指南",
+      locator: "https://example.org/guide#home-bp",
+      excerpt: "治疗调整前应结合规范的家庭血压监测记录。",
+      score: 0.91,
+      corpus: "web",
+    }],
+    trace_id: "trace_12345678",
+    session_id: "6cf3c10d-1d9e-4cfb-8d42-1e32fdb92911",
+    run_id: null,
+    answer_group_run_id: null,
+    answer_version_id: null,
+    answer_version: null,
+    safety: {
+      reviewed: true,
+      disclaimer_applied: true,
+      deterministic_diagnosis_blocked: false,
+      high_risk_escalation_checked: true,
+      notices: ["medical_disclaimer_applied"],
+    },
+    replayed: false,
+    timestamp: 1_784_296_433.472992,
+  });
+
+  assert.equal(parsed.references[0].excerpt, "治疗调整前应结合规范的家庭血压监测记录。");
+  assert.equal(parsed.references[0].locator, "https://example.org/guide#home-bp");
+  assert.match(parsed.full_text, /\[C1\]/);
+});
+
 test("durable cursor ignores duplicate replay and advances monotonically", () => {
   const cursor = { runId: undefined, lastSequence: 0 };
   assert.equal(

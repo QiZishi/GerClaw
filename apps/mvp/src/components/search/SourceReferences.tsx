@@ -2,7 +2,7 @@
 
 import { useId, useState } from "react";
 import Image from "next/image";
-import { BookOpen, ChevronDown, ExternalLink, Globe, List } from "lucide-react";
+import { BookOpen, ChevronDown, ExternalLink, Globe, List, Quote } from "lucide-react";
 import { useAppStore } from "@/stores/appStore";
 import { cn } from "@/lib/utils";
 import type { Citation } from "@/types";
@@ -162,6 +162,16 @@ export function SourceReferences({ citations, className }: SourceReferencesProps
                         </>
                       )}
                     </div>
+                    <div className={cn("mt-2 rounded border border-border/60 bg-background/80 p-2 text-foreground", seniorMode ? "text-lg leading-8" : "text-xs leading-5")}>
+                      <span className="mb-1 flex items-center gap-1 font-medium text-muted-foreground">
+                        <Quote className="size-3.5" aria-hidden />
+                        模型采用的原文
+                      </span>
+                      <p className="line-clamp-4 whitespace-pre-wrap break-words">{c.snippet}</p>
+                    </div>
+                    <p className={cn("mt-1 break-words text-muted-foreground", seniorMode ? "text-base leading-7" : "text-[11px] leading-4")}>
+                      来源定位：{c.locator}
+                    </p>
                   </div>
                 </>
               );

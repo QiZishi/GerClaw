@@ -184,14 +184,20 @@ function CitationItem({ citation, seniorMode }: CitationItemProps) {
           </div>
         </div>
       </header>
-      <div className={cn("mt-2 flex items-start gap-1.5 text-xs text-muted-foreground leading-relaxed pl-7", seniorMode && "pl-10 text-base leading-8")}>
+      <div className={cn("mt-2 rounded-md border border-border/60 bg-muted/30 p-2.5 text-xs leading-relaxed text-foreground", seniorMode && "p-3 text-base leading-8")}>
+        <div className="mb-1 flex items-center gap-1.5 font-medium text-muted-foreground">
+          <Quote className="size-3 shrink-0 opacity-70" />
+          模型采用的原文
+        </div>
+        <div className="flex items-start gap-1.5">
         <Quote className="size-3 shrink-0 mt-0.5 opacity-50" />
         <p className={cn("min-w-0 flex-1 break-words", !excerptExpanded && "line-clamp-3")}>
           {citation.snippet}
         </p>
+        </div>
       </div>
       {hasExpandableExcerpt && (
-        <div className={cn("mt-1 pl-7", seniorMode && "pl-10")}>
+        <div className="mt-1">
           <button
             type="button"
             onClick={() => setExcerptExpanded((expanded) => !expanded)}
@@ -205,7 +211,10 @@ function CitationItem({ citation, seniorMode }: CitationItemProps) {
           </button>
         </div>
       )}
-      <div className={cn("mt-2 pl-7", seniorMode && "pl-10")}>
+      <p className={cn("mt-2 break-words text-xs text-muted-foreground", seniorMode && "text-base leading-8")}>
+        来源定位：{citation.locator}
+      </p>
+      <div className="mt-2">
         {externalUrl ? (
           <a
             href={citation.url}
@@ -214,7 +223,7 @@ function CitationItem({ citation, seniorMode }: CitationItemProps) {
             className={cn("inline-flex items-center gap-1 text-xs text-primary hover:underline", seniorMode && "min-h-12 text-base")}
           >
             <ExternalLink className="size-3" />
-            查看原文
+            打开原文
           </a>
         ) : (
           <p className={cn("text-xs text-muted-foreground", seniorMode && "text-base leading-relaxed")}>

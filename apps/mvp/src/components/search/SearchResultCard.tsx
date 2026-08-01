@@ -1,7 +1,9 @@
 "use client";
 
-import { ExternalLink, Globe } from "lucide-react";
+import { ExternalLink, Eye, Globe } from "lucide-react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Button } from "@/components/ui/button";
+import { useAppStore } from "@/stores/appStore";
 import type { SearchResultItem } from "@/types";
 
 interface SearchResultCardProps {
@@ -16,6 +18,22 @@ interface SearchResultCardProps {
  * 点击链接可在右侧面板预览
  */
 export function SearchResultCard({ item, index }: SearchResultCardProps) {
+  const setCurrentCitations = useAppStore((state) => state.setCurrentCitations);
+  const setRightPanel = useAppStore((state) => state.setRightPanel);
+  const previewSource = () => {
+    setCurrentCitations([{
+      id: index ?? 1,
+      title: item.title,
+      snippet: item.snippet,
+      locator: item.url,
+      url: item.url,
+      source: item.source,
+      corpus: "web",
+      publishedDate: item.publishedDate,
+    }]);
+    setRightPanel("citations");
+  };
+
   return (
     <Card className="bg-muted/40 border-border/60">
       <CardHeader className="pb-2">
@@ -50,8 +68,18 @@ export function SearchResultCard({ item, index }: SearchResultCardProps) {
           <ExternalLink className="size-3.5 shrink-0 text-muted-foreground" />
         </div>
       </CardHeader>
-      <CardContent className="text-xs text-muted-foreground leading-relaxed">
-        {item.snippet}
+      <CardContent className="space-y-2 text-xs text-muted-foreground leading-relaxed">
+        <p>{item.snippet}</p>
+        <div className="flex flex-wrap gap-2">
+          <Button type="button" variant="outline" size="sm" className="h-8 gap-1.5" onClick={previewSource}>
+            <Eye className="size-3.5" aria-hidden />
+            预览来源
+          </Button>
+          <Button variant="ghost" size="sm" className="h-8 gap-1.5" render={<a href={item.url} target="_blank" rel="noopener noreferrer" />}>
+            <ExternalLink className="size-3.5" aria-hidden />
+            打开链接
+          </Button>
+        </div>
       </CardContent>
     </Card>
   );

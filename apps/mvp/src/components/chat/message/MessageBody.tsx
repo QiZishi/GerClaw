@@ -45,7 +45,8 @@ export function MessageBody({
             ) : (
               <MarkdownRenderer
                 key={block.id}
-                content={stripCitationMarkers(block.content)}
+                content={block.content}
+                citations={message.citations}
               />
             );
           case "image":

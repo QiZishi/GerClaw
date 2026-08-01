@@ -51,9 +51,13 @@ export type ModelPreference = "primary" | "backup1" | "backup2";
 export interface Citation {
   id: number;
   title: string;
+  /** 模型生成对应 claim 时实际采用的来源原文。 */
   snippet: string;
+  /** 可复核的页码、章节、chunk 或公开 URL 定位。 */
+  locator: string;
   url: string;
   source: string;
+  corpus: "local_knowledge_base" | "web" | "uploaded_document" | "uploaded_image";
   publishedDate?: string;
 }
 

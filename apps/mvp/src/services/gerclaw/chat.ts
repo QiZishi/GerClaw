@@ -166,6 +166,7 @@ function toCitation(
     id: index + 1,
     title: reference.title,
     snippet: reference.excerpt,
+    locator: reference.locator,
     url: reference.corpus === "web" ? reference.locator : "",
     source:
       reference.corpus === "local_knowledge_base"
@@ -175,6 +176,7 @@ function toCitation(
           : reference.corpus === "uploaded_image"
             ? "上传图片"
           : reference.locator,
+    corpus: reference.corpus,
   };
 }
 

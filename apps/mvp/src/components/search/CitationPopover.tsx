@@ -1,6 +1,6 @@
 "use client";
 
-import { ExternalLink, List } from "lucide-react";
+import { ExternalLink, List, MapPin, Quote } from "lucide-react";
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -79,8 +79,18 @@ export function CitationPopover({ citation, index, allCitations }: CitationPopov
           <div className={cn("break-words font-medium text-sm leading-snug", seniorMode && "text-lg leading-8")}>
             {citation.title}
           </div>
-          <div className={cn("break-words text-xs text-muted-foreground leading-relaxed line-clamp-3", seniorMode && "text-lg leading-8")}>
-            {citation.snippet}
+          <div className={cn("rounded-md border border-border/70 bg-muted/40 p-2.5 text-xs leading-relaxed text-foreground", seniorMode && "p-3 text-lg leading-8")}>
+            <div className="mb-1 flex items-center gap-1 font-medium text-muted-foreground">
+              <Quote className="size-3.5" aria-hidden />
+              模型采用的原文
+            </div>
+            <p className="max-h-40 overflow-y-auto whitespace-pre-wrap break-words">
+              {citation.snippet}
+            </p>
+          </div>
+          <div className={cn("flex items-start gap-1 text-xs text-muted-foreground", seniorMode && "text-lg leading-8")}>
+            <MapPin className="mt-0.5 size-3.5 shrink-0" aria-hidden />
+            <span className="break-words">来源定位：{citation.locator}</span>
           </div>
           {citation.publishedDate && (
             <div className={cn("text-xs text-muted-foreground", seniorMode && "text-lg")}>
@@ -99,7 +109,7 @@ export function CitationPopover({ citation, index, allCitations }: CitationPopov
                 )}
               >
                 <ExternalLink className="size-3" />
-                查看原文
+                打开原文
               </a>
             ) : (
               <span className={cn("text-xs text-muted-foreground", seniorMode && "text-lg")}>
@@ -115,7 +125,7 @@ export function CitationPopover({ citation, index, allCitations }: CitationPopov
               )}
             >
               <List className="size-3" />
-              查看全部引用
+              预览全部引用
             </button>
           </div>
         </div>
