@@ -47,6 +47,7 @@ from gerclaw_api.modules.agent_harness.run_lifecycle.streaming import (
     validate_public_answer_text,
 )
 from gerclaw_api.modules.agent_harness.run_lifecycle.terminal_contract import (
+    UnboundClinicalClaimsError,
     validate_terminal_response_candidate,
 )
 
@@ -73,6 +74,7 @@ __all__ = [
     "RunTerminalConflictError",
     "RunTransitionError",
     "SafeSentenceBuffer",
+    "UnboundClinicalClaimsError",
     "UnsupportedAgentContextError",
     "bounded_events",
     "prepare_react_context",

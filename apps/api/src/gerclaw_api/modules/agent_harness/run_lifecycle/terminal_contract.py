@@ -18,6 +18,14 @@ from gerclaw_api.modules.contracts import AgentResponse, Citation
 from gerclaw_api.modules.validation.contracts import ModelOutputContractValidationError
 
 
+class UnboundClinicalClaimsError(ModelOutputContractValidationError):
+    """Compatibility error for callers that explicitly request claim repair."""
+
+    def __init__(self, claim_ids: tuple[str, ...]) -> None:
+        super().__init__("candidate contains clinical claims without admitted evidence")
+        self.claim_ids = claim_ids
+
+
 def validate_terminal_response_candidate(
     result: AgentStreamResult,
     *,
