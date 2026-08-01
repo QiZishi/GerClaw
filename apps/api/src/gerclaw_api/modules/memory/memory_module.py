@@ -364,6 +364,7 @@ class ProductionMemoryModule:
             resolved,
             tenant_id=self._tenant_id,
             limit=max_turns * 2,
+            context_only=True,
         )
         projected: list[MemoryMessage] = []
         for message in messages:

@@ -26,6 +26,9 @@ from gerclaw_api.modules.agent_harness.run_lifecycle.directive_runtime import (
 from gerclaw_api.modules.agent_harness.run_lifecycle.step_repair import (
     StepRepairDecision,
 )
+from gerclaw_api.modules.agent_harness.run_lifecycle.terminal_contract import (
+    UnboundClinicalClaimsError,
+)
 from gerclaw_api.modules.agent_harness.safety import HIGH_RISK_NOTICE
 from gerclaw_api.modules.contracts import AgentResponse, ExecutionContext
 from gerclaw_api.modules.runtime.budget import (
@@ -74,6 +77,18 @@ _ANSWER_SCHEMA_REPAIR = StepRepairDecision(
         " [E1]/[W1] 证据标记；若尚无证据，先调用可用检索工具，不能编造来源。"
     ),
 )
+_UNBOUND_CLAIM_REPAIR = StepRepairDecision(
+    error_code="answer_claim_evidence",
+    field_paths=("answer.clinical_claims",),
+    contract_version="claim-evidence-v1",
+    checkpoint_id="chat.answer.pre_model.v1",
+    instruction=(
+        "上一尝试中有医学事实或建议没有在对应句末标注本轮真实 [E1]/[W1] 证据。"
+        "只修复这些缺证据的句子并重新完成答案；保留已经核验的内容。"
+        "可调用正式检索工具补充证据，无法核验的具体医学结论不要输出。"
+        "不要提及校验、修复或被删除的草稿。"
+    ),
+)
 
 
 def _contains_failure(error: BaseException, error_type: type[BaseException]) -> bool:
@@ -91,6 +106,8 @@ def classify_answer_step_failure(error: Exception) -> StepRepairDecision | None:
         return _PARTIAL_PROVIDER_REPAIR
     if _contains_failure(error, ToolInputInvalidError):
         return _TOOL_INPUT_REPAIR
+    if _contains_failure(error, UnboundClinicalClaimsError):
+        return _UNBOUND_CLAIM_REPAIR
     if _contains_failure(error, ModelOutputContractValidationError):
         return _ANSWER_SCHEMA_REPAIR
     return None

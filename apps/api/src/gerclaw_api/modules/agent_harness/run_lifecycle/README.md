@@ -126,12 +126,14 @@ failure ends normally through the typed failure path instead of exposing or conc
 invalid fragment.
 
 The same private buffer now validates the fully assembled `AgentResponse` contract before
-publishing any text. A medical answer that finishes without a traceable citation, or whose
-direct clinical conclusion is not bound to the admitted evidence in that sentence, is returned
-to the pre-model checkpoint once with bounded, content-free repair guidance. The replacement
-may use the governed retrieval tools; the rejected draft is never sent to the browser, TTS,
-AnswerVersion, Artifact, or export path. This prevents a late Pydantic validation error from
-discarding an otherwise repairable answer after the model has already completed.
+publishing any text. A medical answer containing any clinical segment without a traceable
+in-segment citation is returned to the pre-model checkpoint once with bounded, content-free
+repair guidance. The replacement may use governed retrieval tools. If the replacement still
+contains unbound clinical segments, the server removes only those segments, preserves the
+supported and non-clinical answer, and publishes the replacement atomically. Upload-backed
+claims use private `[A#]` markers that resolve to the same public `[C#]` positions as local and
+web evidence. Rejected text and repair details never reach browser, TTS, AnswerVersion,
+Artifact, or export paths.
 
 Every validated model answer now passes through one deterministic reader-facing projection
 before the attempt is promoted. The projection removes only a terminal risk/disclaimer section

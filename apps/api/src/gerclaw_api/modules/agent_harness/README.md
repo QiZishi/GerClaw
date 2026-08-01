@@ -23,7 +23,7 @@
 ## 执行链路
 
 1. API 根据签名 JWT 派生 tenant/actor；PostgreSQL sequence 为每次租约尝试分配单调 fencing token，Redis owner-token lease 串行化同一 session。
-2. 新 owner 先把更高 fencing token 与当前 Trace ID 提交到 session 行，再装载排除当前 Trace 的有界历史；用户消息按 `(tenant_id, trace_id, role)` 幂等落库。
+2. 新 owner 先把更高 fencing token 与当前 Trace ID 提交到 session 行，再装载排除当前 Trace 且只含可用 turn 的有界历史；用户消息按 `(tenant_id, trace_id, role)` 幂等落库。失败或取消 turn 的用户消息会保留在对话和审计记录中，但 Conversation 与 Memory 两条模型上下文读取路径都会排除该 Trace；早于 AgentRun 创建的失败则由 Trace 终态同样排除。
 3. 医疗输入优先执行本地证据检索；医疗结论、风险判断和用药调整必须绑定结构合法、可追溯的证据。证据可以来自本地知识库、受治理联网搜索或当前用户上传的资料/图片；本地无命中时不得阻断对病例图片的正常视觉解读。若所有证据入口均不可用，系统不调用模型或伪造引用，而是完成本轮对话并提示用户补充症状、检查或完整用药资料。
 4. 医疗 turn 的 mandatory evidence node 先用用户原始请求完成一次 production hybrid RAG；
    AgentScope 后续若调用 `search_knowledge`，只能读取同一 turn 已冻结的结果，不会用模型改写的查询

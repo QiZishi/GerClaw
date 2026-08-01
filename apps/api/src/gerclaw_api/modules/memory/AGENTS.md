@@ -21,6 +21,13 @@ This module owns encrypted, revisioned health facts, profiles, bounded conversat
   negations, and pending confirmations, and mark assistant history as untrusted. Cache only an
   encrypted validated projection keyed by exact `source_hash`; compression failure uses the
   deterministic extractive fallback.
+- Failed and cancelled turn messages remain encrypted owner-visible audit/transcript records, but
+  must be excluded from every future short-term prompt projection. Query the durable AgentRun and
+  Trace terminal facts rather than deleting or mutating the original message.
+- AgentScope middleware callbacks may request an online Memory update during a private model
+  attempt, but the adapter must stage that request. Execute the owner-scoped CRUD extraction once
+  only after the complete answer candidate passes terminal validation; an abandoned attempt must
+  not mutate long-term Memory.
 - Model extraction accepts only strict `memory-extraction-model-output-v1` via
   the shared versioned output contract; missing, stale or extra provider fields
   must fail before any candidate reaches evidence or persistence logic.

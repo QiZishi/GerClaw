@@ -14,13 +14,14 @@ from gerclaw_api.modules.agent_harness.evidence.contracts import (
 from gerclaw_api.modules.contracts import Citation
 
 _MODEL_MARKER = re.compile(
-    r"\[\s*(?P<prefix>[EWC])\s*(?P<index>\d{1,4})\s*\]",
+    r"\[\s*(?P<prefix>[EWAC])\s*(?P<index>\d{1,4})\s*\]",
     re.IGNORECASE,
 )
 _PUBLIC_MARKER = re.compile(r"\[C(?P<index>\d+)\]", re.IGNORECASE)
 _CLAIM_SEGMENT = re.compile(r"[^。！？!?\n]+(?:[。！？!?]+|\n+|$)")  # noqa: RUF001
 _WHITESPACE = re.compile(r"\s+")
 _ORPHAN_MARKER_GAP = re.compile(r"[ \t]+(?=[,，。！？!?;；:：])")  # noqa: RUF001
+_EXCESS_BLANK_LINES = re.compile(r"\n{3,}")
 
 
 class CitationMarkerValidationError(RuntimeError):
@@ -33,10 +34,11 @@ class ModelCitationBindingScope:
 
     local_citation_count: int
     web_citation_count_provider: Callable[[], int]
+    attachment_citation_count: int = 0
 
     def __post_init__(self) -> None:
-        if self.local_citation_count < 0:
-            raise ValueError("local citation count cannot be negative")
+        if min(self.local_citation_count, self.attachment_citation_count) < 0:
+            raise ValueError("citation counts cannot be negative")
 
     def segment_has_evidence(self, segment: str) -> bool:
         """Check only evidence admitted for this exact model-output segment."""
@@ -45,6 +47,7 @@ class ModelCitationBindingScope:
             segment,
             local_citation_count=self.local_citation_count,
             web_citation_count=self.web_citation_count_provider(),
+            attachment_citation_count=self.attachment_citation_count,
         )
 
     def normalize_public_text(self, text: str) -> str:
@@ -55,6 +58,10 @@ class ModelCitationBindingScope:
             local_citation_count=self.local_citation_count,
             web_citation_count=self.web_citation_count_provider(),
             web_citation_offset=self.local_citation_count,
+            attachment_citation_count=self.attachment_citation_count,
+            attachment_citation_offset=(
+                self.local_citation_count + self.web_citation_count_provider()
+            ),
         )
 
 
@@ -64,10 +71,18 @@ def bind_citation_markers(
     local_citation_count: int,
     web_citation_count: int,
     web_citation_offset: int,
+    attachment_citation_count: int = 0,
+    attachment_citation_offset: int = 0,
 ) -> str:
     """Bind admitted markers and silently remove markers without a real source."""
 
-    if min(local_citation_count, web_citation_count, web_citation_offset) < 0:
+    if min(
+        local_citation_count,
+        web_citation_count,
+        web_citation_offset,
+        attachment_citation_count,
+        attachment_citation_offset,
+    ) < 0:
         raise ValueError("citation counts and offsets cannot be negative")
 
     def replace(match: re.Match[str]) -> str:
@@ -79,10 +94,14 @@ def bind_citation_markers(
             if not 1 <= index <= local_citation_count:
                 return ""
             public_index = index
-        else:
+        elif prefix == "W":
             if not 1 <= index <= web_citation_count:
                 return ""
             public_index = web_citation_offset + index
+        else:
+            if not 1 <= index <= attachment_citation_count:
+                return ""
+            public_index = attachment_citation_offset + index
         return f"[C{public_index}]"
 
     return _ORPHAN_MARKER_GAP.sub("", _MODEL_MARKER.sub(replace, text))
@@ -93,10 +112,11 @@ def segment_has_admitted_model_marker(
     *,
     local_citation_count: int,
     web_citation_count: int,
+    attachment_citation_count: int = 0,
 ) -> bool:
     """Return true only for an in-range E/W marker in this exact segment."""
 
-    if min(local_citation_count, web_citation_count) < 0:
+    if min(local_citation_count, web_citation_count, attachment_citation_count) < 0:
         raise ValueError("citation counts cannot be negative")
     for match in _MODEL_MARKER.finditer(segment):
         prefix = match.group("prefix").upper()
@@ -104,6 +124,8 @@ def segment_has_admitted_model_marker(
         if prefix == "E" and 1 <= index <= local_citation_count:
             return True
         if prefix == "W" and 1 <= index <= web_citation_count:
+            return True
+        if prefix == "A" and 1 <= index <= attachment_citation_count:
             return True
     return False
 
@@ -162,3 +184,29 @@ def audit_claim_evidence(
         bound_claim_count=bound_count,
         all_clinical_claims_bound=bool(claims) and bound_count == len(claims),
     )
+
+
+def prune_unbound_clinical_claims(
+    text: str,
+    *,
+    citations: list[Citation],
+    is_clinical_claim: Callable[[str], bool],
+) -> tuple[str, int]:
+    """Remove only clinical segments that still lack an admitted citation.
+
+    This is the final deterministic degradation after one private model repair.
+    Every non-clinical segment and every in-segment evidence binding is preserved,
+    so one unsupported sentence cannot discard an otherwise useful answer.
+    """
+
+    validate_public_citation_markers(text, citation_count=len(citations))
+    retained: list[str] = []
+    removed_count = 0
+    for match in _CLAIM_SEGMENT.finditer(text):
+        segment = match.group(0)
+        if is_clinical_claim(segment) and _PUBLIC_MARKER.search(segment) is None:
+            removed_count += 1
+            continue
+        retained.append(segment)
+    normalized = _EXCESS_BLANK_LINES.sub("\n\n", "".join(retained)).strip()
+    return normalized, removed_count

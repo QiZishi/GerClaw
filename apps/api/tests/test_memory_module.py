@@ -1329,6 +1329,8 @@ class _Repository:
         self.facts: list[MemoryFact] = []
         self.revisions: list[MemoryFactRevision] = []
         self.messages: list[Message] = []
+        self.context_excluded_trace_ids: set[str] = set()
+        self.list_messages_context_only_calls: list[bool] = []
         self.commits = 0
         self.rollbacks = 0
 
@@ -1339,9 +1341,18 @@ class _Repository:
             raise MemoryNotFoundError("session")
         return self.session
 
-    async def list_messages(self, session_id: uuid.UUID, **_kwargs: object) -> list[Message]:
+    async def list_messages(self, session_id: uuid.UUID, **kwargs: object) -> list[Message]:
         assert session_id == self.session.id
-        return self.messages
+        context_only = kwargs.get("context_only", False)
+        assert isinstance(context_only, bool)
+        self.list_messages_context_only_calls.append(context_only)
+        if not context_only:
+            return self.messages
+        return [
+            message
+            for message in self.messages
+            if message.trace_id not in self.context_excluded_trace_ids
+        ]
 
     async def add_message(self, message: Message) -> None:
         message.created_at = _now()
@@ -2300,6 +2311,7 @@ async def test_memory_short_term_compression_decision_and_adapter_fail_closed() 
     )
     short = await module.get_short_term(str(session_id), max_turns=2)
     assert [item.text() for item in short] == ["既往消息"]
+    assert repository.list_messages_context_only_calls == [True]
     compressed = await module.compress_context(short, max_tokens=100)
     assert compressed[0].role == "system"
     assert cast(dict[str, object], repository.session.context_summary)["text"] == "新摘要"
@@ -2364,6 +2376,7 @@ async def test_memory_short_term_compression_decision_and_adapter_fail_closed() 
     write = await adapter.add([], user_id="usr_memory_unit0001")
     assert write["results"][0]["id"] == "no-op"
     assert await adapter.add([], user_id="usr_memory_unit0001") == write
+    await adapter.commit_staged_write()
 
     invalid_search = GerClawMem0Client(
         module,
@@ -2412,8 +2425,8 @@ async def test_transient_memory_write_failure_is_a_nonfatal_warning() -> None:
         source_user_message="最近两周起身时偶尔头晕",
     )
 
-    with pytest.raises(AgentScopeMemoryAdapterError):
-        await adapter.add([], user_id="usr_memory_unit0001")
+    await adapter.add([], user_id="usr_memory_unit0001")
+    await adapter.commit_staged_write()
     adapter.raise_if_failed()
     assert adapter.warning_codes() == ("MEMORY_WRITE_FAILED",)
 

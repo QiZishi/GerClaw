@@ -11,8 +11,10 @@ from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from gerclaw_api.database.models import (
+    AgentRun,
     AnswerVersion,
     ConversationSession,
+    ExecutionTrace,
     HealthProfile,
     MemoryFact,
     MemoryFactRevision,
@@ -51,7 +53,12 @@ class MemoryRepository(Protocol):
     ) -> ConversationSession: ...
 
     async def list_messages(
-        self, session_id: uuid.UUID, *, tenant_id: str, limit: int
+        self,
+        session_id: uuid.UUID,
+        *,
+        tenant_id: str,
+        limit: int,
+        context_only: bool = False,
     ) -> list[Message]: ...
 
     async def add_message(self, message: Message) -> None: ...
@@ -160,7 +167,12 @@ class SqlAlchemyMemoryRepository:
         return session
 
     async def list_messages(
-        self, session_id: uuid.UUID, *, tenant_id: str, limit: int
+        self,
+        session_id: uuid.UUID,
+        *,
+        tenant_id: str,
+        limit: int,
+        context_only: bool = False,
     ) -> list[Message]:
         statement = (
             select(Message)
@@ -179,8 +191,31 @@ class SqlAlchemyMemoryRepository:
                 ),
             )
             .order_by(Message.created_at.desc(), Message.id.desc())
-            .limit(limit)
         )
+        if context_only:
+            # Durable failed/cancelled turns remain owner-visible for audit and
+            # repair, but they are not valid future-model context.  A Trace can
+            # fail before its AgentRun exists, hence both facts are consulted.
+            failed_run_exists = (
+                select(AgentRun.id)
+                .where(
+                    AgentRun.tenant_id == Message.tenant_id,
+                    AgentRun.trace_id == Message.trace_id,
+                    AgentRun.status.in_(("failed", "cancelled")),
+                )
+                .exists()
+            )
+            failed_trace_exists = (
+                select(ExecutionTrace.id)
+                .where(
+                    ExecutionTrace.tenant_id == Message.tenant_id,
+                    ExecutionTrace.trace_id == Message.trace_id,
+                    ExecutionTrace.status.in_(("failed", "cancelled")),
+                )
+                .exists()
+            )
+            statement = statement.where(~failed_run_exists, ~failed_trace_exists)
+        statement = statement.limit(limit)
         messages = list((await self._session.scalars(statement)).all())
         messages.reverse()
         return messages

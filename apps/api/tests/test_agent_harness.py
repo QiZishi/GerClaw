@@ -1551,7 +1551,7 @@ async def test_medical_image_can_be_an_evidence_source_when_local_rag_has_no_mat
     unit_settings: Settings,
 ) -> None:
     image = _image()
-    model = _HarnessModel(text="图片显示的是一份检查资料，建议由医生结合原始报告复核。")
+    model = _HarnessModel(text="图片显示的是一份检查资料，建议由医生结合原始报告复核 [A1]。")
     rag = _HarnessRAG([])
     harness = _harness(
         unit_settings,
@@ -1587,7 +1587,7 @@ async def test_medical_image_remains_usable_when_local_rag_is_unavailable(
     """An attachment is evidence in its own right, not a hostage of local RAG."""
 
     image = _image()
-    model = _HarnessModel(text="图片中的检查结果需要结合原始报告和症状进一步判断。")
+    model = _HarnessModel(text="图片中的检查结果需要结合原始报告和症状进一步判断 [A1]。")
     rag = _UnavailableHarnessRAG([])
     harness = _harness(
         unit_settings,
@@ -1701,7 +1701,7 @@ async def test_resume_reconstructs_completed_attachment_without_reopening_node(
 
 @pytest.mark.asyncio
 async def test_agentic_search_tool_projects_tool_events(unit_settings: Settings) -> None:
-    model = _HarnessModel(use_tool=True, text="根据证据，建议评估跌倒风险。")
+    model = _HarnessModel(use_tool=True, text="根据证据，建议评估跌倒风险 [E1]。")
     rag = _HarnessRAG([_evidence()])
     harness = _harness(unit_settings, model=model, rag=rag)
     context = await harness.assemble_context(
@@ -2211,13 +2211,16 @@ async def test_evidence_backed_direct_clinical_conclusions_are_preserved_and_aud
 
 
 @pytest.mark.asyncio
-async def test_unbound_direct_clinical_claim_is_rewritten_despite_other_evidence(
+async def test_unbound_clinical_claim_is_retried_then_pruned_without_losing_answer(
     unit_settings: Settings,
 ) -> None:
+    model = _HarnessModel(text="血压管理应结合日常记录 [E1]。建议立即停药。")
+    memory = _HarnessMemory()
     harness = _harness(
         unit_settings,
-        model=_HarnessModel(text="明确诊断为冠心病。"),
+        model=model,
         rag=_HarnessRAG([_evidence()]),
+        memory=memory,
     )
     context = await harness.assemble_context(
         "108815d7-05bf-4c2a-a977-cd034f390fab",
@@ -2233,13 +2236,16 @@ async def test_unbound_direct_clinical_claim_is_rewritten_despite_other_evidence
         lambda _event: None,
     )
 
-    assert "明确诊断" not in response.text
-    assert "可能性" in response.text
-    assert response.safety.deterministic_diagnosis_blocked is True
-    assert response.structured["evidence_backed_clinical_conclusion"] is False
+    assert "血压管理应结合日常记录 [C1]。" in response.text
+    assert "停药" not in response.text
+    assert model.calls == 2
+    assert memory.sources == ["请根据现有资料评估冠心病风险"]
+    assert response.structured["output_contract_retries"] == 1
+    assert response.structured["pruned_unsupported_claim_count"] == 1
+    assert response.structured["evidence_backed_clinical_conclusion"] is True
     audit = cast(dict[str, Any], response.structured["claim_evidence_audit"])
-    assert audit["bound_claim_count"] == 0
-    assert cast(list[dict[str, Any]], audit["claims"])[0]["status"] == "unbound"
+    assert audit["bound_claim_count"] == 1
+    assert audit["all_clinical_claims_bound"] is True
 
 
 @pytest.mark.asyncio

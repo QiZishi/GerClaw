@@ -28,6 +28,7 @@ class _ConversationRepository:
         self.rollbacks = 0
         self.fencing_token = 0
         self.running_sessions: set[uuid.UUID] = set()
+        self.context_excluded_trace_ids: set[str] = set()
 
     async def ensure_session(
         self, session_id: uuid.UUID, *, tenant_id: str, actor_id: str
@@ -87,13 +88,25 @@ class _ConversationRepository:
         return True
 
     async def list_messages(
-        self, session_id: uuid.UUID, *, tenant_id: str, limit: int
+        self,
+        session_id: uuid.UUID,
+        *,
+        tenant_id: str,
+        limit: int,
+        context_only: bool = False,
     ) -> list[Message]:
-        return [
+        messages = [
             message
             for message in self.messages
             if message.session_id == session_id and message.tenant_id == tenant_id
-        ][-limit:]
+        ]
+        if context_only:
+            messages = [
+                message
+                for message in messages
+                if message.trace_id not in self.context_excluded_trace_ids
+            ]
+        return messages[-limit:]
 
     async def next_fencing_token(self) -> int:
         self.fencing_token += 1
@@ -346,6 +359,59 @@ async def test_conversation_lifecycle_history_and_replay() -> None:
         )
     await service.rollback()
     assert repository.rollbacks == 1
+
+
+@pytest.mark.asyncio
+async def test_failed_or_cancelled_turns_remain_visible_but_are_not_model_history() -> None:
+    repository = _ConversationRepository()
+    service = ConversationService(repository)
+    session_id = uuid.uuid4()
+    conversation = await service.create_session(session_id, tenant_id=TENANT, actor_id=ACTOR)
+
+    await service.store_user_message(
+        tenant_id=TENANT,
+        conversation=conversation,
+        session_id=session_id,
+        trace_id="trace_completed_context001",
+        text="已经完成的问题",
+        channel="web",
+    )
+    await service.store_assistant_message(
+        tenant_id=TENANT,
+        session=conversation,
+        trace_id="trace_completed_context001",
+        response=_response(),
+    )
+    failed_user = await service.store_user_message(
+        tenant_id=TENANT,
+        conversation=conversation,
+        session_id=session_id,
+        trace_id="trace_failed_context0001",
+        text="这轮没有完成但仍需在界面可见的问题",
+        channel="web",
+    )
+    repository.context_excluded_trace_ids.add("trace_failed_context0001")
+
+    history = await service.load_history(
+        session_id,
+        tenant_id=TENANT,
+        actor_id=ACTOR,
+        limit=10,
+    )
+    visible = await service.list_messages(
+        session_id,
+        tenant_id=TENANT,
+        actor_id=ACTOR,
+        limit=10,
+    )
+
+    assert [item.role for item in history] == ["user", "assistant"]
+    assert all("没有完成" not in item.text for item in history)
+    assert [item.id for item in visible] == [
+        repository.messages[0].id,
+        repository.messages[1].id,
+        failed_user.id,
+    ]
 
 
 @pytest.mark.asyncio

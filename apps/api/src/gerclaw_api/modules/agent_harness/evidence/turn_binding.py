@@ -71,7 +71,9 @@ def bind_turn_evidence(
 
     initial_source_ids = {item.source_id for item in initial_local}
     additional = [item for item in additional_local if item.source_id not in initial_source_ids]
-    citations = [*initial_local, *web, *additional, *attachments]
+    # Keep sources available before the final model call at stable public
+    # positions. Agent-discovered local evidence follows those fixed slots.
+    citations = [*initial_local, *web, *attachments, *additional]
     normalized_text = (
         validate_public_citation_markers(text, citation_count=len(citations))
         if markers_already_bound
@@ -80,6 +82,8 @@ def bind_turn_evidence(
             local_citation_count=len(initial_local),
             web_citation_count=len(web),
             web_citation_offset=len(initial_local),
+            attachment_citation_count=len(attachments),
+            attachment_citation_offset=len(initial_local) + len(web),
         )
     )
     return BoundTurnEvidence(

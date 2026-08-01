@@ -46,6 +46,7 @@ class GerClawMem0Client:
             role="user",
             content=[{"type": "text", "text": source_user_message}],
         )
+        self._write_requested = False
         self._write_done = False
         self._fatal_error: Exception | None = None
         self._write_error: Exception | None = None
@@ -88,7 +89,7 @@ class GerClawMem0Client:
         agent_id: str | None = None,
         infer: bool = True,
     ) -> dict[str, list[dict[str, str]]]:
-        """Extract only the actual user source, never agent-proposed tool text."""
+        """Stage the actual user source; promotion owns the durable write."""
 
         del messages, agent_id, infer
         try:
@@ -96,20 +97,37 @@ class GerClawMem0Client:
                 error = ValueError("memory write principal is invalid")
                 self._fatal_error = error
                 raise error
-            if self._write_done:
-                return self._result()
+            self._write_requested = True
+        except Exception as error:
+            self._fatal_error = error
+            _LOGGER.warning(
+                "memory_adapter_write_stage_failed",
+                extra={"attributes": {"exception_chain": _exception_chain(error)}},
+            )
+            raise AgentScopeMemoryAdapterError("memory write failed") from error
+        return self._result()
+
+    async def commit_staged_write(self) -> None:
+        """Persist once only after the owning answer candidate is fully valid."""
+
+        if not self._write_requested or self._write_done:
+            return
+        self._write_done = True
+        try:
             await self._module.extract_and_update_profile(self._actor_id, [self._source])
         except Exception as error:
-            if self._fatal_error is None:
-                self._write_error = error
+            self._write_error = error
             _LOGGER.warning(
                 "memory_adapter_write_failed",
                 extra={"attributes": {"exception_chain": _exception_chain(error)}},
             )
-            raise AgentScopeMemoryAdapterError("memory write failed") from error
+            return
         self._write_error = None
-        self._write_done = True
-        return self._result()
+
+    def discard_staged_write(self) -> None:
+        """Make an invalidated attempt incapable of mutating Memory later."""
+
+        self._write_requested = False
 
     def raise_if_failed(self) -> None:
         """Fail only when Memory could not be read or its owner boundary was invalid."""

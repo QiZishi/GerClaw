@@ -17,6 +17,11 @@ not call another model, rewrite clinical meaning, remove citations, remove situa
 risk actions, or add internal safety explanations. The one canonical medical disclaimer is
 owned by the Harness after projection.
 
+Claim-evidence failure is localized: reopen the pre-model checkpoint once with bounded private
+feedback, then deterministically remove only clinical segments that remain unbound. Never turn
+one unsupported sentence into a failed Run when other valid answer content remains, and never
+publish the rejected sentence or the repair process.
+
 `public_operation_id` is stable across repair attempts. Attempt numbers are monotonic.
 `ValidationFeedback` must contain only bounded error metadata and checkpoint/contract
 identifiers—never user text, provider payload, hidden prompts, credentials, sealed cases, or

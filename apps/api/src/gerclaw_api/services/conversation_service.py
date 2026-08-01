@@ -96,7 +96,10 @@ class ConversationService:
     ) -> list[ConversationHistoryMessage]:
         await self.require_session(session_id, tenant_id=tenant_id, actor_id=actor_id)
         messages = await self._repository.list_messages(
-            session_id, tenant_id=tenant_id, limit=limit
+            session_id,
+            tenant_id=tenant_id,
+            limit=limit,
+            context_only=True,
         )
         return [
             ConversationHistoryMessage(

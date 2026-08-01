@@ -184,6 +184,50 @@ async def test_repeated_failure_signature_is_not_retried_in_a_loop() -> None:
 
 
 @pytest.mark.asyncio
+async def test_repeated_repairable_failure_can_publish_localized_recovery() -> None:
+    attempts = 0
+    published: list[str] = []
+    budget = _Budget()
+    decision = StepRepairDecision(
+        error_code="answer_claim_evidence",
+        field_paths=("answer.clinical_claims",),
+        contract_version="claim-evidence-v1",
+        checkpoint_id="chat.answer.pre_model.v1",
+        instruction="只重写缺证据的句子。",
+    )
+
+    async def run_attempt(emit: object) -> AgentStreamResult:
+        nonlocal attempts
+        attempts += 1
+        text = "已有依据 [C1]。无依据的停药建议。"
+        await emit("text_delta", {"content": text})  # type: ignore[operator]
+        return _result(text)
+
+    def validate_result(result: AgentStreamResult) -> None:
+        if "无依据" in result.text:
+            raise ValueError("claim evidence rejected")
+
+    async def publish(_kind: str, data: dict[str, object]) -> None:
+        published.append(str(data["content"]))
+
+    result, repair_count = await run_with_output_protocol_repair(
+        run_attempt=run_attempt,
+        rebuild_agent=lambda _instruction: None,
+        publish=publish,  # type: ignore[arg-type]
+        budget=budget,  # type: ignore[arg-type]
+        observer=None,
+        classify_failure=lambda error: decision if isinstance(error, ValueError) else None,
+        validate_result=validate_result,
+        recover_repeated_failure=lambda _result_value, _error: _result("已有依据 [C1]。"),
+    )
+
+    assert attempts == 2
+    assert repair_count == budget.retries == 1
+    assert result.text == "已有依据 [C1]。"
+    assert published == ["已有依据 [C1]。"]
+
+
+@pytest.mark.asyncio
 async def test_unclassified_authorization_failure_is_never_retried() -> None:
     attempts = 0
     budget = _Budget()

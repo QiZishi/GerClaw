@@ -32,6 +32,7 @@ BufferedEvent = tuple[str, dict[str, JsonValue]]
 BufferedEmitter = Callable[[str, dict[str, JsonValue]], Awaitable[None]]
 AttemptRunner = Callable[[BufferedEmitter], Awaitable[AgentStreamResult]]
 AttemptValidator = Callable[[AgentStreamResult], None]
+AttemptRecovery = Callable[[AgentStreamResult, Exception], AgentStreamResult | None]
 AttemptRepairObserver = Callable[
     [str, tuple[str, ...], str, str, str],
     Awaitable[None],
@@ -147,6 +148,7 @@ async def run_with_output_protocol_repair(
     observer: AttemptRepairObserver | None,
     classify_failure: StepFailureClassifier | None = None,
     validate_result: AttemptValidator | None = None,
+    recover_repeated_failure: AttemptRecovery | None = None,
 ) -> tuple[AgentStreamResult, int]:
     """Retry explicitly classified private failures without exposing bad output."""
 
@@ -154,6 +156,9 @@ async def run_with_output_protocol_repair(
     seen_failures: set[tuple[str, tuple[str, ...], str, str]] = set()
     while True:
         events: list[BufferedEvent] = []
+        result: AgentStreamResult | None = None
+        original_text = ""
+        public_text = ""
         try:
             result = await run_attempt(_buffered_emitter(events))
             original_text = result.text
@@ -170,21 +175,37 @@ async def run_with_output_protocol_repair(
                 if classify_failure is not None
                 else None
             )
-            if decision is None or decision.signature in seen_failures:
-                raise
-            seen_failures.add(decision.signature)
-            budget.add_retry()
-            if observer is not None:
-                await observer(
-                    decision.error_code,
-                    decision.field_paths,
-                    decision.contract_version,
-                    decision.repair_action,
-                    decision.checkpoint_id,
+            repeated_failure = decision is not None and decision.signature in seen_failures
+            if decision is None or repeated_failure:
+                recovered = (
+                    recover_repeated_failure(result, error)
+                    if repeated_failure
+                    and result is not None
+                    and recover_repeated_failure is not None
+                    else None
                 )
-            rebuild_agent(decision.instruction)
-            repair_count += 1
-            continue
+                if recovered is None:
+                    raise
+                public_text = project_public_answer(recovered.text)
+                validate_public_answer_text(public_text)
+                result = replace(recovered, text=public_text)
+                if validate_result is not None:
+                    validate_result(result)
+            else:
+                seen_failures.add(decision.signature)
+                budget.add_retry()
+                if observer is not None:
+                    await observer(
+                        decision.error_code,
+                        decision.field_paths,
+                        decision.contract_version,
+                        decision.repair_action,
+                        decision.checkpoint_id,
+                    )
+                rebuild_agent(decision.instruction)
+                repair_count += 1
+                continue
+        assert result is not None
         projected_events = _project_answer_events(
             events,
             original_text=original_text,
@@ -203,6 +224,7 @@ async def project_with_output_protocol_repair(
     observer: AttemptRepairObserver | None,
     classify_failure: StepFailureClassifier | None = None,
     validate_result: AttemptValidator | None = None,
+    recover_repeated_failure: AttemptRecovery | None = None,
     **project_kwargs: Any,
 ) -> tuple[AgentStreamResult, int]:
     """Bind the generic repair loop to the AgentScope stream projector."""
@@ -223,4 +245,5 @@ async def project_with_output_protocol_repair(
         observer=observer,
         classify_failure=classify_failure,
         validate_result=validate_result,
+        recover_repeated_failure=recover_repeated_failure,
     )

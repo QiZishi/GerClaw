@@ -18,6 +18,14 @@ from gerclaw_api.modules.contracts import AgentResponse, Citation
 from gerclaw_api.modules.validation.contracts import ModelOutputContractValidationError
 
 
+class UnboundClinicalClaimsError(ModelOutputContractValidationError):
+    """A repairable candidate whose clinical segments lack local citations."""
+
+    def __init__(self, claim_ids: tuple[str, ...]) -> None:
+        super().__init__("candidate contains clinical claims without admitted evidence")
+        self.claim_ids = claim_ids
+
+
 def validate_terminal_response_candidate(
     result: AgentStreamResult,
     *,
@@ -42,6 +50,11 @@ def validate_terminal_response_candidate(
         markers_already_bound=True,
     )
     claims_complete = bound.claim_audit.all_clinical_claims_bound
+    unbound_claim_ids = tuple(
+        claim.claim_id for claim in bound.claim_audit.claims if claim.status == "unbound"
+    )
+    if unbound_claim_ids:
+        raise UnboundClinicalClaimsError(unbound_claim_ids)
     patient_notice = patient_facing and requires_patient_clinical_risk_notice(bound.text)
     risk_delta = f"\n\n{PATIENT_CLINICAL_RISK_NOTICE}" if patient_notice else ""
     disclaimer_delta = f"{risk_delta}\n\n{MEDICAL_DISCLAIMER}" if medical_content else risk_delta

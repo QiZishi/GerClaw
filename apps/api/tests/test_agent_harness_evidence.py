@@ -7,6 +7,7 @@ from gerclaw_api.modules.agent_harness.evidence import (
     ModelCitationBindingScope,
     audit_claim_evidence,
     bind_citation_markers,
+    prune_unbound_clinical_claims,
     segment_has_admitted_model_marker,
 )
 from gerclaw_api.modules.contracts import Citation
@@ -144,6 +145,17 @@ def test_citation_markers_bind_only_to_admitted_terminal_positions() -> None:
         )
         == "允许空格 [C2]。"
     )
+    assert (
+        bind_citation_markers(
+            "上传资料 [A1]。",
+            local_citation_count=2,
+            web_citation_count=1,
+            web_citation_offset=2,
+            attachment_citation_count=1,
+            attachment_citation_offset=3,
+        )
+        == "上传资料 [C4]。"
+    )
 
 
 def test_streaming_claim_requires_an_in_range_marker_in_the_same_segment() -> None:
@@ -156,6 +168,12 @@ def test_streaming_claim_requires_an_in_range_marker_in_the_same_segment() -> No
         "明确诊断为冠心病。",
         local_citation_count=1,
         web_citation_count=0,
+    )
+    assert segment_has_admitted_model_marker(
+        "图片观察 [A1]。",
+        local_citation_count=0,
+        web_citation_count=0,
+        attachment_citation_count=1,
     )
     assert not segment_has_admitted_model_marker(
         "明确诊断为冠心病 [E2]。",
@@ -199,3 +217,27 @@ def test_claim_audit_binds_source_locator_and_exact_adopted_text_hash() -> None:
     assert audit.claims[0].locators == ("指南.md | 建议 | chunk 1/1",)
     assert len(audit.claims[0].adopted_text_sha256[0]) == 64
     assert audit.claims[1].status == "unbound"
+
+
+def test_prune_unbound_claims_preserves_supported_and_nonclinical_segments() -> None:
+    citations = [
+        Citation(
+            source_id="source-1",
+            title="指南",
+            locator="https://example.test/guideline",
+            excerpt="实际采用文本",
+            score=0.9,
+            corpus="local_knowledge_base",
+        )
+    ]
+
+    text, removed_count = prune_unbound_clinical_claims(
+        "血压管理应结合日常记录 [C1]。\n建议直接停药。\n祝您生活愉快。",
+        citations=citations,
+        is_clinical_claim=lambda segment: "血压" in segment or "停药" in segment,
+    )
+
+    assert removed_count == 1
+    assert "血压管理应结合日常记录 [C1]。" in text
+    assert "停药" not in text
+    assert "祝您生活愉快。" in text
