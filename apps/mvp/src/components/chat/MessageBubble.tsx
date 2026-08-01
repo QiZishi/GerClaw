@@ -59,6 +59,10 @@ export function MessageBubble({
   const hasActiveThinking = !isUser && message.blocks.some(
     (block) => block.kind === "thinking" && block.data.status === "thinking",
   );
+  const errorMessage = message.blocks.find(
+    (block): block is Extract<typeof block, { kind: "text" }> =>
+      block.kind === "text" && Boolean(block.content.trim()),
+  )?.content;
 
   useEffect(() => {
     const timer = window.setTimeout(() => setAppeared(true), 10);
@@ -113,7 +117,10 @@ export function MessageBubble({
           />
         )}
         {!isUser && message.status === "error" && (
-          <IncompleteAnswerWarning seniorMode={seniorMode} />
+          <IncompleteAnswerWarning
+            seniorMode={seniorMode}
+            message={errorMessage}
+          />
         )}
         <div
           className={cn(
@@ -125,12 +132,14 @@ export function MessageBubble({
           {!isUser && message.steps && message.steps.length > 0 && (
             <SimpleStepIndicator steps={message.steps} />
           )}
-          <MessageBody
-            message={message}
-            seniorMode={seniorMode}
-            hasActiveThinking={hasActiveThinking}
-            onViewReport={handleViewReport}
-          />
+          {message.status !== "error" && (
+            <MessageBody
+              message={message}
+              seniorMode={seniorMode}
+              hasActiveThinking={hasActiveThinking}
+              onViewReport={handleViewReport}
+            />
+          )}
         </div>
         {!isUser && message.citations?.length && message.status === "done" ? (
           <div className="w-full px-1">

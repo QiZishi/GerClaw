@@ -14,7 +14,7 @@ from typing import Any, Literal, Protocol, cast
 
 from gerclaw_api.auth import AuthContext
 from gerclaw_api.config import Settings
-from gerclaw_api.domain.chat_error_codes import public_chat_error_code
+from gerclaw_api.domain.chat_error_codes import public_chat_error, public_chat_error_code
 from gerclaw_api.domain.chat_schemas import ChatDoneData, ChatRequest
 from gerclaw_api.domain.enums import TraceEventStatus, TraceEventType, TraceStatus
 from gerclaw_api.domain.run_schemas import (
@@ -1893,6 +1893,15 @@ class ChatService:
                         },
                         duration_ms=duration_ms,
                     ),
+                    commit=False,
+                )
+            if status is TraceStatus.FAILED:
+                failure_text, _retriable = public_chat_error(code)
+                await self._conversation.store_failure_message(
+                    tenant_id=identity.tenant_id,
+                    session_id=payload.session_id,
+                    trace_id=trace_id,
+                    text=failure_text,
                     commit=False,
                 )
             await self._traces.append_event(

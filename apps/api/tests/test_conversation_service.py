@@ -390,6 +390,12 @@ async def test_failed_or_cancelled_turns_remain_visible_but_are_not_model_histor
         text="这轮没有完成但仍需在界面可见的问题",
         channel="web",
     )
+    failed_notice = await service.store_failure_message(
+        tenant_id=TENANT,
+        session_id=session_id,
+        trace_id="trace_failed_context0001",
+        text="这次回答没有完整生成，请重试。",
+    )
     repository.context_excluded_trace_ids.add("trace_failed_context0001")
 
     history = await service.load_history(
@@ -411,7 +417,9 @@ async def test_failed_or_cancelled_turns_remain_visible_but_are_not_model_histor
         repository.messages[0].id,
         repository.messages[1].id,
         failed_user.id,
+        failed_notice.id,
     ]
+    assert visible[-1].text == "这次回答没有完整生成，请重试。"
 
 
 @pytest.mark.asyncio

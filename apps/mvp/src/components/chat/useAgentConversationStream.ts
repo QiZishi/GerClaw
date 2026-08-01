@@ -12,6 +12,7 @@ import {
   steerAgentChat,
   streamAgentChat,
 } from "@/services/gerclaw/chat";
+import { presentChatError } from "@/services/gerclaw/chat-error-presentation";
 import { useAppStore } from "@/stores/appStore";
 import { useChatStore } from "@/stores/chatStore";
 import type { ImageAttachment, Message, MessageBlock } from "@/types";
@@ -465,9 +466,25 @@ export function useAgentConversationStream(): {
         onError: (error) => {
           if (replacementSnapshot) {
             updateMessage(assistantMessageId, replacementSnapshot);
+            addMessage({
+              id: generateId("msg"),
+              sessionId,
+              role: "assistant",
+              blocks: [
+                {
+                  kind: "text",
+                  id: generateId("block"),
+                  content: presentChatError(error),
+                  streaming: false,
+                },
+              ],
+              status: "error",
+              createdAt: Date.now(),
+              hasDisclaimer: false,
+              workflow,
+            });
             finishTurn();
             useAppStore.getState().setStreamingInterrupted(false);
-            toast.show(error.message);
             return;
           }
           if (emergencyShortCircuit) {
@@ -493,8 +510,21 @@ export function useAgentConversationStream(): {
               ],
             });
           } else {
-            deleteMessage(assistantMessageId);
-            toast.show(error.message);
+            const visibleError = presentChatError(error);
+            updateMessage(assistantMessageId, {
+              status: "error",
+              blocks: [
+                {
+                  kind: "text",
+                  id: assistantBlockId,
+                  content: visibleError,
+                  streaming: false,
+                },
+              ],
+              citations: undefined,
+              hasDisclaimer: false,
+              completedAt: Date.now(),
+            });
           }
           finishTurn();
           useAppStore.getState().setStreamingInterrupted(false);
@@ -633,10 +663,22 @@ export function useAgentConversationStream(): {
             active.suppressedInterrupts.delete(sourceTraceId);
             previousController.abort();
             if (activeTurnsRef.current.get(sessionId) === active) {
-              deleteMessage(active.assistantMessageId);
+              updateMessage(active.assistantMessageId, {
+                status: "error",
+                blocks: [
+                  {
+                    kind: "text",
+                    id: generateId("block"),
+                    content: presentChatError(error),
+                    streaming: false,
+                  },
+                ],
+                citations: undefined,
+                hasDisclaimer: false,
+                completedAt: Date.now(),
+              });
               active.finish();
             }
-            toast.show(error.message);
             resolve(false);
             return;
           }

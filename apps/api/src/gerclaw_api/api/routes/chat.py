@@ -23,6 +23,7 @@ from gerclaw_api.auth import (
 )
 from gerclaw_api.database.session import Database
 from gerclaw_api.dependencies import get_database_session
+from gerclaw_api.domain.chat_error_codes import public_chat_error
 from gerclaw_api.domain.chat_schemas import (
     ChatCancelledData,
     ChatCancelRead,
@@ -695,7 +696,7 @@ async def _stream_chat(
                 type(error).__name__,
                 safe_stack or "unknown",
             )
-            message, retriable = _public_error(code)
+            message, retriable = public_chat_error(code)
             _force_enqueue(
                 queue,
                 ChatErrorData(
@@ -796,42 +797,3 @@ def _encode_sse(
     sequence: int | None = None,
 ) -> str:
     return encode_sse(event, data, sequence=sequence)
-
-
-def _public_error(code: str) -> tuple[str, bool]:
-    errors = {
-        "CHAT_SESSION_BUSY": ("该会话正在生成，请等待当前回复完成后再试。", True),
-        "CHAT_COORDINATION_UNAVAILABLE": ("会话协调服务暂时不可用，请稍后重试。", True),
-        "CHAT_SESSION_NOT_FOUND": ("会话不存在或无权访问。", False),
-        "CHAT_CONFLICT": ("本次请求与已保存的会话数据冲突。", False),
-        "CHAT_REGENERATION_NOT_FOUND": ("原回答不存在或无权重新生成。", False),
-        "CHAT_REGENERATION_CONFLICT": (
-            "原回答或上下文已变化，请刷新对话后再重新生成。",
-            False,
-        ),
-        "CHAT_EVIDENCE_UNAVAILABLE": (
-            "未检索到足够的本地医学依据，本次不生成医学建议，请稍后重试或咨询医生。",
-            True,
-        ),
-        "CHAT_MODEL_UNAVAILABLE": ("模型服务暂时不可用，请稍后重试。", True),
-        "CHAT_MODEL_STREAM_INTERRUPTED": (
-            "模型流式响应中断，为避免重复医疗内容，本次已停止。",
-            True,
-        ),
-        "CHAT_ITERATION_LIMIT": ("分析步骤达到安全上限，本次已停止。", True),
-        "CHAT_APPROVAL_REQUIRED": ("该操作需要医生确认，当前未执行。", False),
-        "CHAT_CONTEXT_UNSUPPORTED": ("当前请求包含尚未启用的上下文类型。", False),
-        "CHAT_DOCUMENT_UNAVAILABLE": (
-            "所选文档已移除、不可用或不属于当前会话，请重新上传后再试。",
-            False,
-        ),
-        "CHAT_EMPTY_RESPONSE": ("模型未返回可用内容，请稍后重试。", True),
-        "CHAT_OUTPUT_CONTRACT_INVALID": ("模型回复格式异常，请稍后重试。", True),
-        "CHAT_MEMORY_UNAVAILABLE": ("健康记忆服务暂时不可用，本次未完成，请稍后重试。", True),
-        "CHAT_SKILL_UNAVAILABLE": ("所选技能不存在、已禁用或暂不可用，请刷新技能列表。", False),
-        "CHAT_CANCELLATION_FINALIZATION_FAILED": (
-            "停止请求未能安全落库，请稍后重试并核对本次执行记录。",
-            True,
-        ),
-    }
-    return errors.get(code, ("本次对话执行失败，请稍后重试。", True))

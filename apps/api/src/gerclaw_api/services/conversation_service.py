@@ -282,6 +282,40 @@ class ConversationService:
             await self._repository.commit()
         return message
 
+    async def store_failure_message(
+        self,
+        *,
+        tenant_id: str,
+        session_id: uuid.UUID,
+        trace_id: str,
+        text: str,
+        commit: bool = True,
+    ) -> Message:
+        """Persist a concise failed-turn notice while keeping the Trace non-contextual."""
+
+        existing = await self._repository.get_message_by_trace(
+            tenant_id=tenant_id, trace_id=trace_id, role="assistant"
+        )
+        if existing is not None:
+            if existing.session_id != session_id or self._message_text(existing) != text:
+                raise ConversationConflictError(
+                    "trace failure message conflicts with stored data"
+                )
+            return existing
+        message = Message(
+            id=uuid.uuid4(),
+            tenant_id=tenant_id,
+            session_id=session_id,
+            trace_id=trace_id,
+            role="assistant",
+            content=[{"type": "text", "text": text}],
+            message_metadata={"failed_turn_notice": True},
+        )
+        await self._repository.add_message(message)
+        if commit:
+            await self._repository.commit()
+        return message
+
     async def rollback(self) -> None:
         """Discard a failed atomic turn finalization on the shared DB session."""
 

@@ -42,8 +42,10 @@ export function EmergencyWarningCard({
 
 export function IncompleteAnswerWarning({
   seniorMode,
+  message = "这次回答没有完整生成，请重试",
 }: {
   seniorMode: boolean;
+  message?: string;
 }) {
   return (
     <section
@@ -55,7 +57,7 @@ export function IncompleteAnswerWarning({
       )}
     >
       <p className={cn("leading-relaxed", seniorMode ? "text-lg" : "text-sm")}>
-        这次回答没有完整生成
+        {message}
       </p>
     </section>
   );

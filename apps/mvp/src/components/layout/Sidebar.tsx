@@ -134,13 +134,27 @@ export function Sidebar({ onNavigate }: SidebarProps) {
       style={{ width: "100%" }}
     >
       {/* ===== 顶部：标识区 + 折叠按钮 ===== */}
-      <div className={cn("flex items-center gap-2 px-3 h-14 shrink-0", seniorMode && "h-16")}>
+      <div
+        className={cn(
+          "flex items-center gap-2 px-3 h-14 shrink-0",
+          seniorMode && "h-auto min-h-20 items-start py-2",
+        )}
+      >
         <div className="flex items-center justify-center size-8 rounded-lg bg-primary text-primary-foreground shrink-0">
           <Stethoscope className="size-4" />
         </div>
-        <div className="flex items-center gap-2 min-w-0 flex-1">
+        <div
+          className={cn(
+            "flex min-w-0 flex-1 items-center gap-2",
+            seniorMode && "flex-col items-start gap-0.5 pt-0.5",
+          )}
+        >
           <span className={cn("font-bold text-base", seniorMode && "text-lg")}>GerClaw</span>
-          <Badge variant="secondary" className={cn("shrink-0", seniorMode && "text-base", getRoleBadgeColor())}>
+          <Badge
+            data-sidebar-role-badge
+            variant="secondary"
+            className={cn("shrink-0", getRoleBadgeColor())}
+          >
             {getRoleBadgeLabel()}
           </Badge>
         </div>

@@ -53,7 +53,7 @@ export function MessageActions(props: MessageActionsProps) {
   const hasEmergency = !isUser && message.blocks.some((block) => block.kind === "emergency_alert");
   if (!terminal || hasEmergency) return null;
 
-  const showRegenerate = !isUser && props.isLastMessage && props.onRegenerate;
+  const showRegenerate = !isUser && message.status === "done" && props.isLastMessage && props.onRegenerate;
   const supportsRunFeedback = Boolean(message.executionRunId);
   const canFeedback = !isUser && message.status === "done" && (supportsRunFeedback || message.traceId);
   const feedback = actions.feedback;

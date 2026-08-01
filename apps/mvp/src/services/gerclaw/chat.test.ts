@@ -10,6 +10,7 @@ import {
   advanceDurableCursor,
   DurableStreamCursorError,
 } from "./durable-stream.ts";
+import { presentChatError } from "./chat-error-presentation.ts";
 
 test("completion event accepts server-owned SSE observability metadata", () => {
   const parsed = chatDoneEventSchema.safeParse({
@@ -34,6 +35,25 @@ test("completion event accepts server-owned SSE observability metadata", () => {
   });
 
   assert.equal(parsed.success, true);
+});
+
+test("chat failure presentation separates sensitive input from service failures", () => {
+  assert.equal(
+    presentChatError({ code: "MODEL_PROMPT_PRIVACY_POLICY_BLOCKED", status: 422 }),
+    "你的需求中有目前无法处理的敏感内容，请调整后再试",
+  );
+  assert.equal(
+    presentChatError({ code: "MODEL_PROVIDER_UNAVAILABLE", status: 503 }),
+    "服务暂时不稳定，这次回答没有完整生成。请稍后重试",
+  );
+  assert.equal(
+    presentChatError({ code: "AUTH_FORBIDDEN", status: 403 }),
+    "这次回答没有完整生成，请重试",
+  );
+  assert.equal(
+    presentChatError({ code: "OUTPUT_CONTRACT_INVALID", status: 422 }),
+    "这次回答没有完整生成，请重试",
+  );
 });
 
 test("completion event rejects undeclared transport fields", () => {

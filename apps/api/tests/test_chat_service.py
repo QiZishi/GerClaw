@@ -16,10 +16,11 @@ from agentscope.message import Msg, TextBlock
 from agentscope.model import ChatModelBase, ChatResponse, ChatUsage
 from agentscope.tool import ToolChoice
 
-from gerclaw_api.api.routes.chat import _encode_sse, _public_error
+from gerclaw_api.api.routes.chat import _encode_sse
 from gerclaw_api.auth import AuthContext
 from gerclaw_api.config import Settings
 from gerclaw_api.database.models import ConversationSession, ExecutionTrace, Message
+from gerclaw_api.domain.chat_error_codes import public_chat_error
 from gerclaw_api.domain.chat_schemas import ChatRequest
 from gerclaw_api.domain.enums import TraceStatus
 from gerclaw_api.domain.run_schemas import (
@@ -304,6 +305,7 @@ class _ConversationFacade:
         self.user_text: str | None = None
         self.response: object | None = None
         self.assistant_commit: bool | None = None
+        self.failure_text: str | None = None
         self.rollback_count = 0
         self.history_exclude_trace_id: str | None = None
         self.active_fencing_token = 0
@@ -358,6 +360,19 @@ class _ConversationFacade:
             role="assistant",
             content=[{"type": "text", "text": cast(Any, self.response).text}],
             message_metadata={},
+            created_at=datetime.now(UTC),
+        )
+
+    async def store_failure_message(self, **kwargs: object) -> Message:
+        self.failure_text = cast(str, kwargs["text"])
+        return Message(
+            id=uuid.uuid4(),
+            tenant_id=self.session.tenant_id,
+            session_id=self.session.id,
+            trace_id=cast(str, kwargs["trace_id"]),
+            role="assistant",
+            content=[{"type": "text", "text": self.failure_text}],
+            message_metadata={"failed_turn_notice": True},
             created_at=datetime.now(UTC),
         )
 
@@ -2320,6 +2335,7 @@ async def test_terminal_trace_failure_rolls_back_assistant_before_recording_fail
     assert conversation.rollback_count == 2
     assert memory.compensation_count == 1
     assert memory.committed_count == 0
+    assert conversation.failure_text == "这次回答没有完整生成，请重试。"
     assert traces.trace.status == TraceStatus.FAILED.value
     assert traces.finishes[-1].status is TraceStatus.FAILED
     assert all(cast(Any, event).event_type != "done" for event in events)
@@ -2377,11 +2393,11 @@ def test_chat_error_codes_never_expose_provider_details() -> None:
 def test_sse_encoding_and_public_errors_are_stable() -> None:
     encoded = _encode_sse("text_delta", {"content": "您好"})
     assert encoded == 'event: text_delta\ndata: {"content":"您好"}\n\n'
-    assert _public_error("CHAT_SESSION_BUSY") == (
+    assert public_chat_error("CHAT_SESSION_BUSY") == (
         "该会话正在生成，请等待当前回复完成后再试。",
         True,
     )
-    assert _public_error("UNRECOGNIZED_INTERNAL_ERROR") == (
-        "本次对话执行失败，请稍后重试。",
+    assert public_chat_error("UNRECOGNIZED_INTERNAL_ERROR") == (
+        "这次回答没有完整生成，请重试。",
         True,
     )
