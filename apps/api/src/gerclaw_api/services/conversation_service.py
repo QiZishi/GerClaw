@@ -298,9 +298,7 @@ class ConversationService:
         )
         if existing is not None:
             if existing.session_id != session_id or self._message_text(existing) != text:
-                raise ConversationConflictError(
-                    "trace failure message conflicts with stored data"
-                )
+                raise ConversationConflictError("trace failure message conflicts with stored data")
             return existing
         message = Message(
             id=uuid.uuid4(),

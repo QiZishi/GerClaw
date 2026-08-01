@@ -213,7 +213,8 @@ async def run_with_output_protocol_repair(
                 rebuild_agent(decision.instruction)
                 repair_count += 1
                 continue
-        assert result is not None
+        if result is None:
+            raise RuntimeError("OUTPUT_REPAIR_NO_RESULT")
         projected_events = _project_answer_events(
             events,
             original_text=original_text,

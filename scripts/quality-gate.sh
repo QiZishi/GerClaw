@@ -47,7 +47,7 @@ security_gate() {
   step "Locked frontend dependency audit"
   (
     cd "${MVP_DIR}"
-    npm audit --omit=dev --audit-level=high
+    npm audit --registry=https://registry.npmjs.org --omit=dev --audit-level=high
   )
   step "Production Python runtime SBOM"
   cd "${ROOT_DIR}"

@@ -76,13 +76,16 @@ def bind_citation_markers(
 ) -> str:
     """Bind admitted markers and silently remove markers without a real source."""
 
-    if min(
-        local_citation_count,
-        web_citation_count,
-        web_citation_offset,
-        attachment_citation_count,
-        attachment_citation_offset,
-    ) < 0:
+    if (
+        min(
+            local_citation_count,
+            web_citation_count,
+            web_citation_offset,
+            attachment_citation_count,
+            attachment_citation_offset,
+        )
+        < 0
+    ):
         raise ValueError("citation counts and offsets cannot be negative")
 
     def replace(match: re.Match[str]) -> str:

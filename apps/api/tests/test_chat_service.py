@@ -109,9 +109,7 @@ class _TextModel(ChatModelBase):
 
         async def stream() -> AsyncGenerator[ChatResponse, None]:
             text = (
-                "1. 保留最重要的晨间安排。\n"
-                "2. 保留最重要的日间安排。\n"
-                "3. 保留最重要的晚间安排。"
+                "1. 保留最重要的晨间安排。\n2. 保留最重要的日间安排。\n3. 保留最重要的晚间安排。"
                 if any(message.name == "answer_presentation_contract" for message in messages)
                 else "您好, 很高兴为您服务。"
             )

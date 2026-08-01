@@ -171,10 +171,7 @@ def requires_clinical_evidence(text: str) -> bool:
 
     if not is_medical_message(text):
         return False
-    return not (
-        _LOW_RISK_RECORD_ACTION.search(text)
-        and not _EVIDENCE_REQUIRED_ACTION.search(text)
-    )
+    return not (_LOW_RISK_RECORD_ACTION.search(text) and not _EVIDENCE_REQUIRED_ACTION.search(text))
 
 
 def detect_high_risk(text: str) -> list[str]:
