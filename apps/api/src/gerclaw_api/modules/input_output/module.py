@@ -8,6 +8,7 @@ from typing import Literal
 from gerclaw_api.modules.contracts import AgentRequest, AgentResponse
 from gerclaw_api.security import JsonValue
 
+
 class InputOutputBoundaryError(ValueError):
     """Raised when an untrusted channel payload cannot be safely projected."""
 

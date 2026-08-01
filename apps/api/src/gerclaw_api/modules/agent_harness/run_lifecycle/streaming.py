@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import re
-from collections.abc import AsyncIterator
+from collections.abc import AsyncIterator, Callable
 
 from gerclaw_api.modules.agent_harness.run_lifecycle.errors import (
     AgentHarnessError,

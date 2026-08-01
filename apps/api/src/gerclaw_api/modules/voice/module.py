@@ -6,6 +6,7 @@ import base64
 import json
 import time
 from collections.abc import AsyncGenerator
+
 import httpx
 from pydantic import BaseModel, ConfigDict, Field, ValidationError
 
@@ -171,7 +172,9 @@ class MiMoVoiceModule:
         finally:
             self._record("asr", outcome, started)
 
-    async def synthesize(self, text: str, *, style: str | None = None) -> AsyncGenerator[bytes, None]:
+    async def synthesize(
+        self, text: str, *, style: str | None = None
+    ) -> AsyncGenerator[bytes, None]:
         if not self._supports_pcm16_tts:
             raise VoiceProviderCapabilityUnavailable("voice PCM16 TTS capability is unavailable")
         safe_text = redact_external_tts_text(text).text

@@ -14,7 +14,9 @@ class VoiceModule(Protocol):
     async def transcribe(self, audio_data: bytes, *, audio_format: AudioFormat) -> str:
         """Return one final, bounded transcript."""
 
-    async def synthesize(self, text: str, *, style: str | None = None) -> AsyncGenerator[bytes, None]:
+    async def synthesize(
+        self, text: str, *, style: str | None = None
+    ) -> AsyncGenerator[bytes, None]:
         """Yield 24 kHz mono PCM16LE chunks."""
 
     async def aclose(self) -> None:

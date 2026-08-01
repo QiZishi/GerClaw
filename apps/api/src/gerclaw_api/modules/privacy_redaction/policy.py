@@ -4,13 +4,13 @@ from __future__ import annotations
 
 import re
 
+from gerclaw_api.modules.contracts import MAX_PUBLIC_TEXT_CHARACTERS
 from gerclaw_api.modules.privacy_redaction.models import (
     EgressPurpose,
     RedactionCategory,
     RedactionFinding,
     RedactionResult,
 )
-from gerclaw_api.modules.contracts import MAX_PUBLIC_TEXT_CHARACTERS
 from gerclaw_api.security import redact_text
 
 PRIVACY_REDACTION_POLICY_VERSION = "1.1.0"
