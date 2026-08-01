@@ -33,9 +33,7 @@ from gerclaw_api.modules.agent_harness.planning import (
     PlanExecutionSnapshot,
     PlanNodeStatus,
     TurnExecutionGovernance,
-    answer_presentation_contract,
     emit_deterministic_clarification,
-    validate_answer_presentation_contract,
 )
 from gerclaw_api.modules.agent_harness.plugin_runtime import (
     CapabilityResult,
@@ -404,7 +402,9 @@ class ProductionAgentHarness(ProductionHarnessCompositionSetup, OrchestrationSup
             local_evidence_context=(
                 build_evidence_context(initial_citations) if initial_citations else None
             ),
-            presentation_contract=answer_presentation_contract(user_message),
+            # Formatting preferences remain a model hint only.  A malformed
+            # list must never discard an otherwise readable answer.
+            presentation_contract=None,
         )
 
         preflight = self._turn_planning.check_model(
@@ -558,7 +558,6 @@ class ProductionAgentHarness(ProductionHarnessCompositionSetup, OrchestrationSup
                         and self._runtime_principal.role in {ActorRole.GUEST, ActorRole.PATIENT}
                     ),
                 )
-                validate_answer_presentation_contract(user_message, bound_candidate.text)
                 validated_evidence = bound_candidate
                 return replace(result, text=validated_evidence.text)
 

@@ -203,6 +203,46 @@ export function useAgentConversationStream(): {
       activeTurnsRef.current.delete(sessionId);
       setGenerating(sessionId, false);
     };
+    const completeWithReaderFacingError = (
+      targetMessageId: string,
+      error: Parameters<NonNullable<AgentChatCallbacks["onError"]>>[0],
+    ) => {
+      const visibleError = presentChatError(error);
+      const currentMessage = useChatStore
+        .getState()
+        .messagesBySession[sessionId]?.find(
+          (message) => message.id === targetMessageId,
+        );
+      const existingText = currentMessage
+        ? getMessageText(currentMessage).trim()
+        : "";
+      const deliveredText = existingText
+        ? `${existingText}\n\n${visibleError}`
+        : visibleError;
+      const blocks = currentMessage
+        ? currentMessage.blocks.map((block) =>
+            block.kind === "text" && block.id === assistantBlockId
+              ? { ...block, content: deliveredText, streaming: false }
+              : block,
+          )
+        : [
+            {
+              kind: "text" as const,
+              id: assistantBlockId,
+              content: deliveredText,
+              streaming: false,
+            },
+          ];
+      updateMessage(targetMessageId, {
+        status: isReaderFacingChatFallback(error) ? "done" : "error",
+        blocks,
+        citations: undefined,
+        hasDisclaimer:
+          currentMessage?.hasDisclaimer === true ||
+          visibleError.includes("内容由 AI 生成"),
+        completedAt: Date.now(),
+      });
+    };
     activeTurn.finish = finishTurn;
     const prepareSuccessorProjection = (instruction: string) => {
       deleteMessage(assistantMessageId);
@@ -469,6 +509,7 @@ export function useAgentConversationStream(): {
         onError: (error) => {
           if (replacementSnapshot) {
             updateMessage(assistantMessageId, replacementSnapshot);
+            const visibleError = presentChatError(error);
             addMessage({
               id: generateId("msg"),
               sessionId,
@@ -477,13 +518,13 @@ export function useAgentConversationStream(): {
                 {
                   kind: "text",
                   id: generateId("block"),
-                  content: presentChatError(error),
+                  content: visibleError,
                   streaming: false,
                 },
               ],
               status: isReaderFacingChatFallback(error) ? "done" : "error",
               createdAt: Date.now(),
-              hasDisclaimer: false,
+              hasDisclaimer: visibleError.includes("内容由 AI 生成"),
               workflow,
             });
             finishTurn();
@@ -513,21 +554,10 @@ export function useAgentConversationStream(): {
               ],
             });
           } else {
-            const visibleError = presentChatError(error);
-            updateMessage(assistantMessageId, {
-              status: isReaderFacingChatFallback(error) ? "done" : "error",
-              blocks: [
-                {
-                  kind: "text",
-                  id: assistantBlockId,
-                  content: visibleError,
-                  streaming: false,
-                },
-              ],
-              citations: undefined,
-              hasDisclaimer: false,
-              completedAt: Date.now(),
-            });
+            // Keep already validated deltas and append the reader-facing
+            // terminal result. A transport/runtime error must not erase
+            // content that has already crossed the public boundary.
+            completeWithReaderFacingError(assistantMessageId, error);
           }
           finishTurn();
           useAppStore.getState().setStreamingInterrupted(false);
@@ -666,18 +696,36 @@ export function useAgentConversationStream(): {
             active.suppressedInterrupts.delete(sourceTraceId);
             previousController.abort();
             if (activeTurnsRef.current.get(sessionId) === active) {
+              const visibleError = presentChatError(error);
+              const currentMessage = useChatStore
+                .getState()
+                .messagesBySession[sessionId]?.find(
+                  (message) => message.id === active.assistantMessageId,
+                );
+              const existingText = currentMessage
+                ? getMessageText(currentMessage).trim()
+                : "";
+              const deliveredText = existingText
+                ? `${existingText}\n\n${visibleError}`
+                : visibleError;
               updateMessage(active.assistantMessageId, {
                 status: isReaderFacingChatFallback(error) ? "done" : "error",
-                blocks: [
+                blocks: currentMessage?.blocks.map((block) =>
+                  block.kind === "text"
+                    ? { ...block, content: deliveredText, streaming: false }
+                    : block,
+                ) ?? [
                   {
                     kind: "text",
                     id: generateId("block"),
-                    content: presentChatError(error),
+                    content: deliveredText,
                     streaming: false,
                   },
                 ],
                 citations: undefined,
-                hasDisclaimer: false,
+                hasDisclaimer:
+                  currentMessage?.hasDisclaimer === true ||
+                  visibleError.includes("内容由 AI 生成"),
                 completedAt: Date.now(),
               });
               active.finish();

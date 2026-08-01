@@ -140,12 +140,12 @@ ChatDoneData = PublicChatDoneData
 
 
 class ChatErrorData(BaseModel):
-    """Safe terminal failure payload with no provider response text."""
+    """Safe terminal delivery payload without provider or internal details."""
 
     model_config = STRICT
 
     code: str = Field(pattern=r"^[A-Z][A-Z0-9_]{2,63}$")
-    message: str = Field(min_length=1, max_length=500)
+    message: str = Field(min_length=1, max_length=2_000)
     trace_id: str
     retriable: bool
 

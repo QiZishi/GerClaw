@@ -1906,7 +1906,11 @@ class ChatService:
                     commit=False,
                 )
             if status is TraceStatus.FAILED:
-                failure_text, _retriable = public_chat_fallback(code)
+                failure_text, _retriable = public_chat_fallback(
+                    code,
+                    payload.message,
+                    medical_content=is_medical_message(payload.message),
+                )
                 await self._conversation.store_failure_message(
                     tenant_id=identity.tenant_id,
                     session_id=payload.session_id,

@@ -43,8 +43,9 @@ export function presentChatError(
 export function isReaderFacingChatFallback(
   error: Pick<GerclawApiError, "code" | "message">,
 ): boolean {
+  const code = error.code.toUpperCase();
   return (
-    error.code.toUpperCase().startsWith("CHAT_") &&
-    error.message.startsWith("我先给你一个可继续执行的回答框架：")
+    (code.startsWith("CHAT_") || code.startsWith("RUN_STREAM_")) &&
+    Boolean(error.message.trim())
   );
 }

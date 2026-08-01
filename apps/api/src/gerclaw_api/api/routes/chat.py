@@ -52,6 +52,7 @@ from gerclaw_api.modules.agent_harness.plugin_runtime import (
     GovernedCapabilityRuntime,
     get_default_capability_catalog,
 )
+from gerclaw_api.modules.agent_harness.safety import is_medical_message
 from gerclaw_api.modules.document import DocumentService
 from gerclaw_api.modules.memory.memory_module import ProductionMemoryModule
 from gerclaw_api.modules.memory.runtime import create_memory_module
@@ -695,7 +696,11 @@ async def _stream_chat(
                 type(error).__name__,
                 safe_stack or "unknown",
             )
-            message, retriable = public_chat_fallback(code)
+            message, retriable = public_chat_fallback(
+                code,
+                payload.message,
+                medical_content=is_medical_message(payload.message),
+            )
             _force_enqueue(
                 queue,
                 ChatErrorData(
