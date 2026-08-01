@@ -38,7 +38,12 @@ def validate_terminal_response_candidate(
     medical_content: bool,
     patient_facing: bool,
 ) -> BoundTurnEvidence:
-    """Reject a repairable terminal-contract defect before publishing text."""
+    """Assemble a terminal answer without making citation coverage a hard gate.
+
+    Evidence is still bound and audited whenever it exists.  Missing evidence
+    is represented by an empty citation list and handled as a degraded answer,
+    rather than discarding an otherwise useful model response.
+    """
 
     bound = bind_turn_evidence(
         result.text,
@@ -51,11 +56,6 @@ def validate_terminal_response_candidate(
         adopted_only=True,
     )
     claims_complete = bound.claim_audit.all_clinical_claims_bound
-    unbound_claim_ids = tuple(
-        claim.claim_id for claim in bound.claim_audit.claims if claim.status == "unbound"
-    )
-    if unbound_claim_ids:
-        raise UnboundClinicalClaimsError(unbound_claim_ids)
     patient_notice = patient_facing and requires_patient_clinical_risk_notice(bound.text)
     risk_delta = f"\n\n{PATIENT_CLINICAL_RISK_NOTICE}" if patient_notice else ""
     disclaimer_delta = f"{risk_delta}\n\n{MEDICAL_DISCLAIMER}" if medical_content else risk_delta

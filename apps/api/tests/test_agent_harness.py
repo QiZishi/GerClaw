@@ -2120,11 +2120,11 @@ async def test_high_risk_notice_is_first_public_text(unit_settings: Settings) ->
 
 
 @pytest.mark.asyncio
-async def test_medical_request_without_evidence_returns_a_safe_clarification(
+async def test_medical_request_without_evidence_still_returns_model_answer(
     unit_settings: Settings,
 ) -> None:
-    model = _HarnessModel(text="不应调用模型。")
-    harness = _harness(unit_settings, model=model, rag=_HarnessRAG([]))
+    model = _HarnessModel(text="这个药需要结合具体成分、剂量和正在使用的其他药物一起判断。")
+    harness = _harness(unit_settings, model=model, rag=_UnavailableHarnessRAG([]))
     context = await harness.assemble_context(
         "108815d7-05bf-4c2a-a977-cd034f390fab",
         "usr_patient00000001",
@@ -2138,23 +2138,20 @@ async def test_medical_request_without_evidence_returns_a_safe_clarification(
         context,
         events.append,
     )
-    assert model.calls == 0
+    assert model.calls == 1
     assert response.medical_content is True
     assert response.citations == []
-    assert response.structured["evidence_state"] == "unavailable"
-    assert "evidence_unavailable_clarification" in response.safety.notices
-    assert "请补充" in response.text
+    assert "这个药需要结合具体成分" in response.text
+    assert response.text.endswith(MEDICAL_DISCLAIMER)
+    assert "evidence_state" not in response.structured
     assert events[-1].event_type == "done"
     assert [event.data.get("status") for event in events if event.event_type == "tool_result"] == [
-        "success"
+        "failed"
     ]
-    assert [
-        event.data.get("result_count") for event in events if event.event_type == "tool_result"
-    ] == [0]
 
 
 @pytest.mark.asyncio
-async def test_non_projectable_evidence_returns_safe_clarification_before_model_text(
+async def test_non_projectable_evidence_does_not_block_model_text(
     unit_settings: Settings,
 ) -> None:
     invalid = RetrievalResult(
@@ -2179,9 +2176,9 @@ async def test_non_projectable_evidence_returns_safe_clarification_before_model_
         events.append,
     )
 
-    assert model.calls == 0
+    assert model.calls == 1
     assert response.citations == []
-    assert response.structured["evidence_state"] == "unavailable"
+    assert "可能存在冠心病" in response.text
     assert "您患有冠心病" not in response.text
     assert any(event.event_type == "text_delta" for event in events)
     assert events[-1].event_type == "done"
@@ -2221,7 +2218,7 @@ async def test_evidence_backed_direct_clinical_conclusions_are_preserved_and_aud
 
 
 @pytest.mark.asyncio
-async def test_unbound_clinical_claim_is_retried_then_pruned_without_losing_answer(
+async def test_unbound_clinical_claim_is_kept_without_blocking_answer(
     unit_settings: Settings,
 ) -> None:
     model = _HarnessModel(text="血压管理应结合日常记录 [E1]。建议立即停药。")
@@ -2247,15 +2244,15 @@ async def test_unbound_clinical_claim_is_retried_then_pruned_without_losing_answ
     )
 
     assert "血压管理应结合日常记录 [C1]。" in response.text
-    assert "停药" not in response.text
-    assert model.calls == 2
+    assert "停药" in response.text
+    assert model.calls == 1
     assert memory.sources == ["请根据现有资料评估冠心病风险"]
-    assert response.structured["output_contract_retries"] == 1
-    assert response.structured["pruned_unsupported_claim_count"] == 1
-    assert response.structured["evidence_backed_clinical_conclusion"] is True
+    assert response.structured["output_contract_retries"] == 0
+    assert response.structured["pruned_unsupported_claim_count"] == 0
+    assert response.structured["evidence_backed_clinical_conclusion"] is False
     audit = cast(dict[str, Any], response.structured["claim_evidence_audit"])
     assert audit["bound_claim_count"] == 1
-    assert audit["all_clinical_claims_bound"] is True
+    assert audit["all_clinical_claims_bound"] is False
 
 
 @pytest.mark.asyncio

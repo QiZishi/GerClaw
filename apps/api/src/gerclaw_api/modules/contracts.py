@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import re
 import uuid
 from typing import Literal
 
@@ -11,14 +10,6 @@ from pydantic import BaseModel, ConfigDict, Field, model_validator
 from gerclaw_api.security import JsonValue
 
 STRICT = ConfigDict(extra="forbid")
-_UNSAFE_DIAGNOSIS = re.compile(
-    r"(?:明确(?:临床)?诊断|诊断结论|诊断)(?:为|是)"
-    r"|(?<!明)(?:已经|已|明确|可以)?确诊(?:为|是)?"
-    r"|(?:您|患者|病人)(?:已经|已)?(?:患有|得了|就是得了)"
-    r"|(?:一定|肯定|必然)(?:是|患有|属于)"
-    r"|这是(?!辅助|一条|建议|提示|参考|说明|可能|需要|为了|对)"
-    r"|就是(?!说|建议|提示|参考|说明|可能|需要)"
-)
 _EVIDENCE_UNAVAILABLE_NOTICE = "evidence_unavailable_clarification"
 _CLINICAL_CLARIFICATION_NOTICE = "clinical_clarification"
 
@@ -98,13 +89,11 @@ class AgentResponse(BaseModel):
     def enforce_medical_output_invariants(self) -> AgentResponse:
         if self.medical_content and not self.safety.disclaimer_applied:
             raise ValueError("medical content requires an applied disclaimer")
-        if _UNSAFE_DIAGNOSIS.search(self.text) and (
-            not self.citations
-            or self.structured.get("evidence_backed_clinical_conclusion") is not True
-        ):
-            raise ValueError(
-                "direct clinical conclusion requires Runtime-marked traceable evidence"
-            )
+        # Citation coverage is best effort.  The Harness still normalizes
+        # unsupported certainty before this DTO is built, but lack of a
+        # retrievable source must never discard the complete medical answer.
+        # When a source is available, its adoption remains recorded in
+        # ``evidence_backed_clinical_conclusion`` and the public citations.
         if self.emergency_short_circuit:
             if not self.medical_content:
                 raise ValueError("emergency short circuit must be marked as medical content")
@@ -130,14 +119,6 @@ class AgentResponse(BaseModel):
                 raise ValueError("clinical clarification requires an explicit notice")
             if self.structured.get("model_invoked") is not False:
                 raise ValueError("clinical clarification must not use model output")
-        if (
-            self.medical_content
-            and not self.citations
-            and not self.emergency_short_circuit
-            and not evidence_unavailable
-            and not clinical_clarification
-        ):
-            raise ValueError("medical output requires at least one traceable citation")
         return self
 
 

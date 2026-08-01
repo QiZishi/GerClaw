@@ -101,10 +101,6 @@ CapabilityResultObserver = Callable[
     [PlanExecutionSnapshot, CapabilityResult],
     Awaitable[None],
 ]
-_EVIDENCE_UNAVAILABLE_CLARIFICATION = (
-    "目前缺少可核验的资料，暂不适合据此作个体化判断。"
-    "请补充症状出现和变化、近期检查或完整用药信息，我可以结合这些资料继续说明。"
-)
 _SafeSentenceBuffer = SafeSentenceBuffer
 _CanonicalTextStream = CanonicalTextStream
 _final_agent_text = final_agent_text
@@ -230,10 +226,6 @@ class ProductionAgentHarness(ProductionHarnessCompositionSetup, OrchestrationSup
             and self._uploaded_input.is_document_focused_request(user_message)
         )
         should_prefetch_local_evidence = medical_content and not document_focused and not companion
-        has_uploaded_evidence = bool(self._uploaded_documents or self._uploaded_images)
-        can_search_for_evidence = (
-            self._search_module is not None and self._search_enabled and not document_focused
-        )
         safe_high_risk_codes: list[JsonValue] = list(high_risk_codes)
         if route_decision.route is RouteKind.EMERGENCY:
             if governance.status_for("safety.emergency") is not PlanNodeStatus.COMPLETED:
@@ -317,9 +309,12 @@ class ProductionAgentHarness(ProductionHarnessCompositionSetup, OrchestrationSup
                     ),
                     add_tool_call=budget.add_tool_call,
                     emit=lambda kind, data: self._emit(stream_callback, kind, data),
-                    # Uploads and governed web search are independent evidence
-                    # sources. With neither available, retain fail-closed behavior.
-                    tolerate_failure=has_uploaded_evidence or can_search_for_evidence,
+                    # Evidence is an enhancement, not a prerequisite for a useful
+                    # answer.  A retrieval outage must not turn every medical
+                    # question into a terminal failure; the model can still
+                    # answer from the conversation and clearly mark any
+                    # uncertainty in its normal response.
+                    tolerate_failure=True,
                 )
             except Exception:
                 await governance.fail_persisted(
@@ -380,35 +375,11 @@ class ProductionAgentHarness(ProductionHarnessCompositionSetup, OrchestrationSup
             minimum_score=self._config.evidence_min_score,
             limit=self._config.evidence_top_k,
         )
-        if (
-            should_prefetch_local_evidence
-            and not initial_citations
-            and not has_uploaded_evidence
-            and not can_search_for_evidence
-        ):
-            answer_node = await governance.checkpoint_persisted(governance.answer_capability())
-            await governance.complete_persisted(answer_node)
-            return await emit_deterministic_clarification(
-                body=_EVIDENCE_UNAVAILABLE_CLARIFICATION,
-                high_risk_codes=high_risk_codes,
-                emit=lambda kind, data: self._emit(stream_callback, kind, data),
-                budget=budget,
-                structured={
-                    "loaded_skill_ids": list(context.loaded_skills),
-                    "governed_capability_ids": list(self._governed_capability_ids),
-                    "capability_results": [
-                        item.model_dump(mode="json") for item in self._capability_results
-                    ],
-                    "warning_codes": list(self._warning_codes),
-                    "document_focused": False,
-                    "evidence_state": "unavailable",
-                    "route": route_decision.route.value,
-                    "route_reason": route_decision.reason_code,
-                    "plan_node_ids": [node.node_id for node in dynamic_plan.nodes],
-                    **(await governance.finish_persisted()),
-                },
-                evidence_unavailable=True,
-            )
+        # Do not fail closed when no citation was admitted.  The answer path is
+        # still useful for general medical education, symptom triage, and user
+        # supplied observations.  Citation metadata remains empty and the
+        # normal medical disclaimer is appended below; the UI can show the
+        # absence of sources without replacing the answer with an error.
         clinical_state_json, clinical_state_context = render_untrusted_clinical_state(
             turn_clinical_state
         )

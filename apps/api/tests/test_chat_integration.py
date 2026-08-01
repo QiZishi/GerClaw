@@ -462,7 +462,7 @@ async def test_successor_fencing_token_rejects_stale_database_writer(
 
 @pytest.mark.integration
 @pytest.mark.asyncio
-async def test_chat_missing_evidence_persists_safe_clarification_without_bad_case(
+async def test_chat_missing_evidence_still_persists_a_model_answer(
     integration_client: tuple[AsyncClient, object],
 ) -> None:
     client, app = integration_client
@@ -494,7 +494,7 @@ async def test_chat_missing_evidence_persists_safe_clarification_without_bad_cas
     assert response.status_code == 200
     assert "event: error" not in response.text
     assert "event: done" in response.text
-    assert "请先补充" in response.text
+    assert "请先补充" not in response.text
     trace = await client.get(f"/api/v1/traces/{trace_id}")
     assert trace.status_code == 200
     assert trace.json()["status"] == "completed"
