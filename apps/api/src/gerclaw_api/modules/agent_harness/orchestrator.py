@@ -35,6 +35,7 @@ from gerclaw_api.modules.agent_harness.planning import (
     TurnExecutionGovernance,
     answer_presentation_contract,
     emit_deterministic_clarification,
+    validate_answer_presentation_contract,
 )
 from gerclaw_api.modules.agent_harness.plugin_runtime import (
     CapabilityResult,
@@ -563,7 +564,7 @@ class ProductionAgentHarness(ProductionHarnessCompositionSetup, OrchestrationSup
             def validate_candidate(result: AgentStreamResult) -> AgentStreamResult:
                 nonlocal validated_evidence
                 candidate_local, candidate_web, candidate_attachments = candidate_evidence()
-                validated_evidence = validate_terminal_response_candidate(
+                bound_candidate = validate_terminal_response_candidate(
                     result,
                     initial_local=initial_citations,
                     additional_local=candidate_local,
@@ -577,6 +578,8 @@ class ProductionAgentHarness(ProductionHarnessCompositionSetup, OrchestrationSup
                         and self._runtime_principal.role in {ActorRole.GUEST, ActorRole.PATIENT}
                     ),
                 )
+                validate_answer_presentation_contract(user_message, bound_candidate.text)
+                validated_evidence = bound_candidate
                 return replace(result, text=validated_evidence.text)
 
             def recover_repeated_claim_failure(

@@ -13,7 +13,10 @@ from agentscope.message import ToolCallBlock
 from pydantic import BaseModel
 
 from gerclaw_api.modules.agent_harness.config import ResolvedHarnessConfig
-from gerclaw_api.modules.agent_harness.planning import emit_deterministic_clarification
+from gerclaw_api.modules.agent_harness.planning import (
+    AnswerPresentationContractError,
+    emit_deterministic_clarification,
+)
 from gerclaw_api.modules.agent_harness.plugin_runtime import (
     ApprovalCallback,
     ApprovalCoordinator,
@@ -113,6 +116,14 @@ def classify_answer_step_failure(error: Exception) -> StepRepairDecision | None:
         return _TOOL_INPUT_REPAIR
     if _contains_failure(error, UnboundClinicalClaimsError):
         return _UNBOUND_CLAIM_REPAIR
+    if isinstance(error, AnswerPresentationContractError):
+        return StepRepairDecision(
+            error_code="answer_presentation_contract",
+            field_paths=("answer.presentation",),
+            contract_version="answer-presentation-v1",
+            checkpoint_id="chat.answer.pre_model.v1",
+            instruction=error.repair_instruction,
+        )
     if _contains_failure(error, ModelOutputContractValidationError):
         return _ANSWER_SCHEMA_REPAIR
     return None

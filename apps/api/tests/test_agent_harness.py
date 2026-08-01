@@ -469,7 +469,7 @@ async def test_private_tool_protocol_markup_is_repaired_before_public_projection
     model = _HarnessModel(
         text_by_call=(
             '<invoke name="search_knowledge"><parameter name="query">作息</parameter></invoke>',
-            "最重要的是固定起床时间、白天适量活动、睡前减少刺激。",
+            "1. 固定起床时间。\n2. 白天适量活动。\n3. 睡前减少刺激。",
         )
     )
     harness = _harness(
@@ -1260,7 +1260,13 @@ async def test_referential_medical_follow_up_retrieves_with_latest_user_context(
     rag = _HarnessRAG([_evidence()])
     harness = _harness(
         unit_settings,
-        model=_HarnessModel(text="家属可协助记录起身时间和血压 [E1]。"),
+        model=_HarnessModel(
+            text=(
+                "1. 家属协助记录起身时间和血压 [E1]。\n"
+                "2. 记录头晕持续时间和当时活动 [E1]。\n"
+                "3. 症状加重时及时联系医生 [E1]。"
+            )
+        ),
         rag=rag,
         history=[
             ConversationHistoryMessage(role="user", text=previous),

@@ -6,7 +6,9 @@ from gerclaw_api.modules.agent_harness.planning.agent_factory import (
     ProductionAgentFactory,
 )
 from gerclaw_api.modules.agent_harness.planning.answer_presentation import (
+    AnswerPresentationContractError,
     answer_presentation_contract,
+    validate_answer_presentation_contract,
 )
 from gerclaw_api.modules.agent_harness.planning.clarification import (
     emit_deterministic_clarification,
@@ -56,6 +58,7 @@ __all__ = [
     "ActionKind",
     "ActionSelection",
     "AgentFactory",
+    "AnswerPresentationContractError",
     "BudgetPreflightDecision",
     "ClinicalDecisionCoordinator",
     "DeterministicPlanner",
@@ -83,5 +86,6 @@ __all__ = [
     "approximate_input_tokens",
     "emit_deterministic_clarification",
     "requests_report",
+    "validate_answer_presentation_contract",
     "validate_plan_execution_transition",
 ]

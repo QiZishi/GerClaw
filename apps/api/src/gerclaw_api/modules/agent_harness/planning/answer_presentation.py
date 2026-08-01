@@ -23,6 +23,27 @@ _CHINESE_COUNTS = {
     "九": 9,
     "十": 10,
 }
+_NUMBERED_TOP_LEVEL_ITEM = re.compile(r"(?m)^\s*(?P<index>\d{1,2})[.、]\s+")
+
+
+class AnswerPresentationContractError(RuntimeError):
+    """A useful answer that did not preserve the user's explicit layout."""
+
+    def __init__(self, expected_count: int, observed_indices: tuple[int, ...]) -> None:
+        super().__init__("answer does not match the requested numbered-list contract")
+        self.expected_count = expected_count
+        self.observed_indices = observed_indices
+
+    @property
+    def repair_instruction(self) -> str:
+        return (
+            f"上一尝试没有完成用户明确要求的 {self.expected_count} 点编号清单。"
+            "请从用户原任务重新生成完整答案, 保留已核验事实及其真实引用; "
+            f"必须恰好输出 {self.expected_count} 个顶层条目, 每项单独一行, 依次使用 "
+            f"1. 到 {self.expected_count}. (数字、英文句点、空格), "
+            "不得丢项、合并成段落或增加其他章节。"
+            "不要提及格式检查或重新生成过程。"
+        )
 
 
 def _requested_item_count(message: str) -> int | None:
@@ -53,7 +74,23 @@ def answer_presentation_contract(message: str) -> str | None:
     )
     return (
         "本轮用户已明确指定答案形式, 必须遵守: "
-        f"只输出 {count} 个编号顶层条目, 不写开场白、额外章节、重复总结或第 {count + 1} 项; "
+        f"只输出 {count} 个编号顶层条目, 每项单独一行并依次使用 "
+        f"1. 到 {count}. (数字、英文句点、空格), "
+        f"不写开场白、额外章节、重复总结或第 {count + 1} 项; "
         "每项使用短标题加一至两句可执行说明, 整段不超过 600 个中文字符; "
         f"{audience}{care_timing}"
     )
+
+
+def validate_answer_presentation_contract(message: str, answer: str) -> None:
+    """Validate only an explicit item-count request before publication."""
+
+    expected_count = _requested_item_count(message)
+    if expected_count is None:
+        return
+    observed = tuple(
+        int(match.group("index")) for match in _NUMBERED_TOP_LEVEL_ITEM.finditer(answer)
+    )
+    expected = tuple(range(1, expected_count + 1))
+    if observed != expected:
+        raise AnswerPresentationContractError(expected_count, observed)

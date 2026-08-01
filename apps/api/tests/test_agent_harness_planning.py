@@ -17,6 +17,7 @@ from gerclaw_api.modules.agent_harness.clinical_state import (
 from gerclaw_api.modules.agent_harness.planning import (
     ActionCandidate,
     ActionKind,
+    AnswerPresentationContractError,
     ClinicalDecisionCoordinator,
     DeterministicPlanner,
     DynamicPlan,
@@ -31,6 +32,7 @@ from gerclaw_api.modules.agent_harness.planning import (
     SAVIActionSelector,
     TurnExecutionGovernance,
     answer_presentation_contract,
+    validate_answer_presentation_contract,
     validate_plan_execution_transition,
 )
 from gerclaw_api.modules.agent_harness.routing import RouteKind
@@ -81,6 +83,24 @@ def test_explicit_list_request_builds_concise_reader_contract() -> None:
 
 def test_answer_presentation_contract_does_not_reformat_open_questions() -> None:
     assert answer_presentation_contract("请解释最近两周起身头晕可能要记录什么。") is None
+
+
+def test_answer_presentation_contract_requires_exact_markdown_numbering() -> None:
+    message = "请改成给家属看的三点清单, 并保留什么时候需要及时就医。"
+
+    validate_answer_presentation_contract(
+        message,
+        "1. 记录时间。\n2. 留意变化。\n3. 记录何时就医。",
+    )
+    with pytest.raises(AnswerPresentationContractError) as captured:
+        validate_answer_presentation_contract(
+            message,
+            "1. 记录时间。 2. 留意变化。",
+        )
+
+    assert captured.value.expected_count == 3
+    assert captured.value.observed_indices == (1,)
+    assert "恰好输出 3 个顶层条目" in captured.value.repair_instruction
 
 
 def test_dynamic_plan_changes_with_route_attachments_and_capabilities() -> None:
