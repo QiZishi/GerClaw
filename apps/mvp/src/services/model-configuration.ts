@@ -28,7 +28,7 @@ const vectorWrite = z.object({
 
 const voiceWrite = z.object({
   api_key: z.string().min(1).max(2048), asr_url: z.string().url(), asr_model: z.string().min(1).max(128),
-  tts_url: z.string().url(), tts_model: z.string().min(1).max(128), tts_voice: z.string().min(1).max(64),
+  tts_url: z.string().url(), tts_model: z.string().min(1).max(128),
 }).strict();
 
 const mineruWrite = z.object({ url: z.string().url(), api_key: z.string().min(1).max(2048) }).strict();
@@ -44,7 +44,7 @@ const searchRead = z.object({
 const vectorRead = z.object({ url: z.string().url(), api_key_configured: z.literal(true), embedding_model: z.string(), rerank_model: z.string() }).strict();
 const voiceRead = z.object({
   api_key_configured: z.literal(true), asr_url: z.string().url(), asr_model: z.string(),
-  tts_url: z.string().url(), tts_model: z.string(), tts_voice: z.string(),
+  tts_url: z.string().url(), tts_model: z.string(),
 }).strict();
 const mineruRead = z.object({ url: z.string().url(), api_key_configured: z.literal(true) }).strict();
 const serviceOverridesRead = z.object({ search: searchRead.nullable(), vector: vectorRead.nullable(), voice: voiceRead.nullable(), mineru: mineruRead.nullable() }).strict();

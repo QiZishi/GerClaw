@@ -467,26 +467,25 @@ async def _stream_chat(
                 effective_settings = request.app.state.settings
                 rag_runtime = request.app.state.rag_runtime
                 search_runtime = request.app.state.search_runtime
-                if identity.account_role != "guest":
-                    override = await SqlAlchemyAccountModelOverrideRepository(database_session).get(
-                        tenant_id=identity.tenant_id, actor_id=identity.actor_id
+                override = await SqlAlchemyAccountModelOverrideRepository(database_session).get(
+                    tenant_id=identity.tenant_id, actor_id=identity.actor_id
+                )
+                if override is not None:
+                    effective_settings = resolve_effective_settings(
+                        request.app.state.settings, override.configuration
                     )
-                    if override is not None:
-                        effective_settings = resolve_effective_settings(
-                            request.app.state.settings, override.configuration
+                    request_owned_model = FailoverChatModel(
+                        resolve_effective_configs(effective_settings, override.configuration)
+                    )
+                    model = request_owned_model
+                    if has_service_override(override.configuration, "vector"):
+                        request_owned_rag = create_rag_runtime(
+                            effective_settings, request.app.state.qdrant
                         )
-                        request_owned_model = FailoverChatModel(
-                            resolve_effective_configs(effective_settings, override.configuration)
-                        )
-                        model = request_owned_model
-                        if has_service_override(override.configuration, "vector"):
-                            request_owned_rag = create_rag_runtime(
-                                effective_settings, request.app.state.qdrant
-                            )
-                            rag_runtime = request_owned_rag
-                        if has_service_override(override.configuration, "search"):
-                            request_owned_search = create_search_runtime(effective_settings)
-                            search_runtime = request_owned_search
+                        rag_runtime = request_owned_rag
+                    if has_service_override(override.configuration, "search"):
+                        request_owned_search = create_search_runtime(effective_settings)
+                        search_runtime = request_owned_search
                 memory_repository = SqlAlchemyMemoryRepository(database_session)
 
                 def memory_factory(

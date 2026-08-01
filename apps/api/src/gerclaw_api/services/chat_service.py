@@ -1520,7 +1520,12 @@ class ChatService:
                     item
                     for item in raw_warning_codes
                     if isinstance(item, str)
-                    and item in {"MEMORY_WRITE_FAILED", "OPTIONAL_CAPABILITY_FAILED"}
+                    and item
+                    in {
+                        "MEMORY_SEARCH_FAILED",
+                        "MEMORY_WRITE_FAILED",
+                        "OPTIONAL_CAPABILITY_FAILED",
+                    }
                 )
                 if isinstance(raw_warning_codes, list)
                 else ()

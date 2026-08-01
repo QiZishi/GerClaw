@@ -16,7 +16,6 @@ from gerclaw_api.modules.agent_harness.evidence.markers import (
     ModelCitationBindingScope,
     audit_claim_evidence,
     bind_citation_markers,
-    prune_unbound_clinical_claims,
     segment_has_admitted_model_marker,
     validate_public_citation_markers,
 )
@@ -40,7 +39,6 @@ __all__ = [
     "audit_claim_evidence",
     "bind_citation_markers",
     "bind_turn_evidence",
-    "prune_unbound_clinical_claims",
     "resolve_referential_evidence_query",
     "segment_has_admitted_model_marker",
     "validate_public_citation_markers",

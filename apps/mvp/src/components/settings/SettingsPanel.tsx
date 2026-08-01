@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useState } from "react";
 import { Check, LockKeyhole, MonitorCog, Moon, SlidersHorizontal, Sun, Wifi, WifiOff } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Switch } from "@/components/ui/switch";
@@ -8,7 +8,6 @@ import { useTheme } from "@/context/ThemeProvider";
 import { useAppStore } from "@/stores/appStore";
 import { cn } from "@/lib/utils";
 import type { Theme } from "@/types";
-import { getAccountIdentity } from "@/services/account";
 import { ModelConfigurationPanel } from "@/components/settings/ModelConfigurationPanel";
 
 const THEME_OPTIONS: Array<{
@@ -34,10 +33,7 @@ export function SettingsPanel() {
   const ttsAvailable = useAppStore((state) => state.ttsAvailable);
   const isPatient = role === "patient";
   const forceLightTheme = isPatient && seniorMode;
-  const [accountConfigured, setAccountConfigured] = useState<boolean | null>(null);
   const [showModelConfiguration, setShowModelConfiguration] = useState(false);
-
-  useEffect(() => { void getAccountIdentity().then((identity) => setAccountConfigured(identity !== null)); }, []);
 
   return (
     <div className="h-full overflow-y-auto p-4">
@@ -133,10 +129,10 @@ export function SettingsPanel() {
         <section aria-labelledby="model-settings-title" className="space-y-3 border-t border-border pt-5">
           <div>
             <h3 id="model-settings-title" className="font-semibold">模型服务</h3>
-            <p className={cn("mt-1 text-sm text-muted-foreground", isPatient && seniorMode && "text-base leading-relaxed")}>可按账号设置自己的模型服务；未设置时继续使用系统默认配置。</p>
+            <p className={cn("mt-1 text-sm text-muted-foreground", isPatient && seniorMode && "text-base leading-relaxed")}>可按当前访客会话或账号设置自己的模型服务；未设置时继续使用系统默认配置。</p>
           </div>
-          {accountConfigured ? <Button type="button" variant="outline" className={cn("w-full justify-start gap-2", isPatient && seniorMode && "min-h-12 text-base")} onClick={() => setShowModelConfiguration((shown) => !shown)}><SlidersHorizontal className="size-4" />{showModelConfiguration ? "收起模型配置" : "模型配置"}</Button> : <p className="rounded-xl border border-border p-3 text-sm leading-relaxed text-muted-foreground">登录账户后可配置模型服务；匿名使用将继续使用系统默认模型。</p>}
-          {accountConfigured && showModelConfiguration && <ModelConfigurationPanel senior={isPatient && seniorMode} />}
+          <Button type="button" variant="outline" className={cn("w-full justify-start gap-2", isPatient && seniorMode && "min-h-12 text-base")} onClick={() => setShowModelConfiguration((shown) => !shown)}><SlidersHorizontal className="size-4" />{showModelConfiguration ? "收起模型配置" : "模型配置"}</Button>
+          {showModelConfiguration && <ModelConfigurationPanel senior={isPatient && seniorMode} />}
         </section>
 
         <section className={cn("rounded-xl border border-sky-200 bg-sky-50 p-3 text-sm text-sky-950 dark:border-sky-900 dark:bg-sky-950/30 dark:text-sky-100", isPatient && seniorMode && "text-base leading-relaxed")}>
@@ -144,7 +140,7 @@ export function SettingsPanel() {
             <LockKeyhole className="mt-0.5 size-4 shrink-0" aria-hidden />
             <div>
               <div className="font-medium">密钥由服务器安全管理</div>
-              <p className="mt-1 leading-relaxed opacity-85">模型 API Key 只会经加密连接提交给服务端并加密保存到当前账号；浏览器不会持久化或回显它。</p>
+              <p className="mt-1 leading-relaxed opacity-85">模型 API Key 只会经加密连接提交给服务端并加密保存到当前访客会话或账号；浏览器不会持久化或回显它。</p>
             </div>
           </div>
         </section>

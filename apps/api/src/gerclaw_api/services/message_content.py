@@ -7,7 +7,7 @@ from typing import Literal
 from pydantic import BaseModel, ConfigDict, Field, TypeAdapter, ValidationError
 
 from gerclaw_api.database.models import Message
-from gerclaw_api.modules.contracts import Citation
+from gerclaw_api.modules.contracts import MAX_PUBLIC_TEXT_CHARACTERS, Citation
 
 
 class StoredMessageContentError(RuntimeError):
@@ -18,7 +18,7 @@ class _StoredTextBlock(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     type: Literal["text"] = "text"
-    text: str = Field(min_length=1, max_length=50_000)
+    text: str = Field(min_length=1, max_length=MAX_PUBLIC_TEXT_CHARACTERS)
 
 
 _CITATIONS = TypeAdapter(list[Citation])

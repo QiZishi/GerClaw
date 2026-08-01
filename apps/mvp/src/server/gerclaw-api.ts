@@ -262,7 +262,7 @@ export function isAllowedGerclawProxyTarget(path: string, method: string): boole
   return proxyRules.some((rule) => rule.pattern.test(path) && rule.methods.has(method));
 }
 
-/** Guests can use patient-facing care flows, but never inspect or manage Skills. */
+/** Guests can use all self-owned product flows; cross-patient grants stay account-only. */
 export function isGuestAllowedGerclawProxyTarget(path: string, method: string): boolean {
-  return isAllowedGerclawProxyTarget(path, method) && !/^(?:skills|access-grants)(?:\/|$)/.test(path);
+  return isAllowedGerclawProxyTarget(path, method) && !/^access-grants(?:\/|$)/.test(path);
 }

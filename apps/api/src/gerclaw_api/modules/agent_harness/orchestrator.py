@@ -21,7 +21,6 @@ from gerclaw_api.modules.agent_harness.evidence import (
     BoundTurnEvidence,
     ModelCitationBindingScope,
     bind_turn_evidence,
-    prune_unbound_clinical_claims,
     resolve_referential_evidence_query,
 )
 from gerclaw_api.modules.agent_harness.orchestration_support import (
@@ -490,7 +489,6 @@ class ProductionAgentHarness(ProductionHarnessCompositionSetup, OrchestrationSup
 
         skill_metadata = self._skill_metadata(self._agent_skills)
         output_contract_retries = 0
-        pruned_claim_count = 0
         validated_evidence: BoundTurnEvidence | None = None
         with (
             capture_model_attempts() as attempts,
@@ -568,7 +566,7 @@ class ProductionAgentHarness(ProductionHarnessCompositionSetup, OrchestrationSup
                 result: AgentStreamResult,
                 error: Exception,
             ) -> AgentStreamResult | None:
-                nonlocal pruned_claim_count, validated_evidence
+                nonlocal validated_evidence
                 candidate_local, candidate_web, candidate_attachments = candidate_evidence()
                 try:
                     bound = bind_turn_evidence(
@@ -590,15 +588,8 @@ class ProductionAgentHarness(ProductionHarnessCompositionSetup, OrchestrationSup
                         is_clinical_claim=clinical_claim_detector,
                         markers_already_bound=False,
                     )
-                recovered_text, removed_count = prune_unbound_clinical_claims(
-                    bound.text,
-                    citations=list(bound.citations),
-                    is_clinical_claim=clinical_claim_detector,
-                )
-                pruned_claim_count = removed_count
-                recovered_text = recovered_text or bound.text
-                validated_evidence = replace(bound, text=recovered_text)
-                return replace(result, text=recovered_text)
+                validated_evidence = bound
+                return replace(result, text=bound.text)
 
             try:
                 stream_result, output_contract_retries = await project_with_output_protocol_repair(
@@ -611,7 +602,6 @@ class ProductionAgentHarness(ProductionHarnessCompositionSetup, OrchestrationSup
                     wall_clock_seconds=self._execution_budget.wall_clock_seconds,
                     max_output_characters=self._config.max_output_characters,
                     park_approvals=park_approvals,
-                    evidence_available=citation_scope.segment_has_evidence,
                     public_text_transform=citation_scope.normalize_public_text,
                     memory_guard=turn_toolkit.memory_guard,
                     skill_metadata=skill_metadata,
@@ -719,7 +709,6 @@ class ProductionAgentHarness(ProductionHarnessCompositionSetup, OrchestrationSup
                     1 for attempt in attempts if attempt.outcome in {"failed", "failed_partial"}
                 ),
                 "output_contract_retries": output_contract_retries,
-                "pruned_unsupported_claim_count": pruned_claim_count,
                 "input_tokens": stream_result.input_tokens,
                 "output_tokens": stream_result.output_tokens,
                 "tool_names": safe_tool_names,

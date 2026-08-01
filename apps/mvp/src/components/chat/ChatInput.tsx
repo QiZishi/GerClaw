@@ -4,7 +4,6 @@ import { useState, useRef, useEffect, useLayoutEffect } from "react";
 import { useAppStore } from "@/stores/appStore";
 import { useSkillStore } from "@/stores/skillStore";
 import { replaceSessionSkills } from "@/services/gerclaw/skills";
-import { INPUT_LIMITS } from "@/lib/constants";
 import { toast } from "@/components/ui/toast";
 import type { ImageAttachment } from "@/types";
 import type { ComposerAction } from "@/components/chat/composer/ComposerToolbar";
@@ -64,7 +63,6 @@ export function ChatInput({
   const [mounted, setMounted] = useState(false);
   const role = useAppStore((s) => s.role);
   const seniorMode = useAppStore((s) => s.seniorMode);
-  const isGuest = useAppStore((s) => s.isGuest);
   const loadedSkillIds = useAppStore((s) => s.loadedSkillIds);
   const setLoadedSkills = useAppStore((s) => s.setLoadedSkills);
   const currentSessionId = useAppStore((s) => s.currentSessionId);
@@ -261,7 +259,7 @@ export function ChatInput({
   };
 
   const handleInput = (e: React.ChangeEvent<HTMLTextAreaElement>) => {
-    setText(e.target.value.slice(0, INPUT_LIMITS.maxMessageLength));
+    setText(e.target.value);
     const ta = e.target;
     ta.style.height = "auto";
     ta.style.height = `${Math.max(52, Math.min(ta.scrollHeight, 200))}px`;
@@ -286,7 +284,6 @@ export function ChatInput({
       role={role}
       seniorMode={seniorMode}
       mounted={mounted}
-      isGuest={isGuest}
       isOnline={isOnline}
       asrAvailable={asrAvailable}
       isGenerating={Boolean(isGenerating)}

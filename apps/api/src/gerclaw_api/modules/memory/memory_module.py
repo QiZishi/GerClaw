@@ -383,8 +383,6 @@ class ProductionMemoryModule:
 
         self._validate_actor(user_id)
         normalized_query = query.strip() if query is not None else ""
-        if len(normalized_query) > 4_000:
-            raise ValueError("memory query cannot exceed 4,000 characters")
         if normalized_query and normalized_query in self._cached_queries:
             return self._cached_queries[normalized_query]
 

@@ -32,6 +32,7 @@ export function useSidebarAccountController({
 }: SidebarAccountControllerOptions) {
   const setCurrentSession = useAppStore((state) => state.setCurrentSession);
   const setRole = useAppStore((state) => state.setRole);
+  const setGuestMode = useAppStore((state) => state.setGuestMode);
   const setRightPanel = useAppStore((state) => state.setRightPanel);
   const closeRightPanel = useAppStore((state) => state.closeRightPanel);
   const clearAllData = useChatStore((state) => state.clearAllData);
@@ -102,7 +103,18 @@ export function useSidebarAccountController({
     onNavigate?.();
   };
 
-  const openAdminWorkspace = async (targetRole: "patient" | "doctor") => {
+  const switchWorkspace = async (targetRole: "patient" | "doctor") => {
+    if (useAppStore.getState().isGuest) {
+      const changed = setRole(targetRole);
+      if (!changed) return;
+      setGuestMode(true);
+      clearAllData();
+      setCurrentSession(null);
+      closeRightPanel();
+      toast.show(targetRole === "doctor" ? "已切换到医生端" : "已切换到患者端");
+      onNavigate?.();
+      return;
+    }
     try {
       await switchAdministratorView(targetRole);
       clearAllData();
@@ -172,8 +184,8 @@ export function useSidebarAccountController({
     openCgaWorkspace: () => setDoctorCgaWorkspaceOpen(true),
     copyDoctorCode: () => void copyReviewCode("医生"),
     openAdminConsole: () => window.location.assign("/?workspace=admin"),
-    openPatientWorkspace: () => void openAdminWorkspace("patient"),
-    openDoctorWorkspace: () => void openAdminWorkspace("doctor"),
+    openPatientWorkspace: () => void switchWorkspace("patient"),
+    openDoctorWorkspace: () => void switchWorkspace("doctor"),
     deactivateAccount: () => setAccountDeactivationOpen(true),
     exit: () => void exit(),
   };
@@ -214,6 +226,7 @@ export function useSidebarAccountController({
       onAuthenticated: (identity: AccountIdentity) => {
         clearAllData();
         setAccount(identity);
+        setGuestMode(false);
         setRole(identity.role);
         toast.show(
           identity.role === "doctor"

@@ -96,7 +96,6 @@ class VoiceServiceWrite(BaseModel):
     asr_model: str = Field(min_length=1, max_length=128)
     tts_url: AnyHttpUrl
     tts_model: str = Field(min_length=1, max_length=128)
-    tts_voice: str = Field(min_length=1, max_length=64)
 
 
 class MinerUServiceWrite(BaseModel):
@@ -145,7 +144,6 @@ class VoiceServiceRead(BaseModel):
     asr_model: str
     tts_url: str
     tts_model: str
-    tts_voice: str
 
 
 class MinerUServiceRead(BaseModel):
@@ -215,7 +213,6 @@ def _serialize_services(services: AccountServiceOverridesWrite) -> dict[str, Any
             "asr_model": services.voice.asr_model,
             "tts_url": str(services.voice.tts_url),
             "tts_model": services.voice.tts_model,
-            "tts_voice": services.voice.tts_voice,
         }
     if services.mineru is not None:
         serialized["mineru"] = {
@@ -299,7 +296,6 @@ def read_services(configuration: dict[str, Any]) -> AccountServiceOverridesRead:
                 asr_model=services.voice.asr_model,
                 tts_url=str(services.voice.tts_url),
                 tts_model=services.voice.tts_model,
-                tts_voice=services.voice.tts_voice,
             )
             if services.voice is not None
             else None
@@ -360,7 +356,6 @@ def resolve_effective_settings(
             asr_model=services.voice.asr_model,
             mimo_tts_url=services.voice.tts_url,
             tts_model=services.voice.tts_model,
-            tts_voice=services.voice.tts_voice,
         )
     if services.mineru is not None:
         update.update(mineru_url=services.mineru.url, mineru_api_key=services.mineru.api_key)

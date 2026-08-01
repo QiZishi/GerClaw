@@ -20,7 +20,6 @@ export const LAYOUT = {
 
 /** 输入限制 */
 export const INPUT_LIMITS = {
-  maxMessageLength: 4000, // 单次输入字符数
   maxFileCount: 10,
   maxFileSize: 10 * 1024 * 1024, // 10MB
   maxAudioDuration: 60, // 秒

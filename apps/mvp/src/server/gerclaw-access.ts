@@ -33,7 +33,7 @@ async function issueGuestCredential(visitorId: string): Promise<{ accessToken: s
   return { accessToken: parsed.data.access_token, expiresIn: parsed.data.expires_in };
 }
 
-/** Resolve account identity or a bounded, patient-only guest identity. */
+/** Resolve account identity or a bounded, self-owned guest identity. */
 export async function resolveGerclawAccess(
   request: Request,
   options: { refreshGuest?: boolean } = {},
@@ -41,8 +41,8 @@ export async function resolveGerclawAccess(
   const cookieHeader = request.headers.get("cookie") ?? "";
   const accountAccessToken = readCookie(cookieHeader, ACCOUNT_ACCESS_COOKIE);
   if (accountAccessToken) return { accessToken: accountAccessToken, applyCookies: () => undefined };
-  // A guest starts from the mandatory login page, but all BFF calls made in
-  // that browser session must share one server-issued patient-only identity.
+  // A guest starts from the login page, but all BFF calls made in that browser
+  // session must share one server-issued self-owned identity.
   // This is deliberately a session cookie: closing the browser removes it, so
   // a later guest entry cannot restore the prior guest's chat history.
   const guestAccessToken = readCookie(cookieHeader, GUEST_ACCESS_COOKIE);

@@ -6,8 +6,8 @@ from typing import Final, Literal
 
 from pydantic import BaseModel, ConfigDict, Field
 
-VOICE_NAMES = ("冰糖", "茉莉", "苏打", "白桦", "Mia", "Chloe", "Milo", "Dean")
-VoiceName = Literal["冰糖", "茉莉", "苏打", "白桦", "Mia", "Chloe", "Milo", "Dean"]
+from gerclaw_api.modules.contracts import MAX_PUBLIC_TEXT_CHARACTERS
+
 AudioFormat = Literal["wav", "mp3"]
 VOICE_ASR_RESPONSE_SCHEMA_VERSION: Final[Literal["voice-asr-response-v1"]] = "voice-asr-response-v1"
 VOICE_TTS_MEDIA_CONTRACT_VERSION: Final[Literal["voice-tts-pcm16-v1"]] = "voice-tts-pcm16-v1"
@@ -26,12 +26,11 @@ class VoiceASRResponse(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     schema_version: Literal["voice-asr-response-v1"] = VOICE_ASR_RESPONSE_SCHEMA_VERSION
-    text: str = Field(min_length=1, max_length=4_000)
+    text: str = Field(min_length=1, max_length=MAX_PUBLIC_TEXT_CHARACTERS)
 
 
 class VoiceTTSRequest(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
-    text: str = Field(min_length=1, max_length=4_000)
-    voice: VoiceName | None = None
+    text: str = Field(min_length=1, max_length=MAX_PUBLIC_TEXT_CHARACTERS)
     style: str | None = Field(default=None, min_length=1, max_length=300)

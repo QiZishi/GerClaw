@@ -17,6 +17,7 @@ from gerclaw_api.modules.agent_harness.context_snapshot import (
 )
 from gerclaw_api.modules.agent_harness.routing import RouteKind
 from gerclaw_api.modules.input_output import ImageInput
+from gerclaw_api.modules.contracts import MAX_PUBLIC_TEXT_CHARACTERS
 from gerclaw_api.repositories.run_resume import RunResumeRecord, RunResumeRepository
 from gerclaw_api.services.agent_run_service import AgentRunService
 from gerclaw_api.services.run_regeneration_service import image_fingerprint
@@ -38,7 +39,7 @@ class _StoredTextBlock(BaseModel):
     model_config = ConfigDict(extra="forbid", frozen=True)
 
     type: Literal["text"]
-    text: str = Field(min_length=1, max_length=50_000)
+    text: str = Field(min_length=1, max_length=MAX_PUBLIC_TEXT_CHARACTERS)
 
 
 class _StoredImageRecord(BaseModel):

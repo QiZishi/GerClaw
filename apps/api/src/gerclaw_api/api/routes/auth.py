@@ -94,7 +94,7 @@ AccountSessionDependency = Annotated[AsyncSession, Depends(get_database_session)
 
 
 class GuestTokenRead(BaseModel):
-    """Ephemeral patient-only visitor credential, issued only to the BFF."""
+    """Ephemeral visitor credential, issued only to the BFF."""
 
     model_config = ConfigDict(extra="forbid")
 
@@ -283,14 +283,15 @@ def _account_scopes(account_role: Literal["patient", "doctor", "admin"]) -> set[
 
 
 def _guest_scopes() -> set[str]:
-    """Visitors receive the patient-service subset, never doctor/admin authority."""
+    """Visitors receive the complete self-owned product surface.
 
-    return set(_ACCOUNT_SCOPES) - {
-        "approval:write",
-        "skill:read",
-        "skill:write",
-        "skill:execute",
-    }
+    The guest principal may use the same self-owned features as an account,
+    including Skill discovery, mutation and execution.  It still has no
+    account role, patient-consent authority, approval-decision authority or
+    cross-patient access.
+    """
+
+    return set(_ACCOUNT_SCOPES) - {"approval:write"}
 
 
 @router.get("/session", response_model=AccountIdentityRead)
@@ -309,13 +310,11 @@ async def read_account_session(
     )
 
 
-def _require_persistent_account(identity: AuthContext) -> None:
-    if identity.account_role not in {
-        "patient",
-        "doctor",
-        "admin",
-    } or not identity.actor_id.startswith("usr_account_"):
-        raise HTTPException(status_code=403, detail={"code": "ACCOUNT_REQUIRED"})
+def _require_configurable_identity(identity: AuthContext) -> None:
+    """Allow service configuration for both account and guest identities."""
+
+    if identity.account_role not in {"guest", "patient", "doctor", "admin"}:
+        raise HTTPException(status_code=403, detail={"code": "IDENTITY_REQUIRED"})
 
 
 @router.get("/model-configuration", response_model=AccountModelConfigurationRead)
@@ -323,9 +322,9 @@ async def read_model_configuration(
     session: AccountSessionDependency,
     identity: Annotated[AuthContext, Depends(authenticate)],
 ) -> AccountModelConfigurationRead:
-    """Return only the current account's non-secret model override metadata."""
+    """Return only the current identity's non-secret model override metadata."""
 
-    _require_persistent_account(identity)
+    _require_configurable_identity(identity)
     record = await SqlAlchemyAccountModelOverrideRepository(session).get(
         tenant_id=identity.tenant_id, actor_id=identity.actor_id
     )
@@ -348,9 +347,9 @@ async def replace_model_configuration(
     session: AccountSessionDependency,
     identity: Annotated[AuthContext, Depends(authenticate)],
 ) -> AccountModelConfigurationRead:
-    """Persist encrypted account overrides; omitted slots continue using deployment defaults."""
+    """Persist encrypted identity overrides; omitted slots continue using deployment defaults."""
 
-    _require_persistent_account(identity)
+    _require_configurable_identity(identity)
     limiter: RateLimiter = request.app.state.rate_limiter
     await limiter.check(tenant_id=identity.tenant_id, actor_id=identity.actor_id)
     repository = SqlAlchemyAccountModelOverrideRepository(session)
@@ -381,13 +380,13 @@ async def resolve_mineru_runtime(
     identity: Annotated[AuthContext, Depends(authenticate)],
     bff_signature: Annotated[str | None, Header(alias="X-GerClaw-BFF-Signature")] = None,
 ) -> MinerURuntimeRead:
-    """Give the same-origin BFF an account's MinerU key for one server-side call.
+    """Give the same-origin BFF the caller's MinerU key for one server-side call.
 
     The browser cannot read this response: it requires a signature made with the
     server-only guest identity secret as well as the caller's account JWT.
     """
 
-    _require_persistent_account(identity)
+    _require_configurable_identity(identity)
     expected = hmac.new(
         request.app.state.settings.guest_identity_secret.get_secret_value().encode(),
         f"gerclaw-bff-mineru:v1:{identity.actor_id}".encode(),

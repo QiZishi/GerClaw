@@ -471,10 +471,6 @@ class Settings(BaseSettings):
         default=None,
         validation_alias=AliasChoices("GERCLAW_TTS_MODEL", "TTS_MODEL", "NEXT_PUBLIC_TTS_MODEL"),
     )
-    tts_voice: str | None = Field(
-        default=None,
-        validation_alias=AliasChoices("GERCLAW_TTS_VOICE", "TTS_VOICE", "NEXT_PUBLIC_TTS_VOICE"),
-    )
     voice_capability_version: str = Field(
         default="voice-capabilities-v1", pattern=r"^[a-z][a-z0-9_.-]+$"
     )
@@ -677,7 +673,6 @@ class Settings(BaseSettings):
                 "mimo_tts_url": self.mimo_tts_url,
                 "asr_model": self.asr_model,
                 "tts_model": self.tts_model,
-                "tts_voice": self.tts_voice,
                 "siliconflow_api_key": self.siliconflow_api_key,
                 "siliconflow_url": self.siliconflow_url,
                 "embedding_model": self.embedding_model,

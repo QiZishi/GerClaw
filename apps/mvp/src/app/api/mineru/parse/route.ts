@@ -148,7 +148,6 @@ function deploymentProviderConfig(): MinerUProviderConfig {
 
 async function getProviderConfig(request: NextRequest, access: GerclawAccess): Promise<MinerUProviderConfig> {
   const deployment = deploymentProviderConfig();
-  if (!hasGerclawAccountAccess(request)) return deployment;
   const secret = process.env.GERCLAW_GUEST_IDENTITY_SECRET;
   if (!secret) return deployment;
   try {

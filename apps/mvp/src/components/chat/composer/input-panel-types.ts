@@ -14,7 +14,6 @@ export interface ComposerInputPanelProps {
   role: Role;
   seniorMode: boolean;
   mounted: boolean;
-  isGuest: boolean;
   isOnline: boolean;
   asrAvailable: boolean;
   isGenerating: boolean;

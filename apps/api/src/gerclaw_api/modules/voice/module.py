@@ -6,15 +6,14 @@ import base64
 import json
 import time
 from collections.abc import AsyncGenerator
-from typing import cast
-
 import httpx
 from pydantic import BaseModel, ConfigDict, Field, ValidationError
 
 from gerclaw_api.config import Settings
 from gerclaw_api.metrics import VOICE_PROVIDER_LATENCY, VOICE_PROVIDER_REQUESTS
+from gerclaw_api.modules.contracts import MAX_PUBLIC_TEXT_CHARACTERS
 from gerclaw_api.modules.privacy_redaction.policy import redact_external_tts_text
-from gerclaw_api.modules.voice.models import VOICE_NAMES, AudioFormat, VoiceName
+from gerclaw_api.modules.voice.models import AudioFormat
 
 _DEFAULT_STYLE = "用温柔体贴的语调，语速适中，像在关心一位老人的健康状况"  # noqa: RUF001
 
@@ -44,7 +43,7 @@ class _DeltaAudio(BaseModel):
 class _Delta(BaseModel):
     model_config = ConfigDict(extra="ignore")
 
-    content: str | None = Field(default=None, max_length=4_000)
+    content: str | None = Field(default=None, max_length=MAX_PUBLIC_TEXT_CHARACTERS)
     audio: _DeltaAudio | None = None
 
 
@@ -76,7 +75,6 @@ class MiMoVoiceModule:
         auth_header: str,
         asr_model: str,
         tts_model: str,
-        default_voice: VoiceName,
         timeout_seconds: float,
         capability_version: str = "voice-capabilities-v1",
         supports_streaming_asr: bool = True,
@@ -98,7 +96,6 @@ class MiMoVoiceModule:
         self._tts_url = f"{tts_url.rstrip('/')}/chat/completions"
         self._asr_model = asr_model
         self._tts_model = tts_model
-        self.default_voice = default_voice
         self.capability_version = capability_version
         self._supports_streaming_asr = supports_streaming_asr
         self._supports_pcm16_tts = supports_pcm16_tts
@@ -174,9 +171,7 @@ class MiMoVoiceModule:
         finally:
             self._record("asr", outcome, started)
 
-    async def synthesize(
-        self, text: str, *, voice: VoiceName, style: str | None = None
-    ) -> AsyncGenerator[bytes, None]:
+    async def synthesize(self, text: str, *, style: str | None = None) -> AsyncGenerator[bytes, None]:
         if not self._supports_pcm16_tts:
             raise VoiceProviderCapabilityUnavailable("voice PCM16 TTS capability is unavailable")
         safe_text = redact_external_tts_text(text).text
@@ -187,7 +182,7 @@ class MiMoVoiceModule:
                 {"role": "user", "content": safe_style},
                 {"role": "assistant", "content": safe_text},
             ],
-            "audio": {"format": "pcm16", "voice": voice},
+            "audio": {"format": "pcm16"},
             "stream": True,
         }
         yielded = False
@@ -243,12 +238,8 @@ def create_voice_module(settings: Settings) -> MiMoVoiceModule | None:
         or settings.mimo_api_key is None
         or settings.asr_model is None
         or settings.tts_model is None
-        or settings.tts_voice is None
     ):
         return None
-    tts_voice = settings.tts_voice
-    if tts_voice not in VOICE_NAMES:
-        raise ValueError("configured TTS voice is not allowlisted")
     return MiMoVoiceModule(
         asr_url=str(settings.mimo_asr_url),
         tts_url=str(settings.mimo_tts_url),
@@ -256,7 +247,6 @@ def create_voice_module(settings: Settings) -> MiMoVoiceModule | None:
         auth_header=settings.mimo_auth_header,
         asr_model=settings.asr_model,
         tts_model=settings.tts_model,
-        default_voice=cast(VoiceName, tts_voice),
         timeout_seconds=settings.external_request_timeout_seconds,
         capability_version=settings.voice_capability_version,
         supports_streaming_asr=settings.voice_supports_streaming_asr,

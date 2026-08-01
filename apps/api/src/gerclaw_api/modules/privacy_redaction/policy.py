@@ -10,6 +10,7 @@ from gerclaw_api.modules.privacy_redaction.models import (
     RedactionFinding,
     RedactionResult,
 )
+from gerclaw_api.modules.contracts import MAX_PUBLIC_TEXT_CHARACTERS
 from gerclaw_api.security import redact_text
 
 PRIVACY_REDACTION_POLICY_VERSION = "1.1.0"
@@ -110,6 +111,7 @@ def redact_external_search_query(query: str) -> RedactionResult:
         query,
         purpose=EgressPurpose.EXTERNAL_SEARCH_QUERY,
         person_replacement="患者",
+        max_characters=MAX_PUBLIC_TEXT_CHARACTERS,
     )
 
 
@@ -120,6 +122,7 @@ def redact_external_tts_text(text: str) -> RedactionResult:
         text,
         purpose=EgressPurpose.EXTERNAL_TTS,
         person_replacement="您",
+        max_characters=MAX_PUBLIC_TEXT_CHARACTERS,
     )
 
 
@@ -130,7 +133,7 @@ def redact_external_model_prompt(text: str) -> RedactionResult:
         text,
         purpose=EgressPurpose.EXTERNAL_MODEL_PROMPT,
         person_replacement="患者",
-        max_characters=100_000,
+        max_characters=MAX_PUBLIC_TEXT_CHARACTERS,
         collapse_whitespace=False,
         policy_version=MODEL_PROMPT_REDACTION_POLICY_VERSION,
     )

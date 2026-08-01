@@ -10,7 +10,7 @@ import {
 import { toFrontendSession } from "./conversation-session-presenter";
 import type { Citation, Message, Session } from "@/types";
 
-/** Account-only history; guest tokens are rejected by the API. */
+/** Durable history is account-only; guest conversations remain session-local in the UI. */
 export async function listConversationHistory(): Promise<BackendSession[]> {
   const result = await gerclawRequest("sessions", sessionListSchema);
   return result.sessions;

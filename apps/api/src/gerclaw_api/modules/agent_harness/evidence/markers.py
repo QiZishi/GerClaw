@@ -21,7 +21,6 @@ _PUBLIC_MARKER = re.compile(r"\[C(?P<index>\d+)\]", re.IGNORECASE)
 _CLAIM_SEGMENT = re.compile(r"[^。！？!?\n]+(?:[。！？!?]+|\n+|$)")  # noqa: RUF001
 _WHITESPACE = re.compile(r"\s+")
 _ORPHAN_MARKER_GAP = re.compile(r"[ \t]+(?=[,，。！？!?;；:：])")  # noqa: RUF001
-_EXCESS_BLANK_LINES = re.compile(r"\n{3,}")
 
 
 class CitationMarkerValidationError(RuntimeError):
@@ -187,29 +186,3 @@ def audit_claim_evidence(
         bound_claim_count=bound_count,
         all_clinical_claims_bound=bool(claims) and bound_count == len(claims),
     )
-
-
-def prune_unbound_clinical_claims(
-    text: str,
-    *,
-    citations: list[Citation],
-    is_clinical_claim: Callable[[str], bool],
-) -> tuple[str, int]:
-    """Remove only clinical segments that still lack an admitted citation.
-
-    This is the final deterministic degradation after one private model repair.
-    Every non-clinical segment and every in-segment evidence binding is preserved,
-    so one unsupported sentence cannot discard an otherwise useful answer.
-    """
-
-    validate_public_citation_markers(text, citation_count=len(citations))
-    retained: list[str] = []
-    removed_count = 0
-    for match in _CLAIM_SEGMENT.finditer(text):
-        segment = match.group(0)
-        if is_clinical_claim(segment) and _PUBLIC_MARKER.search(segment) is None:
-            removed_count += 1
-            continue
-        retained.append(segment)
-    normalized = _EXCESS_BLANK_LINES.sub("\n\n", "".join(retained)).strip()
-    return normalized, removed_count

@@ -41,7 +41,6 @@ from gerclaw_api.security import JsonValue
 _LOGGER = logging.getLogger("gerclaw.agent_harness")
 EventEmitter = Callable[[str, dict[str, JsonValue]], Awaitable[None]]
 ApprovalParker = Callable[[list[ToolCallBlock]], Awaitable[tuple[str, ...]]]
-EvidenceAvailable = Callable[[str], bool]
 ToolResultObserver = Callable[[str, str, dict[str, JsonValue]], Awaitable[None]]
 SafeBoundaryObserver = Callable[[], Awaitable[int]]
 
@@ -130,7 +129,6 @@ async def project_agent_stream(
     max_output_characters: int,
     emit: EventEmitter,
     park_approvals: ApprovalParker,
-    evidence_available: EvidenceAvailable,
     public_text_transform: Callable[[str], str],
     memory_guard: MemoryWriteGuard,
     skill_metadata: dict[str, tuple[str, str]],
@@ -144,7 +142,7 @@ async def project_agent_stream(
     """Execute one agent stream while enforcing safety, budgets, and terminal integrity."""
 
     canonical_stream = lifecycle.canonical_stream()
-    buffer = lifecycle.sentence_buffer(evidence_available)
+    buffer = lifecycle.sentence_buffer()
     emitted_parts: list[str] = []
     streamed_agent_parts: list[str] = []
     model_input_tokens = 0
@@ -319,10 +317,7 @@ async def project_agent_stream(
     retained_text = final_agent_text(agent)
     if len(retained_text) > max_output_characters:
         raise AgentHarnessError("agent output exceeded the configured limit")
-    sanitized_retained_text = sanitize_medical_text(
-        retained_text,
-        claim_evidence_validator=evidence_available,
-    )
+    sanitized_retained_text = sanitize_medical_text(retained_text)
     safe_retained_text = public_text_transform(sanitized_retained_text).strip()
     buffer.deterministic_diagnosis_blocked |= sanitized_retained_text != retained_text
     streamed_agent_text = "".join(streamed_agent_parts)

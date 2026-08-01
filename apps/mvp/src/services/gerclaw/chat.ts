@@ -34,7 +34,7 @@ const agentStartSchema = streamMetadataSchema.extend({
   agent: z.enum(["gerclaw_geriatric_specialist", "gerclaw_emotional_companion"]),
   status: z.enum(["running", "replay"]),
 }).strict();
-const textDeltaSchema = streamMetadataSchema.extend({ content: z.string().min(1).max(50_000) }).strict();
+const textDeltaSchema = streamMetadataSchema.extend({ content: z.string().min(1).max(132_000) }).strict();
 const thinkingSchema = streamMetadataSchema.extend({
   content: z.string().min(1).max(1_000),
   status: z.literal("running"),

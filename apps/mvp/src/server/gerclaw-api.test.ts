@@ -198,18 +198,18 @@ test("skill evolution proxy permits only a caller-owned review-draft request", (
   assert.equal(isAllowedGerclawProxyTarget("skills/safe-followup/evolve/commit", "POST"), false);
 });
 
-test("Skill package preview permits only authenticated multipart submission", () => {
+test("Skill package preview is available to guest and account workspaces", () => {
   assert.equal(isAllowedGerclawProxyTarget("skills/preview-upload", "POST"), true);
   assert.equal(isAllowedGerclawProxyTarget("skills/preview-upload", "GET"), false);
   assert.equal(isAllowedGerclawProxyTarget("skills/upload", "POST"), true);
-  assert.equal(isGuestAllowedGerclawProxyTarget("skills/preview-upload", "POST"), false);
+  assert.equal(isGuestAllowedGerclawProxyTarget("skills/preview-upload", "POST"), true);
 });
 
-test("guest proxy keeps patient care flows but rejects every Skill endpoint", () => {
+test("guest proxy exposes self-owned care and Skill flows", () => {
   assert.equal(isGuestAllowedGerclawProxyTarget("chat", "POST"), true);
   assert.equal(isGuestAllowedGerclawProxyTarget("cga/scales", "GET"), true);
-  assert.equal(isGuestAllowedGerclawProxyTarget("skills", "GET"), false);
-  assert.equal(isGuestAllowedGerclawProxyTarget("skills/health-education/execute", "POST"), false);
+  assert.equal(isGuestAllowedGerclawProxyTarget("skills", "GET"), true);
+  assert.equal(isGuestAllowedGerclawProxyTarget("skills/health-education/execute", "POST"), true);
 });
 
 test("runtime approval proxy permits only a specific review or decision route", () => {

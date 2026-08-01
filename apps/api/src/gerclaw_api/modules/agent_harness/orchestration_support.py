@@ -29,9 +29,6 @@ from gerclaw_api.modules.agent_harness.run_lifecycle.directive_runtime import (
 from gerclaw_api.modules.agent_harness.run_lifecycle.step_repair import (
     StepRepairDecision,
 )
-from gerclaw_api.modules.agent_harness.run_lifecycle.terminal_contract import (
-    UnboundClinicalClaimsError,
-)
 from gerclaw_api.modules.agent_harness.safety import HIGH_RISK_NOTICE
 from gerclaw_api.modules.contracts import AgentResponse, ExecutionContext
 from gerclaw_api.modules.runtime.budget import (
@@ -76,25 +73,7 @@ _ANSWER_SCHEMA_REPAIR = StepRepairDecision(
     checkpoint_id="chat.answer.pre_model.v1",
     instruction=(
         "上一尝试的回答未通过已声明的数据合同。请从本步骤重新生成完整结果，"
-        "保留已核验事实，不要解释校验或重试过程。医疗事实必须在对应句使用本轮真实"
-        " [E1]/[W1] 证据标记；若尚无证据，先调用可用检索工具，不能编造来源。"
-    ),
-)
-_UNBOUND_CLAIM_REPAIR = StepRepairDecision(
-    error_code="answer_claim_evidence",
-    field_paths=("answer.clinical_claims",),
-    contract_version="claim-evidence-v1",
-    checkpoint_id="chat.answer.pre_model.v1",
-    instruction=(
-        "上一尝试中有医学事实或建议没有在对应句末标注本轮真实 [E1]/[W1] 证据。"
-        "只修复这些缺证据的句子并重新完成答案；保留已经核验的内容。"
-        "已有 answer_presentation_contract 仍是必须完成的用户要求："
-        "条目数量、编号格式、受众、长度和就医时机都必须原样遵守，不能因补引用而丢项、"
-        "改成普通段落或扩写用户没有要求的疾病推测。"
-        "可调用正式检索工具补充证据，无法核验的具体医学结论不要输出。"
-        "必须继续完成用户的任务：记录、整理、复述用户已提供信息等不需要医学证据的操作应直接保留。"
-        "禁止把整个答案改写成‘资料不足’、‘无法回答’或要求用户允许检索。"
-        "不要提及校验、修复或被删除的草稿。"
+        "保留已核验事实，不要解释校验或重试过程。"
     ),
 )
 
@@ -114,8 +93,6 @@ def classify_answer_step_failure(error: Exception) -> StepRepairDecision | None:
         return _PARTIAL_PROVIDER_REPAIR
     if _contains_failure(error, ToolInputInvalidError):
         return _TOOL_INPUT_REPAIR
-    if _contains_failure(error, UnboundClinicalClaimsError):
-        return _UNBOUND_CLAIM_REPAIR
     if isinstance(error, AnswerPresentationContractError):
         return StepRepairDecision(
             error_code="answer_presentation_contract",
