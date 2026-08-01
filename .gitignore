@@ -36,5 +36,11 @@ MEDICAL_AGENT_SYSTEM_OPTIMIZATION_GUIDE.md
 gerclaw-paper/
 
 # 内部开发规划文档（不提交远程）
-开发规划-8.1-8.20.md
+开发规划-8.1-8.28.md
+
+# ModelScope 通用 Docker 部署内部操作手册（不提交远程）
+ModelScope通用Docker部署操作手册.md
+
+# GerClaw 历史部署实战手册（不提交远程）
+ModelScope部署GerClaw操作手册.md
 
