@@ -24,13 +24,13 @@
 
 1. API 根据签名 JWT 派生 tenant/actor；PostgreSQL sequence 为每次租约尝试分配单调 fencing token，Redis owner-token lease 串行化同一 session。
 2. 新 owner 先把更高 fencing token 与当前 Trace ID 提交到 session 行，再装载排除当前 Trace 且只含可用 turn 的有界历史；用户消息按 `(tenant_id, trace_id, role)` 幂等落库。失败或取消 turn 的用户消息会保留在对话和审计记录中，但 Conversation 与 Memory 两条模型上下文读取路径都会排除该 Trace；早于 AgentRun 创建的失败则由 Trace 终态同样排除。
-3. 医疗输入优先执行本地证据检索；医疗结论、风险判断和用药调整必须绑定结构合法、可追溯的证据。证据可以来自本地知识库、受治理联网搜索或当前用户上传的资料/图片；本地无命中时不得阻断对病例图片的正常视觉解读。若所有证据入口均不可用，系统不调用模型或伪造引用，而是完成本轮对话并提示用户补充症状、检查或完整用药资料。
+3. 医疗输入优先执行本地证据检索；医疗结论、风险判断和用药调整尽量绑定结构合法、可追溯的证据。证据可以来自本地知识库、受治理联网搜索或当前用户上传的资料/图片；无命中或检索暂时不可用时不得阻断模型回答，也不得伪造引用，模型应基于当前上下文完成可用说明并保留不确定性与免责声明。
 4. 医疗 turn 的 mandatory evidence node 先用用户原始请求完成一次 production hybrid RAG；
    AgentScope 后续若调用 `search_knowledge`，只能读取同一 turn 已冻结的结果，不会用模型改写的查询
    再次检索并把主题漂移证据引入回答。首轮确无可用本地证据时仍可使用受治理 web search。
    默认 ReAct 上限为 6，支持通过受校验的 `GERCLAW_AGENT_MAX_REACT_ITERATIONS` 按环境调整。
 5. 三模型按 `primary → backup1 → backup2` 切换。只有尚未产生可见文本或工具调用时才允许切换；thinking-only、空字符串和 whitespace-only 都按 `MODEL_EMPTY_RESPONSE` 继续兜底，流中断后 fail closed。
-6. 文本按句检查直接临床结论是否已有本轮 evidence：无 citation/Runtime evidence marker 时改写为待核验表述；有本地、联网或上传 citation 时保留结论。患者端仅在整段末尾追加一次“结合依据、完整病史与医生或药师复核”的风险提示，医生端不机械改写。红旗症状先发 120/急诊提示；AgentScope final-only 正文从本 turn 的 AgentState 安全补齐，纯格式空白差异以已发布 SSE 为权威，任何非空白正文分叉 fail closed；普通医疗结论强制追加统一免责声明和可追溯 citation，无证据补充提示则明确标记为无证据状态且不伪造 citation。
+6. 文本按句检查直接临床结论是否已有本轮 evidence：无 citation/Runtime evidence marker 时改写为待核验表述；有本地、联网或上传 citation 时保留结论。患者端仅在整段末尾追加一次“结合依据、完整病史与医生或药师复核”的风险提示，医生端不机械改写。红旗症状先发 120/急诊提示；AgentScope final-only 正文从本 turn 的 AgentState 安全补齐，纯格式空白差异以已发布 SSE 为权威，任何非空白正文分叉 fail closed；普通医疗结论追加统一免责声明，引用可用时展示真实 citation，引用暂不可用时仍保留正文并明确不确定性。
 7. 成功与失败终态都在 Redis lease 尚未释放时复验 owner，并以 PostgreSQL session 行锁同时校验 fencing token 与 Trace ID。成功路径原子提交 assistant、审计事件和 completed Trace 后才发送 `done`；失败路径原子提交 SYSTEM_ERROR、failed/cancelled Trace 和 Bad Case。
 
 ## 日常交流的提示语与预算

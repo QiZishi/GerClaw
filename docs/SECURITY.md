@@ -108,7 +108,7 @@ UI 的患者/医生模式仍只是交互视图；后端权限由 JWT scope 强�
 - 会话创建、历史读取和对话执行分别要求 `chat:write`/`chat:read`；所有 session/message 查询同时约束 tenant 和 actor，越权读取统一返回 404，避免资源枚举。
 - 用户和 assistant 自由文本、citation metadata 与安全决策只进入 AES-256-GCM 加密列；Trace 只记录 allowlist 的 slot、token 数、工具名、chunk ID、耗时和结果码，不记录用户原文、模型正文、工具 query 或 PHI。
 - `thinking` SSE 仅由后端生成固定的公开状态摘要；AgentScope `ThinkingBlock`、provider reasoning 和原始 Chain-of-Thought 不进入 SSE、消息、Trace 或日志。
-- 非急症医疗建议、风险判断和用药调整只能使用本轮可追溯证据：本地医学知识库、受治理的联网搜索、或当前用户上传的文档/图片。每种来源都必须投影为结构合法、可归属当前用户的 citation；检索 metadata 无效时不得伪造本地 citation。若本地索引不可用但上传资料或受治理联网检索仍可用，可继续以该独立证据来源完成本轮；仅当所有证据入口均不可用时，以不调用模型的补充信息提示完成对话，不伪造诊断、用药指令或 citation。被 Runtime 标记的证据支撑临床结论允许输出；无证据的直接结论必须改写。红旗短路是确定性紧急指引的例外。所有已完成医疗输出均须带真实安全决策和统一 AI 免责声明。
+- 非急症医疗建议、风险判断和用药调整优先使用本轮可追溯证据：本地医学知识库、受治理的联网搜索、或当前用户上传的文档/图片。每种可采用来源都必须投影为结构合法、可归属当前用户的 citation；检索 metadata 无效时不得伪造本地 citation。若部分或全部证据入口不可用，仍继续生成基于当前上下文的回答，不把检索故障升级为整段失败；无证据的直接确定性结论必须改写为待核验表述，并在正文保留不确定性和统一 AI 免责声明。红旗短路是确定性紧急指引的例外。所有已完成医疗输出均须带真实安全决策和统一 AI 免责声明。
 - 红旗症状在任何模型正文前发送 120/急诊提示；side-effecting tool 出现确认/外部执行事件时停止并返回 `CHAT_APPROVAL_REQUIRED`，不得自动批准。
 - provider 只由根 `.env`/Secret Manager 配置。公开错误只包含稳定 `CHAT_*` code；模型 URL、真实模型名、异常正文和密钥不会进入响应。
 - Chat payload 先使用服务端 secret 做 keyed HMAC，再进入不可变 `start_fingerprint` 校验 actor、session、execution type。匹配时只重放已加密保存的安全响应；冲突 payload 拒绝，且并发重试无权终止其他 lease owner 的 Trace。

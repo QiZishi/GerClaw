@@ -22,7 +22,8 @@ for server-owned `[C#]` markers.
 Invalid, incomplete, or below-threshold records fail closed. The public citation excerpt is
 the exact bounded `adopted_text`; absent institution/version metadata stays absent internally
 instead of being invented. If all local results are rejected, the Harness enters its existing
-deterministic evidence-unavailable path before a model call.
+deterministic citation-unavailable state, but the Harness continues the answer path without
+fabricating a source or blocking the model call.
 
 Consumers: Harness planning/answer gates and the prescription citation adapter; RAG/Search/
 Document remain evidence producers through existing adapters. Configuration:
