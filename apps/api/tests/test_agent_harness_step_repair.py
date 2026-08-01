@@ -7,6 +7,10 @@ from __future__ import annotations
 import pytest
 from agentscope.message import AssistantMsg
 
+from gerclaw_api.modules.agent_harness.orchestration_support import (
+    classify_answer_step_failure,
+)
+from gerclaw_api.modules.agent_harness.run_lifecycle import UnboundClinicalClaimsError
 from gerclaw_api.modules.agent_harness.run_lifecycle.agent_stream import AgentStreamResult
 from gerclaw_api.modules.agent_harness.run_lifecycle.output_repair import (
     RepairableAgentSession,
@@ -52,6 +56,15 @@ def test_rebuilt_agent_reinstalls_request_boundaries() -> None:
     assert len(configured) == 2
     assert configured[-1] is session.agent
     assert session.agent.state.context[-1].name == "output_contract_repair"
+
+
+def test_claim_repair_preserves_the_users_presentation_contract() -> None:
+    decision = classify_answer_step_failure(UnboundClinicalClaimsError(("claim-1",)))
+
+    assert decision is not None
+    assert "answer_presentation_contract" in decision.instruction
+    assert "条目数量、编号格式、受众、长度和就医时机" in decision.instruction
+    assert "不能因补引用而丢项" in decision.instruction
 
 
 @pytest.mark.asyncio
