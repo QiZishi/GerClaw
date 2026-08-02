@@ -33,6 +33,13 @@ async function issueGuestCredential(visitorId: string): Promise<{ accessToken: s
   return { accessToken: parsed.data.access_token, expiresIn: parsed.data.expires_in };
 }
 
+function requestVisitorId(request: Request): string {
+  const supplied = z.string().regex(/^[a-f0-9]{32}$/i).safeParse(
+    request.headers.get("X-GerClaw-Visitor-ID") ?? "",
+  );
+  return supplied.success ? supplied.data : randomUUID().replaceAll("-", "");
+}
+
 /** Resolve account identity or a bounded, self-owned guest identity. */
 export async function resolveGerclawAccess(
   request: Request,
@@ -49,7 +56,10 @@ export async function resolveGerclawAccess(
   if (guestAccessToken && !options.refreshGuest) {
     return { accessToken: guestAccessToken, applyCookies: () => undefined };
   }
-  const visitorId = randomUUID().replaceAll("-", "");
+  // Reissuing an expired guest JWT must keep the same pseudonymous actor.
+  // Otherwise a retry would authenticate as a new owner and the existing
+  // session UUID would be rejected by the conversation ownership check.
+  const visitorId = requestVisitorId(request);
   const credential = await issueGuestCredential(visitorId);
   return {
     accessToken: credential.accessToken,

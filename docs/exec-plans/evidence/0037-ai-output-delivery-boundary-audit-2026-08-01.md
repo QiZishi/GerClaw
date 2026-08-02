@@ -132,6 +132,12 @@
 本次修正将规则收敛为：私有工具协议仍不得进入公共文本；终态 `done`、权限归属、数据库一致性和医疗免责声明仍保留；其余不会改变正文安全性的差异只记录诊断、删除无意义引用标记或忽略辅助事件。正文和步骤事件即时发布，`done.full_text` 负责最终收敛；前端已有正文时不再追加通用重试文案。
 
 本次真实 GUI 验证（隔离 headless Chrome、未使用项目测试文件）：主页四个医学示例 4/4 均出现过程状态并最终展示正文、免责声明和“重新生成”，未出现重试提示；直接输入“你们这个系统是做什么的？”也返回完整系统说明并完成终态。独立 TTS 请求仍可返回 502，但未阻断聊天正文，故不计入聊天交付失败。
+
+### 线上复测追加发现：身份令牌过期也会伪装成回答失败
+
+2026-08-02 的 ModelScope 线上日志进一步发现另一条路径：`apps/mvp/src/app/api/gerclaw/[...path]/route.ts` 原先在访客 JWT 过期后把上游 401 原样交给前端；`apps/mvp/src/app/api/account/[action]/route.ts` 的失效账号状态检查也没有清理旧 access cookie。这样页面虽然已经进入访客工作台，后续 `/sessions` 仍可能携带失效账号凭据，最终由 `presentChatError` 显示通用重试文案。
+
+本次追加修正：BFF 对访客上游 401 使用同一 `X-GerClaw-Visitor-ID` 续发 JWT 并只重放一次请求；访客续期保持原伪匿名 actor，避免会话所有权变化；账号状态收到 401/403 时清理失效 account cookies。该问题属于身份/传输状态恢复，不是模型输出或医学内容校验，不能再把它归类为“回答没有生成”。
 - `apps/api/src/gerclaw_api/modules/runtime/tool_schemas.py`
 - `apps/api/src/gerclaw_api/modules/privacy_redaction/models.py`
 - `apps/api/src/gerclaw_api/modules/privacy_redaction/policy.py`

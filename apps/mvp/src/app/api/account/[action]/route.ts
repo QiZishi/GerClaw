@@ -130,7 +130,15 @@ export async function GET(request: NextRequest, context: { params: Promise<{ act
     cache: "no-store",
   });
   if (upstream.status === 401 || upstream.status === 403) {
-    return NextResponse.json({ authenticated: false }, { headers: { "Cache-Control": "no-store" } });
+    const response = NextResponse.json(
+      { authenticated: false },
+      { headers: { "Cache-Control": "no-store" } },
+    );
+    // Do not leave an expired account access token in front of the guest
+    // entry path.  Otherwise the user can select guest mode while every BFF
+    // request continues to authenticate with the rejected account token.
+    clearSession(response);
+    return response;
   }
   if (!upstream.ok) return NextResponse.json({ error: { code: "ACCOUNT_SESSION_INVALID" } }, { status: upstream.status });
   const identity = accountStatusSchema.safeParse(await upstream.json().catch(() => null));

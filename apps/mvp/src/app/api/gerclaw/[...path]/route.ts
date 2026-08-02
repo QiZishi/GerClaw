@@ -4,7 +4,10 @@ import {
   getGerclawApiBaseUrl,
   isAllowedGerclawProxyTarget,
 } from "@/server/gerclaw-api";
-import { resolveGerclawAccess } from "@/server/gerclaw-access";
+import {
+  hasGerclawAccountAccess,
+  resolveGerclawAccess,
+} from "@/server/gerclaw-access";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -125,7 +128,7 @@ async function proxy(request: NextRequest, context: RouteContext): Promise<Respo
     );
   }
   try {
-    const access = await resolveGerclawAccess(request);
+    let access = await resolveGerclawAccess(request);
 
     const callUpstream = (token: string) => {
       const headers = new Headers({
@@ -143,7 +146,15 @@ async function proxy(request: NextRequest, context: RouteContext): Promise<Respo
       });
     };
 
-    const upstream = await callUpstream(access.accessToken);
+    let upstream = await callUpstream(access.accessToken);
+    // Guest access tokens are deliberately short-lived.  A normal expiry is
+    // transport state, not a failed answer: refresh the same visitor identity
+    // once and replay the request.  Account tokens remain fail-closed and are
+    // handled by the account status/refresh flow.
+    if (upstream.status === 401 && !hasGerclawAccountAccess(request)) {
+      access = await resolveGerclawAccess(request, { refreshGuest: true });
+      upstream = await callUpstream(access.accessToken);
+    }
     const response = new NextResponse(upstream.body, {
       status: upstream.status,
       headers: responseHeaders(upstream),
