@@ -5,6 +5,8 @@ import { getGerclawApiBaseUrl } from "./gerclaw-api.ts";
 
 export const ACCOUNT_ACCESS_COOKIE = "gerclaw_account_access";
 export const GUEST_ACCESS_COOKIE = "gerclaw_guest_token";
+export const ACCOUNT_REFRESH_COOKIE = "gerclaw_account_refresh";
+export const ACCOUNT_CSRF_COOKIE = "gerclaw_account_csrf";
 const guestTokenSchema = z.object({ access_token: z.string().min(32), expires_in: z.number().int().min(300).max(86_400) }).passthrough();
 
 export interface GerclawAccess {
@@ -19,6 +21,15 @@ function readCookie(cookieHeader: string, name: string): string | undefined {
 
 export function hasGerclawAccountAccess(request: Request): boolean {
   return Boolean(readCookie(request.headers.get("cookie") ?? "", ACCOUNT_ACCESS_COOKIE));
+}
+
+export function clearGerclawAccountCookies(response: Response): void {
+  for (const name of [ACCOUNT_ACCESS_COOKIE, ACCOUNT_REFRESH_COOKIE, ACCOUNT_CSRF_COOKIE]) {
+    response.headers.append(
+      "Set-Cookie",
+      `${name}=; Path=/; Max-Age=0;${name === ACCOUNT_CSRF_COOKIE ? "" : " HttpOnly;"} SameSite=Lax${process.env.NODE_ENV === "production" ? "; Secure" : ""}`,
+    );
+  }
 }
 
 function visitorSignature(visitorId: string): string {
@@ -43,11 +54,13 @@ function requestVisitorId(request: Request): string {
 /** Resolve account identity or a bounded, self-owned guest identity. */
 export async function resolveGerclawAccess(
   request: Request,
-  options: { refreshGuest?: boolean } = {},
+  options: { refreshGuest?: boolean; forceGuest?: boolean } = {},
 ): Promise<GerclawAccess> {
   const cookieHeader = request.headers.get("cookie") ?? "";
   const accountAccessToken = readCookie(cookieHeader, ACCOUNT_ACCESS_COOKIE);
-  if (accountAccessToken) return { accessToken: accountAccessToken, applyCookies: () => undefined };
+  if (accountAccessToken && !options.forceGuest) {
+    return { accessToken: accountAccessToken, applyCookies: () => undefined };
+  }
   // A guest starts from the login page, but all BFF calls made in that browser
   // session must share one server-issued self-owned identity.
   // This is deliberately a session cookie: closing the browser removes it, so

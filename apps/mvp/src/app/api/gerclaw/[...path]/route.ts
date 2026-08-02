@@ -5,6 +5,7 @@ import {
   isAllowedGerclawProxyTarget,
 } from "@/server/gerclaw-api";
 import {
+  clearGerclawAccountCookies,
   hasGerclawAccountAccess,
   resolveGerclawAccess,
 } from "@/server/gerclaw-access";
@@ -147,18 +148,24 @@ async function proxy(request: NextRequest, context: RouteContext): Promise<Respo
     };
 
     let upstream = await callUpstream(access.accessToken);
+    let accountAccessRejected = false;
     // Guest access tokens are deliberately short-lived.  A normal expiry is
     // transport state, not a failed answer: refresh the same visitor identity
-    // once and replay the request.  Account tokens remain fail-closed and are
-    // handled by the account status/refresh flow.
-    if (upstream.status === 401 && !hasGerclawAccountAccess(request)) {
-      access = await resolveGerclawAccess(request, { refreshGuest: true });
+    // once and replay the request.  A stale account token is also transport
+    // state: it must not block the self-owned guest path.
+    if (upstream.status === 401) {
+      accountAccessRejected = hasGerclawAccountAccess(request);
+      access = await resolveGerclawAccess(request, {
+        refreshGuest: true,
+        forceGuest: accountAccessRejected,
+      });
       upstream = await callUpstream(access.accessToken);
     }
     const response = new NextResponse(upstream.body, {
       status: upstream.status,
       headers: responseHeaders(upstream),
     });
+    if (accountAccessRejected) clearGerclawAccountCookies(response);
     access.applyCookies(response);
     return response;
   } catch (error) {
