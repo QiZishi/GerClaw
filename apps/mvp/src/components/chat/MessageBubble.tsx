@@ -113,7 +113,6 @@ export function MessageBubble({
             phase={hasActiveThinking ? "正在分析您的问题" : "正在生成答复"}
             seniorMode={seniorMode}
             startedAt={message.createdAt}
-            traceId={message.traceId}
           />
         )}
         {!isUser && message.status === "error" && (

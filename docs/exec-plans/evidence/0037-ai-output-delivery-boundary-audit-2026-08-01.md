@@ -226,3 +226,16 @@ ModelScope GUI 复测发现，`/api/account/status` 在失效账号 access cooki
 - 正常访客输入“我最近血压偏高怎么办？”：`/sessions` 201、`/chat` 200，页面出现完整血压建议、医疗免责声明、“执行详情”和“重新生成”，无“这次回答没有完整生成，请重试”。
 - 注入过期 `gerclaw_guest_token` 后重复同一问题：仍完成 `/sessions` 201、`/chat` 200，页面完整交付。
 - 注入失效 `gerclaw_account_access` 后进入访客端：首次账号令牌被拒绝后切换访客身份并重放，页面不再显示通用重试提示；该场景的 401 只属于身份恢复过程，不是模型回答失败。
+
+### 2026-08-02 真正流式交付与 Trace 展示复测追加
+
+本次线上反馈的直接原因不是模型没有生成，而是输出在交付边界被再次延迟：`apps/api/src/gerclaw_api/services/chat_service.py` 的 `projected()` 已经完成事件校验和运行记录暂存，却只把事件追加到 `buffered_events`；等 `harness.process_message()`、答案渲染、证据绑定、助手消息保存和运行日志完成后，才统一调用流式回调。这样后端虽然最终拿到了完整模型结果，前端却只能一次性收到全部步骤和正文。
+
+处理结果：
+
+- 通过校验的每一个 `StreamEvent` 在 `projected()` 中立即调用 `callback()`，因此 `agent_start`、`thinking`、`tool_call`、`tool_result`、`text_delta` 会按产生顺序进入 SSE 队列。
+- 事务结束阶段只发送权威的终态 `done`，不再重复发送已经实时交付过的中间事件；`done` 仍携带最终持久化的序列和答案版本信息。
+- `buffered_events` 仅保留为当前尝试的修复/事务记录，不再作为正常用户输出的发送闸门。
+- 前端 `MessageStatusNotices` 原先把内部 `traceId` 渲染为 `Trace trace_...`，并在执行详情中再次展示；现在保留内部标识供反馈与控制链路使用，但不再渲染 Trace 文本或复制入口。
+
+本地隔离 Playwright 真实页面复测（未使用仓库已有测试文件，也未连接用户 Chrome/Edge）：步骤事件已分时到达，分析约 2.46 秒出现，检索完成约 3.45 秒出现，首个文字增量约 5.73 秒出现，后续文字持续增量到约 12.35 秒，终态 `done` 约 17.75 秒到达；页面观察到“正在分析”“医学检索进行中/完成”“正在生成答复”和逐步增长的正文，最终页面无 `Trace trace_...`。

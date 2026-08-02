@@ -1321,6 +1321,8 @@ class ChatService:
             commit=False,
         )
 
+        # Keep the per-attempt events for transactional repair bookkeeping,
+        # while delivering each validated event immediately below.
         buffered_events: list[StreamEvent] = []
         successor_started_event = (
             StreamEvent(
@@ -1483,9 +1485,14 @@ class ChatService:
                     if not await interruption_requested():
                         raise
             buffered_events.append(validated_event)
+            # The event has crossed the public validation boundary and is now
+            # safe to deliver.  Do not wait for model finalization, evidence
+            # binding, or the answer-version transaction: those are terminal
+            # persistence concerns and must not turn a live SSE stream into a
+            # batch response.
+            await callback(validated_event)
 
         promoted_events: tuple[RunEventRead, ...] = ()
-        harness_interrupted = False
         try:
             if successor_started_event is not None:
                 await projected(successor_started_event)
@@ -1497,7 +1504,6 @@ class ChatService:
                     projected,
                 )
             except BaseException:
-                harness_interrupted = True
                 raise
             # AgentScope middleware performs asynchronous cleanup when a model
             # stream is interrupted. A provider can finish during that cleanup
@@ -1612,19 +1618,6 @@ class ChatService:
                 ),
             )
         except BaseException:
-            if (
-                harness_interrupted
-                and cancellation_requested is not None
-                and await cancellation_requested()
-            ):
-                for buffered_event in buffered_events:
-                    if buffered_event.event_type in {
-                        "agent_start",
-                        "reasoning_summary",
-                        "tool_call",
-                        "tool_result",
-                    }:
-                        await callback(buffered_event)
             # Never leave a replayable assistant paired with a non-completed
             # Trace. The outer failure path records the durable failure after the
             # shared transaction has been cleared.
@@ -1638,27 +1631,29 @@ class ChatService:
             memory.mark_vectors_committed()
         if self._evolution_signal_collector is not None and self._active_run_id is not None:
             self._evolution_signal_collector.schedule(self._active_run_id)
-        if promoted_events:
-            for persisted_event in promoted_events:
-                await callback(
-                    StreamEvent(
-                        event_type=cast(Any, persisted_event.event_type),
-                        data=persisted_event.payload,
-                        timestamp=persisted_event.created_at,
-                        run_id=persisted_event.run_id,
-                        sequence=persisted_event.sequence,
-                    )
-                )
-        else:
-            for buffered_event in buffered_events:
-                await callback(buffered_event)
-            await callback(
+        terminal_event = next(
+            (
                 StreamEvent(
-                    event_type="done",
-                    data=done.model_dump(mode="json"),
-                    timestamp=datetime.now(UTC),
+                    event_type=cast(Any, persisted_event.event_type),
+                    data=persisted_event.payload,
+                    timestamp=persisted_event.created_at,
+                    run_id=persisted_event.run_id,
+                    sequence=persisted_event.sequence,
                 )
-            )
+                for persisted_event in promoted_events
+                if persisted_event.event_type == "done"
+            ),
+            StreamEvent(
+                event_type="done",
+                data=done.model_dump(mode="json"),
+                timestamp=datetime.now(UTC),
+            ),
+        )
+        # All non-terminal events were delivered at their production time.
+        # Only the authoritative terminal event is sent after persistence so
+        # reconnect cursors and answer-version metadata converge without
+        # replaying the visible text and tool steps a second time.
+        await callback(terminal_event)
         return response
 
     async def _record_success(
