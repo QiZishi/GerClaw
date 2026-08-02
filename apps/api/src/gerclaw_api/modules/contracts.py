@@ -10,6 +10,9 @@ from pydantic import BaseModel, ConfigDict, Field, model_validator
 from gerclaw_api.security import JsonValue
 
 STRICT = ConfigDict(extra="forbid")
+# Keep a small delivery reserve for the safety notice appended after model
+# generation. The model output budget remains 131,072 characters.
+MAX_PUBLIC_TEXT_CHARACTERS = 132_000
 _EVIDENCE_UNAVAILABLE_NOTICE = "evidence_unavailable_clarification"
 _CLINICAL_CLARIFICATION_NOTICE = "clinical_clarification"
 
@@ -38,12 +41,12 @@ class AttachmentRef(BaseModel):
 
 
 class AgentRequest(BaseModel):
-    """Normalized request respecting the architecture's 4,000-character boundary."""
+    """Normalized request carrying the complete user message to the agent."""
 
     model_config = STRICT
 
     context: ExecutionContext
-    text: str = Field(min_length=1, max_length=4_000)
+    text: str
     attachments: list[AttachmentRef] = Field(default_factory=list, max_length=10)
     channel: Literal["web", "voice"] = "web"
 
@@ -78,7 +81,7 @@ class AgentResponse(BaseModel):
 
     model_config = STRICT
 
-    text: str = Field(min_length=1, max_length=50_000)
+    text: str = Field(min_length=1, max_length=MAX_PUBLIC_TEXT_CHARACTERS)
     citations: list[Citation] = Field(default_factory=list, max_length=50)
     safety: SafetyDecision
     medical_content: bool

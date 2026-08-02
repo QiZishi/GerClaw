@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import re
-from collections.abc import Callable
 
 from gerclaw_api.modules.agent_harness.evidence import EvidenceAdmissionPolicy
 from gerclaw_api.modules.contracts import Citation, SafetyDecision
@@ -120,7 +119,6 @@ _PATIENT_RISK_NOTICE_TRIGGER = re.compile(
     r"(?:您|患者|病人)(?:已经|已)?(?:患有|得了|就是得了)"
     r")"
 )
-_OUTPUT_CLAIM_SEGMENT = re.compile(r"[^。！？!?\n]+(?:[。！？!?]+|\n+|$)")
 _LOW_RISK_RECORD_ACTION = re.compile(
     r"^\s*(?:(?:[-*]|•|\d+[.、])\s*)?(?:请|可|可以|建议)?\s*"
     r"(?:记录|记下|写下|整理|列出|汇总|标注|注明|保存|拍照|携带|带上)|"
@@ -199,7 +197,6 @@ def sanitize_medical_text(
     text: str,
     *,
     allow_evidence_backed_clinical_conclusion: bool = False,
-    claim_evidence_validator: Callable[[str], bool] | None = None,
 ) -> str:
     """Normalize model text before public emission.
 
@@ -232,14 +229,6 @@ def sanitize_medical_text(
     for fragment in _MODEL_DISCLAIMER_FRAGMENTS:
         sanitized = sanitized.replace(fragment, "")
     sanitized = _MALFORMED_LIMITATION_DIAGNOSIS.sub(rewrite_malformed_limitation, sanitized)
-    if claim_evidence_validator is not None:
-        return "".join(
-            sanitize_assertions(
-                match.group(0),
-                allow=claim_evidence_validator(match.group(0)),
-            )
-            for match in _OUTPUT_CLAIM_SEGMENT.finditer(sanitized)
-        )
     return sanitize_assertions(
         sanitized,
         allow=allow_evidence_backed_clinical_conclusion,

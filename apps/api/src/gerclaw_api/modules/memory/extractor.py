@@ -607,8 +607,8 @@ class RealMemoryExtractor:
         """Return candidates paired with deterministic confirmed/pending/inactive status."""
 
         safe_text = _normalized(redact_text(user_text))
-        if not safe_text or len(safe_text) > 4_000:
-            raise ValueError("memory extraction input must contain 1 to 4,000 characters")
+        if not safe_text:
+            raise ValueError("memory extraction input must contain text")
         try:
             response = await self._model.generate_structured_output(
                 [

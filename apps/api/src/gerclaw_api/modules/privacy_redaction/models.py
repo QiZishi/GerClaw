@@ -6,6 +6,8 @@ from enum import StrEnum
 
 from pydantic import BaseModel, ConfigDict, Field
 
+from gerclaw_api.modules.contracts import MAX_PUBLIC_TEXT_CHARACTERS
+
 
 class RedactionCategory(StrEnum):
     """A bounded category that never carries the matched source text."""
@@ -42,7 +44,7 @@ class RedactionResult(BaseModel):
 
     model_config = ConfigDict(extra="forbid", frozen=True)
 
-    text: str = Field(min_length=1, max_length=100_000)
+    text: str = Field(min_length=1, max_length=MAX_PUBLIC_TEXT_CHARACTERS)
     purpose: EgressPurpose
     policy_version: str = Field(pattern=r"^[1-9][0-9]{0,3}\.[0-9]{1,4}\.[0-9]{1,4}$")
     findings: tuple[RedactionFinding, ...] = Field(default_factory=tuple, max_length=6)

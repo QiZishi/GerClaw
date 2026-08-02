@@ -6,8 +6,9 @@ streaming TTS. It exposes authenticated `POST /api/v1/voice/asr` and
 returns only a final transcript; TTS yields raw 24 kHz mono PCM16LE chunks so
 the client retains pause, resume, stop and progress control.
 
-The module is created only when all MiMo URL, key, model and allowlisted voice
-environment settings exist. Calls require `voice:use`, the common rate limiter,
+The module is created only when all MiMo URL, key and model environment settings
+exist. TTS does not accept or configure a voice; the provider's default voice is
+used. Calls require `voice:use`, the common rate limiter,
 bounded provider timeouts, and return stable provider-independent errors. It
 does not persist audio, transcript, synthesis text, provider bodies, or keys.
 

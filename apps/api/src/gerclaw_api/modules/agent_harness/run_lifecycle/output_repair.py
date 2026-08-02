@@ -118,25 +118,15 @@ class RepairableAgentSession:
         )
 
 
-def _buffered_emitter(events: list[BufferedEvent]) -> BufferedEmitter:
+def _live_emitter(
+    events: list[BufferedEvent],
+    publish: BufferedEmitter,
+) -> BufferedEmitter:
     async def emit(event_type: str, data: dict[str, JsonValue]) -> None:
         events.append((event_type, data))
+        await publish(event_type, data)
 
     return emit
-
-
-def _project_answer_events(
-    events: list[BufferedEvent],
-    *,
-    original_text: str,
-    public_text: str,
-) -> list[BufferedEvent]:
-    if public_text == original_text:
-        return events
-    non_text_events = [event for event in events if event[0] != "text_delta"]
-    if public_text:
-        non_text_events.append(("text_delta", {"content": public_text}))
-    return non_text_events
 
 
 async def run_with_output_protocol_repair(
@@ -150,7 +140,17 @@ async def run_with_output_protocol_repair(
     validate_result: AttemptValidator | None = None,
     recover_repeated_failure: AttemptRecovery | None = None,
 ) -> tuple[AgentStreamResult, int]:
-    """Retry explicitly classified private failures without exposing bad output."""
+    """Retry explicitly classified private failures while preserving live output.
+
+    The stream projector already checks the only unsafe public boundary before
+    emitting text.  Buffering the complete answer here made every harmless
+    terminal reconciliation or metadata mismatch look like an empty answer to
+    the browser.  Keep a small per-attempt event list for diagnostics, but
+    publish each event immediately so the UI receives reasoning, tool steps,
+    and text deltas as they are produced.  The terminal ``done`` payload remains
+    authoritative and can replace the accumulated text when a private retry
+    or final normalization was needed.
+    """
 
     repair_count = 0
     seen_failures: set[tuple[str, tuple[str, ...], str, str]] = set()
@@ -160,7 +160,7 @@ async def run_with_output_protocol_repair(
         original_text = ""
         public_text = ""
         try:
-            result = await run_attempt(_buffered_emitter(events))
+            result = await run_attempt(_live_emitter(events, publish))
             original_text = result.text
             public_text = project_public_answer(original_text)
             validate_public_answer_text(public_text)
@@ -220,13 +220,6 @@ async def run_with_output_protocol_repair(
                 continue
         if result is None:
             raise RuntimeError("OUTPUT_REPAIR_NO_RESULT")
-        projected_events = _project_answer_events(
-            events,
-            original_text=original_text,
-            public_text=public_text,
-        )
-        for event_type, data in projected_events:
-            await publish(event_type, data)
         return result, repair_count
 
 

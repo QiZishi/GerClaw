@@ -19,7 +19,7 @@ from gerclaw_api.modules.validation.contracts import ModelOutputContractValidati
 
 
 class UnboundClinicalClaimsError(ModelOutputContractValidationError):
-    """A repairable candidate whose clinical segments lack local citations."""
+    """Compatibility error for callers that explicitly request claim repair."""
 
     def __init__(self, claim_ids: tuple[str, ...]) -> None:
         super().__init__("candidate contains clinical claims without admitted evidence")

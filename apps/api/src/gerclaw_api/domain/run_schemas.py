@@ -10,7 +10,7 @@ from typing import Annotated, Literal
 from pydantic import BaseModel, ConfigDict, Field, StringConstraints, model_validator
 
 from gerclaw_api.modules.agent_harness.routing import RouteKind
-from gerclaw_api.modules.contracts import Citation
+from gerclaw_api.modules.contracts import MAX_PUBLIC_TEXT_CHARACTERS, Citation
 from gerclaw_api.security import JsonValue
 
 BoundedPublicText = Annotated[
@@ -346,7 +346,11 @@ class AnswerVersionRead(BaseModel):
     version: int = Field(ge=1)
     is_current: bool
     supersedes_id: uuid.UUID | None = None
-    answer_markdown: str | None = Field(default=None, min_length=1, max_length=50_000)
+    answer_markdown: str | None = Field(
+        default=None,
+        min_length=1,
+        max_length=MAX_PUBLIC_TEXT_CHARACTERS,
+    )
     citations: tuple[Citation, ...] = Field(default=(), max_length=50)
     created_at: datetime
 

@@ -78,8 +78,8 @@ class HybridRAGModule:
         """Retrieve and rerank bounded evidence; never fall back to invented knowledge."""
 
         normalized = query.strip()
-        if not normalized or len(normalized) > 4_000:
-            raise ValueError("RAG query must contain 1 to 4,000 characters")
+        if not normalized:
+            raise ValueError("RAG query must contain text")
         if not 1 <= top_k <= 20:
             raise ValueError("RAG top_k must be between 1 and 20")
         embedding = await self._embedding_model([normalized])

@@ -5,6 +5,8 @@ import { getGerclawApiBaseUrl } from "./gerclaw-api.ts";
 
 export const ACCOUNT_ACCESS_COOKIE = "gerclaw_account_access";
 export const GUEST_ACCESS_COOKIE = "gerclaw_guest_token";
+export const ACCOUNT_REFRESH_COOKIE = "gerclaw_account_refresh";
+export const ACCOUNT_CSRF_COOKIE = "gerclaw_account_csrf";
 const guestTokenSchema = z.object({ access_token: z.string().min(32), expires_in: z.number().int().min(300).max(86_400) }).passthrough();
 
 export interface GerclawAccess {
@@ -21,6 +23,15 @@ export function hasGerclawAccountAccess(request: Request): boolean {
   return Boolean(readCookie(request.headers.get("cookie") ?? "", ACCOUNT_ACCESS_COOKIE));
 }
 
+export function clearGerclawAccountCookies(response: Response): void {
+  for (const name of [ACCOUNT_ACCESS_COOKIE, ACCOUNT_REFRESH_COOKIE, ACCOUNT_CSRF_COOKIE]) {
+    response.headers.append(
+      "Set-Cookie",
+      `${name}=; Path=/; Max-Age=0;${name === ACCOUNT_CSRF_COOKIE ? "" : " HttpOnly;"} SameSite=Lax${process.env.NODE_ENV === "production" ? "; Secure" : ""}`,
+    );
+  }
+}
+
 function visitorSignature(visitorId: string): string {
   const secret = z.string().min(32).parse(process.env.GERCLAW_GUEST_IDENTITY_SECRET);
   return createHmac("sha256", secret).update(`gerclaw-guest-bootstrap:v1:${visitorId}`).digest("hex");
@@ -33,23 +44,35 @@ async function issueGuestCredential(visitorId: string): Promise<{ accessToken: s
   return { accessToken: parsed.data.access_token, expiresIn: parsed.data.expires_in };
 }
 
-/** Resolve account identity or a bounded, patient-only guest identity. */
+function requestVisitorId(request: Request): string {
+  const supplied = z.string().regex(/^[a-f0-9]{32}$/i).safeParse(
+    request.headers.get("X-GerClaw-Visitor-ID") ?? "",
+  );
+  return supplied.success ? supplied.data : randomUUID().replaceAll("-", "");
+}
+
+/** Resolve account identity or a bounded, self-owned guest identity. */
 export async function resolveGerclawAccess(
   request: Request,
-  options: { refreshGuest?: boolean } = {},
+  options: { refreshGuest?: boolean; forceGuest?: boolean } = {},
 ): Promise<GerclawAccess> {
   const cookieHeader = request.headers.get("cookie") ?? "";
   const accountAccessToken = readCookie(cookieHeader, ACCOUNT_ACCESS_COOKIE);
-  if (accountAccessToken) return { accessToken: accountAccessToken, applyCookies: () => undefined };
-  // A guest starts from the mandatory login page, but all BFF calls made in
-  // that browser session must share one server-issued patient-only identity.
+  if (accountAccessToken && !options.forceGuest) {
+    return { accessToken: accountAccessToken, applyCookies: () => undefined };
+  }
+  // A guest starts from the login page, but all BFF calls made in that browser
+  // session must share one server-issued self-owned identity.
   // This is deliberately a session cookie: closing the browser removes it, so
   // a later guest entry cannot restore the prior guest's chat history.
   const guestAccessToken = readCookie(cookieHeader, GUEST_ACCESS_COOKIE);
   if (guestAccessToken && !options.refreshGuest) {
     return { accessToken: guestAccessToken, applyCookies: () => undefined };
   }
-  const visitorId = randomUUID().replaceAll("-", "");
+  // Reissuing an expired guest JWT must keep the same pseudonymous actor.
+  // Otherwise a retry would authenticate as a new owner and the existing
+  // session UUID would be rejected by the conversation ownership check.
+  const visitorId = requestVisitorId(request);
   const credential = await issueGuestCredential(visitorId);
   return {
     accessToken: credential.accessToken,

@@ -55,7 +55,7 @@ GerClaw 把健康对话、CGA 老年综合评估、五大处方、用药审查�
 - **医生端**：临床资料整理、处方草案、用药审查、CGA 报告、循证检索与文档工具。
 - **管理端**：账户、角色、模型服务配置与 Bad Case 管理；管理员可切换工作台视角。
 
-登录页是统一入口。用户可登录或注册，也可选择无账号进入患者端；游客数据进入后台质量分析，但游客历史不会在下一次访问时恢复。医生和患者之间不提供即时通信。
+登录页是统一入口。用户可登录或注册，也可选择无账号进入患者端；访客可在患者端与医生端自由切换并使用全部自有功能。访客数据进入后台质量分析，但游客历史不会在下一次访问时恢复。医生和患者之间不提供即时通信。
 
 ## 为什么选择 GerClaw？
 
@@ -299,7 +299,7 @@ python3 scripts/check-root-env.py
 | Agent 运行参数 | `GERCLAW_AGENT_*`（路由、证据、上下文预算、ReAct 上限、运行恢复） |
 | RAG | `SILICONFLOW_*`、`EMBEDDING_MODEL`、`RERANK_MODEL`、`GERCLAW_RAG_*` |
 | 搜索 | `ANYSEARCH_*`、`TAVILY_*` |
-| 语音 | `MIMO_*`、`ASR_MODEL`、`TTS_MODEL`、`TTS_VOICE` |
+| 语音 | `MIMO_*`、`ASR_MODEL`、`TTS_MODEL`（音色使用供应商默认值） |
 | MinerU | `MINERU_URL`、`MINERU_API_KEY`、`MINERU_ALLOWED_HOSTS` |
 | 外挂知识库 | `GERCLAW_KNOWLEDGE_BASE_HOST_PATH`、`GERCLAW_KNOWLEDGE_BASE_PATH` |
 | 演化信号 | `GERCLAW_EVOLUTION_SIGNAL_*`（HMAC 密钥、采集并发与超时） |
@@ -310,7 +310,7 @@ python3 scripts/check-root-env.py
 |---|---|---|
 | 阿里云百炼主模型与备用模型 | `AGENT_PRIMARY_*`、`AGENT_BACKUP1_*` | [模型市场与调用配置](https://bailian.console.aliyun.com/cn-beijing?tab=model#/model-market) · [模型调用抵用券入口](https://university.aliyun.com/?spm=a2c4g.11186623.0.0.664875b7jJElBm&scm=20140722.M_10513608._.V_1) |
 | InternLM 备用模型 | `AGENT_BACKUP2_*` | [InternLM API 文档](https://internlm.intern-ai.org.cn/api/document?lang=zh) |
-| MiMo ASR / TTS | `MIMO_*`、`ASR_MODEL`、`TTS_MODEL`、`TTS_VOICE` | [MiMo 开放平台控制台](https://platform.xiaomimimo.com/console/balance) |
+| MiMo ASR / TTS | `MIMO_*`、`ASR_MODEL`、`TTS_MODEL`（音色使用供应商默认值） | [MiMo 开放平台控制台](https://platform.xiaomimimo.com/console/balance) |
 | SiliconFlow Embedding / Rerank | `SILICONFLOW_*`、`EMBEDDING_MODEL`、`RERANK_MODEL` | [SiliconFlow 模型与密钥控制台](https://cloud.siliconflow.cn/me/models) |
 | AnySearch 联网搜索 | `ANYSEARCH_*` | [AnySearch 控制台](https://www.anysearch.com/home) |
 | Tavily 联网搜索 | `TAVILY_*` | [Tavily 平台](https://www.tavily.com/) |

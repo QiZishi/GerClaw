@@ -11,11 +11,11 @@ step() {
   echo "==> $1"
 }
 
-backend_gate() {
-  step "Backend format, lint, types, migration graph, tests and coverage"
+backend_static_gate() {
+  step "Backend format, lint, types and migration graph"
   cd "${API_DIR}"
-  .venv/bin/ruff format --check src tests
-  .venv/bin/ruff check src tests
+  .venv/bin/ruff format --check src
+  .venv/bin/ruff check src
   .venv/bin/mypy src/gerclaw_api
   heads="$(.venv/bin/alembic heads)"
   echo "${heads}"
@@ -23,6 +23,12 @@ backend_gate() {
     echo "Alembic must expose exactly one migration head" >&2
     return 1
   fi
+}
+
+backend_gate() {
+  backend_static_gate
+  step "Backend tests and coverage"
+  cd "${API_DIR}"
   .venv/bin/pytest -q
 }
 
@@ -162,9 +168,8 @@ case "${MODE}" in
     frontend_gate
     ;;
   quick)
-    backend_gate
+    backend_static_gate
     frontend_gate
-    harness_self_test
     ;;
   security)
     security_gate

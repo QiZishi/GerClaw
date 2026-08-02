@@ -20,6 +20,10 @@ export function presentChatError(
     return error.message.trim();
   }
 
+  if (error.status === 401 || /(?:AUTH_REQUIRED|AUTH_INVALID|ACCOUNT_SESSION)/.test(code)) {
+    return "当前访问会话已更新，请再次发送问题。";
+  }
+
   if (
     /(?:POLICY|SENSITIVE|MODERATION|CONTENT(?:_|-)?(?:FILTER|BLOCK)|PRIVACY)/.test(
       code,
@@ -43,8 +47,9 @@ export function presentChatError(
 export function isReaderFacingChatFallback(
   error: Pick<GerclawApiError, "code" | "message">,
 ): boolean {
+  const code = error.code.toUpperCase();
   return (
-    error.code.toUpperCase().startsWith("CHAT_") &&
-    error.message.startsWith("我先给你一个可继续执行的回答框架：")
+    (code.startsWith("CHAT_") || code.startsWith("RUN_STREAM_")) &&
+    Boolean(error.message.trim())
   );
 }

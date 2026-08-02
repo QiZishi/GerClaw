@@ -22,6 +22,7 @@ from gerclaw_api.domain.trace_schemas import (
 )
 from gerclaw_api.metrics import RAG_RETRIEVAL_LATENCY, RAG_RETRIEVALS
 from gerclaw_api.middleware import set_active_trace
+from gerclaw_api.modules.contracts import MAX_PUBLIC_TEXT_CHARACTERS
 from gerclaw_api.modules.rag.module import HybridRAGModule, RAGUnavailableError
 from gerclaw_api.modules.rag.protocols import RAGFilters, RAGStatus, RetrievalResult
 from gerclaw_api.security import audit_hmac_digest
@@ -48,7 +49,7 @@ class RAGRetrieveRequest(BaseModel):
 
     model_config = ConfigDict(extra="forbid")
 
-    query: str = Field(min_length=1, max_length=4_000)
+    query: str = Field(min_length=1, max_length=MAX_PUBLIC_TEXT_CHARACTERS)
     top_k: int = Field(default=5, ge=1, le=20)
     filters: RAGFilters | None = None
 

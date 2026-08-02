@@ -6,13 +6,15 @@ from typing import Literal
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 
+from gerclaw_api.modules.contracts import MAX_PUBLIC_TEXT_CHARACTERS
+
 STRICT = ConfigDict(extra="forbid")
 
 
 class SearchKnowledgeInput(BaseModel):
     model_config = STRICT
 
-    query: str = Field(min_length=1, max_length=4_000)
+    query: str = Field(min_length=1, max_length=MAX_PUBLIC_TEXT_CHARACTERS)
     knowledge_bases: list[str] | None = Field(default=None, max_length=5)
 
     @field_validator("query")
@@ -42,7 +44,7 @@ class SearchMemoryInput(BaseModel):
 class WebSearchInput(BaseModel):
     model_config = STRICT
 
-    query: str = Field(min_length=1, max_length=500)
+    query: str = Field(min_length=1, max_length=MAX_PUBLIC_TEXT_CHARACTERS)
     max_results: int = Field(default=5, ge=1, le=10)
     domain: Literal["general", "health", "academic"] = "health"
 

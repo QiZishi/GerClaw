@@ -134,16 +134,25 @@ def segment_has_admitted_model_marker(
 
 
 def validate_public_citation_markers(text: str, *, citation_count: int) -> str:
-    """Validate server-normalized C markers and reject leaked model E/W markers."""
+    """Keep valid public markers and remove stale markers without rejecting text.
+
+    Citation display is best effort rather than a requirement for answering a
+    question.  A model can retain a ``[C7]`` marker after retrieval returned
+    fewer sources, or a replay can use a different admitted citation count.
+    That marker has no meaning in the current response and is removed.  A
+    private E/W/A marker is still rejected because leaking provider/evidence
+    addressing into the public stream is a real boundary violation.
+    """
 
     if citation_count < 0:
         raise ValueError("citation count cannot be negative")
-    for match in _MODEL_MARKER.finditer(text):
+
+    def replace(match: re.Match[str]) -> str:
         if match.group("prefix").upper() != "C":
             raise CitationMarkerValidationError("model citation marker was not normalized")
-        if not 1 <= int(match.group("index")) <= citation_count:
-            raise CitationMarkerValidationError("public citation marker is out of range")
-    return text
+        return "" if int(match.group("index")) > citation_count else match.group(0)
+
+    return _ORPHAN_MARKER_GAP.sub("", _MODEL_MARKER.sub(replace, text))
 
 
 def audit_claim_evidence(
@@ -195,11 +204,11 @@ def prune_unbound_clinical_claims(
     citations: list[Citation],
     is_clinical_claim: Callable[[str], bool],
 ) -> tuple[str, int]:
-    """Remove only clinical segments that still lack an admitted citation.
+    """Optionally remove only explicitly identified unsupported claim segments.
 
-    This is the final deterministic degradation after one private model repair.
-    Every non-clinical segment and every in-segment evidence binding is preserved,
-    so one unsupported sentence cannot discard an otherwise useful answer.
+    This compatibility helper is not part of the normal answer projection path.
+    The production path keeps answers when evidence is unavailable and reports
+    degraded evidence instead of applying a citation gate.
     """
 
     validate_public_citation_markers(text, citation_count=len(citations))

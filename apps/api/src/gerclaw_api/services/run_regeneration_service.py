@@ -13,6 +13,7 @@ from gerclaw_api.domain.run_schemas import (
     AgentRunStatus,
     RunRegenerationContext,
 )
+from gerclaw_api.modules.contracts import MAX_PUBLIC_TEXT_CHARACTERS
 from gerclaw_api.repositories.run_regeneration import RunRegenerationRepository
 
 
@@ -28,7 +29,7 @@ class _StoredTextBlock(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     type: str
-    text: str = Field(min_length=1, max_length=4_000)
+    text: str = Field(min_length=1, max_length=MAX_PUBLIC_TEXT_CHARACTERS)
 
 
 def image_fingerprint(media_type: str, base64_payload: str) -> str:

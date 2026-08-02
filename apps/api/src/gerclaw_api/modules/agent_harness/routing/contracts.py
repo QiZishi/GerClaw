@@ -7,6 +7,8 @@ from typing import Literal, Protocol
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
+from gerclaw_api.modules.contracts import MAX_PUBLIC_TEXT_CHARACTERS
+
 
 class RouteKind(StrEnum):
     QUICK = "quick"
@@ -23,7 +25,7 @@ class RoutingInput(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     schema_version: Literal["1.0"] = "1.0"
-    message: str = Field(min_length=1, max_length=50_000)
+    message: str = Field(min_length=1, max_length=MAX_PUBLIC_TEXT_CHARACTERS)
     has_images: bool = False
     has_documents: bool = False
     image_count: int = Field(default=0, ge=0, le=10)

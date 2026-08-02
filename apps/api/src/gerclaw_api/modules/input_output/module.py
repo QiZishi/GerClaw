@@ -2,14 +2,11 @@
 
 from __future__ import annotations
 
-import re
 import unicodedata
 from typing import Literal
 
 from gerclaw_api.modules.contracts import AgentRequest, AgentResponse
 from gerclaw_api.security import JsonValue
-
-_DISALLOWED_CONTROL = re.compile(r"[\x00-\x08\x0b\x0c\x0e-\x1f\x7f]")
 
 
 class InputOutputBoundaryError(ValueError):
@@ -17,12 +14,9 @@ class InputOutputBoundaryError(ValueError):
 
 
 def normalize_input_text(text: str) -> str:
-    """Return the canonical text representation used at every input boundary."""
+    """Return a canonical representation without rejecting user content."""
 
-    normalized = unicodedata.normalize("NFKC", text).replace("\r\n", "\n").strip()
-    if not normalized or _DISALLOWED_CONTROL.search(normalized):
-        raise InputOutputBoundaryError("input text contains unsupported control characters")
-    return normalized
+    return unicodedata.normalize("NFKC", text).replace("\r\n", "\n").strip()
 
 
 class ProductionInputOutputModule:
@@ -47,7 +41,7 @@ class ProductionInputOutputModule:
         reviewed = AgentResponse.model_validate(response.model_dump(mode="python"))
         if channel == "voice":
             return {
-                "text": reviewed.text[:4_000],
+                "text": reviewed.text,
                 "safety": reviewed.safety.model_dump(mode="json"),
                 "medical_content": reviewed.medical_content,
                 "emergency_short_circuit": reviewed.emergency_short_circuit,

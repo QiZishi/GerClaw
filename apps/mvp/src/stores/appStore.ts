@@ -140,7 +140,7 @@ export const useAppStore = create<AppState>()(
       },
       isGuest: false,
       setGuestMode: (isGuest) =>
-        set({ isGuest, mainView: isGuest ? "chat" : get().mainView }),
+        set({ isGuest }),
 
       // === 老年模式 ===
       seniorMode: false,
@@ -224,7 +224,7 @@ export const useAppStore = create<AppState>()(
       // === 中间栏视图 ===
       mainView: "chat",
       setMainView: (mainView) =>
-        set({ mainView: mainView === "skills" && get().isGuest ? "chat" : mainView }),
+        set({ mainView }),
 
       // === 聊天中加载的功能动作 ===
       chatAction: "none",

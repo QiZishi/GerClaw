@@ -24,7 +24,6 @@ interface ComposerToolbarProps {
   mounted: boolean;
   seniorMode: boolean;
   prescriptionConversation: boolean;
-  isGuest: boolean;
   selectedCapabilityIds: string[];
   onCapabilityChange: (ids: string[]) => void;
   onAction: (action: ComposerAction) => void;
@@ -38,7 +37,6 @@ export function ComposerToolbar({
   mounted,
   seniorMode,
   prescriptionConversation,
-  isGuest,
   selectedCapabilityIds,
   onCapabilityChange,
   onAction,
@@ -70,7 +68,7 @@ export function ComposerToolbar({
         onClick={onPickFile}
         icon={<Paperclip className="size-4" aria-hidden />}
       />
-      {!isGuest && !prescriptionConversation && (
+      {!prescriptionConversation && (
         <SkillSelector showLabel={seniorMode}>
           <Button
             variant="ghost"

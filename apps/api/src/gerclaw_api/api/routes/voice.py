@@ -48,21 +48,20 @@ async def _enforce_rate_limit(request: Request, identity: AuthContext) -> None:
 async def _module(
     request: Request, identity: AuthContext, session: AsyncSession
 ) -> tuple[MiMoVoiceModule, bool]:
-    """Resolve a request-owned adapter only when this account overrides voice."""
+    """Resolve a request-owned adapter when the current identity overrides voice."""
 
     module = getattr(request.app.state, "voice_module", None)
-    if identity.account_role != "guest" and identity.actor_id.startswith("usr_account_"):
-        override = await SqlAlchemyAccountModelOverrideRepository(session).get(
-            tenant_id=identity.tenant_id, actor_id=identity.actor_id
-        )
-        if override is not None and has_service_override(override.configuration, "voice"):
-            from gerclaw_api.modules.voice import create_voice_module
+    override = await SqlAlchemyAccountModelOverrideRepository(session).get(
+        tenant_id=identity.tenant_id, actor_id=identity.actor_id
+    )
+    if override is not None and has_service_override(override.configuration, "voice"):
+        from gerclaw_api.modules.voice import create_voice_module
 
-            module = create_voice_module(
-                resolve_effective_settings(request.app.state.settings, override.configuration)
-            )
-            if module is not None:
-                return module, True
+        module = create_voice_module(
+            resolve_effective_settings(request.app.state.settings, override.configuration)
+        )
+        if module is not None:
+            return module, True
     if module is None:
         raise HTTPException(
             status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
@@ -155,7 +154,6 @@ async def synthesize(
 
     await _enforce_rate_limit(request, identity)
     module, request_owned_module = await _module(request, identity, session)
-    voice = payload.voice or module.default_voice
     text_decision = redact_external_tts_text(payload.text.strip())
     style_decision = redact_external_tts_text(payload.style) if payload.style is not None else None
     egress = SqlAlchemyProviderEgressRepository(session)
@@ -171,7 +169,6 @@ async def synthesize(
     await session.commit()
     stream = module.synthesize(
         text_decision.text,
-        voice=voice,
         style=style_decision.text if style_decision is not None else None,
     )
     try:

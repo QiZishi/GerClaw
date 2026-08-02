@@ -189,8 +189,7 @@ export function Sidebar({ onNavigate }: SidebarProps) {
         </Button>
       </div>
 
-      {/* 技能管理仅对已登录账户开放；游客仅使用患者服务。 */}
-      {!isGuest && <div className="px-3 pb-2">
+      <div className="px-3 pb-2">
         <Button
           variant={mainView === "skills" ? "secondary" : "ghost"}
           className={cn("w-full justify-start gap-2", seniorMode && "min-h-12 text-lg")}
@@ -200,7 +199,7 @@ export function Sidebar({ onNavigate }: SidebarProps) {
           <Zap className="size-4" />
           <span>技能</span>
         </Button>
-      </div>}
+      </div>
 
       <SidebarSessionHistory
         sessions={effectiveSessions}

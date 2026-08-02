@@ -16,6 +16,7 @@ from gerclaw_api.dependencies import get_database_session, get_trace_service
 from gerclaw_api.domain.enums import TraceEventStatus, TraceEventType, TraceStatus
 from gerclaw_api.domain.trace_schemas import TraceEventCreate, TraceFinishRequest, TraceStartRequest
 from gerclaw_api.middleware import set_active_trace
+from gerclaw_api.modules.contracts import MAX_PUBLIC_TEXT_CHARACTERS
 from gerclaw_api.modules.privacy_redaction.models import RedactionResult
 from gerclaw_api.modules.search import (
     ProductionSearchModule,
@@ -39,7 +40,7 @@ SearchReadIdentity = Annotated[AuthContext, Depends(require_search_read)]
 class SearchQueryRequest(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
-    query: str = Field(min_length=1, max_length=4_000)
+    query: str = Field(min_length=1, max_length=MAX_PUBLIC_TEXT_CHARACTERS)
     max_results: int = Field(default=5, ge=1, le=10)
     domain: Literal["general", "health", "academic"] = "health"
 

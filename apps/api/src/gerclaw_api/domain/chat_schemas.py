@@ -8,7 +8,7 @@ from typing import Literal
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
-from gerclaw_api.modules.contracts import Citation
+from gerclaw_api.modules.contracts import MAX_PUBLIC_TEXT_CHARACTERS, Citation
 from gerclaw_api.modules.input_output import ImageInput
 from gerclaw_api.modules.skill.models import SkillId
 from gerclaw_api.modules.validation import PublicChatDoneData
@@ -27,7 +27,7 @@ class ChatRequest(BaseModel):
     model_config = STRICT
 
     session_id: uuid.UUID
-    message: str = Field(min_length=1, max_length=4_000)
+    message: str
     loaded_skills: list[SkillId] = Field(default_factory=list, max_length=20)
     requested_capabilities: list[str] = Field(default_factory=list, max_length=20)
     uploaded_files: list[uuid.UUID] = Field(default_factory=list, max_length=10)
@@ -36,14 +36,6 @@ class ChatRequest(BaseModel):
     workflow: WorkflowId = WorkflowId.STANDARD
     regenerate_from_run_id: uuid.UUID | None = None
     expected_current_answer_version_id: uuid.UUID | None = None
-
-    @field_validator("message")
-    @classmethod
-    def normalize_message(cls, value: str) -> str:
-        normalized = value.strip()
-        if not normalized:
-            raise ValueError("message cannot contain only whitespace")
-        return normalized
 
     @field_validator("requested_capabilities")
     @classmethod
@@ -127,7 +119,7 @@ class ChatMessageRead(BaseModel):
     id: uuid.UUID
     trace_id: str | None
     role: Literal["user", "assistant"]
-    text: str = Field(min_length=1, max_length=50_000)
+    text: str = Field(min_length=1, max_length=MAX_PUBLIC_TEXT_CHARACTERS)
     citations: list[Citation] = Field(default_factory=list, max_length=50)
     answer_group_run_id: uuid.UUID | None = None
     answer_version_id: uuid.UUID | None = None
@@ -148,12 +140,12 @@ ChatDoneData = PublicChatDoneData
 
 
 class ChatErrorData(BaseModel):
-    """Safe terminal failure payload with no provider response text."""
+    """Safe terminal delivery payload without provider or internal details."""
 
     model_config = STRICT
 
     code: str = Field(pattern=r"^[A-Z][A-Z0-9_]{2,63}$")
-    message: str = Field(min_length=1, max_length=500)
+    message: str = Field(min_length=1, max_length=2_000)
     trace_id: str
     retriable: bool
 

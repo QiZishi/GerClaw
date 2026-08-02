@@ -20,6 +20,7 @@ from gerclaw_api.auth import (
     require_feedback_write,
 )
 from gerclaw_api.dependencies import get_database_session
+from gerclaw_api.domain.chat_error_codes import public_chat_fallback
 from gerclaw_api.domain.chat_schemas import ChatCancelledData, ChatErrorData
 from gerclaw_api.domain.run_schemas import (
     RUN_EVENT_CLOSED_STATUSES,
@@ -240,11 +241,7 @@ def _encode_run_event(event: RunEventRead, *, trace_id: str) -> str:
             )
             return encode_sse("cancelled", cancelled, sequence=event.sequence)
         code = "CHAT_RUN_INTERRUPTED" if event.status == "interrupted" else "CHAT_EXECUTION_FAILED"
-        message = (
-            "服务执行中断, 可刷新后恢复。"
-            if event.status == "interrupted"
-            else "本次对话执行失败, 请稍后重试。"
-        )
+        message, _retriable = public_chat_fallback(code)
         failed = ChatErrorData(
             code=code,
             message=message,

@@ -188,6 +188,24 @@ export function SidebarAccountMenu({
           </DropdownMenuItem>
           <DropdownMenuSeparator />
           <DropdownMenuGroup>
+            {isGuest && (
+              <>
+                <MenuItem
+                  className={menuItemClass}
+                  icon={ArrowLeftRight}
+                  onClick={actions.openPatientWorkspace}
+                >
+                  {isPatient ? "当前为患者端" : "切换到患者端"}
+                </MenuItem>
+                <MenuItem
+                  className={menuItemClass}
+                  icon={ArrowLeftRight}
+                  onClick={actions.openDoctorWorkspace}
+                >
+                  {isDoctor ? "当前为医生端" : "切换到医生端"}
+                </MenuItem>
+              </>
+            )}
             {isPatient && sessionCount > 0 && (
               <MenuItem
                 className={menuItemClass}

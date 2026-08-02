@@ -24,7 +24,6 @@ export function ComposerInputPanel({
   role,
   seniorMode,
   mounted,
-  isGuest,
   isOnline,
   asrAvailable,
   isGenerating,
@@ -211,7 +210,6 @@ export function ComposerInputPanel({
                 onPickImage={onPickImage}
                 onPickFile={onPickFile}
                 prescriptionConversation={prescriptionConversation}
-                isGuest={isGuest}
                 selectedCapabilityIds={selectedCapabilityIds}
                 onCapabilityChange={onCapabilityChange}
               />

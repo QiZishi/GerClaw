@@ -14,7 +14,7 @@ from typing import TYPE_CHECKING, Literal
 
 from pydantic import BaseModel, ConfigDict, Field, ValidationError, model_validator
 
-from gerclaw_api.modules.contracts import Citation, SafetyDecision
+from gerclaw_api.modules.contracts import MAX_PUBLIC_TEXT_CHARACTERS, Citation, SafetyDecision
 from gerclaw_api.security import JsonValue
 
 if TYPE_CHECKING:
@@ -83,7 +83,7 @@ class _ReasoningSummaryData(BaseModel):
 class _TextDeltaData(BaseModel):
     model_config = STRICT
 
-    content: str = Field(min_length=1, max_length=50_000)
+    content: str = Field(min_length=1, max_length=MAX_PUBLIC_TEXT_CHARACTERS)
 
 
 class _ToolCallData(BaseModel):
@@ -129,7 +129,7 @@ class _SafetyNoticeData(BaseModel):
 class _DoneData(BaseModel):
     model_config = STRICT
 
-    full_text: str = Field(min_length=1, max_length=50_000)
+    full_text: str = Field(min_length=1, max_length=MAX_PUBLIC_TEXT_CHARACTERS)
     references: list[Citation] = Field(default_factory=list, max_length=50)
     safety: SafetyDecision
 

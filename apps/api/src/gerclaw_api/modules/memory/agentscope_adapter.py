@@ -49,6 +49,7 @@ class GerClawMem0Client:
         self._write_requested = False
         self._write_done = False
         self._fatal_error: Exception | None = None
+        self._boundary_error: Exception | None = None
         self._write_error: Exception | None = None
 
     async def search(
@@ -95,6 +96,7 @@ class GerClawMem0Client:
         try:
             if user_id != self._actor_id:
                 error = ValueError("memory write principal is invalid")
+                self._boundary_error = error
                 self._fatal_error = error
                 raise error
             self._write_requested = True
@@ -130,17 +132,26 @@ class GerClawMem0Client:
         self._write_requested = False
 
     def raise_if_failed(self) -> None:
-        """Fail only when Memory could not be read or its owner boundary was invalid."""
+        """Fail only when Memory's owner boundary was invalid.
 
-        if self._fatal_error is not None:
+        Memory retrieval is an optional context enhancement. A provider or
+        database failure must not discard a completed model answer.
+        """
+
+        if self._boundary_error is not None:
             raise AgentScopeMemoryAdapterError("required medical memory operation failed") from (
-                self._fatal_error
+                self._boundary_error
             )
 
     def warning_codes(self) -> tuple[str, ...]:
         """Project a transient post-answer write failure without exposing its content."""
 
-        return ("MEMORY_WRITE_FAILED",) if self._write_error is not None else ()
+        warnings: list[str] = []
+        if self._fatal_error is not None and self._boundary_error is None:
+            warnings.append("MEMORY_SEARCH_FAILED")
+        if self._write_error is not None:
+            warnings.append("MEMORY_WRITE_FAILED")
+        return tuple(warnings)
 
     def _result(self) -> dict[str, list[dict[str, str]]]:
         changed = self._module.last_update.changed_fact_ids
@@ -152,4 +163,6 @@ class GerClawMem0Client:
 
     def _validate_filters(self, filters: dict[str, Any]) -> None:
         if filters.get("user_id") != self._actor_id:
-            raise AgentScopeMemoryAdapterError("memory search principal is invalid")
+            error = AgentScopeMemoryAdapterError("memory search principal is invalid")
+            self._boundary_error = error
+            raise error

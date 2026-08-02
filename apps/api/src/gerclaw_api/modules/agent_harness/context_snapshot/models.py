@@ -7,7 +7,7 @@ from typing import Annotated, Literal, Protocol
 from pydantic import BaseModel, ConfigDict, Field, StringConstraints, model_validator
 
 from gerclaw_api.modules.agent_harness.clinical_state import ClinicalState
-from gerclaw_api.modules.contracts import ExecutionContext
+from gerclaw_api.modules.contracts import MAX_PUBLIC_TEXT_CHARACTERS, ExecutionContext
 
 BoundedReference = Annotated[
     str,
@@ -40,7 +40,7 @@ class ConversationHistoryMessage(BaseModel):
     model_config = ConfigDict(extra="forbid", frozen=True)
 
     role: Literal["user", "assistant"]
-    text: str = Field(min_length=1, max_length=50_000)
+    text: str = Field(min_length=1, max_length=MAX_PUBLIC_TEXT_CHARACTERS)
     stable_id: BoundedStableId | None = None
 
 

@@ -97,7 +97,7 @@ export const answerVersionSchema = z
     version: z.number().int().positive(),
     is_current: z.boolean(),
     supersedes_id: z.string().uuid().nullable(),
-    answer_markdown: z.string().min(1).max(50_000).nullable(),
+    answer_markdown: z.string().min(1).max(132_000).nullable(),
     citations: z.array(storedCitationSchema).max(50),
     created_at: z.string().datetime(),
   })

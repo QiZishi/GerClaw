@@ -125,24 +125,21 @@ receive public sequence numbers; only the replacement attempt is replayable. A s
 failure ends normally through the typed failure path instead of exposing or concatenating the
 invalid fragment.
 
-The same private buffer now validates the fully assembled `AgentResponse` contract before
-publishing any text. A medical answer containing any clinical segment without a traceable
-in-segment citation is returned to the pre-model checkpoint once with bounded, content-free
-repair guidance. The replacement may use governed retrieval tools. If the replacement still
-contains unbound clinical segments, the server removes only those segments, preserves the
-supported and non-clinical answer, and publishes the replacement atomically. Upload-backed
-claims use private `[A#]` markers that resolve to the same public `[C#]` positions as local and
-web evidence. Rejected text and repair details never reach browser, TTS, AnswerVersion,
-Artifact, or export paths.
+The completed answer is still checked against the public `AgentResponse` contract before the
+terminal event. Evidence is best effort: a medical answer without a retrievable source remains
+deliverable with the canonical disclaimer, and stale/out-of-range public citation markers are
+removed instead of invalidating the answer. Upload-backed claims use private `[A#]` markers that
+resolve to the same public `[C#]` positions as local and web evidence. Only private provider/tool
+protocol markup remains a hard public boundary.
 
 Every validated model answer now passes through one deterministic reader-facing projection
 before the attempt is promoted. The projection removes only a terminal risk/disclaimer section
 that identifies itself as generic advice or generic patient variability; it preserves
 situation-specific warnings, clinical content and citation markers. If projection changes the
-answer, the buffered private text deltas are replaced by the projected answer while the
-non-text public stages remain intact. The Harness then appends its single short medical
-disclaimer, so copy, TTS, Artifact and export all consume the same current answer instead of
-repeating model boilerplate.
+answer, the terminal `done.full_text` becomes the authoritative final text while the already
+published deltas remain visible during generation. The Harness then appends its single short
+medical disclaimer, so copy, TTS, Artifact and export all consume the same current answer instead
+of repeating model boilerplate.
 
 The immediate-steer API now waits for the old Run's durable `interrupted` state before opening
 a deterministic successor Trace. A pending steer reserves the source against ordinary resume;
@@ -182,12 +179,11 @@ Run. Queued directives are consumed only after the whole reasoning round's outst
 set is empty, not after an arbitrary concurrent member. `DENY` and `ASK` retain their Runtime
 semantics and are not preempted by this capacity gate.
 
-Measure improvement with one terminal event, no failed-attempt bytes in SSE/replay, atomic
-AnswerVersion/current-attempt selection, stale-fence/CAS rejection, cancellation tests, and
-byte-equivalent safe text in Harness regression cases. Current limitation: the chat answer is
-the smallest promoted unit, so validated deltas are released as a burst after durable success;
-future node-local checkpoints may promote smaller independently valid sections without exposing
-later failed work.
+Measure improvement with one terminal event, incremental `reasoning_summary`/tool/text events,
+atomic AnswerVersion/current-attempt selection, stale-fence/CAS rejection, cancellation tests,
+and byte-equivalent safe text in Harness regression cases. Text and step events are published as
+they are produced; the terminal `done.full_text` remains the authoritative reconciliation point
+for a retry or final projection.
 
 Consumers: the composition entry and chat/session services through the
 `ProductionAgentHarness` facade. Configuration:

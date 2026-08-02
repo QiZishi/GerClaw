@@ -12,7 +12,6 @@ import {
 
 import { toast } from "@/components/ui/toast";
 import { useAudioRecorder } from "@/hooks/useAudioRecorder";
-import { INPUT_LIMITS } from "@/lib/constants";
 import { recognizeAudio } from "@/services/voice/asr";
 
 interface ComposerVoiceOptions {
@@ -91,12 +90,7 @@ export function useComposerVoice({
       try {
         const recognizedText = await recognizeAudio(blob, controller.signal);
         if (!controller.signal.aborted && recognizedText) {
-          setText((current) =>
-            `${current}${current ? " " : ""}${recognizedText}`.slice(
-              0,
-              INPUT_LIMITS.maxMessageLength,
-            ),
-          );
+          setText((current) => `${current}${current ? " " : ""}${recognizedText}`);
           window.setTimeout(() => {
             const textArea = textAreaRef.current;
             if (!textArea) return;

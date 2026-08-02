@@ -2,10 +2,13 @@ import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
 import {
   getGerclawApiBaseUrl,
-  isGuestAllowedGerclawProxyTarget,
   isAllowedGerclawProxyTarget,
 } from "@/server/gerclaw-api";
-import { hasGerclawAccountAccess, resolveGerclawAccess } from "@/server/gerclaw-access";
+import {
+  clearGerclawAccountCookies,
+  hasGerclawAccountAccess,
+  resolveGerclawAccess,
+} from "@/server/gerclaw-access";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -96,13 +99,6 @@ async function proxy(request: NextRequest, context: RouteContext): Promise<Respo
       { status: 404 }
     );
   }
-  if (!hasGerclawAccountAccess(request) && !isGuestAllowedGerclawProxyTarget(path, request.method)) {
-    return NextResponse.json(
-      { error: { code: "GUEST_ROUTE_RESTRICTED", message: "请登录后使用技能管理" } },
-      { status: 403 },
-    );
-  }
-
   let apiBase: string;
   try {
     apiBase = getGerclawApiBaseUrl();
@@ -133,7 +129,7 @@ async function proxy(request: NextRequest, context: RouteContext): Promise<Respo
     );
   }
   try {
-    const access = await resolveGerclawAccess(request);
+    let access = await resolveGerclawAccess(request);
 
     const callUpstream = (token: string) => {
       const headers = new Headers({
@@ -151,11 +147,25 @@ async function proxy(request: NextRequest, context: RouteContext): Promise<Respo
       });
     };
 
-    const upstream = await callUpstream(access.accessToken);
+    let upstream = await callUpstream(access.accessToken);
+    let accountAccessRejected = false;
+    // Guest access tokens are deliberately short-lived.  A normal expiry is
+    // transport state, not a failed answer: refresh the same visitor identity
+    // once and replay the request.  A stale account token is also transport
+    // state: it must not block the self-owned guest path.
+    if (upstream.status === 401) {
+      accountAccessRejected = hasGerclawAccountAccess(request);
+      access = await resolveGerclawAccess(request, {
+        refreshGuest: true,
+        forceGuest: accountAccessRejected,
+      });
+      upstream = await callUpstream(access.accessToken);
+    }
     const response = new NextResponse(upstream.body, {
       status: upstream.status,
       headers: responseHeaders(upstream),
     });
+    if (accountAccessRejected) clearGerclawAccountCookies(response);
     access.applyCookies(response);
     return response;
   } catch (error) {

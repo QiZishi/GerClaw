@@ -53,9 +53,8 @@ def validate_public_answer_text(value: str) -> None:
 class SafeSentenceBuffer:
     """Hold partial sentences so unsupported certainty cannot cross SSE chunks."""
 
-    def __init__(self, evidence_available: Callable[[str], bool]) -> None:
+    def __init__(self) -> None:
         self._pending = ""
-        self._evidence_available = evidence_available
         self.deterministic_diagnosis_blocked = False
 
     def feed(self, delta: str) -> list[str]:
@@ -64,20 +63,14 @@ class SafeSentenceBuffer:
         while match := _SENTENCE_END.search(self._pending):
             end = match.end()
             raw_sentence = self._pending[:end]
-            safe_sentence = sanitize_medical_text(
-                raw_sentence,
-                claim_evidence_validator=self._evidence_available,
-            )
+            safe_sentence = sanitize_medical_text(raw_sentence)
             self.deterministic_diagnosis_blocked |= safe_sentence != raw_sentence
             output.append(safe_sentence)
             self._pending = self._pending[end:]
         return output
 
     def finish(self) -> str:
-        tail = sanitize_medical_text(
-            self._pending,
-            claim_evidence_validator=self._evidence_available,
-        )
+        tail = sanitize_medical_text(self._pending)
         self.deterministic_diagnosis_blocked |= tail != self._pending
         self._pending = ""
         return tail
