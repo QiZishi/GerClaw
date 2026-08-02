@@ -243,110 +243,146 @@ async function consumeAgentStream(
   let sawTerminal = false;
 
   const processBlock = (block: string) => {
-    const parsed = parseEventBlock(block);
-    if (!parsed) return;
-    if (parsed.event === "agent_start") {
-      const event = agentStartSchema.parse(parsed.data);
-      acceptDurableEvent(event, cursor);
-    } else if (parsed.event === "text_delta") {
-      const event = textDeltaSchema.parse(parsed.data);
-      if (acceptDurableEvent(event, cursor)) callbacks.onText?.(event.content);
-    } else if (parsed.event === "thinking") {
-      const event = thinkingSchema.parse(parsed.data);
-      if (acceptDurableEvent(event, cursor)) callbacks.onThinking?.(event.content);
-    } else if (parsed.event === "tool_call") {
-      const tool = toolCallSchema.parse(parsed.data);
-      if (!acceptDurableEvent(tool, cursor)) return;
-      callbacks.onToolCall?.({
-        id: tool.tool_call_id,
-        name: tool.tool_name,
-        status: tool.status,
-      });
-    } else if (parsed.event === "tool_result") {
-      const tool = toolResultSchema.parse(parsed.data);
-      if (!acceptDurableEvent(tool, cursor)) return;
-      callbacks.onToolResult?.({
-        id: tool.tool_call_id,
-        name: tool.tool_name,
-        status: tool.status,
-        durationMs: tool.duration_ms,
-        resultSummary: tool.result_summary,
-        resultCount: tool.result_count,
-        results: tool.results,
-      });
-    } else if (parsed.event === "approval_required") {
-      const approval = approvalRequiredSchema.parse(parsed.data);
-      if (!acceptDurableEvent(approval, cursor)) return;
-      callbacks.onApprovalRequired?.({
-        id: approval.approval_id,
-        toolName: approval.tool_name,
-        expiresAt: approval.expires_at,
-        policyVersion: approval.policy_version,
-        toolVersion: approval.tool_version,
-      });
-    } else if (parsed.event === "safety_notice") {
-      const notice = safetyNoticeSchema.parse(parsed.data);
-      if (acceptDurableEvent(notice, cursor)) callbacks.onSafetyNotice?.(notice);
-    } else if (parsed.event === "done") {
-      const doneEvent = chatDoneEventSchema.parse(parsed.data);
+    const declaredEvent = block
+      .split("\n")
+      .find((line) => line.startsWith("event:"))
+      ?.slice(6)
+      .trim();
+    let parsed: { event: string; data: unknown } | null;
+    try {
+      parsed = parseEventBlock(block);
+    } catch (error) {
+      // Auxiliary progress events are useful UI decoration, not the answer
+      // itself.  A provider/version-specific extra field must not erase text
+      // that has already arrived.  Core text/terminal events remain strict.
       if (
-        !acceptDurableEvent(
-          {
-            run_id: doneEvent.run_id ?? undefined,
-            sequence: doneEvent.sequence,
-          },
-          cursor
-        )
+        declaredEvent &&
+        [
+          "agent_start",
+          "thinking",
+          "tool_call",
+          "tool_result",
+          "approval_required",
+          "safety_notice",
+        ].includes(declaredEvent)
       ) {
         return;
       }
-      sawTerminal = true;
-      callbacks.onDone?.(
-        doneEvent.full_text,
-        doneEvent.references.map(toCitation),
-        doneEvent.trace_id,
-        doneEvent.run_id === null
-          ? null
-          : {
-              runId: doneEvent.run_id,
-              answerGroupRunId: doneEvent.answer_group_run_id!,
-              answerVersionId: doneEvent.answer_version_id!,
-              answerVersion: doneEvent.answer_version!,
+      throw error;
+    }
+    if (!parsed) return;
+    const auxiliaryEvent = [
+      "agent_start",
+      "thinking",
+      "tool_call",
+      "tool_result",
+      "approval_required",
+      "safety_notice",
+    ].includes(parsed.event);
+    try {
+      if (parsed.event === "agent_start") {
+        const event = agentStartSchema.parse(parsed.data);
+        acceptDurableEvent(event, cursor);
+      } else if (parsed.event === "text_delta") {
+        const event = textDeltaSchema.parse(parsed.data);
+        if (acceptDurableEvent(event, cursor)) callbacks.onText?.(event.content);
+      } else if (parsed.event === "thinking") {
+        const event = thinkingSchema.parse(parsed.data);
+        if (acceptDurableEvent(event, cursor)) callbacks.onThinking?.(event.content);
+      } else if (parsed.event === "tool_call") {
+        const tool = toolCallSchema.parse(parsed.data);
+        if (!acceptDurableEvent(tool, cursor)) return;
+        callbacks.onToolCall?.({
+          id: tool.tool_call_id,
+          name: tool.tool_name,
+          status: tool.status,
+        });
+      } else if (parsed.event === "tool_result") {
+        const tool = toolResultSchema.parse(parsed.data);
+        if (!acceptDurableEvent(tool, cursor)) return;
+        callbacks.onToolResult?.({
+          id: tool.tool_call_id,
+          name: tool.tool_name,
+          status: tool.status,
+          durationMs: tool.duration_ms,
+          resultSummary: tool.result_summary,
+          resultCount: tool.result_count,
+          results: tool.results,
+        });
+      } else if (parsed.event === "approval_required") {
+        const approval = approvalRequiredSchema.parse(parsed.data);
+        if (!acceptDurableEvent(approval, cursor)) return;
+        callbacks.onApprovalRequired?.({
+          id: approval.approval_id,
+          toolName: approval.tool_name,
+          expiresAt: approval.expires_at,
+          policyVersion: approval.policy_version,
+          toolVersion: approval.tool_version,
+        });
+      } else if (parsed.event === "safety_notice") {
+        const notice = safetyNoticeSchema.parse(parsed.data);
+        if (acceptDurableEvent(notice, cursor)) callbacks.onSafetyNotice?.(notice);
+      } else if (parsed.event === "done") {
+        const doneEvent = chatDoneEventSchema.parse(parsed.data);
+        if (
+          !acceptDurableEvent(
+            {
+              run_id: doneEvent.run_id ?? undefined,
+              sequence: doneEvent.sequence,
             },
-        {
-          disclaimerApplied: doneEvent.safety.disclaimer_applied,
-          modelExecution: doneEvent.model_execution
-            ? {
-                provider: doneEvent.model_execution.provider,
-                model: doneEvent.model_execution.model,
-                modelSlot: doneEvent.model_execution.model_slot,
-              }
-            : null,
-        },
-      );
-    } else if (parsed.event === "cancelled") {
-      const cancelled = cancelledSchema.parse(parsed.data);
-      if (!acceptDurableEvent(cancelled, cursor)) return;
-      sawTerminal = true;
-      callbacks.onCancelled?.(cancelled.trace_id, cancelled.message);
-    } else if (parsed.event === "interrupted") {
-      const interrupted = interruptedSchema.parse(parsed.data);
-      sawTerminal = true;
-      callbacks.onInterrupted?.(
-        interrupted.trace_id,
-        interrupted.message,
-      );
-    } else if (parsed.event === "error") {
-      const error = errorSchema.parse(parsed.data);
-      if (!acceptDurableEvent(error, cursor)) return;
-      throw new GerclawApiError(error.message, error.code, 500, error.trace_id);
-    } else {
-      throw new GerclawApiError(
-        "流式响应包含不支持的事件",
-        "CHAT_STREAM_INVALID",
-        502,
-        traceId
-      );
+            cursor
+          )
+        ) {
+          return;
+        }
+        sawTerminal = true;
+        callbacks.onDone?.(
+          doneEvent.full_text,
+          doneEvent.references.map(toCitation),
+          doneEvent.trace_id,
+          doneEvent.run_id === null
+            ? null
+            : {
+                runId: doneEvent.run_id,
+                answerGroupRunId: doneEvent.answer_group_run_id!,
+                answerVersionId: doneEvent.answer_version_id!,
+                answerVersion: doneEvent.answer_version!,
+              },
+          {
+            disclaimerApplied: doneEvent.safety.disclaimer_applied,
+            modelExecution: doneEvent.model_execution
+              ? {
+                  provider: doneEvent.model_execution.provider,
+                  model: doneEvent.model_execution.model,
+                  modelSlot: doneEvent.model_execution.model_slot,
+                }
+              : null,
+          },
+        );
+      } else if (parsed.event === "cancelled") {
+        const cancelled = cancelledSchema.parse(parsed.data);
+        if (!acceptDurableEvent(cancelled, cursor)) return;
+        sawTerminal = true;
+        callbacks.onCancelled?.(cancelled.trace_id, cancelled.message);
+      } else if (parsed.event === "interrupted") {
+        const interrupted = interruptedSchema.parse(parsed.data);
+        sawTerminal = true;
+        callbacks.onInterrupted?.(
+          interrupted.trace_id,
+          interrupted.message,
+        );
+      } else if (parsed.event === "error") {
+        const error = errorSchema.parse(parsed.data);
+        if (!acceptDurableEvent(error, cursor)) return;
+        throw new GerclawApiError(error.message, error.code, 500, error.trace_id);
+      } else {
+        // Forward-compatible auxiliary events must not invalidate the answer
+        // stream.  The terminal event remains the completion authority.
+        return;
+      }
+    } catch (error) {
+      if (auxiliaryEvent) return;
+      throw error;
     }
   };
 

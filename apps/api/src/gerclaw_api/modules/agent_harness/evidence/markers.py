@@ -134,16 +134,25 @@ def segment_has_admitted_model_marker(
 
 
 def validate_public_citation_markers(text: str, *, citation_count: int) -> str:
-    """Validate server-normalized C markers and reject leaked model E/W markers."""
+    """Keep valid public markers and remove stale markers without rejecting text.
+
+    Citation display is best effort rather than a requirement for answering a
+    question.  A model can retain a ``[C7]`` marker after retrieval returned
+    fewer sources, or a replay can use a different admitted citation count.
+    That marker has no meaning in the current response and is removed.  A
+    private E/W/A marker is still rejected because leaking provider/evidence
+    addressing into the public stream is a real boundary violation.
+    """
 
     if citation_count < 0:
         raise ValueError("citation count cannot be negative")
-    for match in _MODEL_MARKER.finditer(text):
+
+    def replace(match: re.Match[str]) -> str:
         if match.group("prefix").upper() != "C":
             raise CitationMarkerValidationError("model citation marker was not normalized")
-        if not 1 <= int(match.group("index")) <= citation_count:
-            raise CitationMarkerValidationError("public citation marker is out of range")
-    return text
+        return "" if int(match.group("index")) > citation_count else match.group(0)
+
+    return _ORPHAN_MARKER_GAP.sub("", _MODEL_MARKER.sub(replace, text))
 
 
 def audit_claim_evidence(

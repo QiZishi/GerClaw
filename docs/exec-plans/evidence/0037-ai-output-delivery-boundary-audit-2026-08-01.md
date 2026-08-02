@@ -118,6 +118,20 @@
 - `apps/api/src/gerclaw_api/modules/rag/module.py`
 - `apps/api/src/gerclaw_api/api/routes/rag.py`
 - `apps/api/src/gerclaw_api/api/routes/search.py`
+
+## 2026-08-02 交付失败链路复核与修正
+
+上一轮修复后仍可能出现“这次回答没有完整生成，请重试”的共性路径，实际根因不是模型没有返回文本，而是以下后处理/交付边界把可读正文升级成了失败：
+
+1. `run_lifecycle/agent_stream.py` 在模型流结束后把 AgentScope retained state 与已发送增量做逐字符比较；引用规范化、医疗措辞安全处理或空白差异都会进入 `agent_state_stream_mismatch` 并抛出 `AgentHarnessError`。该异常发生在 `done` 之前，前端只能收到重试提示。
+2. `run_lifecycle/output_repair.py` 用私有 events 缓冲整轮回答，只有最终校验成功后才发布；因此任何终态校验的偶发差异都会让前端完全看不到已经生成的步骤和正文，也不符合流式交付要求。
+3. `evidence/markers.py` 对越界的公共 `[C#]` 标记直接抛出 `CitationMarkerValidationError`。引用不是回答的必需条件，旧标记不能使正文失败。
+4. `apps/mvp/src/services/gerclaw/chat.ts` 对非核心辅助 SSE 事件采用严格 schema；单个 thinking/tool 元数据异常会中断整条正文流。未知辅助事件也会被当成协议失败。
+5. `useAgentConversationStream.ts` 在已收到正文后把 transport/runtime 错误追加到正文末尾，用户会看到一份可读答案加一条“没有完整生成”，从而被误判为整轮失败。
+
+本次修正将规则收敛为：私有工具协议仍不得进入公共文本；终态 `done`、权限归属、数据库一致性和医疗免责声明仍保留；其余不会改变正文安全性的差异只记录诊断、删除无意义引用标记或忽略辅助事件。正文和步骤事件即时发布，`done.full_text` 负责最终收敛；前端已有正文时不再追加通用重试文案。
+
+本次真实 GUI 验证（隔离 headless Chrome、未使用项目测试文件）：主页四个医学示例 4/4 均出现过程状态并最终展示正文、免责声明和“重新生成”，未出现重试提示；直接输入“你们这个系统是做什么的？”也返回完整系统说明并完成终态。独立 TTS 请求仍可返回 502，但未阻断聊天正文，故不计入聊天交付失败。
 - `apps/api/src/gerclaw_api/modules/runtime/tool_schemas.py`
 - `apps/api/src/gerclaw_api/modules/privacy_redaction/models.py`
 - `apps/api/src/gerclaw_api/modules/privacy_redaction/policy.py`

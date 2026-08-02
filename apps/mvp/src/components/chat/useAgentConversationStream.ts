@@ -216,9 +216,12 @@ export function useAgentConversationStream(): {
       const existingText = currentMessage
         ? getMessageText(currentMessage).trim()
         : "";
-      const deliveredText = existingText
-        ? `${existingText}\n\n${visibleError}`
-        : visibleError;
+      // Once readable answer text crossed the public boundary, do not append a
+      // generic retry sentence to it.  That sentence was the visible symptom
+      // of a transport/post-processing failure and made a valid answer look
+      // like a failed answer.  The terminal payload is still authoritative
+      // when it arrives; this branch only preserves already delivered text.
+      const deliveredText = existingText || visibleError;
       const blocks = currentMessage
         ? currentMessage.blocks.map((block) =>
             block.kind === "text" && block.id === assistantBlockId
@@ -234,7 +237,7 @@ export function useAgentConversationStream(): {
             },
           ];
       updateMessage(targetMessageId, {
-        status: isReaderFacingChatFallback(error) ? "done" : "error",
+        status: existingText || isReaderFacingChatFallback(error) ? "done" : "error",
         blocks,
         citations: undefined,
         hasDisclaimer:
@@ -705,11 +708,12 @@ export function useAgentConversationStream(): {
               const existingText = currentMessage
                 ? getMessageText(currentMessage).trim()
                 : "";
-              const deliveredText = existingText
-                ? `${existingText}\n\n${visibleError}`
-                : visibleError;
+              const deliveredText = existingText || visibleError;
               updateMessage(active.assistantMessageId, {
-                status: isReaderFacingChatFallback(error) ? "done" : "error",
+                status:
+                  existingText || isReaderFacingChatFallback(error)
+                    ? "done"
+                    : "error",
                 blocks: currentMessage?.blocks.map((block) =>
                   block.kind === "text"
                     ? { ...block, content: deliveredText, streaming: false }

@@ -34,6 +34,7 @@ from gerclaw_api.modules.agent_harness.run_lifecycle.errors import (
 from gerclaw_api.modules.agent_harness.run_lifecycle.protocols import RunLifecycle
 from gerclaw_api.modules.agent_harness.run_lifecycle.streaming import (
     bounded_events,
+    validate_public_answer_text,
 )
 from gerclaw_api.modules.agent_harness.safety import sanitize_medical_text
 from gerclaw_api.security import JsonValue
@@ -288,6 +289,12 @@ async def project_agent_stream(
             for safe_part in buffer.feed(event.delta):
                 public_part = canonical_stream.feed(public_text_transform(safe_part))
                 if public_part:
+                    # Keep the one genuinely dangerous output boundary: private
+                    # tool protocol markup must never reach the browser.  Check
+                    # each chunk before emitting it so a later final-state
+                    # reconciliation cannot turn a safe partial stream into a
+                    # hard request failure.
+                    validate_public_answer_text(public_part)
                     budget.add_output(public_part)
                     emitted_parts.append(public_part)
                     streamed_agent_parts.append(public_part)
@@ -309,6 +316,7 @@ async def project_agent_stream(
     if tail:
         public_tail = canonical_stream.feed(public_text_transform(tail))
         if public_tail:
+            validate_public_answer_text(public_tail)
             budget.add_output(public_tail)
             emitted_parts.append(public_tail)
             streamed_agent_parts.append(public_tail)
@@ -343,11 +351,26 @@ async def project_agent_stream(
             )
             missing_final_text = ""
         else:
+            # AgentScope's retained message and its delta stream are produced
+            # by different code paths.  Citation projection, sanitization, or
+            # provider whitespace can therefore make them differ even though
+            # the answer is perfectly readable.  A mismatch is diagnostic
+            # information, not a reason to discard the answer already sent to
+            # the browser.  Append only an authoritative suffix when the
+            # retained state is still an unambiguous extension; otherwise keep
+            # the delivered stream because it cannot be retracted over SSE.
             _LOGGER.warning("agent_state_stream_mismatch", extra=diagnostic_attributes)
-            raise AgentHarnessError("AgentScope final state did not match the public model stream")
+            if not streamed_agent_text:
+                missing_final_text = safe_retained_text
+            elif safe_retained_text.startswith(streamed_agent_text):
+                missing_final_text = safe_retained_text[len(streamed_agent_text) :]
+            else:
+                missing_final_text = ""
     if missing_final_text:
         public_final = canonical_stream.feed(missing_final_text)
         if public_final:
+            validate_public_answer_text(public_final)
+            budget.add_output(public_final)
             emitted_parts.append(public_final)
             streamed_agent_parts.append(public_final)
             await emit("text_delta", {"content": public_final})
