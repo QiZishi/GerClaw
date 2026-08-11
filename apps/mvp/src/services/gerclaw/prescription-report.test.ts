@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import test from "node:test";
 
 import { fivePrescriptionDraftToMarkdown } from "./prescription-report.ts";
-import type { FivePrescriptionDraft } from "./schemas.ts";
+import { fivePrescriptionDraftSchema, type FivePrescriptionDraft } from "./schemas.ts";
 
 const evidence = [{ evidence_id: "ev_local1234", title: "本地指南", source: "local", locator: "第 1 节", url: null }];
 const recommendation = [{ content: "建议项目", evidence_ids: ["ev_local1234"] }];
@@ -34,4 +34,11 @@ test("keeps every structured five-prescription field in the exported report", ()
     "运动禁忌核对", "1800 kcal", "60 g", "平衡训练", "功能评估", "手杖核对", "康复安全事项",
     "上传图片：本次使用 1 张病例图片", "章节依据：ev_local1234",
   ]) assert.ok(content.includes(expected), `export is missing ${expected}`);
+});
+
+test("rejects a structurally valid-looking response with a non-review status", () => {
+  assert.equal(
+    fivePrescriptionDraftSchema.safeParse({ ...draft, status: "approved" }).success,
+    false,
+  );
 });
