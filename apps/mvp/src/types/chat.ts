@@ -244,6 +244,8 @@ export interface Message {
   loadedSkills?: string[];
   /** 已上传文件ID列表 */
   uploadedFiles?: string[];
+  /** 本轮由用户明确选择的专业能力；失败原位重试时必须保持一致。 */
+  requestedCapabilities?: string[];
   /** 生成这条消息的受治理对话模式；用于避免跨模式展示错误的安全文案。 */
   workflow?: "standard" | "companion";
   /** 是否含免责声明 */
@@ -267,8 +269,6 @@ export interface Message {
   answerVersion?: number;
   /** 用户反馈 */
   feedback?: "up" | "down" | null;
-  /** 反馈文字 */
-  feedbackText?: string;
   /** 未知网络结果重试时复用，避免创建重复反馈。 */
   feedbackIdempotencyKey?: string;
 }

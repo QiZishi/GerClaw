@@ -144,6 +144,8 @@ export function useAgentConversationStream(): {
         createdAt: Date.now(),
         uploadedFiles:
           uploadedDocumentIds.length > 0 ? uploadedDocumentIds : undefined,
+        requestedCapabilities:
+          requestedCapabilities.length > 0 ? requestedCapabilities : undefined,
         workflow,
       });
     }

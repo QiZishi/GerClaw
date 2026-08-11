@@ -41,6 +41,7 @@ UI 的患者/医生模式仍只是交互视图；后端权限由 JWT scope 强�
 |---------|------|---------|---------|
 | API密钥 | 机密 | 仅存在部署平台环境变量，不写入前端代码，不写入localStorage | HTTPS，环境变量注入 |
 | 对话记录 | 敏感 | 浏览器保存交互缓存；PostgreSQL AES-256-GCM 加密列为后端会话事实源 | HTTPS |
+| 反馈评论 | 敏感 | 禁止写入 localStorage；仅保存到 PostgreSQL AES-256-GCM 加密列 | HTTPS |
 | 语音录音数据 | 敏感 | 录音仅存在内存中用于ASR上传，不持久化到localStorage | HTTPS，上传后立即释放 |
 | 评估结果/处方 | 敏感 | 当前专用前端流程保留本地缓存；接入后端的消息内容使用加密列 | HTTPS |
 | 应用配置/主题偏好 | 内部 | localStorage存储 | HTTPS |

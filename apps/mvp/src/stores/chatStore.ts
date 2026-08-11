@@ -7,13 +7,12 @@
 import { create } from "zustand";
 import type { Message, Session, SimpleStepData } from "@/types";
 import { toast } from "@/components/ui/toast";
+import { truncateMessages } from "@/stores/chat-message-persistence";
 
 const STORAGE_KEYS = {
   sessions: "gerclaw_sessions",
   messages: "gerclaw_messages",
 } as const;
-
-const MAX_MESSAGES_PER_SESSION = 50;
 
 let storageFullToastShown = false;
 
@@ -63,14 +62,6 @@ function saveToStorage<T>(key: string, value: T): void {
   }
 }
 
-function truncateMessages(messagesBySession: Record<string, Message[]>): Record<string, Message[]> {
-  const result: Record<string, Message[]> = {};
-  for (const [sid, msgs] of Object.entries(messagesBySession)) {
-    result[sid] = msgs.slice(-MAX_MESSAGES_PER_SESSION);
-  }
-  return result;
-}
-
 function sortSessions(sessions: Session[]): Session[] {
   return [...sessions].sort((a, b) => {
     if (a.pinned && !b.pinned) return -1;
@@ -117,7 +108,7 @@ interface ChatState {
   setMessageCitations: (id: string, citations: Message["citations"]) => void;
   removeMessage: (id: string) => void;
   deleteMessage: (id: string) => void;
-  setMessageFeedback: (id: string, feedback: "up" | "down" | null, feedbackText?: string) => void;
+  setMessageFeedback: (id: string, feedback: "up" | "down" | null) => void;
   getMessages: (sessionId: string) => Message[];
 
   // === 流式生成状态 ===
@@ -132,7 +123,10 @@ interface ChatState {
 }
 
 const initialSessions = loadFromStorage<Session[]>(STORAGE_KEYS.sessions, []);
-const initialMessages = loadFromStorage<Record<string, Message[]>>(STORAGE_KEYS.messages, {});
+const initialMessages = truncateMessages(
+  loadFromStorage<Record<string, Message[]>>(STORAGE_KEYS.messages, {}),
+);
+saveToStorage(STORAGE_KEYS.messages, initialMessages);
 
 export const useChatStore = create<ChatState>()((set, get) => ({
   // === 会话列表 ===
@@ -193,7 +187,7 @@ export const useChatStore = create<ChatState>()((set, get) => ({
     }),
 
   // === 消息 ===
-  messagesBySession: truncateMessages(initialMessages),
+  messagesBySession: initialMessages,
   setMessages: (sessionId, messages) =>
     set((s) => {
       const next = { ...s.messagesBySession, [sessionId]: messages };
@@ -598,12 +592,12 @@ export const useChatStore = create<ChatState>()((set, get) => ({
       return { messagesBySession: truncated };
     }),
   deleteMessage: (id) => get().removeMessage(id),
-  setMessageFeedback: (id, feedback, feedbackText) =>
+  setMessageFeedback: (id, feedback) =>
     set((s) => {
       const next = { ...s.messagesBySession };
       for (const sid of Object.keys(next)) {
         next[sid] = next[sid].map((m) =>
-          m.id === id ? { ...m, feedback, feedbackText } : m
+          m.id === id ? { ...m, feedback } : m
         );
       }
       const truncated = truncateMessages(next);

@@ -258,16 +258,58 @@ test("answer feedback, regeneration, export and artifact editing are durable", a
     .last();
   await expect(assistant).toContainText("100");
 
-  const feedbackSaved = page.waitForResponse(
+  await assistant.getByRole("button", { name: "没帮助" }).click();
+  const cancelledFeedbackDialog = page.getByRole("dialog", {
+    name: "没帮助反馈",
+  });
+  await expect(cancelledFeedbackDialog).toBeVisible();
+  await cancelledFeedbackDialog
+    .getByRole("textbox", { name: "反馈评论（可选）" })
+    .fill("这段文字不应提交。");
+  await page.screenshot({
+    path: "output/playwright/stage7-real-use/feedback-dialog.png",
+  });
+  await cancelledFeedbackDialog.getByRole("button", { name: "取消" }).click();
+  await expect(cancelledFeedbackDialog).toBeHidden();
+  await expect(assistant.getByRole("button", { name: "没帮助" })).toBeVisible();
+
+  const runFeedbackSaved = page.waitForResponse(
     (response) =>
       /\/api\/gerclaw\/runs\/[^/]+\/feedback$/.test(response.url()) &&
       response.request().method() === "PUT",
   );
+  const traceFeedbackSaved = page.waitForResponse(
+    (response) =>
+      response.url().endsWith("/api/gerclaw/feedback") &&
+      response.request().method() === "POST",
+  );
   await assistant.getByRole("button", { name: "有帮助" }).click();
-  expect((await feedbackSaved).status()).toBe(200);
+  const feedbackDialog = page.getByRole("dialog", { name: "有帮助反馈" });
+  await expect(feedbackDialog).toBeVisible();
+  await feedbackDialog
+    .getByRole("textbox", { name: "反馈评论（可选）" })
+    .fill("回答简洁，计算结果清楚。");
+  await expect(feedbackDialog.getByText("12 / 2000")).toBeVisible();
+  await feedbackDialog.getByRole("button", { name: "提交反馈" }).click();
+  const [runFeedbackResponse, traceFeedbackResponse] = await Promise.all([
+    runFeedbackSaved,
+    traceFeedbackSaved,
+  ]);
+  expect(runFeedbackResponse.status()).toBe(200);
+  expect(traceFeedbackResponse.status()).toBe(201);
+  expect(traceFeedbackResponse.request().postDataJSON()).toMatchObject({
+    rating: "positive",
+    comment: "回答简洁，计算结果清楚。",
+  });
+  await expect(feedbackDialog).toBeHidden();
   await expect(
     assistant.getByRole("button", { name: "撤销有帮助反馈" }),
   ).toBeVisible();
+  const persistedMessages = await page.evaluate(
+    () => window.localStorage.getItem("gerclaw_messages") ?? "",
+  );
+  expect(persistedMessages).not.toContain("回答简洁，计算结果清楚。");
+  expect(persistedMessages).not.toContain('"feedbackText"');
 
   await assistant.getByRole("button", { name: "重新生成" }).click();
   await expect(page.getByRole("button", { name: "停止生成" })).toHaveCount(0, {

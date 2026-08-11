@@ -53,7 +53,11 @@ export function MessageActions(props: MessageActionsProps) {
   const hasEmergency = !isUser && message.blocks.some((block) => block.kind === "emergency_alert");
   if (!terminal || hasEmergency) return null;
 
-  const showRegenerate = !isUser && message.status === "done" && props.isLastMessage && props.onRegenerate;
+  const showRegenerate =
+    !isUser &&
+    (message.status === "done" || message.status === "error") &&
+    props.isLastMessage &&
+    props.onRegenerate;
   const supportsRunFeedback = Boolean(message.executionRunId);
   const canFeedback = !isUser && message.status === "done" && (supportsRunFeedback || message.traceId);
   const feedback = actions.feedback;
@@ -106,7 +110,7 @@ export function MessageActions(props: MessageActionsProps) {
         )}
         {showRegenerate && (
           <ActionButton
-            label="重新生成"
+            label={message.status === "error" ? "重试" : "重新生成"}
             seniorMode={actions.seniorMode}
             onClick={() => props.onRegenerate?.(message.id)}
             icon={<RefreshCw className="size-4" />}
@@ -192,7 +196,7 @@ export function MessageActions(props: MessageActionsProps) {
           else feedback.setShowFeedbackDialog(open);
         }}
         onTextChange={feedback.setFeedbackText}
-        onSubmit={() => void feedback.submitLegacyFeedback()}
+        onSubmit={() => void feedback.submitFeedbackWithComment()}
       />
     </>
   );

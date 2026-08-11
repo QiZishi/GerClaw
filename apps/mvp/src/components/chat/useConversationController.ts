@@ -100,16 +100,30 @@ export function useConversationController({
 
     const userMessage = messages[userIndex];
     const currentAnswer = messages[assistantIndex];
-    if (!currentAnswer.answerGroupRunId || !currentAnswer.answerVersionId) {
-      toast.show("请刷新对话以恢复服务端回答版本后再重新生成");
-      return;
-    }
     const images: ImageAttachment[] = userMessage.blocks
       .filter(
         (block): block is Extract<MessageBlock, { kind: "image" }> =>
           block.kind === "image",
       )
       .map((block) => block.data);
+    if (currentAnswer.status === "error") {
+      sendTurn(
+        currentSessionId,
+        getMessageText(userMessage),
+        true,
+        images.length > 0 ? images : undefined,
+        userMessage.uploadedFiles ?? [],
+        currentAnswer.workflow ?? "standard",
+        userMessage.requestedCapabilities ?? [],
+        undefined,
+        messageId,
+      );
+      return;
+    }
+    if (!currentAnswer.answerGroupRunId || !currentAnswer.answerVersionId) {
+      toast.show("请刷新对话以恢复服务端回答版本后再重新生成");
+      return;
+    }
     sendTurn(
       currentSessionId,
       getMessageText(userMessage),
@@ -154,7 +168,6 @@ export function useConversationController({
       answerVersion: version.version,
       executionRunId: version.producer_run_id,
       feedback: null,
-      feedbackText: undefined,
     });
   };
 
