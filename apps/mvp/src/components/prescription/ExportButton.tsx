@@ -22,6 +22,7 @@ import {
 import { cn } from "@/lib/utils";
 import {
   exportToHtml,
+  exportToMarkdown,
   exportToDocx,
   exportToPdf,
   exportToPng,
@@ -32,7 +33,7 @@ import { toast } from "@/components/ui/toast";
 import { sanitizeRichHtml } from "@/components/artifact/rich-text-document";
 
 /** Export is a presentation concern; it must not depend on clinical-report types. */
-type ExportFormat = "html" | "png" | "jpg" | "pdf" | "docx";
+type ExportFormat = "markdown" | "html" | "png" | "jpg" | "pdf" | "docx";
 
 interface ExportButtonProps {
   className?: string;
@@ -42,6 +43,8 @@ interface ExportButtonProps {
   variant?: "buttons" | "dropdown";
   renderedHtml?: string;
   formats?: readonly ExportFormat[];
+  contentIncludesMedicalDisclaimer?: boolean;
+  seniorMode?: boolean;
 }
 
 const FORMAT_OPTIONS: {
@@ -49,6 +52,7 @@ const FORMAT_OPTIONS: {
   label: string;
   icon: React.ReactNode;
 }[] = [
+  { value: "markdown", label: "Markdown (.md)", icon: <FileText className="size-4" /> },
   { value: "html", label: "网页文档 (.html)", icon: <FileText className="size-4" /> },
   { value: "png", label: "PNG 图片", icon: <FileImage className="size-4" /> },
   { value: "jpg", label: "JPG 图片", icon: <FileImage className="size-4" /> },
@@ -133,6 +137,8 @@ export function ExportButton({
   variant = "buttons",
   renderedHtml,
   formats,
+  contentIncludesMedicalDisclaimer = false,
+  seniorMode = false,
 }: ExportButtonProps) {
   const [exported, setExported] = useState(false);
   const [exportingFormat, setExportingFormat] = useState<ExportFormat | null>(null);
@@ -143,6 +149,10 @@ export function ExportButton({
 
     try {
       switch (format) {
+        case "markdown":
+          exportToMarkdown({ title, content, subtitle, contentIncludesMedicalDisclaimer });
+          toast.show("Markdown 文件已下载");
+          break;
         case "html":
           exportToHtml({ title, content, subtitle }, renderedHtml);
           toast.show("渲染文档已下载");
@@ -200,6 +210,7 @@ export function ExportButton({
       setTimeout(() => setExported(false), 2000);
     } catch {
       const formatLabels: Record<ExportFormat, string> = {
+        markdown: "Markdown",
         html: "网页文档",
         png: "PNG",
         jpg: "JPG",
@@ -227,7 +238,7 @@ export function ExportButton({
               <Button
                 variant="outline"
                 size="sm"
-                className="gap-1.5"
+                className={cn("gap-1.5", seniorMode && "min-h-12 px-4 text-lg")}
                 aria-label="导出"
                 disabled={exportingFormat !== null}
               />
@@ -254,6 +265,7 @@ export function ExportButton({
                 key={opt.value}
                 onClick={() => handleExport(opt.value)}
                 disabled={exportingFormat !== null}
+                className={cn(seniorMode && "min-h-12 text-lg")}
               >
                 {opt.icon}
                 {opt.label}
@@ -274,7 +286,7 @@ export function ExportButton({
             key={opt.value}
             variant="outline"
             size="sm"
-            className="gap-1"
+            className={cn("gap-1", seniorMode && "min-h-12 px-4 text-lg")}
             onClick={() => handleExport(opt.value)}
             aria-label={`导出为 ${opt.label}`}
             disabled={exportingFormat !== null}
@@ -289,6 +301,8 @@ export function ExportButton({
             <span className="text-xs">
               {opt.value === "html"
                 ? "HTML"
+                : opt.value === "markdown"
+                ? "MD"
                 : opt.value === "docx"
                 ? "DOCX"
                 : opt.value.toUpperCase()}

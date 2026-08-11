@@ -1,3 +1,4 @@
+import { readFile } from "node:fs/promises";
 import { expect, test, type Page } from "@playwright/test";
 
 async function enterGuestWorkspace(page: Page) {
@@ -233,6 +234,18 @@ test("guest creates a source-bound five-prescription draft", async ({
   const reportPanel = page.getByLabel("五大处方报告");
   await expect(reportPanel).toBeVisible();
   await expect(reportPanel).toContainText("证据");
+  await reportPanel.getByRole("button", { name: "导出" }).click();
+  const markdownDownload = page.waitForEvent("download");
+  await page.getByRole("menuitem", { name: "Markdown (.md)" }).click();
+  const download = await markdownDownload;
+  expect(download.suggestedFilename()).toMatch(/\.md$/);
+  const downloadPath = await download.path();
+  expect(downloadPath).not.toBeNull();
+  const exportedMarkdown = await readFile(downloadPath!, "utf8");
+  for (const heading of ["药物处方", "运动处方", "营养处方", "心理处方", "康复处方", "证据来源"]) {
+    expect(exportedMarkdown).toContain(heading);
+  }
+  expect(exportedMarkdown.match(/AI生成建议仅供参考/g)).toHaveLength(1);
   await expect(
     page.getByText(/内部错误|正在修复|checkpoint|schema|policy/i),
   ).toHaveCount(0);

@@ -50,7 +50,13 @@ export function RightPanelHeader({
           </Button>
         )}
         {EXPORTABLE.includes(type) && content && (
-          <ExportButton title={title} content={content} variant="dropdown" />
+          <ExportButton
+            title={title}
+            content={content}
+            variant="dropdown"
+            contentIncludesMedicalDisclaimer={type === "prescription"}
+            seniorMode={senior}
+          />
         )}
         <Button
           variant="ghost"

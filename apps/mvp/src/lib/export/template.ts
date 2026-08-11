@@ -3,6 +3,8 @@ export interface ExportConfig {
   content: string;
   subtitle?: string;
   date?: string;
+  /** The validated document body already ends with its server-owned notice. */
+  contentIncludesMedicalDisclaimer?: boolean;
 }
 
 export const MEDICAL_EXPORT_DISCLAIMER = "本内容由 GerClaw AI 生成，仅供参考，不能替代专业医疗诊断和治疗建议。身体不适请及时就医，用药请遵医嘱。";
@@ -44,10 +46,12 @@ export function buildMarkdownDocument(config: ExportConfig): string {
   parts.push("");
   parts.push(config.content.trim());
   parts.push("");
-  parts.push("---");
-  parts.push("");
-  parts.push(DISCLAIMER);
-  parts.push("");
+  if (!config.contentIncludesMedicalDisclaimer) {
+    parts.push("---");
+    parts.push("");
+    parts.push(DISCLAIMER);
+    parts.push("");
+  }
 
   return parts.join("\n");
 }
