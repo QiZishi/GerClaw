@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useRef, useState, type FormEvent } from "react";
 import { RefreshCw, Square } from "lucide-react";
 import { ChatInput, type ChatDocumentAttachment } from "@/components/chat/ChatInput";
 import { Button } from "@/components/ui/button";
@@ -10,13 +10,20 @@ import { cn } from "@/lib/utils";
 import { PRESCRIPTION_COMPLETING_MAX_TURNS } from "@/lib/constants";
 import {
   generatePrescriptionDraft,
+  getClinicalIntake,
   listPrescriptionDrafts,
   processPrescriptionConversationTurn,
   startClinicalIntake,
+  updateClinicalIntake,
 } from "@/services/gerclaw/clinical-intakes";
 import type { ClinicalIntake, FivePrescriptionDraft } from "@/services/gerclaw/schemas";
 import type { ImageAttachment } from "@/types";
 import { GerclawApiError } from "@/services/gerclaw/client";
+import {
+  prepareManualPrescriptionAnswers,
+  prescriptionMissingFields,
+  prescriptionTurnProgress,
+} from "./prescription-completion";
 
 type ConversationMessage = {
   id: string;
@@ -61,9 +68,13 @@ export function PrescriptionConversation({
   const [generationFailureMessageId, setGenerationFailureMessageId] = useState<string | null>(null);
   const [generationComplete, setGenerationComplete] = useState(false);
   const [elapsedSeconds, setElapsedSeconds] = useState(0);
+  const [manualAnswers, setManualAnswers] = useState<Record<string, string>>({});
+  const [manualSaving, setManualSaving] = useState(false);
+  const [manualError, setManualError] = useState<string | null>(null);
   const generationStartedRef = useRef(false);
   const turnSubmissionInFlightRef = useRef(false);
   const generationAbortControllerRef = useRef<AbortController | null>(null);
+  const manualFieldRefs = useRef<Record<string, HTMLTextAreaElement | null>>({});
 
   useEffect(() => {
     let live = true;
@@ -194,6 +205,48 @@ export function PrescriptionConversation({
     generationAbortControllerRef.current?.abort();
   };
 
+  const handleManualCompletion = async (event: FormEvent<HTMLFormElement>) => {
+    event.preventDefault();
+    if (!intake || manualSaving) return;
+    const missingFields = prescriptionMissingFields(intake.fields, intake.missing_required_fields);
+    const prepared = prepareManualPrescriptionAnswers(missingFields, manualAnswers);
+    if (prepared.firstMissingFieldId) {
+      setManualError("请填写全部缺失信息后再保存。");
+      manualFieldRefs.current[prepared.firstMissingFieldId]?.focus();
+      return;
+    }
+    setManualSaving(true);
+    setManualError(null);
+    try {
+      const next = await updateClinicalIntake({
+        intakeId: intake.intake_id,
+        expectedRevision: intake.revision,
+        answers: prepared.answers,
+      });
+      setIntake(next);
+      if (next.status === "information_complete_pending_governance") {
+        setManualAnswers({});
+        append("assistant", "关键信息已补齐，接下来生成待临床复核草案。 ");
+        void generate(next);
+      } else {
+        setManualError("仍有必填信息未完成，请继续核对。");
+      }
+    } catch (error) {
+      if (error instanceof GerclawApiError && error.status === 409) {
+        try {
+          setIntake(await getClinicalIntake(intake.intake_id));
+          setManualError("信息已在其他页面更新，请核对后重新保存。");
+        } catch {
+          setManualError("暂时无法读取最新信息，请稍后重试。");
+        }
+      } else {
+        setManualError("补充信息未保存，请重试。");
+      }
+    } finally {
+      setManualSaving(false);
+    }
+  };
+
   const handleSend = async (
     text: string,
     images: ImageAttachment[] | undefined,
@@ -202,7 +255,14 @@ export function PrescriptionConversation({
     // A text Enter event and an immediate click can arrive before React has
     // painted the disabled send control. Keep a synchronous lock so both
     // paths cannot submit the same intake revision.
-    if (!intake || loading || generating || generationStartedRef.current || turnSubmissionInFlightRef.current) return false;
+    if (
+      !intake ||
+      loading ||
+      generating ||
+      generationStartedRef.current ||
+      turnSubmissionInFlightRef.current ||
+      intake.conversation_turns >= PRESCRIPTION_COMPLETING_MAX_TURNS
+    ) return false;
     turnSubmissionInFlightRef.current = true;
     setSending(true);
     const documentIds = [...new Set([
@@ -230,7 +290,7 @@ export function PrescriptionConversation({
       if (turn.ready_to_generate) {
         void generate(turn.intake);
       } else if (turn.intake.conversation_turns >= PRESCRIPTION_COMPLETING_MAX_TURNS) {
-        append("assistant", "还需要补充关键信息后才能生成草案。请重新开始后继续补充。 ");
+        append("assistant", "已完成 5 轮信息补充。为保证安全，请在下方核对缺失字段；信息完整前不会生成草案。 ");
       } else {
         append("assistant", turn.assistant_message);
       }
@@ -247,6 +307,17 @@ export function PrescriptionConversation({
   const retryGeneration = () => {
     if (intake?.status === "information_complete_pending_governance") void generate(intake);
   };
+
+  const turnProgress = prescriptionTurnProgress(
+    intake?.conversation_turns ?? 0,
+    PRESCRIPTION_COMPLETING_MAX_TURNS,
+  );
+  const turnLimitReached = Boolean(
+    intake?.status === "collecting" && turnProgress.limitReached,
+  );
+  const manualFields = intake
+    ? prescriptionMissingFields(intake.fields, intake.missing_required_fields)
+    : [];
 
   return (
     <div className="flex min-h-0 flex-1 flex-col bg-background">
@@ -267,6 +338,16 @@ export function PrescriptionConversation({
             </div>
           ))}
           {loading && <p className={cn("text-muted-foreground", seniorMode ? "text-lg" : "text-sm")}>正在准备对话…</p>}
+          {intake?.status === "collecting" && (
+            <p
+              className={cn("text-muted-foreground", seniorMode ? "text-lg" : "text-sm")}
+              role="status"
+              aria-live="polite"
+            >
+              信息补充：已完成 {turnProgress.completed}/{PRESCRIPTION_COMPLETING_MAX_TURNS} 轮，
+              还可对话补充 {turnProgress.remaining} 轮。
+            </p>
+          )}
           {sending && !generating && (
             <div className={cn("flex items-center gap-2 self-start rounded-2xl border border-border bg-muted/50 px-4 py-3 text-muted-foreground", seniorMode ? "text-lg" : "text-sm")} role="status" aria-live="polite">
               <span className="codex-activity-dots" aria-hidden="true">
@@ -300,9 +381,49 @@ export function PrescriptionConversation({
               {generationFailed ? "重新生成" : "生成五大处方草案"}
             </Button>
           )}
+          {turnLimitReached && (
+            <section
+              className="space-y-4 rounded-xl border border-amber-500/50 bg-amber-50/70 p-4 text-amber-950 dark:bg-amber-950/20 dark:text-amber-100"
+              aria-labelledby="prescription-manual-completion-title"
+            >
+              <div className={cn("space-y-1", seniorMode ? "text-lg" : "text-sm")}>
+                <h2 id="prescription-manual-completion-title" className={cn("font-semibold", seniorMode && "text-xl")}>
+                  请核对缺失信息
+                </h2>
+                <p>对话补充已达到 5 轮上限。信息完整前不会生成五大处方草案。</p>
+              </div>
+              <form className="space-y-4" onSubmit={handleManualCompletion}>
+                {manualFields.map((field) => (
+                  <div key={field.id} className="space-y-2">
+                    <label htmlFor={`prescription-manual-${field.id}`} className={cn("block font-medium", seniorMode && "text-lg")}>
+                      {field.label}（必填）
+                    </label>
+                    <textarea
+                      ref={(element) => { manualFieldRefs.current[field.id] = element; }}
+                      id={`prescription-manual-${field.id}`}
+                      value={manualAnswers[field.id] ?? ""}
+                      onChange={(event) => setManualAnswers((current) => ({
+                        ...current,
+                        [field.id]: event.target.value.slice(0, field.max_length),
+                      }))}
+                      maxLength={field.max_length}
+                      className={cn(
+                        "min-h-24 w-full rounded-md border border-input bg-background p-3 text-foreground",
+                        seniorMode && "min-h-32 text-lg",
+                      )}
+                    />
+                  </div>
+                ))}
+                {manualError && <p role="alert" className={cn("font-medium text-destructive", seniorMode ? "text-lg" : "text-sm")}>{manualError}</p>}
+                <Button type="submit" disabled={manualSaving || manualFields.length === 0} className={cn(seniorMode && "min-h-12 px-5 text-lg")}>
+                  {manualSaving ? "正在保存…" : "保存并继续生成"}
+                </Button>
+              </form>
+            </section>
+          )}
         </div>
       </section>
-      {intake?.status !== "information_complete_pending_governance" && (
+      {intake?.status !== "information_complete_pending_governance" && !turnLimitReached && (
         <ChatInput
           onSend={handleSend}
           isGenerating={generating}
