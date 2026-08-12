@@ -107,4 +107,54 @@ test("the fifth incomplete turn switches to safe manual completion", async ({ pa
   await expect(page.getByText("五大处方草案已生成，可以查看草案内容。")).toBeVisible();
   expect(patchCalls).toBe(1);
   expect(generationCalls).toBe(1);
+
+  const reportHeading = page.getByRole("heading", { name: "五大处方待临床复核草案" });
+  await expect(reportHeading).toBeVisible();
+  await page.getByRole("button", { name: "关闭" }).click();
+  await expect(reportHeading).toHaveCount(0);
+  const reopen = page.getByRole("button", { name: "查看五大处方草案" });
+  await expect(reopen).toBeVisible();
+  await reopen.click();
+  await expect(reportHeading).toBeVisible();
+});
+
+test("a restored prescription draft can be reopened after closing the desktop panel", async ({ page }) => {
+  await page.setViewportSize({ width: 1440, height: 1000 });
+  await enterGuestWorkspace(page);
+
+  await page.route("**/api/gerclaw/clinical-intakes**", async (route) => {
+    const request = route.request();
+    const path = new URL(request.url()).pathname;
+    const respond = (body: unknown) => route.fulfill({
+      status: 200,
+      contentType: "application/json",
+      body: JSON.stringify(body),
+    });
+    if (request.method() === "POST" && path.endsWith("/clinical-intakes")) {
+      await respond(intake(5, true));
+      return;
+    }
+    if (request.method() === "GET" && path.endsWith(`/clinical-intakes/${intakeId}/prescription-drafts`)) {
+      await respond({
+        items: [{
+          draft_id: "33333333-3333-4333-8333-333333333333",
+          intake_id: intakeId,
+          created_at: "2026-08-11T08:00:00.000Z",
+          draft: fivePrescriptionDraftFixture,
+          reviews: [],
+        }],
+      });
+      return;
+    }
+    await route.fallback();
+  });
+
+  await page.getByRole("button", { name: "五大处方计划" }).click();
+  const report = page.getByLabel("五大处方报告");
+  await expect(report).toBeVisible();
+  await report.getByRole("button", { name: "关闭" }).click();
+  await expect(report).toHaveCount(0);
+  await page.getByRole("button", { name: "查看五大处方草案" }).click();
+  await expect(page.getByLabel("五大处方报告")).toBeVisible();
+  await expect(page.getByText("已恢复最近一次五大处方草案，您可以在右侧查看。")).toBeVisible();
 });

@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useRef, useState, type FormEvent } from "react";
-import { RefreshCw, Square } from "lucide-react";
+import { PanelRightOpen, RefreshCw, Square } from "lucide-react";
 import { ChatInput, type ChatDocumentAttachment } from "@/components/chat/ChatInput";
 import { Button } from "@/components/ui/button";
 import { MarkdownRenderer } from "@/components/chat/MarkdownRenderer";
@@ -67,6 +67,7 @@ export function PrescriptionConversation({
   const [generationFailed, setGenerationFailed] = useState(false);
   const [generationFailureMessageId, setGenerationFailureMessageId] = useState<string | null>(null);
   const [generationComplete, setGenerationComplete] = useState(false);
+  const [latestDraft, setLatestDraft] = useState<FivePrescriptionDraft | null>(null);
   const [elapsedSeconds, setElapsedSeconds] = useState(0);
   const [manualAnswers, setManualAnswers] = useState<Record<string, string>>({});
   const [manualSaving, setManualSaving] = useState(false);
@@ -92,6 +93,7 @@ export function PrescriptionConversation({
           if (latest) {
             generationStartedRef.current = true;
             setGenerationComplete(true);
+            setLatestDraft(latest.draft);
             onPrescriptionDraftGenerated(latest.draft);
             const latestReview = latest.reviews[0];
             const latestAmendment = latest.reviews.find((review) => review.amended_markdown);
@@ -178,6 +180,7 @@ export function PrescriptionConversation({
     try {
       const draft = await generatePrescriptionDraft(readyIntake.intake_id, { signal: controller.signal });
       append("assistant", "五大处方草案已生成，可以查看草案内容。 ");
+      setLatestDraft(draft);
       onPrescriptionDraftGenerated(draft);
       setGenerationComplete(true);
     } catch (error) {
@@ -308,6 +311,10 @@ export function PrescriptionConversation({
     if (intake?.status === "information_complete_pending_governance") void generate(intake);
   };
 
+  const reopenLatestDraft = () => {
+    if (latestDraft) onPrescriptionDraftGenerated(latestDraft);
+  };
+
   const turnProgress = prescriptionTurnProgress(
     intake?.conversation_turns ?? 0,
     PRESCRIPTION_COMPLETING_MAX_TURNS,
@@ -380,6 +387,20 @@ export function PrescriptionConversation({
               {generationFailed ? <RefreshCw className="size-4" /> : null}
               {generationFailed ? "重新生成" : "生成五大处方草案"}
             </Button>
+          )}
+          {!generating && latestDraft && (
+            <div className="flex flex-wrap items-center gap-3 self-start">
+              <Button
+                type="button"
+                variant="outline"
+                onClick={reopenLatestDraft}
+                className={cn(seniorMode && "min-h-12 px-5 text-lg")}
+              >
+                <PanelRightOpen className="size-4" aria-hidden="true" />
+                查看五大处方草案
+              </Button>
+              <p className={cn("text-muted-foreground", seniorMode ? "text-lg" : "text-sm")}>关闭右侧报告后可从这里再次打开。</p>
+            </div>
           )}
           {turnLimitReached && (
             <section
