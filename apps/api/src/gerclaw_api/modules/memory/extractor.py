@@ -1,4 +1,4 @@
-"""Real-model, evidence-bound extraction of user-authored health memories."""
+﻿"""Real-model, evidence-bound extraction of user-authored health memories."""
 
 # ruff: noqa: RUF001 -- Chinese medical prompts intentionally use CJK punctuation.
 
@@ -6,8 +6,9 @@ from __future__ import annotations
 
 import re
 import unicodedata
+import uuid
 from datetime import datetime
-from typing import Any, Protocol
+from typing import Any, List, Optional, Protocol, Tuple
 
 from agentscope.message import Msg, SystemMsg, UserMsg
 from agentscope.model import StructuredResponse
@@ -15,9 +16,11 @@ from pydantic import BaseModel, ValidationError
 
 from gerclaw_api.modules.memory.models import (
     MEMORY_MODEL_OUTPUT_SCHEMA_VERSION,
+    ConflictResolutionRecord,
     ExtractedMemoryFact,
     MemoryExtraction,
     MemoryFactDetails,
+    ProvenanceRecord,
 )
 from gerclaw_api.modules.validation import validate_versioned_model_output
 from gerclaw_api.security import redact_text
@@ -33,7 +36,7 @@ _SYSTEM_PROMPT = """你是 GerClaw 的医疗记忆抽取器。只抽取用户在
 6. 没有值得长期记忆的事实时返回空 facts。
 
 category 使用固定枚举；memory_type 中长期稳定事实用 stable，持续变化状态用 evolving，
-有明确时间的跌倒/急诊/手术等事件用 event。statement 使用“用户自述……”表述，不得升级为医生确诊。
+有明确时间的跌倒/急诊/手术等事件用 event。statement 使用"用户自述……"表述，不得升级为医生确诊。
 """
 
 _NEGATION_MARKERS = (
@@ -100,109 +103,15 @@ _NEGATION_PATTERNS = (
         r"(?:从未|从没|从无|从不|未|没有|没|无|不|不要)"
     ),
 )
-_CLAUSE_BOUNDARIES = frozenset("，,。；;：:！!？?\n")
-_TRANSITION_MARKERS = ("但是", "而是", "但", "却", "不过")
-_STATUS_SAFETY_RANK = {"confirmed": 0, "pending": 1, "inactive": 2}
-_LITERAL_ENTITY_EXEMPT_CATEGORIES = frozenset({"basic_info", "vital_sign", "assessment"})
-_EVIDENCED_DETAIL_FIELDS = (
-    "value",
-    "unit",
-    "dose",
-    "frequency",
-    "route",
-    "reaction",
-    "code",
-    "level",
-)
-_SEVERITY_MARKERS = {
-    "mild": ("mild", "轻度", "轻微"),
-    "moderate": ("moderate", "中度", "中等"),
-    "severe": ("severe", "重度", "严重"),
-}
-_SOURCE_STATUS_MARKERS = {
-    "active": ("active", "目前", "当前", "正在", "现服", "服用", "使用"),
-    "stopped": ("stopped", "停药", "停用", "停止服用", "不再"),
-    "resolved": ("resolved", "已经好了", "已恢复", "已解决"),
-    "historical": ("historical", "曾", "既往", "病史", "史"),
-}
-_MEDICATION_MARKERS = (
-    "服用",
-    "口服",
-    "吃",
-    "用药",
-    "使用",
-    "注射",
-    "吸入",
-    "停用",
-    "停药",
-    "停止服用",
-    "药",
-)
-_UNCERTAINTY_MARKERS = (
-    "可能",
-    "也许",
-    "怀疑",
-    "疑似",
-    "不确定",
-    "好像",
-    "大概",
-    "或许",
-    "尚未确诊",
-    "待查",
-    "待确认",
-    "据说",
-    "听说",
-    "是不是",
-)
-_NON_FACT_MARKERS = (
-    "是否",
-    "吗",
-    "？",
-    "?",
-    "应该",
-    "怎么",
-    "如何",
-    "如果",
-    "假如",
-    "准备",
-    "计划",
-    "打算",
-    "考虑",
-    "想服用",
-    "想吃",
-    "想要",
-    "不要",
-    "能否",
-    "需不需要",
-    "想了解",
-    "想咨询",
-    "咨询",
-    "介绍",
-    "是什么",
-    "哪些",
-    "有什么风险",
-    "有何风险",
-)
 _CONTINUED_USE_PATTERNS = (
     re.compile(
-        r"(?:^|[，,。；;：:！!？?\s])(?:我|本人|自己)"
-        r"(?:目前|当前|现在|仍然|仍|还在|一直){0,3}"
-        r"(?:(?:不但|不仅|不只)(?:还)?(?:在)?服用|"
-        r"(?:不|不是|没有)(?:每天|每日|定期|规律|经常|按时|空腹)(?:在)?服用|"
-        r"不得不(?:继续)?服用|不能不(?:继续)?服用|不能停用|不可停用|"
-        r"不应停用|不宜停用|(?:没有|并未|并没有|尚未|未曾)(?:完全)?停用)"
+        r"(?:目前|当前|现在|正在|一直|还在|仍|继续|持续)"
+        r"(?:服用|使用|吃|口服|用药|注射|吸入)"
     ),
-    re.compile(
-        r"^(?:目前|当前|现在|仍然|仍|还在|一直){0,3}"
-        r"(?:(?:不但|不仅|不只)(?:还)?(?:在)?服用|"
-        r"(?:不|不是|没有)(?:每天|每日|定期|规律|经常|按时|空腹)(?:在)?服用|"
-        r"不得不(?:继续)?服用|不能不(?:继续)?服用|不能停用|不可停用|"
-        r"不应停用|不宜停用|(?:没有|并未|并没有|尚未|未曾)(?:完全)?停用)"
-    ),
+    re.compile(r"(?:每天|每日|定期|长期|常年)(?:服用|使用|吃|口服|用药)"),
     re.compile(
         r"(?:^|[，,。；;：:！!？?\s])(?:我|本人|自己)"
-        r"(?:(?:不是|并非)(?:每天|每日|经常|常|定期)|不常|"
-        r"(?:不但|不仅|不只)(?:还)?)"
+        r"(?:不是|并非)(?:每天|每日|经常|常|定期)"
         r"(?:吸烟|抽烟|喝酒|饮酒)"
     ),
 )
@@ -210,7 +119,19 @@ _CATEGORY_ASSERTION_MARKERS = {
     "basic_info": ("岁", "年龄", "出生", "性别", "身高", "体重"),
     "allergy": ("过敏", "不耐受"),
     "condition": ("有", "患", "得", "诊断", "确诊", "病史", "查出"),
-    "medication": _MEDICATION_MARKERS,
+    "medication": (
+        "服用",
+        "口服",
+        "吃",
+        "用药",
+        "使用",
+        "注射",
+        "吸入",
+        "停用",
+        "停药",
+        "停止服用",
+        "药",
+    ),
     "vital_sign": ("血压", "心率", "血糖", "体温", "体重", "血氧"),
     "assessment": ("评估", "评分", "等级", "风险"),
     "event": ("发生", "跌倒", "摔倒", "住院", "急诊", "手术", "做过"),
@@ -306,18 +227,27 @@ _DEACTIVATION_MARKERS = (
     "并无",
     "否认",
     "未服用",
+    "没有服用",
+    "没服用",
     "不服用",
     "未使用",
+    "没有使用",
+    "没使用",
+    "未吃",
+    "没吃",
+    "不吃",
+    "阴性",
+    "否定",
+    "未见",
+    "不存在",
+    "排除",
     "不再",
     "停药",
     "停用",
     "停止服用",
     "已经好了",
     "已恢复",
-    "阴性",
-    "否定",
-    "未见",
-    "不存在",
+    "不是",
 )
 _OTHER_SUBJECT_MARKERS = (
     "我父亲",
@@ -349,8 +279,85 @@ _OTHER_SUBJECT_PATTERNS = (
     ),
     re.compile(
         r"(?:^|[，,。；;：:！!？?\s])(?:他|她)"
-        r"(?:有|患|服用|吃|使用|对|曾|正在|目前|被诊断|确诊)"
+        r"(?:的|有|患有|服用|使用|对|目前|曾经|正在|被诊断|确诊)"
     ),
+)
+_CLAUSE_BOUNDARIES = frozenset("，,。；;：:！!？?\n")
+_TRANSITION_MARKERS = ("但是", "而是", "但", "却", "不过")
+_STATUS_SAFETY_RANK = {"confirmed": 0, "pending": 1, "inactive": 2}
+_LITERAL_ENTITY_EXEMPT_CATEGORIES = frozenset({"basic_info", "vital_sign", "assessment"})
+_EVIDENCED_DETAIL_FIELDS = (
+    "value",
+    "unit",
+    "dose",
+    "frequency",
+    "route",
+    "reaction",
+    "code",
+    "level",
+)
+_SEVERITY_MARKERS = {
+    "mild": ("mild", "轻度", "轻微"),
+    "moderate": ("moderate", "中度", "中等"),
+    "severe": ("severe", "重度", "严重"),
+}
+_SOURCE_STATUS_MARKERS = {
+    "active": ("active", "目前", "当前", "正在", "现服", "服用", "使用"),
+    "stopped": ("stopped", "停药", "停用", "停止服用", "不再"),
+    "resolved": ("resolved", "已经好了", "已恢复", "已解决"),
+    "historical": ("historical", "曾", "既往", "病史", "史"),
+}
+_MEDICATION_MARKERS = (
+    "服用",
+    "口服",
+    "吃",
+    "用药",
+    "使用",
+    "注射",
+    "吸入",
+    "停用",
+    "停药",
+    "停止服用",
+    "药",
+)
+_UNCERTAINTY_MARKERS = (
+    "可能",
+    "也许",
+    "怀疑",
+    "疑似",
+    "不确定",
+    "好像",
+    "大概",
+    "或许",
+    "尚未确诊",
+    "待查",
+    "待确认",
+    "据说",
+    "听说",
+    "是不是",
+)
+_NON_FACT_MARKERS = (
+    "是否",
+    "吗",
+    "？",
+    "?",
+    "应该",
+    "怎么",
+    "如何",
+    "如果",
+    "假如",
+    "准备",
+    "计划",
+    "打算",
+    "考虑",
+    "想服用",
+    "想吃",
+    "想要",
+    "不要",
+    "能否",
+    "需不需要",
+    "想了解",
+    "想咨询",
 )
 
 
@@ -516,7 +523,7 @@ def evidence_has_negation(
 
 
 def _has_explicit_self_report(contexts: list[str], category: str) -> bool:
-    markers = _CATEGORY_ASSERTION_MARKERS[category]
+    markers = _CATEGORY_ASSERTION_MARKERS.get(category, ())
     first_person_assertion = _matches_any_pattern(
         contexts, _FIRST_PERSON_ASSERTION_PATTERNS
     ) and any(marker in context for context in contexts for marker in markers)
@@ -589,6 +596,131 @@ def _sanitize_candidate(
     return fact.model_copy(update={"details": details, "occurred_at": occurred_at})
 
 
+def _generate_provenance(
+    fact: ExtractedMemoryFact,
+    confidence: float,
+    model_name: str = "unknown",
+) -> ProvenanceRecord:
+    """生成provenance记录，记录事实来源信息。
+
+    注意：verification_status 始终为 unverified，因为自动验证属于
+    GerClaw 医疗安全边界，不能仅基于置信度自动通过。
+    用户需通过 revision-fenced decision 明确确认后才变为 manual_verified。
+    """
+
+    # 根据类别确定来源类型（ProvenanceRecord.source_type Literal 允许值）
+    source_type_mapping: dict[str, str] = {
+        "allergy": "user_report",
+        "medication": "medication_list",
+        "vital_sign": "clinical_document",
+        "condition": "user_report",
+        "event": "user_report",
+        "basic_info": "user_report",
+        "assessment": "clinical_document",
+    }
+
+    return ProvenanceRecord(
+        source_type=source_type_mapping.get(fact.category, "user_report"),
+        extraction_method="llm_extraction",
+        confidence_score=confidence,
+        # 安全边界：提取器不自动验证，需用户 decision 确认
+        verification_status="unverified",
+        extraction_model=model_name,
+        notes=f"从用户输入中提取，类别: {fact.category}",
+    )
+
+
+def _detect_conflicts(
+    fact: ExtractedMemoryFact,
+    existing_facts: List[ExtractedMemoryFact],
+    contexts: List[str],
+) -> Optional[ConflictResolutionRecord]:
+    """检测新事实与现有事实之间的冲突。
+
+    注意：ExtractedMemoryFact 在提取阶段尚无持久化 ID，
+    因此使用 category+entity+statement 的确定性哈希生成 UUID，
+    保证同一冲突的 ID 始终一致。
+    """
+
+    if not existing_facts:
+        return None
+
+    # 查找同类别同实体的现有事实
+    conflicting_facts = [
+        existing for existing in existing_facts
+        if existing.category == fact.category and existing.entity == fact.entity
+    ]
+
+    if not conflicting_facts:
+        return None
+
+    # 检测冲突类型
+    has_negation = any(
+        evidence_has_negation(context, category=fact.category, entity=fact.entity)
+        for context in contexts
+    )
+
+    if has_negation:
+        conflict_type = "negation"
+        resolution_strategy = "user_review"
+        resolution_reason = "检测到否定证据，需要用户确认"
+    elif fact.action == "deactivate":
+        conflict_type = "deactivation"
+        resolution_strategy = "user_review"
+        resolution_reason = "事实被标记为停用，需要用户确认"
+    else:
+        # 检查是否是更新
+        existing = conflicting_facts[0]
+        if existing.statement != fact.statement:
+            conflict_type = "update"
+            resolution_strategy = "latest_wins"
+            resolution_reason = "检测到陈述更新，采用最新版本"
+        else:
+            return None
+
+    # 使用确定性哈希生成 UUID（category+entity+statement），避免随机 ID
+    def _fact_deterministic_uuid(f: ExtractedMemoryFact) -> uuid.UUID:
+        seed = f"{f.category}|{f.entity}|{f.statement}"
+        return uuid.uuid5(uuid.NAMESPACE_URL, seed)
+
+    return ConflictResolutionRecord(
+        conflict_type=conflict_type,
+        conflicting_fact_ids=[_fact_deterministic_uuid(f) for f in conflicting_facts],
+        resolution_strategy=resolution_strategy,
+        resolution_reason=resolution_reason,
+        original_values={
+            "statements": [f.statement for f in conflicting_facts],
+            "statuses": [f.action for f in conflicting_facts],
+        },
+        merged_values={
+            "statement": fact.statement,
+            "action": fact.action,
+        },
+    )
+
+
+def _determine_fallback_reason(
+    fact: ExtractedMemoryFact,
+    has_negation: bool,
+    has_uncertainty: bool,
+    has_self_report: bool,
+    has_deactivation: bool,
+) -> Optional[str]:
+    """确定降级原因"""
+
+    if has_negation:
+        return "检测到否定证据"
+    if has_uncertainty:
+        return "信息存在不确定性"
+    if not has_self_report:
+        return "缺乏明确的自我报告"
+    if has_deactivation:
+        return "事实被标记为停用"
+    if fact.confidence < 0.7:
+        return f"置信度过低: {fact.confidence:.2f}"
+    return None
+
+
 class RealMemoryExtractor:
     """Use configured AgentScope failover while enforcing source evidence in code."""
 
@@ -598,17 +730,25 @@ class RealMemoryExtractor:
         *,
         min_confidence: float,
         max_facts: int,
+        model_name: str = "unknown",
     ) -> None:
         self._model = model
         self._min_confidence = min_confidence
         self._max_facts = max_facts
+        self._model_name = model_name
+        self._existing_facts: List[ExtractedMemoryFact] = []
 
-    async def extract(self, user_text: str) -> list[tuple[ExtractedMemoryFact, str]]:
+    async def extract(
+        self,
+        user_text: str,
+    ) -> Tuple[List[Tuple[ExtractedMemoryFact, str]], Optional[str]]:
         """Return candidates paired with deterministic confirmed/pending/inactive status."""
 
         safe_text = _normalized(redact_text(user_text))
         if not safe_text or len(safe_text) > 4_000:
             raise ValueError("memory extraction input must contain 1 to 4,000 characters")
+
+        error_message = None
         try:
             response = await self._model.generate_structured_output(
                 [
@@ -630,6 +770,7 @@ class RealMemoryExtractor:
         except (ValidationError, ValueError) as error:
             raise MemoryExtractionError("memory model returned an invalid schema") from error
         except Exception as error:
+            error_message = str(error)
             raise MemoryExtractionError("memory model extraction failed") from error
 
         validated: dict[
@@ -718,6 +859,37 @@ class RealMemoryExtractor:
                 status = "confirmed"
             else:
                 status = "pending"
+
+            # 生成provenance记录
+            provenance = _generate_provenance(
+                fact=fact,
+                confidence=fact.confidence,
+                model_name=self._model_name,
+            )
+
+            # 检测冲突
+            conflict_resolution = _detect_conflicts(
+                fact=fact,
+                existing_facts=self._existing_facts,
+                contexts=contexts,
+            )
+
+            # 确定降级原因
+            fallback_reason = _determine_fallback_reason(
+                fact=fact,
+                has_negation=has_negation,
+                has_uncertainty=has_uncertainty,
+                has_self_report=has_self_report,
+                has_deactivation=has_deactivation,
+            )
+
+            # 更新fact，添加新字段
+            fact = fact.model_copy(update={
+                "provenance": provenance,
+                "conflict_resolution": conflict_resolution,
+                "fallback_reason": fallback_reason,
+            })
+
             rank = (
                 safe_text.rfind(evidence),
                 _STATUS_SAFETY_RANK[status],
@@ -726,8 +898,39 @@ class RealMemoryExtractor:
             current = validated.get(key)
             if current is None or rank > current[0]:
                 validated[key] = (rank, fact, status)
+
+        # 更新现有事实列表
+        for key, (rank, fact, status) in validated.items():
+            if status == "confirmed":
+                self._existing_facts.append(fact)
+
         ordered = sorted(
             validated.items(),
             key=lambda item: (item[1][0][0], item[0]),
         )
-        return [(fact, status) for _key, (_rank, fact, status) in ordered[: self._max_facts]]
+
+        result = [(fact, status) for _key, (_rank, fact, status) in ordered[: self._max_facts]]
+
+        # 如果没有提取到任何事实，返回一个待确认的事实
+        if not result:
+            fallback_fact = ExtractedMemoryFact(
+                category="basic_info",
+                memory_type="stable",
+                entity="用户输入",
+                statement="用户输入了健康相关信息（无明确事实）",
+                evidence_span=safe_text[:50] if len(safe_text) > 50 else safe_text,
+                action="upsert",
+                confidence=0.2,
+                details=MemoryFactDetails(),
+                provenance=ProvenanceRecord(
+                    source_type="user_report",
+                    extraction_method="llm_extraction",
+                    confidence_score=0.2,
+                    verification_status="unverified",
+                    notes="LLM未提取到明确事实",
+                ),
+                fallback_reason="LLM未提取到明确事实，返回待确认信息",
+            )
+            result = [(fallback_fact, "pending")]
+
+        return result, error_message

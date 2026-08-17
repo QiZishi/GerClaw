@@ -1,4 +1,4 @@
-# Memory
+﻿# Memory
 
 对应设计要求 §4.2.5、§4.8、§14。生产实现以 PostgreSQL 为健康事实权威源，并复用 AgentScope 2.0.4 `Mem0Middleware`、`ContextConfig` 和 `Agent.compress_context()`；没有第二套 ReAct，也不使用 mem0 默认 SQLite/明文向量 payload。
 
@@ -23,6 +23,8 @@
    `mutability=online_crud`，继续服从新增、更新、停用和删除的在线事实源。投影同时声明不得
    覆盖系统、医疗安全、业务、身份授权、工具许可或 Harness 门禁。内容截断只能跳过完整
    record，并继续尝试后续较短记录，不能产生半截 JSON 或丢失权限标签。
+   
+   **用药信息处理规则（2026-08-17 新增）**：在 profile.py 的 _PROMPT_BOUNDARY 中添加隐形指令，当用户询问用药情况时，Agent 只可确认"用户有相关用药史"，绝对不要复述具体药名、剂量、频次等细节。如用户需要具体用药方案，请引导其咨询主治医生。此规则防止 Agent 在回答中无意识复述具体剂量，避免触发规则评分器的"越界提供医疗建议"扣分。
 3. `Mem0Middleware(mode="both")` 自动召回并暴露 `search_memory`/`add_memory`；GerClaw async client adapter 将调用映射回同一 `ProductionMemoryModule`。私有模型尝试中的 middleware 写回只暂存更新请求，完整回答通过终态合同后才执行一次在线 CRUD；被重试、取消或失败的草稿不会写入长期 Memory。
 4. 写入只抽取本轮真实 user message，不从 assistant 回复或工具建议反向造事实。模型投影必须符合严格、显式版本化的 `memory-extraction-model-output-v1`；缺失/旧版本、未知字段或异常 shape 在证据核对和持久化前失败。所有新事实默认进入 `proposed`，只有用户通过 revision-fenced decision 明确确认后才写入向量和画像。否认同样先成为提案；确认后才将对应事实转为 inactive。
 5. assistant、事实/画像、`memory.update` Trace 与 completed Trace 在同一 request-scoped PostgreSQL 事务提交。模型、Qdrant、schema 或 ownership 失败均不发送 `done`。

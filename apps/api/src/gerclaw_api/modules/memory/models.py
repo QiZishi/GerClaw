@@ -1,11 +1,11 @@
-"""Strict extraction, persistence, API, and vector DTOs for Memory."""
+﻿"""Strict extraction, persistence, API, and vector DTOs for Memory."""
 
 from __future__ import annotations
 
 import unicodedata
 import uuid
 from datetime import datetime
-from typing import Final, Literal
+from typing import Any, Dict, Final, List, Literal
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
@@ -81,6 +81,37 @@ def validate_memory_fact_shape(
         raise ValueError("vital sign requires value and unit")
 
 
+class ProvenanceRecord(BaseModel):
+    """记录记忆事实的来源信息"""
+
+    model_config = ConfigDict(extra="forbid")
+
+    source_type: Literal["user_report", "clinical_document", "lab_result", "imaging", "medication_list", "other"] = "user_report"
+    source_reference: str | None = Field(default=None, max_length=500)  # 来源参考信息
+    extraction_method: Literal["llm_extraction", "rule_based", "manual_entry", "imported"] = "llm_extraction"
+    extraction_model: str | None = Field(default=None, max_length=100)  # 使用的模型
+    confidence_score: float = Field(default=0.0, ge=0, le=1)  # 提取置信度
+    verification_status: Literal["unverified", "auto_verified", "manual_verified", "disputed"] = "unverified"
+    verified_by: str | None = Field(default=None, max_length=100)  # 验证者
+    verified_at: datetime | None = None
+    notes: str | None = Field(default=None, max_length=500)  # 备注
+
+
+class ConflictResolutionRecord(BaseModel):
+    """记录冲突解决信息"""
+
+    model_config = ConfigDict(extra="forbid")
+
+    conflict_type: Literal["contradiction", "update", "negation", "ambiguity"] = "contradiction"
+    conflicting_fact_ids: List[uuid.UUID] = Field(default_factory=list, max_length=10)
+    resolution_strategy: Literal["latest_wins", "highest_confidence", "manual_review", "merge", "discard"] = "latest_wins"
+    resolution_reason: str | None = Field(default=None, max_length=500)
+    resolved_by: Literal["system", "user", "clinician"] = "system"
+    resolved_at: datetime = Field(default_factory=datetime.utcnow)
+    original_values: Dict[str, Any] = Field(default_factory=dict)  # 原始值备份
+    merged_values: Dict[str, Any] = Field(default_factory=dict)  # 合并后的值
+
+
 class ExtractedMemoryFact(BaseModel):
     """One LLM candidate that still requires deterministic evidence validation."""
 
@@ -95,6 +126,15 @@ class ExtractedMemoryFact(BaseModel):
     confidence: float = Field(ge=0, le=1)
     occurred_at: datetime | None = None
     details: MemoryFactDetails = Field(default_factory=MemoryFactDetails)
+
+    # 新增字段：来源信息
+    provenance: ProvenanceRecord = Field(default_factory=ProvenanceRecord)
+
+    # 新增字段：冲突解决记录
+    conflict_resolution: ConflictResolutionRecord | None = None
+
+    # 新增字段：失败原因记录
+    fallback_reason: str | None = Field(default=None, max_length=200)
 
     @field_validator("entity", "statement", "evidence_span", mode="before")
     @classmethod
@@ -139,6 +179,15 @@ class MemoryUpdateResult(BaseModel):
     inactive_count: int = Field(default=0, ge=0)
     categories: list[MemoryCategory] = Field(default_factory=list, max_length=10)
 
+    # 新增字段：冲突解决统计
+    conflicts_detected: int = Field(default=0, ge=0)
+    conflicts_resolved: int = Field(default=0, ge=0)
+
+    # 新增字段：降级检索统计
+    fallback_used: bool = Field(default=False)
+    fallback_strategy: str | None = Field(default=None, max_length=50)
+    fallback_reason: str | None = Field(default=None, max_length=200)
+
 
 class MemoryVectorRecord(BaseModel):
     """Embedding input with identifiers separated from encrypted source text."""
@@ -151,6 +200,10 @@ class MemoryVectorRecord(BaseModel):
     revision: int = Field(ge=1)
     statement: str = Field(min_length=1, max_length=1_000)
 
+    # 新增字段：时间戳
+    recorded_at: datetime = Field(default_factory=datetime.utcnow)
+    updated_at: datetime = Field(default_factory=datetime.utcnow)
+
 
 class MemoryVectorCandidate(BaseModel):
     """Qdrant result containing references only, never memory text."""
@@ -161,6 +214,10 @@ class MemoryVectorCandidate(BaseModel):
     revision: int = Field(ge=1)
     category: MemoryCategory
     score: float = Field(ge=0, le=1)
+
+    # 新增字段：时间信息
+    recorded_at: datetime | None = None
+    updated_at: datetime | None = None
 
 
 class HealthProfileRead(BaseModel):
@@ -173,6 +230,10 @@ class HealthProfileRead(BaseModel):
     cross_session_recall_enabled: bool = True
     profile: dict[str, object]
     facts: list[MemoryFactView] = Field(default_factory=list, max_length=200)
+
+    # 新增字段：冲突解决信息
+    pending_conflicts: int = Field(default=0, ge=0)
+    resolved_conflicts: int = Field(default=0, ge=0)
 
 
 class MemoryFactCreateRequest(BaseModel):
@@ -188,6 +249,9 @@ class MemoryFactCreateRequest(BaseModel):
     details: MemoryFactDetails = Field(default_factory=MemoryFactDetails)
     access_level: MemoryAccessLevel = "standard"
     occurred_at: datetime | None = None
+
+    # 新增字段：来源信息
+    provenance: ProvenanceRecord = Field(default_factory=ProvenanceRecord)
 
     @field_validator("entity", "statement", mode="before")
     @classmethod
@@ -220,6 +284,9 @@ class MemoryFactUpdateRequest(BaseModel):
     access_level: MemoryAccessLevel | None = None
     occurred_at: datetime | None = None
 
+    # 新增字段：冲突解决信息
+    conflict_resolution: ConflictResolutionRecord | None = None
+
     @field_validator("statement", mode="before")
     @classmethod
     def normalize_statement(cls, value: object) -> object:
@@ -234,7 +301,7 @@ class MemoryFactUpdateRequest(BaseModel):
 
     @model_validator(mode="after")
     def require_change(self) -> MemoryFactUpdateRequest:
-        mutable_fields = {"statement", "details", "access_level", "occurred_at"}
+        mutable_fields = {"statement", "details", "access_level", "occurred_at", "conflict_resolution"}
         if not self.model_fields_set.intersection(mutable_fields):
             raise ValueError("memory fact update requires at least one mutable field")
         if "statement" in self.model_fields_set and self.statement is None:
@@ -271,6 +338,9 @@ class MemoryFactDecisionRequest(BaseModel):
     decision: Literal["confirm", "reject"]
     access_level: MemoryAccessLevel = "standard"
 
+    # 新增字段：冲突解决决策
+    conflict_resolution: ConflictResolutionRecord | None = None
+
 
 class MemoryRecallPreferenceRequest(BaseModel):
     """Revision-fenced owner choice for cross-session recall."""
@@ -298,6 +368,9 @@ class MemoryFactDecisionRead(BaseModel):
     fact: MemoryFactView
     profile_version: int = Field(ge=1)
 
+    # 新增字段：冲突解决信息
+    conflicts_resolved: int = Field(default=0, ge=0)
+
 
 class MemoryFactMutationRead(BaseModel):
     """Current fact and profile projection after one owner CRUD mutation."""
@@ -306,6 +379,9 @@ class MemoryFactMutationRead(BaseModel):
 
     fact: MemoryFactView
     profile_version: int = Field(ge=1)
+
+    # 新增字段：冲突解决信息
+    conflicts_resolved: int = Field(default=0, ge=0)
 
 
 class MemoryFactRevisionRead(BaseModel):
@@ -337,6 +413,15 @@ class MemoryFactRevisionRead(BaseModel):
     tombstone_reason: MemoryTombstoneReason | None = None
     updated_at: datetime | None = None
     recorded_at: datetime
+
+    # 新增字段：来源信息
+    provenance: ProvenanceRecord = Field(default_factory=ProvenanceRecord)
+
+    # 新增字段：冲突解决记录
+    conflict_resolution: ConflictResolutionRecord | None = None
+
+    # 新增字段：失败原因
+    fallback_reason: str | None = Field(default=None, max_length=200)
 
 
 class MemoryFactHistoryRead(BaseModel):

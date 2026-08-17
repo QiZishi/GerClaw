@@ -48,6 +48,7 @@ def create_memory_module(
             model,
             min_confidence=settings.memory_extraction_min_confidence,
             max_facts=settings.memory_max_facts_per_turn,
+            model_name=f"{model.__class__.__name__}",
         ),
         compressor=AgentScopeContextCompressor(model),
         embedding_model=embedding_model,

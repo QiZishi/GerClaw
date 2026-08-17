@@ -1,4 +1,4 @@
-"""AgentScope ContextConfig compression with medical-critical preservation."""
+﻿"""AgentScope ContextConfig compression with medical-critical preservation."""
 
 # ruff: noqa: RUF001 -- Chinese medical prompts intentionally use CJK punctuation.
 
@@ -8,6 +8,7 @@ import hashlib
 import json
 import re
 from dataclasses import dataclass
+from typing import Dict, List, Tuple
 
 from agentscope.agent import Agent, ContextConfig
 from agentscope.message import AssistantMsg, HintBlock, Msg, UserMsg
@@ -18,15 +19,64 @@ from pydantic import BaseModel, ConfigDict, Field
 from gerclaw_api.modules.memory.protocols import MemoryMessage
 from gerclaw_api.token_estimation import estimate_text_tokens
 
+# 医学字段权重配置
+_MEDICAL_FIELD_WEIGHTS = {
+    # 高权重字段：必须保留
+    "allergy": 10,          # 过敏史
+    "medication": 9,        # 药物信息
+    "vital_sign": 8,        # 生命体征
+    "red_flag": 10,         # 红旗事件
+    "diagnosis": 7,         # 诊断信息
+    "procedure": 6,         # 手术/操作
+    "hospitalization": 6,   # 住院信息
+
+    # 中等权重字段：优先保留
+    "chronic_disease": 5,   # 慢性病
+    "symptom": 4,           # 症状
+    "test_result": 5,       # 检查结果
+    "lab_result": 5,        # 化验结果
+
+    # 低权重字段：可压缩
+    "lifestyle": 3,         # 生活方式
+    "preference": 2,        # 偏好
+    "general_chat": 1,      # 一般聊天
+}
+
+# 医学关键词模式
+_MEDICAL_PATTERNS = {
+    "allergy": re.compile(r"过敏|不耐受|不良反应|皮疹|荨麻疹|休克"),
+    "medication": re.compile(r"药|服药|用药|剂量|停药|减量|增量|mg|ml|片|粒"),
+    "vital_sign": re.compile(r"血压|血糖|心率|体温|呼吸|脉搏|血氧"),
+    "red_flag": re.compile(r"胸痛|呼吸困难|意识模糊|偏瘫|出血|跌倒|急诊|自杀|自伤"),
+    "diagnosis": re.compile(r"诊断|确诊|疑似|考虑|排除|疾病|综合征"),
+    "procedure": re.compile(r"手术|操作|穿刺|活检|内镜|介入"),
+    "hospitalization": re.compile(r"住院|入院|出院|转院|转科"),
+    "chronic_disease": re.compile(r"高血压|糖尿病|冠心病|慢阻肺|哮喘|关节炎"),
+    "symptom": re.compile(r"症状|不适|疼痛|头晕|乏力|恶心|呕吐|腹泻|便秘"),
+    "test_result": re.compile(r"检查|化验|CT|MRI|B超|X光|心电图|超声"),
+}
+
+# 压缩指令模板
 _COMPRESSION_INSTRUCTIONS = HintBlock(
     hint=(
         "压缩时必须保留：用户明确自述的全部过敏史、当前和已停用药物及剂量、"
-        "慢病来源状态、生命体征数值与时间、跌倒/急诊/自伤等红旗事件、"
-        "仍待确认的问题。禁止把症状升级成诊断，禁止编造未出现的事实。"
+        "慢性病来源状态、生命体征数值与时间、跌倒/急诊/自伤等红旗事件、"
+        "待确认的问题。禁止把症状升级成诊断，禁止编造未出现的事实。"
+        "\n\n字段权重优先级（从高到低）："
+        "\n1. 过敏史、红旗事件（权重10）"
+        "\n2. 药物信息（权重9）"
+        "\n3. 生命体征（权重8）"
+        "\n4. 诊断信息（权重7）"
+        "\n5. 手术/住院信息（权重6）"
+        "\n6. 慢性病、检查/化验结果（权重5）"
+        "\n7. 症状描述（权重4）"
+        "\n8. 生活方式（权重3）"
+        "\n9. 个人偏好（权重2）"
+        "\n10. 一般聊天内容（权重1）"
     ),
     source="system",
 )
-_FALLBACK_SEGMENT = re.compile(r"[^。！？!?\n]+(?:[。！？!?]+|\n+|$)")
+_FALLBACK_SEGMENT = re.compile(r"[^。！？\n]+(?:[。！？]+|\n+|$)")
 _FALLBACK_CRITICAL = re.compile(
     r"过敏|药|剂量|停用|血压|血糖|心率|胸痛|呼吸困难|意识|偏瘫|"
     r"出血|自伤|跌倒|检查|化验|手术|住院|急诊|否认|没有|不"
@@ -121,6 +171,48 @@ def _from_agent_message(message: Msg) -> MemoryMessage | None:
     if not text:
         return None
     return MemoryMessage(role=message.role, content=[{"type": "text", "text": text}])
+
+
+def calculate_medical_weight(text: str) -> Tuple[int, List[str]]:
+    """
+    计算文本的医学权重，返回权重分数和匹配的字段类型。
+    
+    Args:
+        text: 输入文本
+        
+    Returns:
+        Tuple[int, List[str]]: (权重分数, 匹配的字段类型列表)
+    """
+    weight = 0
+    matched_fields = []
+
+    for field_name, pattern in _MEDICAL_PATTERNS.items():
+        if pattern.search(text):
+            field_weight = _MEDICAL_FIELD_WEIGHTS.get(field_name, 1)
+            weight += field_weight
+            matched_fields.append(field_name)
+
+    return weight, matched_fields
+
+
+def extract_medical_entities(text: str) -> Dict[str, List[str]]:
+    """
+    从文本中提取医学实体。
+    
+    Args:
+        text: 输入文本
+        
+    Returns:
+        Dict[str, List[str]]: 按字段类型分组的医学实体
+    """
+    entities = {}
+
+    for field_name, pattern in _MEDICAL_PATTERNS.items():
+        matches = pattern.findall(text)
+        if matches:
+            entities[field_name] = list(set(matches))
+
+    return entities
 
 
 class AgentScopeContextCompressor:
@@ -235,14 +327,24 @@ class AgentScopeContextCompressor:
                 segment = raw_segment.strip()
                 if not segment:
                     continue
-                priority = (
-                    0
-                    if message.role == "user" and _FALLBACK_CRITICAL.search(segment)
-                    else 1
-                    if message.role == "user"
-                    else 2
-                )
+
+                # 计算医学权重
+                weight, matched_fields = calculate_medical_weight(segment)
+
+                # 根据权重设置优先级
+                if weight >= 8:  # 高权重医学字段
+                    priority = 0  # 最高优先级
+                elif weight >= 5:  # 中等权重医学字段
+                    priority = 1  # 高优先级
+                elif message.role == "user" and _FALLBACK_CRITICAL.search(segment):
+                    priority = 1  # 用户的关键内容
+                elif message.role == "user":
+                    priority = 2  # 用户的一般内容
+                else:
+                    priority = 3  # 助手内容
+
                 candidates.append((priority, index, f"[{label}] {segment}"))
+
         selected: list[tuple[int, str]] = []
         used = 0
         for _priority, order, excerpt in sorted(candidates, key=lambda item: (item[0], -item[1])):

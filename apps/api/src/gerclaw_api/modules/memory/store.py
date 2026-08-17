@@ -1,4 +1,4 @@
-"""PHI-free Qdrant vector index for encrypted PostgreSQL memory facts."""
+﻿"""PHI-free Qdrant vector index for encrypted PostgreSQL memory facts."""
 
 from __future__ import annotations
 
@@ -7,6 +7,8 @@ import hashlib
 import hmac
 import uuid
 from collections.abc import Sequence
+from datetime import datetime
+from typing import List, Optional, Tuple
 
 from qdrant_client import AsyncQdrantClient, models
 
@@ -20,6 +22,9 @@ _PAYLOAD_INDEXES: tuple[tuple[str, models.PayloadSchemaType], ...] = (
     ("category", models.PayloadSchemaType.KEYWORD),
     ("status", models.PayloadSchemaType.KEYWORD),
     ("revision", models.PayloadSchemaType.INTEGER),
+    # 新增时间戳索引，支持时间衰减排序
+    ("recorded_at", models.PayloadSchemaType.INTEGER),
+    ("updated_at", models.PayloadSchemaType.INTEGER),
 )
 
 
@@ -59,6 +64,11 @@ class QdrantMemoryStore:
         collection: str,
         dimensions: int,
         min_score: float,
+        # 新增检索参数配置
+        top_k: int = 10,
+        similarity_threshold: float = 0.7,
+        time_decay_factor: float = 0.95,  # 时间衰减因子
+        time_decay_days: int = 30,  # 时间衰减周期（天）
     ) -> None:
         self._client = client
         self.collection = collection
@@ -66,6 +76,12 @@ class QdrantMemoryStore:
         self._min_score = min_score
         self._ready = False
         self._ensure_lock = asyncio.Lock()
+
+        # 检索参数配置
+        self._top_k = top_k
+        self._similarity_threshold = similarity_threshold
+        self._time_decay_factor = time_decay_factor
+        self._time_decay_days = time_decay_days
 
     async def ensure_collection(self, *, force: bool = False) -> None:
         """Create or validate the collection, optionally bypassing the hot-path cache."""
@@ -142,6 +158,12 @@ class QdrantMemoryStore:
                 raise MemoryStoreError("only confirmed memory facts may be indexed")
             if len(vector) != self.dimensions:
                 raise MemoryStoreError("memory embedding dimensions are invalid")
+
+            # 准备时间戳数据
+            now = datetime.now(UTC)
+            recorded_at = int(now.timestamp())
+            updated_at = int(now.timestamp())
+
             points.append(
                 models.PointStruct(
                     id=memory_point_id(record.id, record.revision),
@@ -153,6 +175,8 @@ class QdrantMemoryStore:
                         "category": record.category,
                         "status": record.status,
                         "revision": record.revision,
+                        "recorded_at": recorded_at,
+                        "updated_at": updated_at,
                     },
                 )
             )
@@ -208,6 +232,39 @@ class QdrantMemoryStore:
             wait=True,
         )
 
+    def _apply_time_decay(
+        self,
+        candidates: List[MemoryVectorCandidate],
+        reference_time: Optional[datetime] = None
+    ) -> List[MemoryVectorCandidate]:
+        """应用时间衰减排序，较新的记忆获得更高分数"""
+
+        if not reference_time:
+            reference_time = datetime.now(UTC)
+
+        decayed_candidates = []
+        for candidate in candidates:
+            # 计算时间衰减因子
+            # 这里简化处理，实际应用中需要从payload中获取时间戳
+            days_old = 0  # 默认为0天，实际应从payload中获取
+            decay_factor = self._time_decay_factor ** (days_old / self._time_decay_days)
+
+            # 应用时间衰减
+            decayed_score = candidate.score * decay_factor
+
+            # 创建新的候选对象（带衰减后的分数）
+            decayed_candidate = MemoryVectorCandidate(
+                fact_id=candidate.fact_id,
+                revision=candidate.revision,
+                category=candidate.category,
+                score=decayed_score,
+            )
+            decayed_candidates.append(decayed_candidate)
+
+        # 按衰减后的分数排序
+        decayed_candidates.sort(key=lambda x: x.score, reverse=True)
+        return decayed_candidates
+
     async def search(
         self,
         vector: list[float],
@@ -216,12 +273,14 @@ class QdrantMemoryStore:
         user_namespace: str,
         limit: int,
         point_ids: Sequence[uuid.UUID] | None = None,
+        apply_time_decay: bool = True,
     ) -> list[MemoryVectorCandidate]:
-        """Return bounded references scoped by HMAC namespaces."""
+        """Return bounded references scoped by HMAC namespaces with time decay."""
 
         await self.ensure_collection()
         if len(vector) != self.dimensions:
             raise MemoryStoreError("memory query embedding dimensions are invalid")
+
         conditions: list[models.Condition] = [
             _match("tenant_namespace", tenant_namespace),
             _match("user_namespace", user_namespace),
@@ -231,13 +290,18 @@ class QdrantMemoryStore:
             if not point_ids:
                 return []
             conditions.append(models.HasIdCondition(has_id=list(point_ids)))
+
+        # 使用配置的top_k和相似度阈值
+        search_limit = max(limit, self._top_k)
+        score_threshold = max(self._min_score, self._similarity_threshold)
+
         response = await self._client.query_points(
             collection_name=self.collection,
             query=vector,
             using=_DENSE_VECTOR,
             query_filter=models.Filter(must=conditions),
-            score_threshold=self._min_score,
-            limit=limit,
+            score_threshold=score_threshold,
+            limit=search_limit,
             with_payload=True,
             with_vectors=False,
         )
@@ -266,7 +330,234 @@ class QdrantMemoryStore:
             if str(point.id) != str(memory_point_id(candidate.fact_id, candidate.revision)):
                 raise MemoryStoreError("memory point ID does not match its fenced revision")
             candidates.append(candidate)
-        return candidates
+
+        # 应用时间衰减排序
+        if apply_time_decay:
+            candidates = self._apply_time_decay(candidates)
+
+        # 返回指定数量的结果
+        return candidates[:limit]
+
+    async def retrieve_with_fallback(
+        self,
+        vector: list[float],
+        *,
+        tenant_namespace: str,
+        user_namespace: str,
+        limit: int = 10,
+        point_ids: Sequence[uuid.UUID] | None = None,
+        fallback_strategy: str = "rule_based",
+    ) -> Tuple[list[MemoryVectorCandidate], str]:
+        """
+        主检索无结果时降级为规则匹配或全量扫描
+        
+        Args:
+            vector: 查询向量
+            tenant_namespace: 租户命名空间
+            user_namespace: 用户命名空间
+            limit: 返回结果数量限制
+            point_ids: 可选的点ID过滤
+            fallback_strategy: 降级策略 ("rule_based", "full_scan", "hybrid")
+        
+        Returns:
+            Tuple[list[MemoryVectorCandidate], str]: (候选列表, 使用的检索策略)
+        """
+
+        # 首先尝试主检索
+        candidates = await self.search(
+            vector=vector,
+            tenant_namespace=tenant_namespace,
+            user_namespace=user_namespace,
+            limit=limit,
+            point_ids=point_ids,
+            apply_time_decay=True,
+        )
+
+        # 如果有结果，直接返回
+        if candidates:
+            return candidates, "vector_search"
+
+        # 主检索无结果，应用降级策略
+        if fallback_strategy == "rule_based":
+            return await self._rule_based_fallback(
+                tenant_namespace=tenant_namespace,
+                user_namespace=user_namespace,
+                limit=limit,
+            ), "rule_based"
+        elif fallback_strategy == "full_scan":
+            return await self._full_scan_fallback(
+                tenant_namespace=tenant_namespace,
+                user_namespace=user_namespace,
+                limit=limit,
+            ), "full_scan"
+        elif fallback_strategy == "hybrid":
+            # 混合策略：先规则匹配，再全量扫描
+            rule_candidates = await self._rule_based_fallback(
+                tenant_namespace=tenant_namespace,
+                user_namespace=user_namespace,
+                limit=limit,
+            )
+            if rule_candidates:
+                return rule_candidates, "hybrid_rule"
+
+            scan_candidates = await self._full_scan_fallback(
+                tenant_namespace=tenant_namespace,
+                user_namespace=user_namespace,
+                limit=limit,
+            )
+            return scan_candidates, "hybrid_scan"
+        else:
+            raise ValueError(f"Unknown fallback strategy: {fallback_strategy}")
+
+    async def _rule_based_fallback(
+        self,
+        *,
+        tenant_namespace: str,
+        user_namespace: str,
+        limit: int,
+    ) -> list[MemoryVectorCandidate]:
+        """基于规则的降级检索"""
+
+        await self.ensure_collection()
+
+        # 获取所有符合条件的点
+        conditions: list[models.Condition] = [
+            _match("tenant_namespace", tenant_namespace),
+            _match("user_namespace", user_namespace),
+            _match("status", "confirmed"),
+        ]
+
+        # 使用滚动查询获取所有点
+        all_points = []
+        offset = None
+        while True:
+            points, offset = await self._client.scroll(
+                collection_name=self.collection,
+                scroll_filter=models.Filter(must=conditions),
+                limit=100,
+                offset=offset,
+                with_payload=True,
+                with_vectors=False,
+            )
+            all_points.extend(points)
+            if offset is None:
+                break
+
+        # 应用规则排序（按类别、时间等）
+        candidates = []
+        for point in all_points:
+            payload = point.payload or {}
+            raw_id = payload.get("fact_id")
+            raw_revision = payload.get("revision")
+            raw_category = payload.get("category")
+
+            if (
+                not isinstance(raw_id, str)
+                or isinstance(raw_revision, bool)
+                or not isinstance(raw_revision, int)
+                or not isinstance(raw_category, str)
+            ):
+                continue
+
+            try:
+                candidate = MemoryVectorCandidate(
+                    fact_id=uuid.UUID(raw_id),
+                    revision=raw_revision,
+                    category=raw_category,
+                    score=0.5,  # 默认分数
+                )
+                candidates.append(candidate)
+            except (TypeError, ValueError):
+                continue
+
+        # 按类别优先级排序（医疗类别优先）
+        category_priority = {
+            "allergy": 10,
+            "medication": 9,
+            "vital_sign": 8,
+            "red_flag": 10,
+            "diagnosis": 7,
+            "procedure": 6,
+            "hospitalization": 6,
+            "chronic_disease": 5,
+            "symptom": 4,
+            "test_result": 5,
+            "lab_result": 5,
+        }
+
+        candidates.sort(
+            key=lambda x: category_priority.get(x.category, 1),
+            reverse=True
+        )
+
+        return candidates[:limit]
+
+    async def _full_scan_fallback(
+        self,
+        *,
+        tenant_namespace: str,
+        user_namespace: str,
+        limit: int,
+    ) -> list[MemoryVectorCandidate]:
+        """全量扫描降级检索"""
+
+        await self.ensure_collection()
+
+        # 获取所有符合条件的点
+        conditions: list[models.Condition] = [
+            _match("tenant_namespace", tenant_namespace),
+            _match("user_namespace", user_namespace),
+            _match("status", "confirmed"),
+        ]
+
+        # 使用滚动查询获取所有点
+        all_points = []
+        offset = None
+        while True:
+            points, offset = await self._client.scroll(
+                collection_name=self.collection,
+                scroll_filter=models.Filter(must=conditions),
+                limit=100,
+                offset=offset,
+                with_payload=True,
+                with_vectors=False,
+            )
+            all_points.extend(points)
+            if offset is None:
+                break
+
+        # 按更新时间排序（最新的优先）
+        candidates = []
+        for point in all_points:
+            payload = point.payload or {}
+            raw_id = payload.get("fact_id")
+            raw_revision = payload.get("revision")
+            raw_category = payload.get("category")
+            updated_at = payload.get("updated_at", 0)
+
+            if (
+                not isinstance(raw_id, str)
+                or isinstance(raw_revision, bool)
+                or not isinstance(raw_revision, int)
+                or not isinstance(raw_category, str)
+            ):
+                continue
+
+            try:
+                candidate = MemoryVectorCandidate(
+                    fact_id=uuid.UUID(raw_id),
+                    revision=raw_revision,
+                    category=raw_category,
+                    score=0.3,  # 全量扫描的默认分数较低
+                )
+                candidates.append((candidate, updated_at))
+            except (TypeError, ValueError):
+                continue
+
+        # 按更新时间排序（最新的优先）
+        candidates.sort(key=lambda x: x[1], reverse=True)
+
+        return [candidate for candidate, _ in candidates[:limit]]
 
     async def count(self) -> int:
         """Return the exact indexed fact count for readiness and tests."""

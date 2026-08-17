@@ -44,3 +44,22 @@ ModelScope通用Docker部署操作手册.md
 # GerClaw 历史部署实战手册（不提交远程）
 ModelScope部署GerClaw操作手册.md
 
+# ===== Memory & Eval 模块 =====
+
+# 运行时数据
+storage/
+.qdrant-initialized
+nohup.out
+
+# 评测报告输出（自动生成）
+apps/api/src/gerclaw_api/modules/evals/reports/
+
+# 临时中文总结文档
+*总结.md
+*报告.md
+DOCS_UPDATE_SUMMARY.md
+AUDIT_CHECKLIST.md
+
+# 备份文件夹
+未修改前的文件/
+结构树.txt
