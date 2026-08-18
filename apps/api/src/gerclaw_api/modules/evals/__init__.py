@@ -1,23 +1,45 @@
-"""Versioned, privacy-safe evaluation baselines and opt-in external runners."""
+﻿"""Evaluation framework for GerClaw medical AI system."""
 
-from gerclaw_api.modules.evals.runner import (
-    run_golden_cases,
-    run_medication_rule_golden_cases,
-    run_memory_extraction_golden_cases,
-    run_opt_in_rag_retrieval_evaluation,
-    run_output_safety_golden_cases,
-    run_privacy_redaction_golden_cases,
-    run_runtime_security_profile_golden_cases,
-    run_skill_draft_golden_cases,
+from .base_grader import (
+    BaseGrader,
+    EvalCaseInput,
+    EvalCaseOutput,
+    EvalCaseResult,
+    EvalCaseStatus,
+    EvalReport,
+    GraderConfig,
+    GraderResult,
+    GraderStatus,
+    GraderType,
 )
+from .rule_grader import RuleGrader
+from .evidence_grader import EvidenceGrader
+from .medical_grader import MedicalGrader
+from .performance_grader import PerformanceGrader
+from .dialogue_grader import DialogueGrader
+from .evaluation_framework import EvaluationFramework, ReportFormat
 
 __all__ = [
-    "run_golden_cases",
-    "run_medication_rule_golden_cases",
-    "run_memory_extraction_golden_cases",
-    "run_opt_in_rag_retrieval_evaluation",
-    "run_output_safety_golden_cases",
-    "run_privacy_redaction_golden_cases",
-    "run_runtime_security_profile_golden_cases",
-    "run_skill_draft_golden_cases",
+    # Base classes
+    "BaseGrader",
+    "GraderConfig",
+    "GraderResult",
+    "GraderStatus",
+    "GraderType",
+    "EvalCaseInput",
+    "EvalCaseOutput",
+    "EvalCaseResult",
+    "EvalCaseStatus",
+    "EvalReport",
+    
+    # Graders
+    "RuleGrader",
+    "EvidenceGrader",
+    "MedicalGrader",
+    "PerformanceGrader",
+    "DialogueGrader",
+    
+    # Framework
+    "EvaluationFramework",
+    "ReportFormat",
 ]

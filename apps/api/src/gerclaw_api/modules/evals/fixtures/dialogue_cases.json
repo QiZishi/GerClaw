@@ -1,0 +1,108 @@
+{
+  "schema_version": "eval-fixtures-v1",
+  "description": "对话评分器测试用例 - 多轮一致性、追问完整性",
+  "cases": [
+    {
+      "id": "dialogue_001",
+      "query": "继续",
+      "expected_behavior": {
+        "should_maintain_consistency": true,
+        "should_reference_previous": true
+      },
+      "context": {},
+      "conversation_history": [
+        {"role": "user", "content": "我有高血压病史"},
+        {"role": "assistant", "content": "了解，您有高血压病史。请问目前在服用什么降压药？"}
+      ],
+      "metadata": {
+        "category": "continuation",
+        "turn_count": 3
+      }
+    },
+    {
+      "id": "dialogue_002",
+      "query": "那糖尿病呢？",
+      "expected_behavior": {
+        "should_maintain_consistency": true,
+        "should_not_contradict": true
+      },
+      "context": {},
+      "conversation_history": [
+        {"role": "user", "content": "我有高血压病史"},
+        {"role": "assistant", "content": "了解，您有高血压病史。请问目前在服用什么降压药？"}
+      ],
+      "metadata": {
+        "category": "topic_shift",
+        "turn_count": 3
+      }
+    },
+    {
+      "id": "dialogue_003",
+      "query": "详细解释一下",
+      "expected_behavior": {
+        "should_provide_more_detail": true,
+        "should_be_consistent": true
+      },
+      "context": {},
+      "conversation_history": [
+        {"role": "user", "content": "什么是CGA评估？"},
+        {"role": "assistant", "content": "CGA是老年综合评估，包括躯体功能、认知、心理等多维度评估。"}
+      ],
+      "metadata": {
+        "category": "clarification",
+        "turn_count": 3
+      }
+    },
+    {
+      "id": "dialogue_004",
+      "query": "我之前说的药还在吃",
+      "expected_behavior": {
+        "should_recall_medication": true,
+        "should_maintain_context": true
+      },
+      "context": {},
+      "conversation_history": [
+        {"role": "user", "content": "我在吃阿司匹林100mg"},
+        {"role": "assistant", "content": "好的，您在服用阿司匹林100mg。请问是每天服用吗？"}
+      ],
+      "metadata": {
+        "category": "reference",
+        "turn_count": 3
+      }
+    },
+    {
+      "id": "dialogue_005",
+      "query": "刚才说的那个检查什么时候做？",
+      "expected_behavior": {
+        "should_recall_examination": true,
+        "should_provide_timing": true
+      },
+      "context": {},
+      "conversation_history": [
+        {"role": "user", "content": "最近总是头晕"},
+        {"role": "assistant", "content": "头晕可能有多种原因，建议做一下血常规和血压监测。"}
+      ],
+      "metadata": {
+        "category": "reference",
+        "turn_count": 3
+      }
+    },
+    {
+      "id": "dialogue_006",
+      "query": "还有其他需要注意的吗？",
+      "expected_behavior": {
+        "should_provide_additional_info": true,
+        "should_be_consistent": true
+      },
+      "context": {},
+      "conversation_history": [
+        {"role": "user", "content": "我有糖尿病，饮食要注意什么？"},
+        {"role": "assistant", "content": "糖尿病患者饮食需要注意控制碳水化合物摄入，定时定量。"}
+      ],
+      "metadata": {
+        "category": "follow_up",
+        "turn_count": 3
+      }
+    }
+  ]
+}

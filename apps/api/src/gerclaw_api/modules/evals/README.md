@@ -101,3 +101,107 @@ version first.
 **不可破坏的契约。** CLI 输出不得包含原始输入、期望文本、PHI、prompt、规则正文或 provider 凭据；case ID 不是患者或 Trace ID。不得把 deterministic canary 通过表述为临床有效性、全量隐私覆盖或模型质量通过。
 
 **性能与回归验收。** 新 case 集必须离线、确定、可重复，且固定版本/预期；CI 应在无数据库、无网络、无模型下完成。每次变更记录 case 总数、通过率和运行时；任何既有安全 case 回归失败必须阻断相关发布而不是更新期望值掩盖。
+
+---
+
+## 多维度评测框架（2026-08-17 新增）
+
+### 概述
+
+新增多维度评测框架，支持 5 个独立评分器，覆盖规则、证据、医学、性能、对话维度。
+
+### 评分器
+
+| 评分器 | 类型 | 职责 |
+|--------|------|------|
+| 规则评分器 | rule | 红旗短路、拒答/过度转诊、结构化输出 schema、用药规则 |
+| 证据评分器 | evidence | 引用存在性、claim-证据匹配、无依据结论检测 |
+| 医学评分器 | medical | 处方合理性抽检、药物相互作用、禁忌症 |
+| 性能评分器 | performance | 延迟、token 成本、SSE 心跳与超时 |
+| 对话评分器 | dialogue | 多轮一致性、追问完整性 |
+
+### 数据隔离（审查报告 §6.2）
+
+**硬性要求**：评测数据不与生产 Trace/PHI 混用。
+
+- 所有测试用例从 `fixtures/*.json` 加载
+- 绝对禁止在代码中直接连接生产数据库
+- 所有测试数据为合成数据，不包含真实患者信息
+- 环境隔离：运行时必须设置 `EVAL_MODE=true`
+
+### fixtures 目录结构
+
+```
+evals/fixtures/
+├── rule_cases.json          # 规则评分器用例
+├── evidence_cases.json      # 证据评分器用例
+├── medical_cases.json       # 医学评分器用例
+├── performance_cases.json   # 性能评分器用例
+├── dialogue_cases.json      # 对话评分器用例
+├── memory_cases.json        # 记忆提取用例
+└── rag_cases.json           # RAG检索用例
+```
+
+### CLI 一键运行
+
+```bash
+# 设置环境变量并运行
+EVAL_MODE=true python -m gerclaw_api.modules.evals.run_eval
+
+# 指定评分器
+EVAL_MODE=true python run_eval.py --grader rule evidence
+
+# 指定输出目录
+EVAL_MODE=true python run_eval.py --output ./reports
+
+# 跳过环境检查（仅用于测试）
+python run_eval.py --skip-env-check
+```
+
+### 报告生成
+
+运行后自动生成 JSON 和 Markdown 格式报告，存放于 `evals/reports/` 目录：
+
+- `eval_report_YYYYMMDD_HHMMSS.json` - JSON 格式报告
+- `eval_report_YYYYMMDD_HHMMSS.md` - Markdown 格式报告
+
+报告内容包括：
+- 总体通过率（加权或平均）
+- 每个 Grader 的通过率
+- 失败用例清单（含失败原因）
+
+### 评测结果示例
+
+| 评分器 | 通过率 | 平均分 |
+|--------|--------|--------|
+| 规则评分器 | 90.38% | 0.9712 |
+| 证据评分器 | 26.92% | 0.6365 |
+| 医学评分器 | 100.00% | 1.0000 |
+| 性能评分器 | 100.00% | 1.0000 |
+| 对话评分器 | 100.00% | 0.9077 |
+
+### 审计检查清单
+
+- [x] 数据源：所有测试用例从 `fixtures/*.json` 加载
+- [x] PHI 脱敏：不包含真实患者信息
+- [x] 环境隔离：`EVAL_MODE=TRUE` 检查
+- [x] CLI 可重复：多次运行结果一致
+- [x] 输出报告：包含 5 个 Grader 评分
+
+---
+
+## 文件清单
+
+| 文件 | 说明 |
+|------|------|
+| `base_grader.py` | 评分器基类和数据结构 |
+| `rule_grader.py` | 规则评分器 |
+| `evidence_grader.py` | 证据评分器 |
+| `medical_grader.py` | 医学评分器 |
+| `performance_grader.py` | 性能评分器 |
+| `dialogue_grader.py` | 对话评分器 |
+| `evaluation_framework.py` | 评测框架主类 |
+| `run_eval.py` | CLI 入口 |
+| `fixtures/*.json` | 测试用例 |
+| `reports/*.json` | 评测报告 |
+| `AUDIT_CHECKLIST.md` | 审计检查清单 |

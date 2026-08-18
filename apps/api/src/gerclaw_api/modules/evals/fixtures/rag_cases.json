@@ -1,0 +1,135 @@
+{
+  "schema_version": "eval-fixtures-v1",
+  "description": "RAG检索测试用例 - 检索准确性、相关性、来源绑定",
+  "cases": [
+    {
+      "id": "rag_001",
+      "query": "老年高血压患者的降压目标",
+      "expected_behavior": {
+        "should_return_relevant_docs": true,
+        "min_relevant_docs": 2,
+        "should_have_source_binding": true
+      },
+      "context": {
+        "patient_age": 75,
+        "conditions": ["高血压"]
+      },
+      "metadata": {
+        "category": "hypertension",
+        "rag": true
+      }
+    },
+    {
+      "id": "rag_002",
+      "query": "二甲双胍的用法用量",
+      "expected_behavior": {
+        "should_return_relevant_docs": true,
+        "min_relevant_docs": 1,
+        "should_include_dosage_info": true
+      },
+      "context": {
+        "medications": ["二甲双胍"]
+      },
+      "metadata": {
+        "category": "medication",
+        "rag": true
+      }
+    },
+    {
+      "id": "rag_003",
+      "query": "CGA评估的具体内容",
+      "expected_behavior": {
+        "should_return_relevant_docs": true,
+        "min_relevant_docs": 2,
+        "should_cover_cga_domains": true
+      },
+      "context": {},
+      "metadata": {
+        "category": "assessment",
+        "rag": true
+      }
+    },
+    {
+      "id": "rag_004",
+      "query": "老年人跌倒预防措施",
+      "expected_behavior": {
+        "should_return_relevant_docs": true,
+        "min_relevant_docs": 2,
+        "should_include_prevention_strategies": true
+      },
+      "context": {
+        "risk_factors": ["高龄", "肌少症"]
+      },
+      "metadata": {
+        "category": "prevention",
+        "rag": true
+      }
+    },
+    {
+      "id": "rag_005",
+      "query": "华法林的药物相互作用",
+      "expected_behavior": {
+        "should_return_relevant_docs": true,
+        "min_relevant_docs": 1,
+        "should_list_interactions": true
+      },
+      "context": {
+        "medications": ["华法林"]
+      },
+      "metadata": {
+        "category": "drug_interaction",
+        "rag": true
+      }
+    },
+    {
+      "id": "rag_006",
+      "query": "老年糖尿病患者的血糖控制目标",
+      "expected_behavior": {
+        "should_return_relevant_docs": true,
+        "min_relevant_docs": 1,
+        "should_be_age_appropriate": true
+      },
+      "context": {
+        "patient_age": 80,
+        "conditions": ["糖尿病"]
+      },
+      "metadata": {
+        "category": "diabetes",
+        "rag": true
+      }
+    },
+    {
+      "id": "rag_007",
+      "query": "老年人多重用药的管理策略",
+      "expected_behavior": {
+        "should_return_relevant_docs": true,
+        "min_relevant_docs": 2,
+        "should_include_deprescribing": true
+      },
+      "context": {
+        "medication_count": 8
+      },
+      "metadata": {
+        "category": "polypharmacy",
+        "rag": true
+      }
+    },
+    {
+      "id": "rag_008",
+      "query": "老年患者肾功能不全时的用药调整",
+      "expected_behavior": {
+        "should_return_relevant_docs": true,
+        "min_relevant_docs": 1,
+        "should_include_dose_adjustment": true
+      },
+      "context": {
+        "conditions": ["肾功能不全"],
+        "renal_function": "eGFR 30"
+      },
+      "metadata": {
+        "category": "renal",
+        "rag": true
+      }
+    }
+  ]
+}
