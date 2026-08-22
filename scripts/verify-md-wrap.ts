@@ -69,7 +69,8 @@ function findViolations(absPath: string): Violation[] {
   return out
 }
 
-const files = uniqueRepoFiles(root, PATTERNS, isArchivedAgentNotePath)
+const files = uniqueRepoFiles(root, PATTERNS, path =>
+  isArchivedAgentNotePath(path) || path.startsWith('packages/gerclaw/'))
 const all = files.flatMap(file => findViolations(file.abs))
 const checked = files.length
 

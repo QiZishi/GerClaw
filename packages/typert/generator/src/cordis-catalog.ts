@@ -373,7 +373,8 @@ export function projectCordisCatalog(scanRoot: string, policy: CordisCatalogPoli
     checkDiagnostics: false,
     caches,
   }).discoverPackages()
-  const packages = discovery.filter(candidate => candidate.faces.includes(targetFace))
+  const packages = discovery.filter(candidate =>
+    candidate.faces.includes(targetFace) && candidate.package.startsWith('@deepseek-ai/'))
     .map(candidate => candidate.package)
   const workspace = new WorkspaceAnalyzer({
     root: scanRoot,

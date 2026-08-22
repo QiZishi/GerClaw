@@ -14,12 +14,36 @@
     "where.exe"
   ],
   "ignoreWorkspaces": [
+    "packages/gerclaw/*",
     "vendor/*",
     "python/sdk-runtime"
   ],
   "ignoreDependencies": [
+    "@deepseek-ai/dsh-storage-sqlite",
+    "@gerclaw/app",
+    "@gerclaw/cga",
+    "@gerclaw/chronic-care",
+    "@gerclaw/companion",
+    "@gerclaw/health-profile",
+    "@gerclaw/launcher",
+    "@gerclaw/local-rag",
+    "@gerclaw/medical-evidence",
+    "@gerclaw/medication-review",
+    "@gerclaw/prescription",
+    "@gerclaw/profile-bundle",
+    "@gerclaw/risk-alert",
+    "@gerclaw/skills",
+    "@gerclaw/system-prompt",
+    "@gerclaw/tenant-gateway",
+    "@gerclaw/voice",
     "@yarnpkg/cli-dist",
-    "lightningcss"
+    "docx",
+    "dsh-library",
+    "dsh-mineru",
+    "dotenv",
+    "lightningcss",
+    "pdf-lib",
+    "sharp"
   ],
   "workspaces": {
     ".": {

@@ -169,6 +169,8 @@ export const TRANSLATION_SCOPE_GLOB_EXCLUDES = [
   'python/sdk-runtime/src/deepseek_harness_runtime/runtime/dsh-jsonrpc-agent-*/**',
   'python/sdk-runtime/src/deepseek_harness_runtime/runtime/node/**',
   'vendor/**',
+  'knowledge-base/**',
+  'packages/gerclaw/**',
 ]
 
 /** Whether a repository-relative path belongs to a dependency or generated tree. */
@@ -185,6 +187,8 @@ function isTranslationSourceExcluded(file: string): boolean {
 /** Whether one discovered Markdown or sidecar path belongs to the bilingual source corpus. */
 export function isTranslationScopeFile(file: string): boolean {
   return !file.startsWith('.agents/notes/archived/')
+    && !file.startsWith('knowledge-base/')
+    && !file.startsWith('packages/gerclaw/')
     && !isTranslationSourceExcluded(file) && (README_ARTIFACT.test(file)
     || ROOT_CONTRIBUTING_ARTIFACT.test(file)
     || ROOT_BRAND_GUIDELINES_ARTIFACT.test(file)

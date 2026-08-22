@@ -1,0 +1,286 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width,initial-scale=1" />
+    <title>GerClaw 智能健康助手</title>
+    <style>
+      :root {
+        font-family: Inter, "PingFang SC", "Microsoft YaHei", sans-serif;
+        color: #173b31;
+        background: #eef6f1;
+      }
+      * {
+        box-sizing: border-box;
+      }
+      body {
+        margin: 0;
+        min-height: 100vh;
+        display: grid;
+        place-items: center;
+        background:
+          radial-gradient(circle at 20% 10%, #d9eee2, transparent 38%),
+          linear-gradient(135deg, #f7fbf8, #eaf4ee);
+      }
+      main {
+        width: min(940px, 94vw);
+        display: grid;
+        grid-template-columns: 1fr 440px;
+        border: 1px solid #d4e6db;
+        border-radius: 28px;
+        overflow: hidden;
+        box-shadow: 0 24px 70px #183e2c22;
+        background: #fff;
+      }
+      .intro {
+        padding: 64px;
+        background: #174b3b;
+        color: #fff;
+      }
+      .brand {
+        width: 72px;
+        height: 72px;
+        border-radius: 20px;
+        object-fit: cover;
+        background: #fff;
+      }
+      .intro h1 {
+        font-size: 38px;
+        margin: 28px 0 12px;
+      }
+      .intro p {
+        line-height: 1.8;
+        color: #dcebe5;
+      }
+      .features {
+        margin-top: 34px;
+        display: grid;
+        gap: 14px;
+      }
+      .feature {
+        display: flex;
+        gap: 10px;
+        align-items: center;
+      }
+      .dot {
+        width: 9px;
+        height: 9px;
+        border-radius: 50%;
+        background: #9fe3bd;
+      }
+      .panel {
+        padding: 42px;
+      }
+      .tabs {
+        display: flex;
+        gap: 8px;
+        margin-bottom: 26px;
+      }
+      .tabs button {
+        flex: 1;
+        border: 0;
+        border-radius: 12px;
+        padding: 11px;
+        background: #edf5f0;
+        color: #315647;
+        cursor: pointer;
+      }
+      .tabs button.active {
+        background: #1f6a50;
+        color: #fff;
+      }
+      form {
+        display: grid;
+        gap: 14px;
+      }
+      label {
+        font-size: 14px;
+        color: #47655a;
+      }
+      input,
+      select {
+        width: 100%;
+        margin-top: 6px;
+        border: 1px solid #cbded3;
+        border-radius: 12px;
+        padding: 13px 14px;
+        font: inherit;
+        outline: none;
+      }
+      input:focus,
+      select:focus {
+        border-color: #287a5d;
+        box-shadow: 0 0 0 3px #287a5d18;
+      }
+      .primary,
+      .guest {
+        border: 0;
+        border-radius: 12px;
+        padding: 14px;
+        font-weight: 700;
+        cursor: pointer;
+      }
+      .primary {
+        background: #1f6a50;
+        color: #fff;
+      }
+      .guest {
+        margin-top: 12px;
+        width: 100%;
+        background: #eaf4ee;
+        color: #245a45;
+      }
+      .hint {
+        font-size: 13px;
+        color: #668078;
+        line-height: 1.6;
+      }
+      .message {
+        min-height: 22px;
+        color: #b24134;
+        font-size: 14px;
+      }
+      .recovery {
+        display: none;
+        background: #fff8dd;
+        border: 1px solid #efdc8b;
+        padding: 14px;
+        border-radius: 12px;
+        line-height: 1.6;
+        word-break: break-all;
+      }
+      @media (max-width: 760px) {
+        main {
+          grid-template-columns: 1fr;
+        }
+        .intro {
+          padding: 30px;
+        }
+        .intro h1 {
+          font-size: 28px;
+        }
+        .features {
+          display: none;
+        }
+        .panel {
+          padding: 30px;
+        }
+      }
+    </style>
+  </head>
+  <body>
+    <main>
+      <section class="intro">
+        <img class="brand" src="/brand-icon.png" alt="GerClaw" />
+        <h1>GerClaw</h1>
+        <p>
+          把健康资料、量表、五大处方、用药核对与语音沟通放在一个清楚易用的工作台中。
+        </p>
+        <div class="features">
+          <div class="feature">
+            <i class="dot"></i>医生与患者使用相同完整功能
+          </div>
+          <div class="feature"><i class="dot"></i>每个账号的数据单独保存</div>
+          <div class="feature"><i class="dot"></i>结果可查看、导出与下载</div>
+        </div>
+      </section>
+      <section class="panel">
+        <div class="tabs">
+          <button data-mode="login" class="active">登录</button
+          ><button data-mode="register">注册</button
+          ><button data-mode="recover">重置密码</button>
+        </div>
+        <form id="form">
+          <label
+            >用户名<input
+              name="username"
+              autocomplete="username"
+              required /></label
+          ><label id="passwordLabel"
+            >密码<input
+              name="password"
+              type="password"
+              minlength="8"
+              autocomplete="current-password"
+              required /></label
+          ><label id="recoveryLabel" hidden
+            >恢复码<input name="recoveryCode" autocomplete="off" /></label
+          ><label id="audienceLabel" hidden
+            >称呼偏好<select name="audience">
+              <option value="patient">患者/家属</option>
+              <option value="doctor">医生</option>
+            </select></label
+          ><button class="primary" type="submit">进入健康工作台</button>
+          <div class="message" id="message"></div>
+          <div class="recovery" id="recovery"></div>
+        </form>
+        <button class="guest" id="guest">游客体验（退出后自动清除数据）</button>
+        <p class="hint">
+          称呼偏好只改变提示文字，不影响任何功能。医疗建议仅供辅助参考，不能替代专业诊断和治疗。
+        </p>
+      </section>
+    </main>
+    <script>
+      let mode = "login";
+      const form = document.querySelector("#form"),
+        message = document.querySelector("#message"),
+        recovery = document.querySelector("#recovery");
+      document.querySelectorAll(".tabs button").forEach(
+        (button) =>
+          (button.onclick = () => {
+            mode = button.dataset.mode;
+            document
+              .querySelectorAll(".tabs button")
+              .forEach((v) => v.classList.toggle("active", v === button));
+            document.querySelector("#audienceLabel").hidden =
+              mode !== "register";
+            document.querySelector("#recoveryLabel").hidden =
+              mode !== "recover";
+            document.querySelector("[name=recoveryCode]").required =
+              mode === "recover";
+            document.querySelector("[name=password]").autocomplete =
+              mode === "login" ? "current-password" : "new-password";
+            message.textContent = "";
+            recovery.style.display = "none";
+          }),
+      );
+      async function call(path, data) {
+        message.textContent = "正在处理…";
+        const response = await fetch(path, {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify(data),
+        });
+        const value = await response.json();
+        if (!response.ok) throw new Error(value.error || "操作失败");
+        return value;
+      }
+      form.onsubmit = async (event) => {
+        event.preventDefault();
+        try {
+          const data = Object.fromEntries(new FormData(form));
+          const value = await call("/auth/" + mode, data);
+          if (value.recoveryCode) {
+            recovery.style.display = "block";
+            recovery.textContent =
+              "请立即保存一次性恢复码：" +
+              value.recoveryCode +
+              "。它只显示这一次。";
+            message.textContent = "注册成功，保存恢复码后即可进入。";
+            setTimeout(() => location.reload(), 6000);
+          } else location.reload();
+        } catch (error) {
+          message.textContent = error.message;
+        }
+      };
+      document.querySelector("#guest").onclick = async () => {
+        try {
+          await call("/auth/guest", {});
+          location.reload();
+        } catch (error) {
+          message.textContent = error.message;
+        }
+      };
+    </script>
+  </body>
+</html>

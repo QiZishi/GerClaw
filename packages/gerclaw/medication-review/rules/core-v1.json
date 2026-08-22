@@ -1,0 +1,408 @@
+{
+  "version": "medication-rules-v4",
+  "sources": [
+    {
+      "source_id": "cad_rehab_primary_care",
+      "title": "冠心病心脏康复基层合理用药指南",
+      "publisher": "中华医学会临床药学分会等",
+      "locator": "三、治疗药物：辛伐他汀、阿托伐他汀、瑞舒伐他汀的用法和药物相互作用条目",
+      "local_corpus_path": "冠心病md/冠心病心脏康复基层合理用药指南_MinerU__20251010034941.md",
+      "content_sha256": "940965391565b0de32f3aba51c5a323542f5af9b18162c5075130ba63437feeb",
+      "review_status": "source_traceable_pending_clinician_approval"
+    },
+    {
+      "source_id": "insomnia_bz_older_adults",
+      "title": "慢性失眠药物治疗临床实践指南（本地语料节选）",
+      "publisher": "American Academy of Sleep Medicine（文献所载来源）",
+      "locator": "老年患者段：Beers criteria 对失眠治疗中苯二氮卓类的避免建议",
+      "local_corpus_path": "睡眠障碍md/zhinan7_MinerU__20251005130232.md",
+      "content_sha256": "9a13eb48d863f09921d7830078f179c85cc634d5fe180f4b00be64a6973e92f5",
+      "review_status": "source_traceable_pending_clinician_approval"
+    },
+    {
+      "source_id": "stable_cad_primary_care",
+      "title": "稳定性冠心病基层合理用药指南",
+      "publisher": "中华医学会等基层医疗卫生机构合理用药指南编写专家组",
+      "locator": "硝酸甘油、硝酸异山梨酯、美托洛尔及氯吡格雷的药物相互作用条目",
+      "local_corpus_path": "冠心病md/稳定性冠心病基层合理用药指南_MinerU__20250920143353.md",
+      "content_sha256": "1a63bb2c66385215041d5a4afda66371dfa45c793d2456e4f9b98f373c7e1ad8",
+      "review_status": "source_traceable_pending_clinician_approval"
+    },
+    {
+      "source_id": "frailty_polypharmacy_2022",
+      "title": "医养结合机构衰弱老年人多重用药安全管理中国专家共识（2022版）",
+      "publisher": "中国老年医学学会医养结合促进委员会",
+      "locator": "表2、表5：衰弱老年人心血管及内分泌代谢/营养类药物用药安全性警示",
+      "local_corpus_path": "衰弱md/医养结合机构衰弱老年人多重用药安全管理中国专家共识(2022版)_MinerU__20251026083520.md",
+      "content_sha256": "4d07ae458f82f6a5135a35bce8c3854d9f4703266a3f391afa7e0e25fe390036",
+      "review_status": "source_traceable_pending_clinician_approval"
+    }
+  ],
+  "aliases": {
+    "辛伐他汀": ["辛伐他汀", "simvastatin"],
+    "阿托伐他汀": ["阿托伐他汀", "atorvastatin"],
+    "瑞舒伐他汀": ["瑞舒伐他汀", "rosuvastatin"],
+    "地高辛": ["地高辛", "digoxin"],
+    "胺碘酮": ["胺碘酮", "amiodarone"],
+    "维拉帕米": ["维拉帕米", "verapamil"],
+    "地尔硫䓬": ["地尔硫䓬", "地尔硫卓", "diltiazem"],
+    "氨氯地平": ["氨氯地平", "amlodipine"],
+    "环孢素": ["环孢素", "cyclosporine"],
+    "红霉素": ["红霉素", "erythromycin"],
+    "克拉霉素": ["克拉霉素", "clarithromycin"],
+    "吉非贝齐": ["吉非贝齐", "吉非罗齐", "gemfibrozil"],
+    "伊曲康唑": ["伊曲康唑", "itraconazole"],
+    "烟酸": ["烟酸", "niacin"],
+    "夫西地酸": ["夫西地酸", "fusidic acid"],
+    "地西泮": ["地西泮", "diazepam"],
+    "劳拉西泮": ["劳拉西泮", "lorazepam"],
+    "阿普唑仑": ["阿普唑仑", "alprazolam"],
+    "氯硝西泮": ["氯硝西泮", "clonazepam"],
+    "替马西泮": ["替马西泮", "temazepam"],
+    "三唑仑": ["三唑仑", "triazolam"],
+    "硝酸甘油": ["硝酸甘油", "nitroglycerin", "glyceryl trinitrate"],
+    "硝酸异山梨酯": ["硝酸异山梨酯", "isosorbide dinitrate"],
+    "西地那非": ["西地那非", "sildenafil"],
+    "他达拉非": ["他达拉非", "tadalafil"],
+    "伐地那非": ["伐地那非", "vardenafil"],
+    "氯吡格雷": ["氯吡格雷", "clopidogrel"],
+    "奥美拉唑": ["奥美拉唑", "omeprazole"],
+    "埃索美拉唑": ["埃索美拉唑", "艾司美拉唑", "esomeprazole"],
+    "美托洛尔": ["美托洛尔", "metoprolol"],
+    "瑞格列奈": ["瑞格列奈", "repaglinide"],
+    "秋水仙碱": ["秋水仙碱", "colchicine"],
+    "别嘌醇": ["别嘌醇", "allopurinol"],
+    "硫唑嘌呤": ["硫唑嘌呤", "azathioprine"],
+    "格列苯脲": ["格列苯脲", "glibenclamide", "glyburide"],
+    "阿司匹林": ["阿司匹林", "aspirin", "acetylsalicylic acid"],
+    "比索洛尔": ["比索洛尔", "bisoprolol"],
+    "硝苯地平": ["硝苯地平", "nifedipine"],
+    "左旋氨氯地平": ["左旋氨氯地平", "levamlodipine"]
+  },
+  "ddi_rules": [
+    {
+      "id": "ddi_simvastatin_amiodarone",
+      "drugs": ["辛伐他汀", "胺碘酮"],
+      "severity": "major",
+      "conclusion": "该组合命中规则：合用可增加横纹肌溶解风险。",
+      "clinician_action": "请由医师或药师尽快核对适应证、剂量、替代方案及肌肉不适等情况。",
+      "elderly_note": "老年人合并多病和多重用药时，应特别核对不良反应和监测条件。",
+      "source_ids": ["cad_rehab_primary_care"]
+    },
+    {
+      "id": "ddi_simvastatin_verapamil",
+      "drugs": ["辛伐他汀", "维拉帕米"],
+      "severity": "major",
+      "conclusion": "该组合命中规则：合用可增加横纹肌溶解风险。",
+      "clinician_action": "请由医师或药师尽快核对适应证、剂量、替代方案及肌肉不适等情况。",
+      "elderly_note": "老年人合并多病和多重用药时，应特别核对不良反应和监测条件。",
+      "source_ids": ["cad_rehab_primary_care"]
+    },
+    {
+      "id": "ddi_simvastatin_diltiazem",
+      "drugs": ["辛伐他汀", "地尔硫䓬"],
+      "severity": "major",
+      "conclusion": "该组合命中规则：合用可增加横纹肌溶解风险。",
+      "clinician_action": "请由医师或药师尽快核对适应证、剂量、替代方案及肌肉不适等情况。",
+      "elderly_note": "老年人合并多病和多重用药时，应特别核对不良反应和监测条件。",
+      "source_ids": ["cad_rehab_primary_care"]
+    },
+    {
+      "id": "ddi_simvastatin_amlodipine",
+      "drugs": ["辛伐他汀", "氨氯地平"],
+      "severity": "major",
+      "conclusion": "该组合命中规则：合用可增加横纹肌溶解风险。",
+      "clinician_action": "请由医师或药师尽快核对适应证、剂量、替代方案及肌肉不适等情况。",
+      "elderly_note": "老年人合并多病和多重用药时，应特别核对不良反应和监测条件。",
+      "source_ids": ["cad_rehab_primary_care"]
+    },
+    {
+      "id": "ddi_simvastatin_cyclosporine",
+      "drugs": ["辛伐他汀", "环孢素"],
+      "severity": "major",
+      "conclusion": "该组合命中规则：合用可增加横纹肌溶解风险。",
+      "clinician_action": "请由医师或药师尽快核对适应证、剂量、替代方案及肌肉不适等情况。",
+      "elderly_note": "老年人合并多病和多重用药时，应特别核对不良反应和监测条件。",
+      "source_ids": ["cad_rehab_primary_care"]
+    },
+    {
+      "id": "ddi_simvastatin_erythromycin",
+      "drugs": ["辛伐他汀", "红霉素"],
+      "severity": "major",
+      "conclusion": "该组合命中规则：合用可增加横纹肌溶解风险。",
+      "clinician_action": "请由医师或药师尽快核对适应证、剂量、替代方案及肌肉不适等情况。",
+      "elderly_note": "老年人合并多病和多重用药时，应特别核对不良反应和监测条件。",
+      "source_ids": ["cad_rehab_primary_care"]
+    },
+    {
+      "id": "ddi_simvastatin_gemfibrozil",
+      "drugs": ["辛伐他汀", "吉非贝齐"],
+      "severity": "major",
+      "conclusion": "该组合命中规则：合用可增加横纹肌溶解风险。",
+      "clinician_action": "请由医师或药师尽快核对适应证、剂量、替代方案及肌肉不适等情况。",
+      "elderly_note": "老年人合并多病和多重用药时，应特别核对不良反应和监测条件。",
+      "source_ids": ["cad_rehab_primary_care"]
+    },
+    {
+      "id": "ddi_simvastatin_niacin",
+      "drugs": ["辛伐他汀", "烟酸"],
+      "severity": "major",
+      "conclusion": "该组合命中规则：合用可增加横纹肌溶解风险。",
+      "clinician_action": "请由医师或药师尽快核对适应证、剂量、替代方案及肌肉不适等情况。",
+      "elderly_note": "老年人合并多病和多重用药时，应特别核对不良反应和监测条件。",
+      "source_ids": ["cad_rehab_primary_care"]
+    },
+    {
+      "id": "ddi_simvastatin_fusidic_acid",
+      "drugs": ["辛伐他汀", "夫西地酸"],
+      "severity": "major",
+      "conclusion": "该组合命中规则：合用可增加横纹肌溶解风险。",
+      "clinician_action": "请由医师或药师尽快核对适应证、剂量、替代方案及肌肉不适等情况。",
+      "elderly_note": "老年人合并多病和多重用药时，应特别核对不良反应和监测条件。",
+      "source_ids": ["cad_rehab_primary_care"]
+    },
+    {
+      "id": "ddi_atorvastatin_digoxin",
+      "drugs": ["阿托伐他汀", "地高辛"],
+      "severity": "moderate",
+      "conclusion": "该组合命中规则：阿托伐他汀可增加地高辛血药浓度。",
+      "clinician_action": "请由医师或药师核对地高辛浓度监测和个体化给药方案。",
+      "elderly_note": "老年人可能更易受肾功能变化和多重用药影响。",
+      "source_ids": ["cad_rehab_primary_care"]
+    },
+    {
+      "id": "ddi_atorvastatin_clarithromycin",
+      "drugs": ["阿托伐他汀", "克拉霉素"],
+      "severity": "major",
+      "conclusion": "该组合命中规则：合用可增加横纹肌溶解和/或急性肾功能衰竭风险。",
+      "clinician_action": "请由医师或药师尽快核对联用必要性、剂量和替代方案。",
+      "elderly_note": "老年人应特别核对肾功能和肌肉不适等风险线索。",
+      "source_ids": ["cad_rehab_primary_care"]
+    },
+    {
+      "id": "ddi_atorvastatin_cyclosporine",
+      "drugs": ["阿托伐他汀", "环孢素"],
+      "severity": "major",
+      "conclusion": "该组合命中规则：合用可增加横纹肌溶解和/或急性肾功能衰竭风险。",
+      "clinician_action": "请由医师或药师尽快核对联用必要性、剂量和替代方案。",
+      "elderly_note": "老年人应特别核对肾功能和肌肉不适等风险线索。",
+      "source_ids": ["cad_rehab_primary_care"]
+    },
+    {
+      "id": "ddi_atorvastatin_itraconazole",
+      "drugs": ["阿托伐他汀", "伊曲康唑"],
+      "severity": "major",
+      "conclusion": "该组合命中规则：合用可增加横纹肌溶解和/或急性肾功能衰竭风险。",
+      "clinician_action": "请由医师或药师尽快核对联用必要性、剂量和替代方案。",
+      "elderly_note": "老年人应特别核对肾功能和肌肉不适等风险线索。",
+      "source_ids": ["cad_rehab_primary_care"]
+    },
+    {
+      "id": "ddi_rosuvastatin_cyclosporine",
+      "drugs": ["瑞舒伐他汀", "环孢素"],
+      "severity": "contraindicated",
+      "conclusion": "该组合命中规则：指南条目记载瑞舒伐他汀禁用于同时接受环孢素治疗的患者。",
+      "clinician_action": "请尽快由开方医师或临床药师结合完整病史、检查结果和来源依据核对。",
+      "elderly_note": "老年人发生不良反应时应及时寻求医疗帮助。",
+      "source_ids": ["cad_rehab_primary_care"]
+    },
+    {
+      "id": "ddi_rosuvastatin_gemfibrozil",
+      "drugs": ["瑞舒伐他汀", "吉非贝齐"],
+      "severity": "major",
+      "conclusion": "该组合命中规则：指南条目不建议瑞舒伐他汀与吉非贝齐合用。",
+      "clinician_action": "请由医师或药师核对联用必要性、剂量和替代方案。",
+      "elderly_note": "老年人应结合肾功能和整体用药情况复核。",
+      "source_ids": ["cad_rehab_primary_care"]
+    },
+    {
+      "id": "ddi_nitroglycerin_sildenafil",
+      "drugs": ["硝酸甘油", "西地那非"],
+      "severity": "contraindicated",
+      "conclusion": "该组合命中规则：本地指南明确禁止硝酸甘油与西地那非联合使用。",
+      "clinician_action": "核对实际用药时间、适应证及血流动力学风险后决定后续处置。",
+      "elderly_note": "老年人合并心血管疾病和降压药时，应结合血压及症状完整复核。",
+      "source_ids": ["stable_cad_primary_care"]
+    },
+    {
+      "id": "ddi_nitroglycerin_tadalafil",
+      "drugs": ["硝酸甘油", "他达拉非"],
+      "severity": "contraindicated",
+      "conclusion": "该组合命中规则：本地指南明确禁止硝酸甘油与他达拉非联合使用。",
+      "clinician_action": "核对实际用药时间、适应证及血流动力学风险后决定后续处置。",
+      "elderly_note": "老年人合并心血管疾病和降压药时，应结合血压及症状完整复核。",
+      "source_ids": ["stable_cad_primary_care"]
+    },
+    {
+      "id": "ddi_nitroglycerin_vardenafil",
+      "drugs": ["硝酸甘油", "伐地那非"],
+      "severity": "contraindicated",
+      "conclusion": "该组合命中规则：本地指南明确禁止硝酸甘油与伐地那非联合使用。",
+      "clinician_action": "核对实际用药时间、适应证及血流动力学风险后决定后续处置。",
+      "elderly_note": "老年人合并心血管疾病和降压药时，应结合血压及症状完整复核。",
+      "source_ids": ["stable_cad_primary_care"]
+    },
+    {
+      "id": "ddi_isosorbide_dinitrate_sildenafil",
+      "drugs": ["硝酸异山梨酯", "西地那非"],
+      "severity": "contraindicated",
+      "conclusion": "该组合命中规则：本地指南明确禁止硝酸异山梨酯与西地那非联合使用。",
+      "clinician_action": "核对实际用药时间、适应证及血流动力学风险后决定后续处置。",
+      "elderly_note": "老年人合并心血管疾病和降压药时，应结合血压及症状完整复核。",
+      "source_ids": ["stable_cad_primary_care"]
+    },
+    {
+      "id": "ddi_isosorbide_dinitrate_tadalafil",
+      "drugs": ["硝酸异山梨酯", "他达拉非"],
+      "severity": "contraindicated",
+      "conclusion": "该组合命中规则：本地指南明确禁止硝酸异山梨酯与他达拉非联合使用。",
+      "clinician_action": "核对实际用药时间、适应证及血流动力学风险后决定后续处置。",
+      "elderly_note": "老年人合并心血管疾病和降压药时，应结合血压及症状完整复核。",
+      "source_ids": ["stable_cad_primary_care"]
+    },
+    {
+      "id": "ddi_isosorbide_dinitrate_vardenafil",
+      "drugs": ["硝酸异山梨酯", "伐地那非"],
+      "severity": "contraindicated",
+      "conclusion": "该组合命中规则：本地指南明确禁止硝酸异山梨酯与伐地那非联合使用。",
+      "clinician_action": "核对实际用药时间、适应证及血流动力学风险后决定后续处置。",
+      "elderly_note": "老年人合并心血管疾病和降压药时，应结合血压及症状完整复核。",
+      "source_ids": ["stable_cad_primary_care"]
+    },
+    {
+      "id": "ddi_clopidogrel_omeprazole",
+      "drugs": ["氯吡格雷", "奥美拉唑"],
+      "severity": "major",
+      "conclusion": "该组合命中规则：本地指南记载合用会降低氯吡格雷活性代谢物浓度，且不推荐合用。",
+      "clinician_action": "核对抗血小板治疗目的、合并用药必要性及替代方案。",
+      "elderly_note": "老年人应结合缺血和出血风险、原始处方及完整病史复核。",
+      "source_ids": ["stable_cad_primary_care", "frailty_polypharmacy_2022"]
+    },
+    {
+      "id": "ddi_clopidogrel_esomeprazole",
+      "drugs": ["氯吡格雷", "埃索美拉唑"],
+      "severity": "major",
+      "conclusion": "该组合命中规则：本地指南记载合用会降低氯吡格雷活性代谢物浓度，且不推荐合用。",
+      "clinician_action": "核对抗血小板治疗目的、合并用药必要性及替代方案。",
+      "elderly_note": "老年人应结合缺血和出血风险、原始处方及完整病史复核。",
+      "source_ids": ["stable_cad_primary_care", "frailty_polypharmacy_2022"]
+    },
+    {
+      "id": "ddi_digoxin_verapamil",
+      "drugs": ["地高辛", "维拉帕米"],
+      "severity": "major",
+      "conclusion": "该组合命中规则：本地共识提示合用易致地高辛中毒，可能出现严重心动过缓甚至心脏停搏。",
+      "clinician_action": "核对地高辛浓度、肾功能、心率心电图及联合用药必要性。",
+      "elderly_note": "衰弱老年人药代动力学变化时，应特别关注蓄积和心动过缓。",
+      "source_ids": ["frailty_polypharmacy_2022"]
+    },
+    {
+      "id": "ddi_digoxin_amiodarone",
+      "drugs": ["地高辛", "胺碘酮"],
+      "severity": "major",
+      "conclusion": "该组合命中规则：本地共识提示合用易致地高辛中毒，可能出现严重心动过缓甚至心脏停搏。",
+      "clinician_action": "核对地高辛浓度、肾功能、心率心电图及联合用药必要性。",
+      "elderly_note": "衰弱老年人药代动力学变化时，应特别关注蓄积和心动过缓。",
+      "source_ids": ["frailty_polypharmacy_2022"]
+    },
+    {
+      "id": "ddi_metoprolol_verapamil",
+      "drugs": ["美托洛尔", "维拉帕米"],
+      "severity": "major",
+      "conclusion": "该组合命中规则：本地指南提示应避免美托洛尔与维拉帕米合并使用。",
+      "clinician_action": "核对心率、房室传导、血压、适应证及替代方案。",
+      "elderly_note": "老年人对心动过缓和低血压相关不良反应更需个体化复核。",
+      "source_ids": ["stable_cad_primary_care"]
+    },
+    {
+      "id": "ddi_repaglinide_gemfibrozil",
+      "drugs": ["瑞格列奈", "吉非贝齐"],
+      "severity": "contraindicated",
+      "conclusion": "该组合命中规则：本地共识记载二者联用会延长瑞格列奈代谢、加重低血糖风险，并明确禁止联用。",
+      "clinician_action": "核对血糖记录、实际用药、肝肾功能及替代方案。",
+      "elderly_note": "老年人低血糖可能表现不典型，需结合进食和照护情况复核。",
+      "source_ids": ["frailty_polypharmacy_2022"]
+    },
+    {
+      "id": "ddi_colchicine_clarithromycin",
+      "drugs": ["秋水仙碱", "克拉霉素"],
+      "severity": "major",
+      "conclusion": "该组合命中规则：本地共识提示联用会增加横纹肌溶解、肾衰竭和急性神经肌病风险。",
+      "clinician_action": "核对感染治疗需要、肾功能、肌肉症状及替代方案。",
+      "elderly_note": "衰弱老年人合并肾功能下降时，应特别关注累积毒性。",
+      "source_ids": ["frailty_polypharmacy_2022"]
+    },
+    {
+      "id": "ddi_allopurinol_azathioprine",
+      "drugs": ["别嘌醇", "硫唑嘌呤"],
+      "severity": "major",
+      "conclusion": "该组合命中规则：本地共识提示联用可引发骨髓抑制。",
+      "clinician_action": "核对血常规、肝肾功能、适应证及监测安排。",
+      "elderly_note": "老年人发生骨髓抑制时的耐受和恢复能力可能较差，应个体化复核。",
+      "source_ids": ["frailty_polypharmacy_2022"]
+    },
+    {
+      "id": "ddi_glibenclamide_aspirin",
+      "drugs": ["格列苯脲", "阿司匹林"],
+      "severity": "moderate",
+      "conclusion": "该组合命中规则：本地共识提示格列苯脲与阿司匹林联用可增加低血糖风险，并建议老年患者避免格列苯脲。",
+      "clinician_action": "核对血糖记录、低血糖症状、进食情况、肾功能及个体化方案。",
+      "elderly_note": "老年人低血糖可能以乏力、意识改变或跌倒表现，需结合实际症状复核。",
+      "source_ids": ["frailty_polypharmacy_2022"]
+    }
+  ],
+  "dose_rules": [
+    {
+      "id": "dose_rosuvastatin_max_daily_20mg",
+      "drug": "瑞舒伐他汀",
+      "max_daily_mg": 20,
+      "severity": "major",
+      "conclusion": "录入的瑞舒伐他汀日剂量超过本规则来源所列的一日最大剂量20 mg。",
+      "clinician_action": "请由医师或药师核对适应证、实际服用频次、肾功能和原始处方。",
+      "elderly_note": "来源指出65岁及以上患者调整剂量时应慎重。",
+      "source_ids": ["cad_rehab_primary_care"]
+    },
+    {
+      "id": "dose_bisoprolol_max_daily_10mg",
+      "drug": "比索洛尔",
+      "max_daily_mg": 10,
+      "severity": "major",
+      "conclusion": "录入的比索洛尔日剂量超过本地指南所列的一日最大剂量 10 mg。",
+      "clinician_action": "核对实际服用频次、心率、血压、适应证及原始处方。",
+      "elderly_note": "老年人需结合心动过缓、低血压、传导阻滞和肾肝功能进行个体化复核。",
+      "source_ids": ["stable_cad_primary_care"]
+    },
+    {
+      "id": "dose_nifedipine_max_daily_120mg",
+      "drug": "硝苯地平",
+      "max_daily_mg": 120,
+      "severity": "major",
+      "conclusion": "录入的硝苯地平日剂量超过本地指南所列的不宜超过 120 mg/d 阈值。",
+      "clinician_action": "核对剂型、实际服用频次、血压、心率、适应证及原始处方。",
+      "elderly_note": "老年人应结合低血压、头晕和跌倒等风险进行个体化复核。",
+      "source_ids": ["stable_cad_primary_care"]
+    },
+    {
+      "id": "dose_levamlodipine_max_daily_5mg",
+      "drug": "左旋氨氯地平",
+      "max_daily_mg": 5,
+      "severity": "moderate",
+      "conclusion": "录入的左旋氨氯地平日剂量超过本地指南所列的最大 5 mg、每日一次剂量。",
+      "clinician_action": "核对剂型、实际服用频次、血压、适应证及原始处方。",
+      "elderly_note": "老年人应结合低血压、头晕和跌倒等风险进行个体化复核。",
+      "source_ids": ["stable_cad_primary_care"]
+    }
+  ],
+  "beers_rules": [
+    {
+      "id": "beers_benzodiazepines_insomnia_older_adults",
+      "drugs": ["地西泮", "劳拉西泮", "阿普唑仑", "氯硝西泮", "替马西泮", "三唑仑"],
+      "minimum_age": 65,
+      "severity": "moderate",
+      "conclusion": "本地来源转述：对老年患者，Beers criteria 建议避免将苯二氮卓类用于失眠治疗，因可能增加认知损害和跌倒等风险。当前药物清单不能确定该药的实际适应证。",
+      "clinician_action": "请由医师或药师核对该药的适应证、疗程、跌倒/认知风险及其他中枢抑制药；仅在确认属于来源所述情境后再作个体化判断。",
+      "elderly_note": "这是有限、本地可追溯来源的核对信号，不代表完整 Beers 筛查或个体化禁忌结论。",
+      "source_ids": ["insomnia_bz_older_adults"]
+    }
+  ]
+}

@@ -1,0 +1,27 @@
+{
+  "extends": "../../../tsconfig.base.json",
+  "compilerOptions": { "rootDir": "src", "outDir": "lib/types" },
+  "include": ["src"],
+  "references": [
+    { "path": "../../../vendor/cordis" },
+    { "path": "../../host/webserver" },
+    { "path": "../../storage/storage-domain" },
+    { "path": "../../core/session" },
+    { "path": "../../session/session-persistence" },
+    { "path": "../../llm/llm" },
+    { "path": "../../core/system-prompt" },
+    { "path": "../../workspace/workspace" },
+    { "path": "../cga" },
+    { "path": "../medication-review" },
+    { "path": "../medical-evidence" },
+    { "path": "../health-profile" },
+    { "path": "../chronic-care" },
+    { "path": "../risk-alert" },
+    { "path": "../companion" },
+    { "path": "../prescription" },
+    { "path": "../voice" },
+    { "path": "../local-rag" },
+    { "path": "../system-prompt" },
+    { "path": "../../runtime-diagnostics/invariants" }
+  ]
+}

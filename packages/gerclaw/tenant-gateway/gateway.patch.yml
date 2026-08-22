@@ -1,0 +1,94 @@
+# Public GerClaw entry: authentication and per-account child DSH Host gateway.
+- id: webserver
+  name: "@deepseek-ai/dsh-host-webserver"
+  config:
+    host: !!js process.env.GERCLAW_BIND_HOST || '127.0.0.1'
+    port: !!js Number(process.env.GERCLAW_PORT || 3000)
+
+- insert:
+    - id: gerclaw-tenant-gateway
+      name: "@gerclaw/tenant-gateway"
+      config:
+        rootDir: !!js process.cwd()
+        dataDir: !!js process.env.GERCLAW_DATA_DIR || dshHomePath('gerclaw-tenants')
+        childPatch: !!js "process.getBuiltinModule('node:path').join(process.cwd(), 'packages/gerclaw/profile-bundle/cordis.patch.yml')"
+        idleMs: 1800000
+
+- id: web-runtime
+  disabled: true
+- id: client-hmr
+  disabled: true
+- id: modules
+  disabled: true
+- id: connection
+  disabled: true
+- id: api-remotes
+  disabled: true
+- id: client-runtime
+  disabled: true
+- id: cordis-client-runner
+  disabled: true
+- id: ui-theme
+  disabled: true
+- id: locale
+  disabled: true
+- id: ui-layout
+  disabled: true
+- id: ui-renderer
+  disabled: true
+- id: ui-sidebar
+  disabled: true
+- id: ui-settings
+  disabled: true
+- id: ui-settings-general
+  disabled: true
+- id: ui-settings-models
+  disabled: true
+- id: ui-settings-plugin-inventory
+  disabled: true
+- id: ui-conversation
+  disabled: true
+- id: ui-brand-official
+  disabled: true
+- id: ui-attachment
+  disabled: true
+- id: ui-tool
+  disabled: true
+- id: ui-cordis
+  disabled: true
+- id: ui-workflow-run
+  disabled: true
+- id: ui-deliverables
+  disabled: true
+- id: ui-workspace
+  disabled: true
+- id: ui-input-trigger
+  disabled: true
+- id: ui-commands
+  disabled: true
+- id: ui-skill
+  disabled: true
+- id: ui-subagent
+  disabled: true
+- id: ui-reference
+  disabled: true
+- id: ui-jobs
+  disabled: true
+- id: ui-goal
+  disabled: true
+- id: ui-message-feedback
+  disabled: true
+- id: ui-model-selection
+  disabled: true
+- id: ui-permission
+  disabled: true
+- id: ui-agent-preset
+  disabled: true
+- id: ui-settings-plugins
+  disabled: true
+- id: ui-plan
+  disabled: true
+- id: ui-user-questions
+  disabled: true
+- id: ui-trajectory
+  disabled: true

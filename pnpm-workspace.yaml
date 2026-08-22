@@ -27,6 +27,10 @@ linkWorkspacePackages: true
 overrides:
   '@deepseek-ai/cosmokit': 'link:vendor/cosmokit'
   '@deepseek-ai/schemastery': 'link:vendor/schemastery'
+  # Memorix uses Ink/React 19 in its CLI. Keep DSH's React test harness on the
+  # React 18 line instead of letting pnpm satisfy its broad peer range with 19.
+  '@testing-library/react>react': '18.3.1'
+  '@testing-library/react>react-dom': '18.3.1'
 
 peerDependencyRules:
   allowedVersions:
@@ -53,6 +57,13 @@ allowBuilds:
   # The Python runtime deploy includes the reviewed workspace postinstall that
   # restores the executable bit on node-pty's macOS spawn helper.
   '@deepseek-ai/dsh-subprocess-local@file:packages/subprocess/subprocess-local': true
+  # Memorix persists isolated account memories in SQLite and can optionally
+  # build local semantic embeddings. These native artifacts are required for
+  # the selected community memory provider to run rather than degrade to a
+  # stubbed integration.
+  better-sqlite3: true
+  onnxruntime-node: true
+  sharp: true
 
 minimumReleaseAgeExclude:
   # Fresh pi-ai releases carry the model catalog updates that are the whole
@@ -67,6 +78,7 @@ minimumReleaseAgeExclude:
   - node-addon-require-builtin-win32-ia32-msvc@0.1.4
   - node-addon-require-builtin-win32-x64-msvc@0.1.4
   - node-addon-require-builtin@0.1.4
+  - dsh-library@0.1.3
 
 patchedDependencies:
   node-pty@1.2.0-beta.15: patches/node-pty@1.2.0-beta.15.patch

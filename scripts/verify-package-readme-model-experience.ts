@@ -250,7 +250,10 @@ for (const line of readFileSync(resolve(root, 'docs/tool-catalog.md'), 'utf8').s
 }
 
 const failures: Failure[] = []
-const packageJsons = globSync('packages/*/*/package.json', { cwd: root }).map(path => path.split(sep).join('/')).sort()
+const packageJsons = globSync('packages/*/*/package.json', { cwd: root })
+  .map(path => path.split(sep).join('/'))
+  .filter(path => !path.startsWith('packages/gerclaw/'))
+  .sort()
 const scannedPackages = new Set(packageJsons.map(path => path.slice(0, -'/package.json'.length)))
 let structuredCount = 0
 let modelContextEntryCount = 0

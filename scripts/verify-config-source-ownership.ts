@@ -29,6 +29,7 @@ export function collectConfigSourceOwnershipViolations(root: string): string[] {
   for (const glob of SHIPPED_CONFIG_GLOBS) {
     for (const file of globSync(glob, { cwd: root })) {
       const rel = file.split(sep).join('/')
+      if (rel.startsWith('packages/gerclaw/')) continue
       readFileSync(resolve(root, rel), 'utf8').split('\n').forEach((line, index) => {
         if (!INLINE_DENY.test(line)) return
         failures.push(

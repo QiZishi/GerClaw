@@ -8,6 +8,10 @@
 
 *.pdf binary
 
+# Imported MinerU medical source material is preserved byte-for-byte. Its
+# Markdown contains meaningful hard line breaks represented by trailing spaces.
+knowledge-base/** whitespace=-trailing-space
+
 # Pairing records are generated from the three confirmed owner-blob pairs.
 # The worktree-local installer registers the fail-closed driver command.
 *.i18n.yaml merge=dsh-translation-pairing

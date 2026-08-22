@@ -1,0 +1,259 @@
+# GerClaw patient/clinician product profile. This layer intentionally replaces
+# the deployment system prompt while retaining DSH's native plan, goal, skill,
+# session, file, workspace, storage and tool services.
+
+- id: system-prompt
+  disabled: true
+
+- insert:
+    - id: gerclaw-system-prompt
+      name: "@gerclaw/system-prompt"
+
+- id: skill-filesystem
+  name: "@deepseek-ai/dsh-skill-filesystem"
+  disabled: false
+  config:
+    includeDefaultRoots: true
+    customSkillDirs:
+      - !!js "process.getBuiltinModule('node:url').fileURLToPath(new URL('../skills/skills/', baseUrl))"
+
+- id: tool-skill
+  disabled: false
+
+# Goal and Plan are deliberately restated to make their presence an explicit
+# GerClaw product contract rather than an accidental bundle inheritance.
+- id: goal
+  name: "@deepseek-ai/dsh-goal"
+
+- id: goal-round-driver
+  name: "@deepseek-ai/dsh-goal-round-driver"
+
+- id: command-goal
+  name: "@deepseek-ai/dsh-command-goal"
+
+- id: plan-mode
+  name: "@deepseek-ai/dsh-plan-mode"
+  disabled: false
+  config:
+    section: |-
+      你正在使用 GerClaw 计划模式。先读取当前账号可用的健康资料和用户目标，把任务拆成用户能理解的步骤；只做读取、检索和分析，不执行会改变数据的动作。计划应说明输入、关键步骤、风险信号、预期产物和验证方法。计划完成后使用 exit_plan_mode 提交，只有用户明确批准后才能执行。
+
+- id: agent-default-model
+  name: "@deepseek-ai/dsh-agent-default-model"
+  config:
+    provider: deepseek-official
+    model: !!js process.env.AGENT_PRIMARY_MODEL || 'deepseek-chat'
+
+- id: llm-deepseek
+  name: "@deepseek-ai/dsh-llm-deepseek"
+  config:
+    apiKeyEnv: AGENT_PRIMARY_API_KEY
+    baseURL: !!js process.env.AGENT_PRIMARY_URL
+    thinking: disabled
+    reasoningEffort: off
+    maxTokens: 4096
+    streamIdleTimeoutMs: 30000
+    models:
+      - id: !!js process.env.AGENT_PRIMARY_MODEL || 'deepseek-chat'
+        name: GerClaw 主模型
+
+- id: llm-pi-ai
+  name: "@deepseek-ai/dsh-llm-pi-ai"
+  config:
+    providers:
+      gerclaw-primary:
+        displayName: GerClaw 主模型
+        apiKeyEnv: AGENT_PRIMARY_API_KEY
+        api: openai-completions
+        baseURL: !!js process.env.AGENT_PRIMARY_URL
+        compat: { thinkingFormat: deepseek }
+        models: !!js "[{ id: process.env.AGENT_PRIMARY_MODEL || 'deepseek-chat', name: 'GerClaw 主模型' }]"
+      gerclaw-backup1:
+        displayName: GerClaw 备用模型一
+        apiKeyEnv: AGENT_BACKUP1_API_KEY
+        api: openai-completions
+        baseURL: !!js process.env.AGENT_BACKUP1_URL || process.env.AGENT_PRIMARY_URL
+        compat: { thinkingFormat: deepseek }
+        models: !!js "[{ id: process.env.AGENT_BACKUP1_MODEL || process.env.AGENT_PRIMARY_MODEL || 'deepseek-chat', name: 'GerClaw 备用模型一' }]"
+      gerclaw-backup2:
+        displayName: GerClaw 备用模型二
+        apiKeyEnv: AGENT_BACKUP2_API_KEY
+        api: openai-completions
+        baseURL: !!js process.env.AGENT_BACKUP2_URL || process.env.AGENT_PRIMARY_URL
+        compat: { thinkingFormat: deepseek }
+        models: !!js "[{ id: process.env.AGENT_BACKUP2_MODEL || process.env.AGENT_PRIMARY_MODEL || 'deepseek-chat', name: 'GerClaw 备用模型二' }]"
+
+- id: webserver
+  name: "@deepseek-ai/dsh-host-webserver"
+  config:
+    host: 127.0.0.1
+    port: !!js Number(process.env.GERCLAW_HOST_PORT || 3080)
+
+- insert:
+    - id: storage-sqlite
+      name: "@deepseek-ai/dsh-storage-sqlite"
+      config:
+        path: !!js dshHomePath('storages/gerclaw.sqlite')
+
+    - id: mineru
+      name: dsh-mineru
+      config:
+        apiBaseUrl: !!js process.env.MINERU_URL || 'https://mineru.net'
+        tokenCredential: MINERU_API_KEY
+        mode: auto
+        exposeMode: always
+
+    - id: memorix
+      name: "@deepseek-ai/dsh-mcp-client"
+      config:
+        transport: stdio
+        serverName: memorix
+        command: !!js process.execPath
+        args:
+          - !!js "process.getBuiltinModule('node:path').join(process.env.GERCLAW_ROOT_DIR, 'packages/gerclaw/profile-bundle/node_modules/memorix/dist/cli/index.js')"
+          - serve
+        env:
+          MEMORIX_DATA_DIR: !!js process.env.MEMORIX_DATA_DIR || dshHomePath('memorix')
+        cwd: !!js process.env.GERCLAW_ACCOUNT_DATA_DIR || process.cwd()
+        toolCallTimeoutMs: 60000
+        failOnStartupError: false
+
+    - { id: gerclaw-cga, name: "@gerclaw/cga" }
+    - { id: gerclaw-medication-review, name: "@gerclaw/medication-review" }
+    - { id: gerclaw-health-profile, name: "@gerclaw/health-profile" }
+    - { id: gerclaw-chronic-care, name: "@gerclaw/chronic-care" }
+    - { id: gerclaw-companion, name: "@gerclaw/companion" }
+    - { id: gerclaw-risk-alert, name: "@gerclaw/risk-alert" }
+    - { id: gerclaw-medical-evidence, name: "@gerclaw/medical-evidence" }
+
+    - id: gerclaw-voice
+      name: "@gerclaw/voice"
+      config:
+        mimoApiKey: !!js process.env.MIMO_API_KEY
+        mimoAsrUrl: !!js process.env.MIMO_ASR_URL
+        mimoTtsUrl: !!js process.env.MIMO_TTS_URL
+        asrModel: !!js process.env.ASR_MODEL
+        ttsModel: !!js process.env.TTS_MODEL
+        siliconFlowApiKey: !!js process.env.SILICONFLOW_API_KEY
+        siliconFlowUrl: !!js process.env.SILICONFLOW_URL
+
+    - id: gerclaw-local-rag
+      name: "@gerclaw/local-rag"
+      config:
+        knowledgeBasePath: !!js "process.getBuiltinModule('node:path').join(process.env.GERCLAW_ACCOUNT_DATA_DIR, 'knowledge-base')"
+        library: gerclaw-medical
+
+    - id: gerclaw-prescription
+      name: "@gerclaw/prescription"
+      config:
+        routes:
+          - {
+              provider: deepseek-official,
+              model: !!js "process.env.AGENT_PRIMARY_MODEL || 'deepseek-chat'",
+            }
+
+    - id: gerclaw-app
+      name: "@gerclaw/app"
+      config:
+        rootDir: !!js process.env.GERCLAW_ROOT_DIR
+        dataDir: !!js process.env.GERCLAW_ACCOUNT_DATA_DIR || dshHomePath('gerclaw-data')
+        accountId: !!js process.env.GERCLAW_ACCOUNT_ID || 'local'
+        audience: !!js process.env.GERCLAW_AUDIENCE || 'patient'
+        routes:
+          - {
+              provider: deepseek-official,
+              model: !!js "process.env.AGENT_PRIMARY_MODEL || 'deepseek-chat'",
+            }
+          - {
+              provider: gerclaw-backup1,
+              model: !!js "process.env.AGENT_BACKUP1_MODEL || process.env.AGENT_PRIMARY_MODEL || 'deepseek-chat'",
+            }
+          - {
+              provider: gerclaw-backup2,
+              model: !!js "process.env.AGENT_BACKUP2_MODEL || process.env.AGENT_PRIMARY_MODEL || 'deepseek-chat'",
+            }
+
+- id: storage-domain
+  config:
+    backend: sqlite
+
+# GerClaw owns the complete browser surface. Native DSH backend capabilities
+# above remain active, while the developer-oriented browser modules are absent.
+- id: web-runtime
+  disabled: true
+- id: client-hmr
+  disabled: true
+- id: modules
+  disabled: true
+- id: connection
+  disabled: true
+- id: api-remotes
+  disabled: true
+- id: client-runtime
+  disabled: true
+- id: cordis-client-runner
+  disabled: true
+- id: ui-theme
+  disabled: true
+- id: locale
+  disabled: true
+- id: ui-layout
+  disabled: true
+- id: ui-renderer
+  disabled: true
+- id: ui-sidebar
+  disabled: true
+- id: ui-settings
+  disabled: true
+- id: ui-settings-general
+  disabled: true
+- id: ui-settings-models
+  disabled: true
+- id: ui-settings-plugin-inventory
+  disabled: true
+- id: ui-conversation
+  disabled: true
+- id: ui-brand-official
+  disabled: true
+- id: ui-attachment
+  disabled: true
+- id: ui-tool
+  disabled: true
+- id: ui-cordis
+  disabled: true
+- id: ui-workflow-run
+  disabled: true
+- id: ui-deliverables
+  disabled: true
+- id: ui-workspace
+  disabled: true
+- id: ui-input-trigger
+  disabled: true
+- id: ui-commands
+  disabled: true
+- id: ui-skill
+  disabled: true
+- id: ui-subagent
+  disabled: true
+- id: ui-reference
+  disabled: true
+- id: ui-jobs
+  disabled: true
+- id: ui-goal
+  disabled: true
+- id: ui-message-feedback
+  disabled: true
+- id: ui-model-selection
+  disabled: true
+- id: ui-permission
+  disabled: true
+- id: ui-agent-preset
+  disabled: true
+- id: ui-settings-plugins
+  disabled: true
+- id: ui-plan
+  disabled: true
+- id: ui-user-questions
+  disabled: true
+- id: ui-trajectory
+  disabled: true

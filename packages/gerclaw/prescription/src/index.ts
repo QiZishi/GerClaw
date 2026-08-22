@@ -1,0 +1,366 @@
+/** Evidence-bound five-prescription generation over the native DSH LLM service. */
+import { Context, Service } from '@deepseek-ai/cordis'
+import { BlockAssembler, createUserMessage } from '@deepseek-ai/dsh-llm'
+import type { MedicationReview } from '@gerclaw/medication-review'
+import type { LocalRagHit } from '@gerclaw/local-rag'
+export interface EvidenceSource {
+  evidenceId: string
+  title: string
+  source: string
+  locator: string
+  url?: string
+  snippet?: string
+}
+export const evidenceFromLocalHits = (
+  hits: readonly LocalRagHit[],
+): EvidenceSource[] =>
+  hits.map(hit => ({
+    evidenceId: `local_${hit.chunkId.replace(/[^a-zA-Z0-9]/g, '').slice(0, 48)}`,
+    title: `本地医学资料 ${hit.documentId}`,
+    source: 'GerClaw 本地医学知识库',
+    locator: `${hit.documentId}:${hit.seq}`,
+    snippet: hit.snippet,
+  }))
+export interface PrescriptionRequest {
+  healthGoals: string[]
+  currentConcerns: string[]
+  currentMedications?: string
+  age?: number
+  sex?: 'female' | 'male' | 'other' | 'unknown'
+  documentRefs?: string[]
+  evidence: EvidenceSource[]
+  profileSummary?: string
+}
+export interface PrescriptionRecommendation {
+  content: string
+  evidenceIds: string[]
+}
+export interface PrescriptionSection {
+  kind:
+    | 'medication'
+    | 'exercise'
+    | 'nutrition'
+    | 'psychological'
+    | 'rehabilitation'
+  title: '药物处方' | '运动处方' | '营养处方' | '心理处方' | '康复处方'
+  goal: string
+  recommendations: PrescriptionRecommendation[]
+  precautions: string[]
+  evidenceIds: string[]
+  details?: Record<string, unknown>
+}
+export interface PrescriptionReport {
+  templateVersion: 'five-prescription-report-v1'
+  modelOutputSchemaVersion: 'five-prescription-model-output-v1'
+  status: 'needs_clinician_review'
+  patientSummary: {
+    age?: number
+    sex: string
+    healthGoals: string[]
+    currentConcerns: string[]
+  }
+  healthAssessment: {
+    summary: string
+    keyIssues: string[]
+    riskFactors: string[]
+    clinicianReviewRequired: true
+  }
+  sections: [
+    PrescriptionSection,
+    PrescriptionSection,
+    PrescriptionSection,
+    PrescriptionSection,
+    PrescriptionSection,
+  ]
+  medicationReview?: MedicationReview
+  evidenceSources: EvidenceSource[]
+  uploadedDocumentRefs: string[]
+  disclaimer: string
+}
+export interface PrescriptionConfig {
+  routes?: Array<{ provider: string; model: string }>
+}
+const TITLES = [
+  '药物处方',
+  '运动处方',
+  '营养处方',
+  '心理处方',
+  '康复处方',
+] as const
+const KINDS = [
+  'medication',
+  'exercise',
+  'nutrition',
+  'psychological',
+  'rehabilitation',
+] as const
+const SYSTEM = '你是 GerClaw 五大处方草案助手。只依据给定个人资料与证据，生成供复核的结构化草案。必须且只能按药物处方、运动处方、营养处方、心理处方、康复处方排列；睡眠内容放入心理处方。不得编造诊断、检查、来源或患者事实。每条建议必须引用 allowedEvidenceIds 中真实存在的 evidenceId，禁止使用示例占位符或自造编号。药物调整只作为待复核候选。运动和康复必须写明循序渐进及停止条件。康复训练需有频次以及时长或强度。只输出 JSON，不要 Markdown。'
+const cleanJson = (text: string): unknown => {
+  const parsed: unknown[] = []
+  let start = -1
+  let depth = 0
+  let inString = false
+  let escaped = false
+  for (let index = 0; index < text.length; index += 1) {
+    const char = text[index]
+    if (inString) {
+      if (escaped) escaped = false
+      else if (char === '\\') escaped = true
+      else if (char === '"') inString = false
+      continue
+    }
+    if (char === '"') {
+      inString = true
+      continue
+    }
+    if (char === '{') {
+      if (depth === 0) start = index
+      depth += 1
+    } else if (char === '}' && depth > 0) {
+      depth -= 1
+      if (depth === 0 && start >= 0) {
+        try {
+          parsed.push(JSON.parse(text.slice(start, index + 1)))
+        } catch {
+          // Continue scanning: reasoning models can emit braces before final JSON.
+        }
+        start = -1
+      }
+    }
+  }
+  if (parsed.length === 0)
+    throw new Error(
+      text.includes('{')
+        ? '模型返回的处方结构无法解析'
+        : '模型没有返回处方结构',
+    )
+  return (
+    parsed.findLast((value) => {
+      if (typeof value !== 'object' || value === null) return false
+      const candidate = value as Record<string, unknown>
+      return 'healthAssessment' in candidate && Array.isArray(candidate.sections)
+    }) ?? parsed.at(-1)
+  )
+}
+const strings = (value: unknown, min = 1, max = 20): string[] => {
+  if (!Array.isArray(value)) throw new Error('处方列表字段无效')
+  const result = value
+    .map(String)
+    .map(item => item.trim())
+    .filter(Boolean)
+    .slice(0, max)
+  if (result.length < min) throw new Error('处方列表缺少必要内容')
+  return result
+}
+const textValue = (value: unknown): string =>
+  typeof value === 'string' || typeof value === 'number'
+    ? String(value).trim()
+    : ''
+function validateModel(
+  value: unknown,
+  evidence: EvidenceSource[],
+): {
+  healthAssessment: PrescriptionReport['healthAssessment']
+  sections: PrescriptionReport['sections']
+} {
+  if (typeof value !== 'object' || value === null)
+    throw new Error('模型返回的处方结构无效')
+  const raw = value as Record<string, unknown>
+  const available = new Set(evidence.map(item => item.evidenceId))
+  const assessment = raw.healthAssessment as
+    | Record<string, unknown>
+    | undefined
+  if (!assessment) throw new Error('处方缺少健康评估')
+  const sourceSections = raw.sections
+  if (!Array.isArray(sourceSections) || sourceSections.length !== 5)
+    throw new Error('处方必须包含五个固定章节')
+  const sections = sourceSections.map((entry, index) => {
+    const kind = KINDS[index]
+    const title = TITLES[index]
+    if (!kind || !title) throw new Error('处方章节数量不正确')
+    if (typeof entry !== 'object' || entry === null)
+      throw new Error('处方章节无效')
+    const item = entry as Record<string, unknown>
+    if (item.title !== title || item.kind !== kind)
+      throw new Error('处方章节名称或顺序不正确')
+    const evidenceIds = strings(item.evidenceIds)
+    if (evidenceIds.some(id => !available.has(id)))
+      throw new Error('处方引用了不存在的证据')
+    if (
+      !Array.isArray(item.recommendations) ||
+      item.recommendations.length === 0
+    )
+      throw new Error('处方章节缺少建议')
+    const recommendations = item.recommendations.map((row) => {
+      const rec = row as Record<string, unknown>
+      const ids = strings(rec.evidenceIds)
+      if (ids.some(id => !available.has(id)))
+        throw new Error('处方建议引用了不存在的证据')
+      return { content: textValue(rec.content), evidenceIds: ids }
+    })
+    if (recommendations.some(row => !row.content))
+      throw new Error('处方建议内容不能为空')
+    return {
+      kind,
+      title,
+      goal: textValue(item.goal),
+      recommendations,
+      precautions: strings(item.precautions),
+      evidenceIds,
+      ...(typeof item.details === 'object' && item.details !== null
+        ? { details: item.details as Record<string, unknown> }
+        : {}),
+    }
+  }) as PrescriptionReport['sections']
+  return {
+    healthAssessment: {
+      summary: textValue(assessment.summary),
+      keyIssues: strings(assessment.keyIssues),
+      riskFactors: Array.isArray(assessment.riskFactors)
+        ? strings(assessment.riskFactors, 0)
+        : [],
+      clinicianReviewRequired: true,
+    },
+    sections,
+  }
+}
+declare module '@deepseek-ai/cordis' {
+  interface Context {
+    gerclawPrescription: PrescriptionService
+  }
+}
+export class PrescriptionService extends Service {
+  static inject = ['llm', 'gerclawMedicationReview', 'gerclawRag']
+  constructor(
+    ctx: Context,
+    private readonly config: PrescriptionConfig = {},
+  ) {
+    super(ctx, 'gerclawPrescription')
+  }
+  async generate(
+    request: PrescriptionRequest,
+    signal?: AbortSignal,
+    onRoute?: (route: string) => void,
+  ): Promise<PrescriptionReport> {
+    if (
+      request.healthGoals.length === 0 ||
+      request.currentConcerns.length === 0
+    )
+      throw new Error('请填写健康目标和当前问题')
+    if ((request.documentRefs?.length ?? 0) > 10)
+      throw new Error('一次最多使用 10 份资料')
+    const localHits = await this.ctx.gerclawRag.search(
+      [...request.healthGoals, ...request.currentConcerns].join(' '),
+      8,
+    )
+    const localEvidence = evidenceFromLocalHits(localHits)
+    const evidence = [
+      ...localEvidence,
+      ...request.evidence.filter(
+        item => !localEvidence.some(local => local.evidenceId === item.evidenceId),
+      ),
+    ]
+    if (evidence.length === 0)
+      throw new Error('本地知识库与权威医学源均未检索到可引用证据')
+    const primaryEvidenceId = evidence[0]?.evidenceId
+    if (!primaryEvidenceId) throw new Error('证据编号无效')
+    const routes = this.config.routes ?? []
+    if (routes.length === 0)
+      throw new Error('缺少环境变量：AGENT_PRIMARY_MODEL')
+    const prompt = JSON.stringify({
+      allowedEvidenceIds: evidence.map(item => item.evidenceId),
+      schema: {
+        healthAssessment: {
+          summary: 'string',
+          keyIssues: ['string'],
+          riskFactors: ['string'],
+        },
+        sections: TITLES.map((title, index) => ({
+          kind: KINDS[index],
+          title,
+          goal: 'string',
+          recommendations: [
+            { content: 'string', evidenceIds: [primaryEvidenceId] },
+          ],
+          precautions: ['string'],
+          evidenceIds: [primaryEvidenceId],
+          details: {},
+        })),
+      },
+      patient: {
+        healthGoals: request.healthGoals,
+        currentConcerns: request.currentConcerns,
+        currentMedications: request.currentMedications ?? '',
+        age: request.age ?? null,
+        sex: request.sex ?? 'unknown',
+        profileSummary: request.profileSummary ?? '',
+        documentRefs: request.documentRefs ?? [],
+      },
+      evidence,
+    })
+    let last: unknown
+    for (const route of routes) {
+      try {
+        onRoute?.(`${route.provider}/${route.model}`)
+        const assembler = new BlockAssembler()
+        for await (const chunk of this.ctx.llm.stream({
+          provider: route.provider,
+          model: route.model,
+          messages: [
+            createUserMessage({
+              content: [{ type: 'text', text: prompt }],
+              source: { kind: 'user' },
+            }),
+          ],
+          system: SYSTEM,
+          maxTokens: 2500,
+          temperature: 0.2,
+          ...(signal === undefined ? {} : { signal }),
+        }))
+          assembler.push(chunk)
+        if (
+          assembler.finish.kind !== 'stop' &&
+          assembler.finish.kind !== 'max-tokens'
+        )
+          throw new Error('模型生成未完成')
+        const text = assembler
+          .blocks()
+          .filter(block => block.type === 'text')
+          .map(block => block.text)
+          .join('')
+        const parsed = validateModel(cleanJson(text), evidence)
+        const medicationReview = request.currentMedications?.trim()
+          ? this.ctx.gerclawMedicationReview.review({
+            medicationList: request.currentMedications,
+            ...(request.age === undefined ? {} : { patientAge: request.age }),
+          })
+          : undefined
+        return {
+          templateVersion: 'five-prescription-report-v1',
+          modelOutputSchemaVersion: 'five-prescription-model-output-v1',
+          status: 'needs_clinician_review',
+          patientSummary: {
+            ...(request.age === undefined ? {} : { age: request.age }),
+            sex: request.sex ?? 'unknown',
+            healthGoals: request.healthGoals,
+            currentConcerns: request.currentConcerns,
+          },
+          healthAssessment: parsed.healthAssessment,
+          sections: parsed.sections,
+          ...(medicationReview === undefined ? {} : { medicationReview }),
+          evidenceSources: evidence,
+          uploadedDocumentRefs: request.documentRefs ?? [],
+          disclaimer:
+            'AI生成建议仅供参考，不能替代专业医生诊断、治疗建议或处方；如有不适请及时就医。',
+        }
+      } catch (error) {
+        if (signal?.aborted) throw error
+        last = error
+      }
+    }
+    throw new Error(
+      `模型生成失败：${last instanceof Error ? last.message : '服务不可用'}`,
+    )
+  }
+}
+export default PrescriptionService
