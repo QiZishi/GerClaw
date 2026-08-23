@@ -14,11 +14,29 @@ const bounded = (value: string, max = 1200) =>
     .replace(/\s+/g, ' ')
     .trim()
     .slice(0, max)
-const getJson = async (url: string, signal?: AbortSignal): Promise<unknown> => {
+const decodeXml = (value: string) =>
+  value
+    .replace(/&#(\d+);/g, (_match, code: string) =>
+      String.fromCodePoint(Number(code)),
+    )
+    .replace(/&#x([0-9a-f]+);/gi, (_match, code: string) =>
+      String.fromCodePoint(Number.parseInt(code, 16)),
+    )
+    .replace(/&lt;/g, '<')
+    .replace(/&gt;/g, '>')
+    .replace(/&quot;/g, '"')
+    .replace(/&apos;/g, "'")
+    .replace(/&amp;/g, '&')
+const getJson = async (
+  url: string,
+  signal?: AbortSignal,
+  emptyOnNotFound = false,
+): Promise<unknown> => {
   const response = await fetch(url, {
     ...(signal === undefined ? {} : { signal }),
     headers: { Accept: 'application/json' },
   })
+  if (emptyOnNotFound && response.status === 404) return {}
   if (!response.ok)
     throw new Error(`医学资料服务暂时不可用（${response.status}）`)
   return response.json()
@@ -59,6 +77,7 @@ export class MedicalEvidenceService extends Service {
     const data = (await getJson(
       `https://api.fda.gov/drug/label.json?limit=5&search=openfda.generic_name:${encodeURIComponent(`\"${query.trim().slice(0, 120)}\"`)}`,
       signal,
+      true,
     )) as {
       results?: Array<{
         id?: string
@@ -81,40 +100,33 @@ export class MedicalEvidenceService extends Service {
     signal?: AbortSignal,
   ): Promise<MedicalEvidence[]> {
     const response = await fetch(
-      `https://wsearch.nlm.nih.gov/ws/query?db=healthTopics&rettype=json&retmax=5&term=${encodeURIComponent(query.trim().slice(0, 200))}`,
+      `https://wsearch.nlm.nih.gov/ws/query?db=healthTopics&retmax=5&term=${encodeURIComponent(query.trim().slice(0, 200))}`,
       signal === undefined ? {} : { signal },
     )
+    if (response.status === 404) return []
     if (!response.ok)
       throw new Error(`医学资料服务暂时不可用（${response.status}）`)
     const raw = await response.text()
-    let data: unknown
-    try {
-      data = JSON.parse(raw)
-    } catch {
-      return []
-    }
-    const docs =
-      (
-        data as {
-          list?: {
-            document?: Array<{
-              content?: Array<{ name?: string; _text?: string }>
-              url?: string
-            }>
-          }
-        }
-      ).list?.document ?? []
+    const docs = [...raw.matchAll(
+      /<document\b[^>]*\burl="([^"]+)"[^>]*>([\s\S]*?)<\/document>/gi,
+    )]
     return docs.map((doc, index) => {
-      const title =
-        doc.content?.find(item => item.name === 'title')?._text ?? query
-      const snippet =
-        doc.content?.find(item => item.name === 'snippet')?._text ?? ''
+      const content = doc[2] ?? ''
+      const field = (name: string) =>
+        decodeXml(
+          content.match(
+            new RegExp(`<content\\s+name="${name}">([\\s\\S]*?)<\\/content>`, 'i'),
+          )?.[1] ?? '',
+        )
+      const url = decodeXml(doc[1] ?? '')
+      const title = field('title') || query
+      const snippet = field('FullSummary') || field('snippet')
       return {
         evidenceId: `medlineplus_${index + 1}`,
         title: bounded(title, 300),
         source: 'MedlinePlus',
-        locator: doc.url ?? `result-${index + 1}`,
-        url: doc.url ?? 'https://medlineplus.gov/',
+        locator: url || `result-${index + 1}`,
+        url: url || 'https://medlineplus.gov/',
         snippet: bounded(snippet),
       }
     })
@@ -123,14 +135,12 @@ export class MedicalEvidenceService extends Service {
     query: string,
     signal?: AbortSignal,
   ): Promise<MedicalEvidence[]> {
-    const settled = await Promise.allSettled([
+    const results = await Promise.all([
       this.searchPubMed(query, signal),
       this.searchOpenFda(query, signal),
       this.searchMedlinePlus(query, signal),
     ])
-    return settled.flatMap(item =>
-      item.status === 'fulfilled' ? item.value : [],
-    )
+    return results.flat()
   }
 }
 declare module '@deepseek-ai/cordis' {

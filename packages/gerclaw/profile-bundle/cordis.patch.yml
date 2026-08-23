@@ -13,11 +13,31 @@
   name: "@deepseek-ai/dsh-skill-filesystem"
   disabled: false
   config:
-    includeDefaultRoots: true
+    includeDefaultRoots: false
     customSkillDirs:
       - !!js "process.getBuiltinModule('node:url').fileURLToPath(new URL('../skills/skills/', baseUrl))"
 
 - id: tool-skill
+  disabled: false
+
+# Keep the native, account-scoped user tools required by health conversations.
+# Developer shell and Cordis management tools remain outside the product profile.
+- id: tool-fs
+  disabled: false
+
+- id: tool-fs-search
+  disabled: false
+
+- id: tool-web
+  disabled: false
+  config:
+    fetch: false
+    searchTimeoutMs: 60000
+
+- id: tool-goal
+  disabled: false
+
+- id: compaction-basic
   disabled: false
 
 # Goal and Plan are deliberately restated to make their presence an explicit
@@ -98,7 +118,7 @@
     - id: mineru
       name: dsh-mineru
       config:
-        apiBaseUrl: !!js process.env.MINERU_URL || 'https://mineru.net'
+        apiBaseUrl: !!js "process.env.MINERU_URL ? new URL(process.env.MINERU_URL).origin : 'https://mineru.net'"
         tokenCredential: MINERU_API_KEY
         mode: auto
         exposeMode: always
@@ -116,7 +136,7 @@
           MEMORIX_DATA_DIR: !!js process.env.MEMORIX_DATA_DIR || dshHomePath('memorix')
         cwd: !!js process.env.GERCLAW_ACCOUNT_DATA_DIR || process.cwd()
         toolCallTimeoutMs: 60000
-        failOnStartupError: false
+        failOnStartupError: true
 
     - { id: gerclaw-cga, name: "@gerclaw/cga" }
     - { id: gerclaw-medication-review, name: "@gerclaw/medication-review" }
@@ -129,19 +149,24 @@
     - id: gerclaw-voice
       name: "@gerclaw/voice"
       config:
-        mimoApiKey: !!js process.env.MIMO_API_KEY
-        mimoAsrUrl: !!js process.env.MIMO_ASR_URL
-        mimoTtsUrl: !!js process.env.MIMO_TTS_URL
+        asrApiKey: !!js process.env.MODEL_ASR_KEY
+        asrUrl: !!js process.env.MODEL_ASR_URL
+        ttsApiKey: !!js process.env.MODEL_TTS_KEY
+        ttsUrl: !!js process.env.MODEL_TTS_URL
         asrModel: !!js process.env.ASR_MODEL
         ttsModel: !!js process.env.TTS_MODEL
-        siliconFlowApiKey: !!js process.env.SILICONFLOW_API_KEY
-        siliconFlowUrl: !!js process.env.SILICONFLOW_URL
+        ttsVoice: Cherry
 
     - id: gerclaw-local-rag
       name: "@gerclaw/local-rag"
       config:
         knowledgeBasePath: !!js "process.getBuiltinModule('node:path').join(process.env.GERCLAW_ACCOUNT_DATA_DIR, 'knowledge-base')"
-        library: gerclaw-medical
+        library: gerclaw-medical-sf-v2
+        embeddingCommand: !!js "process.execPath + ' --env-file=' + process.getBuiltinModule('node:path').join(process.env.GERCLAW_ROOT_DIR, '.env') + ' ' + process.getBuiltinModule('node:path').join(process.env.GERCLAW_ROOT_DIR, 'packages/gerclaw/local-rag/scripts/siliconflow-embedder.mjs')"
+        embeddingDimensions: !!js Number(process.env.GERCLAW_RAG_EMBEDDING_DIMENSIONS || 1024)
+        rerankApiKey: !!js process.env.SILICONFLOW_API_KEY
+        rerankUrl: !!js process.env.SILICONFLOW_URL
+        rerankModel: !!js process.env.RERANK_MODEL
 
     - id: gerclaw-prescription
       name: "@gerclaw/prescription"

@@ -50,3 +50,21 @@ Memory、RAG、session、文件/产物、搜索、工具执行等通用能力采
 ## 完成标准
 
 功能只有在以下条件全部满足后才算完成：已证明无法直接复用现有插件；新能力以独立插件接入 DSH；未修改所采用的原生插件；无医患权限差异；账号数据隔离有效；界面不暴露开发者功能或完整日志；关键业务结果与原 GerClaw 一致；相关测试和构建实际通过；当前阶段已形成可追溯的本地 Git 提交。
+
+## Conventions
+
+本文件中的项目约束、插件边界、权限原则、前端规范和文档要求共同构成本仓库约定。下级 `AGENTS.md` 可细化局部规则，但不得放宽这些要求。
+
+vendored packages are rescoped ([mapping](docs/rescope.md)) and `private: true`. `@deepseek-ai/cordis` is a peerDependency (+ dev) of every harness package.
+
+## Run relevant checks locally
+
+根据改动范围运行相关单测、`pnpm typecheck`、`pnpm lint`、`pnpm build` 和文档检查；完整交付前运行 `pnpm check:all`。
+
+## Commands
+
+常用产品命令为 `pnpm gerclaw` 和 `pnpm gerclaw:dump-config`。其他开发命令以根目录 `package.json` 为准。
+
+## Pre-release stance: foundation over blast radius
+
+项目仍处于预发布阶段。优先保持清晰的插件边界、可恢复状态和可卸载生命周期；兼容处理仅用于已存在且实际使用的入口。

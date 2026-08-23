@@ -4,6 +4,7 @@
   "include": ["src"],
   "references": [
     { "path": "../../../vendor/cordis" },
+    { "path": "../../host/webserver" },
     { "path": "../../runtime-diagnostics/invariants" }
   ]
 }

@@ -4,6 +4,9 @@ import { mkdir, readFile, writeFile } from 'node:fs/promises'
 import { basename, extname, join } from 'node:path'
 import type { IncomingMessage, ServerResponse } from 'node:http'
 import { Context, Service } from '@deepseek-ai/cordis'
+import type { AgentHandle } from '@deepseek-ai/dsh-agent'
+import type {} from '@deepseek-ai/dsh-plan-mode'
+import type {} from '@deepseek-ai/dsh-goal'
 import type {} from '@deepseek-ai/dsh-host-webserver'
 import type {} from '@deepseek-ai/dsh-workspace'
 import {
@@ -13,10 +16,8 @@ import {
   type KvTable,
 } from '@deepseek-ai/dsh-storage-domain'
 import { SessionId } from '@deepseek-ai/dsh-session'
-import {
-  createAssistantMessage,
-  createUserMessage,
-} from '@deepseek-ai/dsh-llm'
+import { CallId, createUserMessage } from '@deepseek-ai/dsh-llm'
+import type {} from '@deepseek-ai/dsh-tools'
 import { Document, Packer, Paragraph, HeadingLevel } from 'docx'
 import { PDFDocument } from 'pdf-lib'
 import sharp from 'sharp'
@@ -30,7 +31,6 @@ import type {} from '@gerclaw/medical-evidence'
 import type {} from '@gerclaw/risk-alert'
 import {
   evidenceFromLocalHits,
-  type EvidenceSource,
   type PrescriptionRequest,
 } from '@gerclaw/prescription'
 import type {} from '@gerclaw/voice'
@@ -172,6 +172,8 @@ const mediaTypes = {
   jpg: 'image/jpeg',
   json: 'application/json; charset=utf-8',
 } as const
+const elapsed = (started: number) =>
+  Math.max(0, Math.round(performance.now() - started))
 
 declare module '@deepseek-ai/cordis' {
   interface Context {
@@ -184,6 +186,10 @@ export class GerclawApp extends Service {
     'storageDomain',
     'sessions',
     'sessionPersistence',
+    'agents',
+    'planMode',
+    'goals',
+    'tools',
     'llm',
     'workspaceRegistry',
     'gerclawCga',
@@ -199,6 +205,7 @@ export class GerclawApp extends Service {
   ]
   private domain!: Domain<typeof appDomainSpec>
   private records!: KvTable<string, RecordValue>
+  private agentHandle!: AgentHandle
   private readonly controllers = new Set<AbortController>()
   constructor(
     ctx: Context,
@@ -213,6 +220,27 @@ export class GerclawApp extends Service {
     this.domain = await this.ctx.storageDomain.open(appDomainSpec)
     this.records = this.domain.table('records')
     await this.ctx.workspaceRegistry.create(this.config.dataDir, 'GerClaw')
+    const sessionId = SessionId('gerclaw-main')
+    const primary = this.config.routes?.[0]
+    const agentOptions = primary
+      ? { provider: primary.provider, model: primary.model, maxTokens: 4096 }
+      : { maxTokens: 4096 }
+    try {
+      this.agentHandle = await this.ctx.agents.resume({
+        resumeSessionId: sessionId,
+        agentOptions,
+      })
+    } catch {
+      this.agentHandle = await this.ctx.agents.create({
+        sessionId,
+        meta: { cwd: this.config.dataDir },
+        agentOptions,
+      })
+    }
+    this.ctx.effect(
+      () => () => this.agentHandle.dispose(),
+      'gerclaw.app.agent',
+    )
     this.ctx.effect(() => () => this.domain.close(), 'gerclaw.app.domain')
     this.ctx.effect(
       () => () => {
@@ -294,22 +322,42 @@ export class GerclawApp extends Service {
       const path = url.pathname.replace('/gerclaw/api', '') || '/'
       const method = req.method ?? 'GET'
       if (method === 'GET' && path === '/bootstrap') {
-        const interaction = (this.records.get('interaction')?.value ?? {
-          mode: 'chat',
-        }) as InteractionSettings
+        const interaction = this.interactionSettings()
+        const goal = this.ctx.goals.get(this.agentHandle.agent)
         json(res, 200, {
-          accountId: this.config.accountId,
           audience: this.config.audience ?? 'patient',
           rag: this.ctx.gerclawRag.status(),
           profile: this.records.get('profile')?.value ?? null,
-          tasks: this.list('task').slice(0, 30),
-          artifacts: this.list('artifact').slice(0, 100),
+          tasks: (this.list('task') as TaskRun[]).slice(0, 30).map(task => ({
+            ...task,
+            artifacts: task.artifacts.map(({ artifactId, taskId, name, format, mediaType, size, createdAt }) => ({
+              artifactId,
+              taskId,
+              name,
+              format,
+              mediaType,
+              size,
+              createdAt,
+            })),
+          })),
+          artifacts: (this.list('artifact') as Array<ArtifactDescriptor & { path?: string }>)
+            .slice(0, 100)
+            .map(({ artifactId, taskId, name, format, mediaType, size, createdAt }) => ({
+              artifactId,
+              taskId,
+              name,
+              format,
+              mediaType,
+              size,
+              createdAt,
+            })),
           cga: this.list('cga').slice(0, 30),
           chronic: this.list('chronic').slice(0, 200),
           risks: this.list('risk').slice(0, 100),
           documents: this.list('document').slice(0, 100),
           interaction,
           modes: { plan: true, goal: true },
+          goal,
         })
         return
       }
@@ -318,8 +366,37 @@ export class GerclawApp extends Service {
         if (interaction.mode === 'goal' && !interaction.goal) {
           throw new Error('目标模式需要先填写目标')
         }
+        const agent = this.agentHandle.agent
+        this.ctx.planMode.set(agent, interaction.mode === 'plan')
+        let goal = this.ctx.goals.get(agent)
+        if (interaction.mode === 'goal' && interaction.goal) {
+          if (!goal || goal.phase === 'complete')
+            goal = this.ctx.goals.create(agent, { objective: interaction.goal })
+          else {
+            if (goal.objective !== interaction.goal)
+              goal = this.ctx.goals.edit(
+                agent,
+                { id: goal.id, revision: goal.revision },
+                { objective: interaction.goal },
+              )
+            if (goal.phase === 'paused' || goal.phase === 'blocked')
+              goal = this.ctx.goals.resume(agent, {
+                id: goal.id,
+                revision: goal.revision,
+              })
+          }
+        } else if (goal?.phase === 'active') {
+          goal = this.ctx.goals.pause(agent, {
+            id: goal.id,
+            revision: goal.revision,
+          })
+        }
         await this.put('interaction', 'interaction', interaction)
-        json(res, 200, interaction)
+        json(res, 200, {
+          ...interaction,
+          plan: this.ctx.planMode.get(agent),
+          goal,
+        })
         return
       }
       if (method === 'PUT' && path === '/profile') {
@@ -337,7 +414,10 @@ export class GerclawApp extends Service {
       }
       if (method === 'POST' && path === '/cga') {
         const input = (await readJson(req)) as unknown as CgaAssessment
+        let stepStarted = performance.now()
         const result = this.ctx.gerclawCga.score(input)
+        const scoreMs = elapsed(stepStarted)
+        stepStarted = performance.now()
         const id = randomUUID()
         await this.put(`cga:${id}`, 'cga', {
           id,
@@ -351,17 +431,20 @@ export class GerclawApp extends Service {
             this.put(`risk:${alert.alertId}`, 'risk', alert),
           ),
         )
+        const persistMs = elapsed(stepStarted)
         const task = await this.completeTask('cga', '量表评分', input, result, [
-          { name: '检查答案', summary: '答案完整且范围有效' },
+          { name: '检查答案', summary: '答案完整且范围有效', elapsedMs: scoreMs },
           {
             name: '确定性计分',
             summary: `总分 ${result.score}，${result.severity}`,
+            elapsedMs: scoreMs,
           },
           {
             name: '风险提示',
             summary: alerts.length
               ? `生成 ${alerts.length} 条提醒`
               : '未发现严重信号',
+            elapsedMs: persistMs,
           },
         ])
         json(res, 200, { result, alerts, task })
@@ -371,7 +454,10 @@ export class GerclawApp extends Service {
         const input = (await readJson(
           req,
         )) as unknown as MedicationReviewRequest
+        let stepStarted = performance.now()
         const result = this.ctx.gerclawMedicationReview.review(input)
+        const reviewMs = elapsed(stepStarted)
+        stepStarted = performance.now()
         const id = randomUUID()
         await this.put(`medication:${id}`, 'medication', {
           id,
@@ -385,6 +471,7 @@ export class GerclawApp extends Service {
             this.put(`risk:${alert.alertId}`, 'risk', alert),
           ),
         )
+        const persistMs = elapsed(stepStarted)
         const task = await this.completeTask(
           'medication',
           '用药核对',
@@ -394,14 +481,17 @@ export class GerclawApp extends Service {
             {
               name: '标准化药物清单',
               summary: `核对 ${result.reviewedMedications.length} 条记录`,
+              elapsedMs: reviewMs,
             },
             {
               name: '执行规则 v4',
               summary: `命中 ${result.findings.length} 项`,
+              elapsedMs: reviewMs,
             },
             {
               name: '附加来源与免责声明',
               summary: `引用 ${result.sources.length} 个规则来源`,
+              elapsedMs: persistMs,
             },
           ],
         )
@@ -435,10 +525,14 @@ export class GerclawApp extends Service {
         const body = await readJson(req)
         const text = asText(body.text).trim()
         if (!text) throw new Error('请输入想说的话')
+        let stepStarted = performance.now()
         const signal = this.ctx.gerclawCompanion.detect(text)
+        const detectMs = elapsed(stepStarted)
+        stepStarted = performance.now()
         const reply = signal.urgent
           ? (signal.message ?? '请立即联系家人、医生或当地紧急医疗服务。')
-          : await this.chat(text, COMPANION_SYSTEM_PROMPT, controller.signal)
+          : await this.directChat(text, COMPANION_SYSTEM_PROMPT, controller.signal)
+        const replyMs = elapsed(stepStarted)
         const alerts = this.ctx.gerclawRiskAlert.derive({ companion: signal })
         await Promise.all(
           alerts.map(alert =>
@@ -451,14 +545,15 @@ export class GerclawApp extends Service {
           { text },
           reply,
           [
-            { name: '理解当前感受', summary: '仅使用本次对话文字' },
+            { name: '理解当前感受', summary: '仅使用本次对话文字', elapsedMs: detectMs },
             {
               name: '检查紧急信号',
               summary: signal.urgent
                 ? '发现需立即求助的信号'
                 : '未发现紧急信号',
+              elapsedMs: detectMs,
             },
-            { name: '生成支持性回复', summary: '回复已完成' },
+            { name: '生成支持性回复', summary: '回复已完成', elapsedMs: replyMs },
           ],
         )
         json(res, 200, { reply, signal, alerts, task })
@@ -468,21 +563,10 @@ export class GerclawApp extends Service {
         const body = await readJson(req)
         const text = asText(body.text).trim()
         if (!text) throw new Error('请输入问题')
-        const interaction = (this.records.get('interaction')?.value ?? {
-          mode: 'chat',
-        }) as InteractionSettings
-        const basePrompt = GERCLAW_SYSTEM_PROMPT
-        const modePrompt =
-          interaction.mode === 'plan'
-            ? '\n\n当前为计划模式：先澄清健康任务的目标和约束，再给出可执行、可调整的分步计划；除非用户明确要求，不直接宣称已执行计划中的操作。'
-            : interaction.mode === 'goal'
-              ? `\n\n当前为目标模式。持续目标：${interaction.goal}。围绕目标推进本轮工作，说明当前进展、下一步和仍需用户决定的事项。`
-              : ''
-        const reply = await this.chat(
-          text,
-          `${basePrompt}${modePrompt}`,
-          controller.signal,
-        )
+        const interaction = this.interactionSettings()
+        const stepStarted = performance.now()
+        const reply = await this.chat(text, controller.signal)
+        const replyMs = elapsed(stepStarted)
         const task = await this.completeTask(
           'chat',
           '智能对话',
@@ -497,9 +581,10 @@ export class GerclawApp extends Service {
                   : interaction.mode === 'goal'
                     ? '已按持续目标整理任务'
                     : '已整理本次问题',
+              elapsedMs: Math.min(replyMs, 1),
             },
-            { name: '调用健康助手', summary: '回复已生成' },
-            { name: '保存会话', summary: '会话已写入本账号日志' },
+            { name: '调用健康助手', summary: '回复已生成', elapsedMs: replyMs },
+            { name: '保存会话', summary: '会话已写入本账号日志', elapsedMs: 0 },
           ],
         )
         json(res, 200, { reply, task })
@@ -512,20 +597,10 @@ export class GerclawApp extends Service {
         const local = evidenceFromLocalHits(
           await this.ctx.gerclawRag.search(query, 8),
         )
-        const evidenceAbort = new AbortController()
-        let timeout: ReturnType<typeof setTimeout> | undefined
-        const online = await Promise.race([
-          this.ctx.gerclawMedicalEvidence
-            .search(query, evidenceAbort.signal)
-            .catch(() => []),
-          new Promise<EvidenceSource[]>((resolve) => {
-            timeout = setTimeout(() => {
-              resolve([])
-            }, 5_000)
-          }),
-        ])
-        if (timeout) clearTimeout(timeout)
-        evidenceAbort.abort()
+        const online = await this.ctx.gerclawMedicalEvidence.search(
+          query,
+          controller.signal,
+        )
         json(res, 200, {
           results: [...local, ...online],
           rag: this.ctx.gerclawRag.status(),
@@ -534,6 +609,7 @@ export class GerclawApp extends Service {
       }
       if (method === 'POST' && path === '/prescription') {
         const body = (await readJson(req)) as unknown as PrescriptionRequest
+        let stepStarted = performance.now()
         let evidence = Array.isArray(body.evidence) ? body.evidence : []
         if (evidence.length === 0) {
           const query = [...body.healthGoals, ...body.currentConcerns].join(' ')
@@ -546,6 +622,8 @@ export class GerclawApp extends Service {
               controller.signal,
             )
         }
+        const evidenceMs = elapsed(stepStarted)
+        stepStarted = performance.now()
         const profile = this.records.get('profile')?.value
         const result = await this.ctx.gerclawPrescription.generate(
           {
@@ -556,6 +634,7 @@ export class GerclawApp extends Service {
           },
           controller.signal,
         )
+        const generateMs = elapsed(stepStarted)
         const task = await this.completeTask(
           'prescription',
           '五大处方',
@@ -565,54 +644,58 @@ export class GerclawApp extends Service {
             {
               name: '整理个人资料',
               summary: `健康目标 ${body.healthGoals.length} 项，当前问题 ${body.currentConcerns.length} 项`,
+              elapsedMs: 0,
             },
             {
               name: '检索与排序证据',
               summary: `使用 ${evidence.length} 条可追溯证据`,
+              elapsedMs: evidenceMs,
             },
             {
               name: '生成五大处方',
               summary: '药物、运动、营养、心理、康复五章已完成',
+              elapsedMs: generateMs,
             },
             {
               name: '确定性用药附录',
               summary: result.medicationReview
                 ? `命中 ${result.medicationReview.findings.length} 项`
                 : '未提供用药清单',
+              elapsedMs: 0,
             },
-            { name: '保存结果', summary: '结果已保存，可导出下载' },
+            { name: '保存结果', summary: '结果已保存，可导出下载', elapsedMs: 0 },
           ],
         )
         json(res, 200, { result, task })
         return
       }
-      if (method === 'POST' && path === '/voice/asr') {
-        const body = await readJson(req)
-        const audio = Buffer.from(asText(body.audio), 'base64')
-        const format = asText(body.format)
-        if (format !== 'wav' && format !== 'mp3' && format !== 'webm')
-          throw new Error('录音格式无效')
-        const result = await this.ctx.gerclawVoice.transcribe(
-          audio,
-          format,
-          controller.signal,
-        )
-        json(res, 200, result)
-        return
-      }
       if (method === 'POST' && path === '/voice/tts') {
         const body = await readJson(req)
-        const result = await this.ctx.gerclawVoice.synthesize(
-          asText(body.text),
-          undefined,
-          controller.signal,
-        )
+        const started = performance.now()
         res.writeHead(200, {
-          'Content-Type': 'audio/L16; rate=24000; channels=1',
-          'X-GerClaw-Elapsed-Ms': String(result.elapsedMs),
+          'Content-Type': 'application/x-ndjson; charset=utf-8',
           'Cache-Control': 'no-store',
+          'X-Content-Type-Options': 'nosniff',
         })
-        res.end(result.audio)
+        res.write(JSON.stringify({
+          type: 'meta',
+          sampleRate: 24000,
+          channels: 1,
+          encoding: 'pcm16le',
+        }) + '\n')
+        for await (const chunk of this.ctx.gerclawVoice.synthesizeStream(
+          asText(body.text),
+          controller.signal,
+        )) {
+          res.write(JSON.stringify({
+            type: 'audio',
+            audio: Buffer.from(chunk.audio).toString('base64'),
+          }) + '\n')
+        }
+        res.end(JSON.stringify({
+          type: 'done',
+          elapsedMs: Math.round(performance.now() - started),
+        }) + '\n')
         return
       }
       if (method === 'POST' && path === '/documents') {
@@ -630,19 +713,46 @@ export class GerclawApp extends Service {
         const id = randomUUID()
         const path = join(this.config.dataDir, 'uploads', `${id}${suffix}`)
         await writeFile(path, raw, { flag: 'wx' })
+        let parseStatus = 'parsing'
+        let parsedRef: string | undefined
+        if (suffix === '.md' || suffix === '.txt') {
+          await this.ctx.gerclawRag.addUserDocument(path, original)
+          parseStatus = 'ready'
+          parsedRef = path
+        } else {
+          const parsed = await this.ctx.tools.execute({
+            callId: CallId(`gerclaw-mineru-${id}`),
+            name: 'mineru_parse',
+            arguments: {
+              source: path,
+              mode: 'precision',
+              output: `gerclaw-${id}`,
+            },
+            signal: controller.signal,
+            agent: this.agentHandle.agent,
+          })
+          if (parsed.isError)
+            throw new Error(
+              parsed.content
+                .filter(block => block.type === 'text')
+                .map(block => block.text)
+                .join('\n') || 'MinerU 文档解析失败',
+            )
+          const meta = parsed.meta as { runDir?: string } | undefined
+          if (!meta?.runDir) throw new Error('MinerU 未返回解析结果目录')
+          const markdownPath = join(meta.runDir, 'full.md')
+          await this.ctx.gerclawRag.addUserDocument(markdownPath, original)
+          parseStatus = 'ready'
+          parsedRef = markdownPath
+        }
         const doc = {
           documentId: id,
           name: original,
           size: raw.length,
           createdAt: new Date().toISOString(),
           workspaceRef: `uploads/${id}${suffix}`,
-          parseStatus:
-            suffix === '.md' || suffix === '.txt'
-              ? 'ready'
-              : 'queued-for-mineru',
-        }
-        if (suffix === '.md' || suffix === '.txt') {
-          await this.ctx.gerclawRag.addUserDocument(path, original)
+          parseStatus,
+          parsedRef,
         }
         await this.put(`document:${id}`, 'document', doc)
         json(res, 201, doc)
@@ -693,14 +803,14 @@ export class GerclawApp extends Service {
       this.controllers.delete(controller)
     }
   }
-  private async chat(
+  private async directChat(
     text: string,
     system: string | undefined,
     signal: AbortSignal,
   ): Promise<string> {
     const assembledSystem = system ?? GERCLAW_SYSTEM_PROMPT
     let last: unknown
-    for (const route of this.config.routes ?? []) {
+    for (const route of (this.config.routes ?? []).slice(0, 1)) {
       try {
         if (process.env.GERCLAW_DIAGNOSTICS === '1') {
           console.error(`[GerClaw model route start] ${route.provider}`)
@@ -731,14 +841,6 @@ export class GerclawApp extends Service {
             completedText += chunk.block.text
             const completedReply = (reply || completedText).trim()
             if (completedReply) {
-              setTimeout(() => {
-                this.logSession(
-                  text,
-                  completedReply,
-                  route.provider,
-                  route.model,
-                )
-              }, 0)
               return completedReply
             }
           }
@@ -768,7 +870,6 @@ export class GerclawApp extends Service {
           )
         }
         if (!reply) throw new Error('模型没有返回可用内容')
-        this.logSession(text, reply, route.provider, route.model)
         return reply
       } catch (error) {
         if (signal.aborted) throw error
@@ -782,89 +883,81 @@ export class GerclawApp extends Service {
     }
     throw new Error(`模型服务不可用：${safeError(last)}`)
   }
-  private logSession(
-    input: string,
-    output: string,
-    provider: string,
-    model: string,
-  ) {
-    const trace = (stage: string) => {
-      if (process.env.GERCLAW_DIAGNOSTICS === '1')
-        console.error(`[GerClaw session] ${stage}`)
+  private interactionSettings(): InteractionSettings {
+    const plan = this.ctx.planMode.get(this.agentHandle.agent)
+    const goal = this.ctx.goals.get(this.agentHandle.agent)
+    if (plan.pending ?? plan.active) return { mode: 'plan' }
+    if (goal?.phase === 'active')
+      return { mode: 'goal', goal: goal.objective }
+    return { mode: 'chat' }
+  }
+
+  private async chat(text: string, signal: AbortSignal): Promise<string> {
+    const agent = this.agentHandle.agent
+    const before = agent.session.deriveMessages().length
+    const abort = () => {
+      agent.cancel({ kind: 'user' })
     }
-    trace('create')
-    const id = SessionId(`gerclaw-${randomUUID()}`)
-    const session = this.ctx.sessions.create(id, {
-      meta: { cwd: this.config.dataDir },
-    })
-    trace('append')
-    session.append('turn/start', { turn: 1 })
-    session.append('step/start', { turn: 1, step: 1 })
-    session.append(
-      'user/message',
-      createUserMessage({
-        content: [{ type: 'text', text: input }],
+    signal.addEventListener('abort', abort, { once: true })
+    try {
+      agent.followup(createUserMessage({
+        content: [{ type: 'text', text }],
         source: { kind: 'user' },
-      }),
-      { surfaceOp: 'append' },
-    )
-    session.append(
-      'assistant/message',
-      {
-        turn: 1,
-        step: 1,
-        message: createAssistantMessage({
-          content: [{ type: 'text', text: output }],
-          source: { provider, model },
-        }),
-      },
-      { surfaceOp: 'append', sourceEventSeqs: [] },
-    )
-    session.append('step/end', { turn: 1, step: 1 })
-    session.append('turn/end', { turn: 1, reason: { kind: 'completed' } })
-    trace('flush-scheduled')
-    void this.ctx.sessions.flush(session).catch((error: unknown) => {
-      if (process.env.GERCLAW_DIAGNOSTICS === '1') {
-        console.error(`[GerClaw session flush failed] ${safeError(error)}`)
-      }
-    })
-    trace('return')
+      }))
+      await agent.whenIdle()
+      signal.throwIfAborted()
+      const messages = agent.session.deriveMessages().slice(before)
+      const assistant = messages.toReversed().find(message => message.role === 'assistant')
+      const reply = assistant?.content
+        .filter(block => block.type === 'text')
+        .map(block => block.text)
+        .join('')
+        .trim()
+      if (!reply) throw new Error('模型没有返回可用内容')
+      return reply
+    } finally {
+      signal.removeEventListener('abort', abort)
+    }
   }
   private async completeTask(
     kind: string,
-    title: string,
-    input: unknown,
+    _title: string,
+    _input: unknown,
     result: unknown,
-    steps: Array<{ name: string; summary: string }>,
+    steps: Array<{ name: string; summary: string; elapsedMs?: number }>,
   ): Promise<TaskRun> {
-    const started = Date.now()
-    const now = new Date().toISOString()
+    const elapsedMs = steps.reduce(
+      (total, step) => total + Math.max(0, step.elapsedMs ?? 0),
+      0,
+    )
+    const ended = Date.now()
+    const started = ended - elapsedMs
+    let cursor = started
     const task: TaskRun = {
       taskId: randomUUID(),
       kind,
       status: 'completed',
-      startedAt: now,
-      endedAt: new Date().toISOString(),
-      elapsedMs: Date.now() - started,
-      steps: steps.map((step, index) => ({
-        name: step.name,
-        status: 'completed',
-        startedAt: now,
-        endedAt: new Date().toISOString(),
-        elapsedMs: index === 0 ? 1 : 0,
-        summary: step.summary,
-      })),
+      startedAt: new Date(started).toISOString(),
+      endedAt: new Date(ended).toISOString(),
+      elapsedMs,
+      steps: steps.map((step) => {
+        const stepStarted = cursor
+        const stepElapsed = Math.max(0, step.elapsedMs ?? 0)
+        cursor += stepElapsed
+        return {
+          name: step.name,
+          status: 'completed' as const,
+          startedAt: new Date(stepStarted).toISOString(),
+          endedAt: new Date(cursor).toISOString(),
+          elapsedMs: stepElapsed,
+          summary: step.summary,
+        }
+      }),
       keyResults: steps.map(step => step.summary),
       result,
       artifacts: [],
     }
     await this.put(`task:${task.taskId}`, 'task', task)
-    this.logSession(
-      `${title}\n${JSON.stringify(input)}`,
-      `${title}已完成\n${JSON.stringify(result)}`,
-      'gerclaw',
-      kind,
-    )
     return task
   }
   private async exportTask(
@@ -911,7 +1004,7 @@ export class GerclawApp extends Service {
         `${artifactId}.${format}`,
       )
       await writeFile(path, content, { flag: 'wx' })
-      const descriptor: ArtifactDescriptor & { path: string } = {
+      const descriptor: ArtifactDescriptor = {
         artifactId,
         taskId: task.taskId,
         name,
@@ -919,9 +1012,11 @@ export class GerclawApp extends Service {
         mediaType: mediaTypes[format],
         size: content.length,
         createdAt: new Date().toISOString(),
-        path,
       }
-      await this.put(`artifact:${artifactId}`, 'artifact', descriptor)
+      await this.put(`artifact:${artifactId}`, 'artifact', {
+        ...descriptor,
+        path,
+      })
       descriptors.push(descriptor)
     }
     task.artifacts.push(...descriptors)

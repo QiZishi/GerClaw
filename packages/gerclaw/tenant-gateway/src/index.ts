@@ -16,6 +16,7 @@ import {
   cp,
   mkdir,
   readFile,
+  readdir,
   rename,
   rm,
   symlink,
@@ -127,6 +128,30 @@ const asText = (value: unknown): string =>
 const safeMessage = (error: unknown) =>
   error instanceof Error ? error.message : '操作失败'
 
+const syncKnowledgeBase = async (source: string, target: string): Promise<void> => {
+  await mkdir(target, { recursive: true })
+  for (const entry of await readdir(source, { withFileTypes: true })) {
+    const from = join(source, entry.name)
+    const to = join(target, entry.name)
+    if (entry.isDirectory()) {
+      await syncKnowledgeBase(from, to)
+      continue
+    }
+    if (!entry.isFile()) continue
+    try {
+      const [expected, existing] = await Promise.all([
+        readFile(from),
+        readFile(to),
+      ])
+      if (!expected.equals(existing))
+        throw new Error(`知识库文件冲突：${entry.name}`)
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error
+      await cp(from, to, { force: false, errorOnExist: true })
+    }
+  }
+}
+
 declare module '@deepseek-ai/cordis' {
   interface Context {
     gerclawTenantGateway: GerclawTenantGateway
@@ -180,7 +205,7 @@ export class GerclawTenantGateway extends Service {
       this.route(req, res),
     )
     const upgrade = this.ctx.webServer.registerUpgrade({
-      path: '/api',
+      path: '/gerclaw/api/voice/asr-stream',
       handler: (req, socket, head) => this.upgrade(req, socket, head),
     })
     this.timer = setInterval(() => {
@@ -472,10 +497,9 @@ export class GerclawTenantGateway extends Service {
     await mkdir(dir, { recursive: true })
     const accountDataDir = join(dir, 'data')
     await mkdir(accountDataDir, { recursive: true })
-    await cp(
+    await syncKnowledgeBase(
       join(this.config.rootDir, 'knowledge-base'),
       join(accountDataDir, 'knowledge-base'),
-      { recursive: true, force: false, errorOnExist: false },
     )
     const childDshHome = join(dir, 'dsh')
     await this.prepareProfileModules(childDshHome)

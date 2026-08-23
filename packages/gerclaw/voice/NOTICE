@@ -1,3 +1,12 @@
-This package follows the provider/lifecycle separation of dsh-talk 0.1.2
-(Apache-2.0) and ports GerClaw's MiMo streaming contract. It adds the
-SiliconFlow OpenAI-compatible PCM provider and never persists source audio.
+GerClaw voice is derived from the following community designs:
+
+- dsh-talk 0.1.2, commit 21c8206e883e81578f4ba91c90256bc61f7881a8
+  (Apache-2.0): session projection, speak-to-interrupt, lifecycle and sanitization
+  design. Source: https://github.com/PerryLink/dsh-talk
+- dsh-speech-plugin, commit bcfb8d1ee53bc92af74aa4d10757db6f0b976261
+  (MIT): no-server WebSocket upgrade bridge and browser PCM streaming design.
+  Source: https://github.com/Command-Awesome/dsh-speech-plugin
+
+GerClaw replaces both providers with the official Qianwen realtime ASR/TTS
+protocol, limits speech to the chat composer, and does not persist source audio.
+The corresponding upstream licenses are retained in LICENSES/.

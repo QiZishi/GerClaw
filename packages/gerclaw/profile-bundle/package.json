@@ -51,6 +51,7 @@
     "@gerclaw/prescription": "workspace:*",
     "@gerclaw/risk-alert": "workspace:*",
     "@gerclaw/system-prompt": "workspace:*",
+    "@gerclaw/skills": "workspace:*",
     "@gerclaw/voice": "workspace:*",
     "dsh-mineru": "0.1.9",
     "memorix": "1.3.0"

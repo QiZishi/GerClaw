@@ -4,16 +4,21 @@ import { join, relative } from 'node:path'
 import { Context, Service } from '@deepseek-ai/cordis'
 import type {} from '@deepseek-ai/dsh-commands'
 import type {} from '@deepseek-ai/dsh-storage-domain'
+import type {} from '@deepseek-ai/dsh-subprocess'
 import {
   allTools,
   LibraryStore,
   libraryDomainSpec,
   resolveConfig,
-  scoreRelevance,
 } from 'dsh-library'
 export interface LocalRagConfig {
   knowledgeBasePath: string
   library?: string
+  embeddingCommand?: string
+  embeddingDimensions?: number
+  rerankApiKey?: string
+  rerankUrl?: string
+  rerankModel?: string
 }
 export interface LocalRagHit {
   chunkId: string
@@ -41,17 +46,23 @@ const files = async (root: string): Promise<string[]> => {
   await walk(root)
   return out.sort()
 }
+const sourceName = (name: string) => name.replace(/#part-\d+$/, '')
 declare module '@deepseek-ai/cordis' {
   interface Context {
     gerclawRag: LocalRagService
   }
 }
 export class LocalRagService extends Service {
-  static inject = ['tools', 'commands', 'storageDomain']
+  static inject = ['tools', 'commands', 'storageDomain', 'subprocess']
   private readonly controller = new AbortController()
   private readonly library: string
   private store!: LibraryStore
   private documents: Array<{ id: string; text: string }> = []
+  private readonly sourceByDocumentId = new Map<string, string>()
+  private readonly indexedNames = new Set<string>()
+  private readonly indexedSources = new Set<string>()
+  private indexQueue: Promise<void> = Promise.resolve()
+  private hasUserDocuments = false
   private current: LocalRagStatus = { state: 'indexing', total: 0, indexed: 0 }
   private ready: Promise<void> = Promise.resolve()
   constructor(
@@ -73,11 +84,11 @@ export class LocalRagService extends Service {
       chunkOverlap: 120,
       maxFileBytes: 5_242_880,
       embedding: {
-        dims: 256,
-        command: '',
-        timeoutMs: 30_000,
+        dims: this.config.embeddingDimensions ?? 1024,
+        command: this.config.embeddingCommand ?? '',
+        timeoutMs: 300_000,
         graceMs: 1_000,
-        maxOutputBytes: 1_048_576,
+        maxOutputBytes: 67_108_864,
         maxBatchItems: 64,
       },
       search: {
@@ -96,7 +107,9 @@ export class LocalRagService extends Service {
     })
     const domain = await this.ctx.storageDomain.open(libraryDomainSpec)
     this.ctx.effect(() => () => domain.close(), 'gerclaw.local-rag.domain')
-    this.store = new LibraryStore(domain, resolved, { subprocess: undefined })
+    this.store = new LibraryStore(domain, resolved, {
+      subprocess: this.ctx.subprocess,
+    })
     for (const tool of allTools({
       ctx: this.ctx,
       config: resolved,
@@ -122,29 +135,24 @@ export class LocalRagService extends Service {
         })),
       )
       this.current = { state: 'indexing', total: all.length, indexed: 0 }
-      const known = new Set(
-        this.store.list(this.library).map(entry => entry.name),
-      )
-      let indexed = known.size
-      const pending = all.filter(
-        path => !known.has(relative(this.config.knowledgeBasePath, path)),
-      )
-      for (const path of pending) {
-        this.controller.signal.throwIfAborted()
-        const content = this.documents.find(
-          document =>
-            document.id === relative(this.config.knowledgeBasePath, path),
-        )?.text
-        if (content === undefined) throw new Error('知识库文件读取失败')
-        await this.store.add(
-          this.library,
-          relative(this.config.knowledgeBasePath, path),
-          content,
-        )
-        indexed += 1
-        this.current = { state: 'indexing', total: all.length, indexed }
+      const knownEntries = this.store.list(this.library)
+      for (const entry of knownEntries) {
+        this.sourceByDocumentId.set(entry.documentId, sourceName(entry.name))
+        this.indexedNames.add(entry.name)
+        this.indexedSources.add(sourceName(entry.name))
       }
-      this.current = { state: 'ready', total: all.length, indexed: all.length }
+      const userEntries = this.store.list('gerclaw-user')
+      this.hasUserDocuments = userEntries.length > 0
+      for (const entry of userEntries)
+        this.sourceByDocumentId.set(entry.documentId, entry.name)
+      // The 45 MB corpus is catalogued immediately and embedded on demand.
+      // This keeps every account's index independent without making a new
+      // account wait for hundreds of unrelated remote embedding requests.
+      this.current = {
+        state: 'ready',
+        total: all.length,
+        indexed: this.indexedSources.size,
+      }
     } catch (error) {
       if (!this.controller.signal.aborted)
         this.current = {
@@ -155,56 +163,126 @@ export class LocalRagService extends Service {
       throw error
     }
   }
-  async search(query: string, topK: number = 8): Promise<LocalRagHit[]> {
-    while (this.current.state === 'indexing' && this.current.indexed === 0) {
-      this.controller.signal.throwIfAborted()
-      await new Promise(resolve => setTimeout(resolve, 100))
-    }
-    if (this.current.state === 'failed') {
-      await this.ready
-    }
-    const baseTerms = query
-      .split(/[\s，。；、]+/)
-      .map(term => term.trim())
-      .filter(Boolean)
-    const terms = [
-      ...baseTerms,
-      ...baseTerms.flatMap(term =>
-        /[\u3400-\u9fff]/u.test(term) && term.length > 2
-          ? Array.from({ length: term.length - 1 }, (_, index) =>
-            term.slice(index, index + 2),
-          )
-          : [],
-      ),
-    ]
-    return this.documents
-      .map((document) => {
-        const corpus = `${document.id}\n${document.text}`
-        const keywordScore = terms.reduce(
-          (sum, term) => sum + (corpus.includes(term) ? 1 : 0),
-          0,
-        )
-        const score = scoreRelevance(query, corpus) + keywordScore
-        const positions = terms
-          .map(term => document.text.indexOf(term))
-          .filter(position => position >= 0)
-        const firstPosition =
-          positions.length === 0 ? 0 : Math.min(...positions)
-        const start = Math.max(0, firstPosition - 180)
-        return {
-          chunkId: `${document.id}:0`,
-          documentId: document.id,
-          seq: 0,
-          snippet: document.text.slice(start, start + 1_200),
-          score,
+  private async ensureRelevantSources(query: string): Promise<void> {
+    const terms = [...new Set(
+      query.toLocaleLowerCase().match(/[a-z0-9][a-z0-9-]{1,}|[\p{Script=Han}]{2,}/gu)
+        ?? [],
+    )]
+    if (terms.length === 0) return
+    const matches = this.documents.flatMap((document) => {
+      const lowerName = document.id.toLocaleLowerCase()
+      const lowerText = document.text.toLocaleLowerCase()
+      let score = 0
+      let first = -1
+      for (const term of terms) {
+        if (lowerName.includes(term)) score += 40
+        const position = lowerText.indexOf(term)
+        if (position >= 0) {
+          score += 10
+          if (first < 0 || position < first) first = position
         }
-      })
-      .filter(hit => hit.score > 0)
+      }
+      if (score === 0) return []
+      const start = Math.max(0, first < 0 ? 0 : first - 4_000)
+      const aligned = Math.floor(start / 8_000) * 8_000
+      return [{
+        source: document.id,
+        score,
+        name: `${document.id}#part-${Math.floor(aligned / 8_000) + 1}`,
+        text: document.text.slice(aligned, aligned + 16_000),
+      }]
+    }).sort((a, b) => b.score - a.score).slice(0, 8)
+    if (matches.length === 0) return
+    this.indexQueue = this.indexQueue.then(async () => {
+      for (const match of matches) {
+        this.controller.signal.throwIfAborted()
+        if (this.indexedNames.has(match.name)) continue
+        const added = await this.store.add(
+          this.library,
+          match.name,
+          match.text,
+        )
+        this.indexedNames.add(match.name)
+        this.indexedSources.add(match.source)
+        this.sourceByDocumentId.set(added.documentId, match.source)
+      }
+      this.current = {
+        state: 'ready',
+        total: this.documents.length,
+        indexed: this.indexedSources.size,
+      }
+    })
+    await this.indexQueue
+  }
+  async search(query: string, topK: number = 8): Promise<LocalRagHit[]> {
+    await this.ready
+    await this.ensureRelevantSources(query)
+    const limit = Math.max(topK, 20)
+    const [base, user] = await Promise.all([
+      this.indexedNames.size > 0
+        ? this.store.search(this.library, query, limit)
+        : Promise.resolve([]),
+      this.hasUserDocuments
+        ? this.store.search('gerclaw-user', query, limit)
+        : Promise.resolve([]),
+    ])
+    const candidates: LocalRagHit[] = [...base, ...user]
       .sort((a, b) => b.score - a.score)
-      .slice(0, topK)
+      .slice(0, limit)
+    const missing = [
+      ['SILICONFLOW_API_KEY', this.config.rerankApiKey],
+      ['SILICONFLOW_URL', this.config.rerankUrl],
+      ['RERANK_MODEL', this.config.rerankModel],
+    ].filter(([, value]) => !value).map(([name]) => name)
+    if (missing.length)
+      throw new Error(`缺少环境变量：${missing.join('、')}`)
+    if (candidates.length === 0) return []
+    const response = await fetch(
+      `${this.config.rerankUrl?.replace(/\/$/, '')}/rerank`,
+      {
+        method: 'POST',
+        headers: {
+          Authorization: `Bearer ${this.config.rerankApiKey}`,
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          model: this.config.rerankModel,
+          query,
+          documents: candidates.map(hit => hit.snippet),
+          top_n: topK,
+          return_documents: false,
+        }),
+        signal: this.controller.signal,
+      },
+    )
+    if (!response.ok)
+      throw new Error(`SiliconFlow rerank 请求失败（${response.status}）`)
+    const payload = await response.json() as {
+      results?: Array<{ index?: number; relevance_score?: number }>
+    }
+    const ranked = payload.results ?? []
+    if (ranked.length === 0)
+      throw new Error('SiliconFlow rerank 没有返回排序结果')
+    return ranked.map((row) => {
+      const hit = candidates[row.index ?? -1]
+      if (!hit) throw new Error('SiliconFlow rerank 返回了无效索引')
+      return {
+        ...hit,
+        documentId:
+          this.sourceByDocumentId.get(hit.documentId) ?? hit.documentId,
+        score: row.relevance_score ?? hit.score,
+      }
+    })
   }
   async addUserDocument(path: string, name: string): Promise<unknown> {
-    return this.store.add('gerclaw-user', name, await readFile(path, 'utf8'))
+    const added = await this.store.add(
+      'gerclaw-user',
+      name,
+      await readFile(path, 'utf8'),
+    )
+    this.sourceByDocumentId.set(added.documentId, added.name)
+    this.hasUserDocuments = true
+    return added
   }
 }
 export default LocalRagService

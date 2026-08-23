@@ -307,7 +307,7 @@
     { "path": "./packages/lsp/lsp" },
     { "path": "./packages/lsp/lsp-stdio" },
     { "path": "./packages/lsp/tool-lsp" },
-    { "path": "./packages/gerclaw/app" },
+    { "path": "./packages/gerclaw/client" },
     { "path": "./packages/gerclaw/cga" },
     { "path": "./packages/gerclaw/chronic-care" },
     { "path": "./packages/gerclaw/companion" },

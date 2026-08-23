@@ -249,11 +249,17 @@ export class PrescriptionService extends Service {
       throw new Error('请填写健康目标和当前问题')
     if ((request.documentRefs?.length ?? 0) > 10)
       throw new Error('一次最多使用 10 份资料')
-    const localHits = await this.ctx.gerclawRag.search(
-      [...request.healthGoals, ...request.currentConcerns].join(' '),
-      8,
+    const suppliedLocal = request.evidence.filter(
+      item => item.source === 'GerClaw 本地医学知识库',
     )
-    const localEvidence = evidenceFromLocalHits(localHits)
+    const localEvidence = suppliedLocal.length > 0
+      ? suppliedLocal
+      : evidenceFromLocalHits(
+        await this.ctx.gerclawRag.search(
+          [...request.healthGoals, ...request.currentConcerns].join(' '),
+          8,
+        ),
+      )
     const evidence = [
       ...localEvidence,
       ...request.evidence.filter(
@@ -298,69 +304,67 @@ export class PrescriptionService extends Service {
       },
       evidence,
     })
-    let last: unknown
-    for (const route of routes) {
-      try {
-        onRoute?.(`${route.provider}/${route.model}`)
-        const assembler = new BlockAssembler()
-        for await (const chunk of this.ctx.llm.stream({
-          provider: route.provider,
-          model: route.model,
-          messages: [
-            createUserMessage({
-              content: [{ type: 'text', text: prompt }],
-              source: { kind: 'user' },
-            }),
-          ],
-          system: SYSTEM,
-          maxTokens: 2500,
-          temperature: 0.2,
-          ...(signal === undefined ? {} : { signal }),
-        }))
-          assembler.push(chunk)
-        if (
-          assembler.finish.kind !== 'stop' &&
+    const route = routes[0]
+    if (!route) throw new Error('缺少环境变量：AGENT_PRIMARY_MODEL')
+    try {
+      onRoute?.(`${route.provider}/${route.model}`)
+      const assembler = new BlockAssembler()
+      for await (const chunk of this.ctx.llm.stream({
+        provider: route.provider,
+        model: route.model,
+        messages: [
+          createUserMessage({
+            content: [{ type: 'text', text: prompt }],
+            source: { kind: 'user' },
+          }),
+        ],
+        system: SYSTEM,
+        maxTokens: 2500,
+        temperature: 0.2,
+        ...(signal === undefined ? {} : { signal }),
+      }))
+        assembler.push(chunk)
+      if (
+        assembler.finish.kind !== 'stop' &&
           assembler.finish.kind !== 'max-tokens'
-        )
-          throw new Error('模型生成未完成')
-        const text = assembler
-          .blocks()
-          .filter(block => block.type === 'text')
-          .map(block => block.text)
-          .join('')
-        const parsed = validateModel(cleanJson(text), evidence)
-        const medicationReview = request.currentMedications?.trim()
-          ? this.ctx.gerclawMedicationReview.review({
-            medicationList: request.currentMedications,
-            ...(request.age === undefined ? {} : { patientAge: request.age }),
-          })
-          : undefined
-        return {
-          templateVersion: 'five-prescription-report-v1',
-          modelOutputSchemaVersion: 'five-prescription-model-output-v1',
-          status: 'needs_clinician_review',
-          patientSummary: {
-            ...(request.age === undefined ? {} : { age: request.age }),
-            sex: request.sex ?? 'unknown',
-            healthGoals: request.healthGoals,
-            currentConcerns: request.currentConcerns,
-          },
-          healthAssessment: parsed.healthAssessment,
-          sections: parsed.sections,
-          ...(medicationReview === undefined ? {} : { medicationReview }),
-          evidenceSources: evidence,
-          uploadedDocumentRefs: request.documentRefs ?? [],
-          disclaimer:
+      )
+        throw new Error('模型生成未完成')
+      const text = assembler
+        .blocks()
+        .filter(block => block.type === 'text')
+        .map(block => block.text)
+        .join('')
+      const parsed = validateModel(cleanJson(text), evidence)
+      const medicationReview = request.currentMedications?.trim()
+        ? this.ctx.gerclawMedicationReview.review({
+          medicationList: request.currentMedications,
+          ...(request.age === undefined ? {} : { patientAge: request.age }),
+        })
+        : undefined
+      return {
+        templateVersion: 'five-prescription-report-v1',
+        modelOutputSchemaVersion: 'five-prescription-model-output-v1',
+        status: 'needs_clinician_review',
+        patientSummary: {
+          ...(request.age === undefined ? {} : { age: request.age }),
+          sex: request.sex ?? 'unknown',
+          healthGoals: request.healthGoals,
+          currentConcerns: request.currentConcerns,
+        },
+        healthAssessment: parsed.healthAssessment,
+        sections: parsed.sections,
+        ...(medicationReview === undefined ? {} : { medicationReview }),
+        evidenceSources: evidence,
+        uploadedDocumentRefs: request.documentRefs ?? [],
+        disclaimer:
             'AI生成建议仅供参考，不能替代专业医生诊断、治疗建议或处方；如有不适请及时就医。',
-        }
-      } catch (error) {
-        if (signal?.aborted) throw error
-        last = error
       }
+    } catch (error) {
+      if (signal?.aborted) throw error
+      throw new Error(
+        `模型生成失败：${error instanceof Error ? error.message : '服务不可用'}`,
+      )
     }
-    throw new Error(
-      `模型生成失败：${last instanceof Error ? last.message : '服务不可用'}`,
-    )
   }
 }
 export default PrescriptionService

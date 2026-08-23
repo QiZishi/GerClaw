@@ -8,6 +8,7 @@
     { "path": "../../core/tools" },
     { "path": "../../interaction/commands" },
     { "path": "../../storage/storage-domain" },
+    { "path": "../../subprocess/subprocess" },
     { "path": "../../runtime-diagnostics/invariants" }
   ]
 }

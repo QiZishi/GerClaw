@@ -12,6 +12,18 @@ const required = [
   'AGENT_PRIMARY_API_KEY',
   'AGENT_PRIMARY_URL',
   'AGENT_PRIMARY_MODEL',
+  'MODEL_ASR_KEY',
+  'MODEL_ASR_URL',
+  'ASR_MODEL',
+  'MODEL_TTS_KEY',
+  'MODEL_TTS_URL',
+  'TTS_MODEL',
+  'SILICONFLOW_API_KEY',
+  'SILICONFLOW_URL',
+  'EMBEDDING_MODEL',
+  'RERANK_MODEL',
+  'MINERU_API_KEY',
+  'MINERU_URL',
 ]
 const missing = required.filter(name => !(process.env[name] ?? '').trim())
 if (missing.length) {

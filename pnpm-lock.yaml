@@ -28,7 +28,7 @@ importers:
         version: link:packages/session-query/tool-session-query
       '@gerclaw/app':
         specifier: workspace:*
-        version: link:packages/gerclaw/app
+        version: link:packages/gerclaw/client
       '@gerclaw/cga':
         specifier: workspace:*
         version: link:packages/gerclaw/cga
@@ -4739,11 +4739,35 @@ importers:
         specifier: workspace:^
         version: link:../../core/tools
 
-  packages/gerclaw/app:
+  packages/gerclaw/cga:
     devDependencies:
       '@deepseek-ai/cordis':
         specifier: workspace:^
         version: link:../../../vendor/cordis
+      '@deepseek-ai/dsh-invariants':
+        specifier: workspace:^
+        version: link:../../runtime-diagnostics/invariants
+
+  packages/gerclaw/chronic-care:
+    devDependencies:
+      '@deepseek-ai/cordis':
+        specifier: workspace:^
+        version: link:../../../vendor/cordis
+      '@deepseek-ai/dsh-invariants':
+        specifier: workspace:^
+        version: link:../../runtime-diagnostics/invariants
+
+  packages/gerclaw/client:
+    devDependencies:
+      '@deepseek-ai/cordis':
+        specifier: workspace:^
+        version: link:../../../vendor/cordis
+      '@deepseek-ai/dsh-agent':
+        specifier: workspace:^
+        version: link:../../core/agent
+      '@deepseek-ai/dsh-goal':
+        specifier: workspace:^
+        version: link:../../goal/goal
       '@deepseek-ai/dsh-host-webserver':
         specifier: workspace:^
         version: link:../../host/webserver
@@ -4753,6 +4777,9 @@ importers:
       '@deepseek-ai/dsh-llm':
         specifier: workspace:^
         version: link:../../llm/llm
+      '@deepseek-ai/dsh-plan-mode':
+        specifier: workspace:^
+        version: link:../../plan/plan-mode
       '@deepseek-ai/dsh-session':
         specifier: workspace:^
         version: link:../../core/session
@@ -4765,6 +4792,9 @@ importers:
       '@deepseek-ai/dsh-system-prompt':
         specifier: workspace:^
         version: link:../../core/system-prompt
+      '@deepseek-ai/dsh-tools':
+        specifier: workspace:^
+        version: link:../../core/tools
       '@deepseek-ai/dsh-workspace':
         specifier: workspace:^
         version: link:../../workspace/workspace
@@ -4813,24 +4843,6 @@ importers:
       zod:
         specifier: 4.4.3
         version: 4.4.3
-
-  packages/gerclaw/cga:
-    devDependencies:
-      '@deepseek-ai/cordis':
-        specifier: workspace:^
-        version: link:../../../vendor/cordis
-      '@deepseek-ai/dsh-invariants':
-        specifier: workspace:^
-        version: link:../../runtime-diagnostics/invariants
-
-  packages/gerclaw/chronic-care:
-    devDependencies:
-      '@deepseek-ai/cordis':
-        specifier: workspace:^
-        version: link:../../../vendor/cordis
-      '@deepseek-ai/dsh-invariants':
-        specifier: workspace:^
-        version: link:../../runtime-diagnostics/invariants
 
   packages/gerclaw/companion:
     devDependencies:
@@ -4883,6 +4895,9 @@ importers:
       '@deepseek-ai/dsh-storage-domain':
         specifier: workspace:^
         version: link:../../storage/storage-domain
+      '@deepseek-ai/dsh-subprocess':
+        specifier: workspace:^
+        version: link:../../subprocess/subprocess
       '@deepseek-ai/dsh-tools':
         specifier: workspace:^
         version: link:../../core/tools
@@ -4963,7 +4978,7 @@ importers:
         version: link:../../storage/storage-sqlite
       '@gerclaw/app':
         specifier: workspace:*
-        version: link:../app
+        version: link:../client
       '@gerclaw/cga':
         specifier: workspace:*
         version: link:../cga
@@ -4991,6 +5006,9 @@ importers:
       '@gerclaw/risk-alert':
         specifier: workspace:*
         version: link:../risk-alert
+      '@gerclaw/skills':
+        specifier: workspace:*
+        version: link:../skills
       '@gerclaw/system-prompt':
         specifier: workspace:*
         version: link:../system-prompt
@@ -5051,13 +5069,23 @@ importers:
         version: link:../../runtime-diagnostics/invariants
 
   packages/gerclaw/voice:
+    dependencies:
+      ws:
+        specifier: 8.21.0
+        version: 8.21.0
     devDependencies:
       '@deepseek-ai/cordis':
         specifier: workspace:^
         version: link:../../../vendor/cordis
+      '@deepseek-ai/dsh-host-webserver':
+        specifier: workspace:^
+        version: link:../../host/webserver
       '@deepseek-ai/dsh-invariants':
         specifier: workspace:^
         version: link:../../runtime-diagnostics/invariants
+      '@types/ws':
+        specifier: 8.18.1
+        version: 8.18.1
 
   packages/goal/command-goal:
     devDependencies:
