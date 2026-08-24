@@ -1,0 +1,4 @@
+Derived from @deepseek-ai/dsh-storage-domain in DeepSeek Harness.
+
+Modification: the nested backend lifecycle fiber explicitly injects the
+isolated storage service so it remains inside the Loader-selected realm.

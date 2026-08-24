@@ -1,0 +1,8 @@
+GerClaw shared medical knowledge provider
+
+Derived from dsh-library 0.1.3 (Apache-2.0):
+https://github.com/PerryLink/dsh-library/tree/0.1.3
+
+GerClaw retains LibraryStore, chunking, embedding and retrieval logic. It
+replaces the upstream command/Tool surface with a read-only shared Cordis
+Service and receives storage through a Loader-managed isolate group.

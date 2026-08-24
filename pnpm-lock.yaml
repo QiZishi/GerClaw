@@ -44,9 +44,12 @@ importers:
       '@gerclaw/launcher':
         specifier: workspace:*
         version: link:packages/gerclaw/launcher
-      '@gerclaw/local-rag':
+      '@gerclaw/library':
         specifier: workspace:*
-        version: link:packages/gerclaw/local-rag
+        version: link:packages/gerclaw/library
+      '@gerclaw/library-dsh':
+        specifier: workspace:*
+        version: link:packages/gerclaw/library-dsh
       '@gerclaw/medical-evidence':
         specifier: workspace:*
         version: link:packages/gerclaw/medical-evidence
@@ -59,9 +62,15 @@ importers:
       '@gerclaw/profile-bundle':
         specifier: workspace:*
         version: link:packages/gerclaw/profile-bundle
+      '@gerclaw/rag':
+        specifier: workspace:*
+        version: link:packages/gerclaw/rag
       '@gerclaw/risk-alert':
         specifier: workspace:*
         version: link:packages/gerclaw/risk-alert
+      '@gerclaw/shared-knowledge':
+        specifier: workspace:*
+        version: link:packages/gerclaw/local-rag
       '@gerclaw/skills':
         specifier: workspace:*
         version: link:packages/gerclaw/skills
@@ -71,6 +80,9 @@ importers:
       '@gerclaw/speech-qianwen':
         specifier: workspace:*
         version: link:packages/gerclaw/speech-qianwen
+      '@gerclaw/storage-domain-isolated':
+        specifier: workspace:*
+        version: link:packages/gerclaw/storage-domain-isolated
       '@gerclaw/system-prompt':
         specifier: workspace:*
         version: link:packages/gerclaw/system-prompt
@@ -4831,9 +4843,9 @@ importers:
       '@gerclaw/health-profile':
         specifier: workspace:*
         version: link:../health-profile
-      '@gerclaw/local-rag':
+      '@gerclaw/library':
         specifier: workspace:*
-        version: link:../local-rag
+        version: link:../library
       '@gerclaw/medical-evidence':
         specifier: workspace:*
         version: link:../medical-evidence
@@ -4947,38 +4959,64 @@ importers:
         specifier: ^22.19.0
         version: 22.20.0
 
-  packages/gerclaw/local-rag:
+  packages/gerclaw/library:
     devDependencies:
       '@deepseek-ai/cordis':
         specifier: workspace:^
         version: link:../../../vendor/cordis
-      '@deepseek-ai/dsh-commands':
-        specifier: workspace:^
-        version: link:../../interaction/commands
       '@deepseek-ai/dsh-invariants':
         specifier: workspace:^
         version: link:../../runtime-diagnostics/invariants
-      '@deepseek-ai/dsh-llm':
-        specifier: workspace:^
-        version: link:../../llm/llm
-      '@deepseek-ai/dsh-storage':
-        specifier: workspace:^
-        version: link:../../storage/storage
-      '@deepseek-ai/dsh-storage-domain':
-        specifier: workspace:^
-        version: link:../../storage/storage-domain
-      '@deepseek-ai/dsh-storage-sqlite':
-        specifier: workspace:^
-        version: link:../../storage/storage-sqlite
-      '@deepseek-ai/dsh-subprocess':
-        specifier: workspace:^
-        version: link:../../subprocess/subprocess
-      '@deepseek-ai/dsh-tools':
-        specifier: workspace:^
-        version: link:../../core/tools
+
+  packages/gerclaw/library-dsh:
+    dependencies:
+      '@deepseek-ai/schemastery':
+        specifier: link:../../../vendor/schemastery
+        version: link:../../../vendor/schemastery
+      '@gerclaw/library':
+        specifier: workspace:*
+        version: link:../library
       dsh-library:
         specifier: 0.1.3
         version: 0.1.3(@deepseek-ai/cordis@vendor+cordis)(@deepseek-ai/dsh-fs@packages+fs+fs)(@deepseek-ai/dsh-llm@packages+llm+llm)(@deepseek-ai/dsh-session@packages+core+session)(@deepseek-ai/dsh-storage-domain@packages+storage+storage-domain)(@deepseek-ai/dsh-storage-json@packages+storage+storage-json)(@deepseek-ai/dsh-storage@packages+storage+storage)(@deepseek-ai/dsh-subprocess@packages+subprocess+subprocess)(@deepseek-ai/dsh-tools@packages+core+tools)(@deepseek-ai/schemastery@vendor+schemastery)(oxc-resolver@11.20.0)(publint@0.3.21)(tsx@4.22.4)
+    devDependencies:
+      '@deepseek-ai/cordis':
+        specifier: workspace:^
+        version: link:../../../vendor/cordis
+      '@deepseek-ai/dsh-invariants':
+        specifier: workspace:^
+        version: link:../../runtime-diagnostics/invariants
+      '@deepseek-ai/dsh-storage-domain':
+        specifier: workspace:^
+        version: link:../../storage/storage-domain
+      '@deepseek-ai/dsh-subprocess':
+        specifier: workspace:^
+        version: link:../../subprocess/subprocess
+
+  packages/gerclaw/local-rag:
+    dependencies:
+      '@deepseek-ai/schemastery':
+        specifier: link:../../../vendor/schemastery
+        version: link:../../../vendor/schemastery
+      '@gerclaw/library':
+        specifier: workspace:*
+        version: link:../library
+      dsh-library:
+        specifier: 0.1.3
+        version: 0.1.3(@deepseek-ai/cordis@vendor+cordis)(@deepseek-ai/dsh-fs@packages+fs+fs)(@deepseek-ai/dsh-llm@packages+llm+llm)(@deepseek-ai/dsh-session@packages+core+session)(@deepseek-ai/dsh-storage-domain@packages+storage+storage-domain)(@deepseek-ai/dsh-storage-json@packages+storage+storage-json)(@deepseek-ai/dsh-storage@packages+storage+storage)(@deepseek-ai/dsh-subprocess@packages+subprocess+subprocess)(@deepseek-ai/dsh-tools@packages+core+tools)(@deepseek-ai/schemastery@vendor+schemastery)(oxc-resolver@11.20.0)(publint@0.3.21)(tsx@4.22.4)
+    devDependencies:
+      '@deepseek-ai/cordis':
+        specifier: workspace:^
+        version: link:../../../vendor/cordis
+      '@deepseek-ai/dsh-invariants':
+        specifier: workspace:^
+        version: link:../../runtime-diagnostics/invariants
+      '@deepseek-ai/dsh-storage-domain':
+        specifier: workspace:^
+        version: link:../../storage/storage-domain
+      '@deepseek-ai/dsh-subprocess':
+        specifier: workspace:^
+        version: link:../../subprocess/subprocess
 
   packages/gerclaw/medical-evidence:
     devDependencies:
@@ -5009,9 +5047,9 @@ importers:
       '@deepseek-ai/dsh-llm':
         specifier: workspace:^
         version: link:../../llm/llm
-      '@gerclaw/local-rag':
+      '@gerclaw/library':
         specifier: workspace:*
-        version: link:../local-rag
+        version: link:../library
       '@gerclaw/medication-review':
         specifier: workspace:*
         version: link:../medication-review
@@ -5054,6 +5092,12 @@ importers:
       '@deepseek-ai/dsh-skill-filesystem':
         specifier: workspace:^
         version: link:../../skill/skill-filesystem
+      '@deepseek-ai/dsh-storage':
+        specifier: workspace:^
+        version: link:../../storage/storage
+      '@deepseek-ai/dsh-storage-domain':
+        specifier: workspace:^
+        version: link:../../storage/storage-domain
       '@deepseek-ai/dsh-storage-sqlite':
         specifier: workspace:^
         version: link:../../storage/storage-sqlite
@@ -5075,9 +5119,12 @@ importers:
       '@gerclaw/health-profile':
         specifier: workspace:*
         version: link:../health-profile
-      '@gerclaw/local-rag':
+      '@gerclaw/library':
         specifier: workspace:*
-        version: link:../local-rag
+        version: link:../library
+      '@gerclaw/library-dsh':
+        specifier: workspace:*
+        version: link:../library-dsh
       '@gerclaw/medical-evidence':
         specifier: workspace:*
         version: link:../medical-evidence
@@ -5087,9 +5134,15 @@ importers:
       '@gerclaw/prescription':
         specifier: workspace:*
         version: link:../prescription
+      '@gerclaw/rag':
+        specifier: workspace:*
+        version: link:../rag
       '@gerclaw/risk-alert':
         specifier: workspace:*
         version: link:../risk-alert
+      '@gerclaw/shared-knowledge':
+        specifier: workspace:*
+        version: link:../local-rag
       '@gerclaw/skills':
         specifier: workspace:*
         version: link:../skills
@@ -5099,6 +5152,9 @@ importers:
       '@gerclaw/speech-qianwen':
         specifier: workspace:*
         version: link:../speech-qianwen
+      '@gerclaw/storage-domain-isolated':
+        specifier: workspace:*
+        version: link:../storage-domain-isolated
       '@gerclaw/system-prompt':
         specifier: workspace:*
         version: link:../system-prompt
@@ -5121,6 +5177,22 @@ importers:
       '@deepseek-ai/dsh-app-boot':
         specifier: workspace:^
         version: link:../../boot/app-boot
+      '@deepseek-ai/dsh-invariants':
+        specifier: workspace:^
+        version: link:../../runtime-diagnostics/invariants
+
+  packages/gerclaw/rag:
+    dependencies:
+      '@deepseek-ai/schemastery':
+        specifier: link:../../../vendor/schemastery
+        version: link:../../../vendor/schemastery
+      '@gerclaw/library':
+        specifier: workspace:*
+        version: link:../library
+    devDependencies:
+      '@deepseek-ai/cordis':
+        specifier: workspace:^
+        version: link:../../../vendor/cordis
       '@deepseek-ai/dsh-invariants':
         specifier: workspace:^
         version: link:../../runtime-diagnostics/invariants
@@ -5173,6 +5245,25 @@ importers:
       '@types/ws':
         specifier: 8.18.1
         version: 8.18.1
+
+  packages/gerclaw/storage-domain-isolated:
+    dependencies:
+      '@deepseek-ai/schemastery':
+        specifier: link:../../../vendor/schemastery
+        version: link:../../../vendor/schemastery
+    devDependencies:
+      '@deepseek-ai/cordis':
+        specifier: workspace:^
+        version: link:../../../vendor/cordis
+      '@deepseek-ai/dsh-invariants':
+        specifier: workspace:^
+        version: link:../../runtime-diagnostics/invariants
+      '@deepseek-ai/dsh-storage':
+        specifier: workspace:^
+        version: link:../../storage/storage
+      '@deepseek-ai/dsh-storage-domain':
+        specifier: workspace:^
+        version: link:../../storage/storage-domain
 
   packages/gerclaw/system-prompt:
     devDependencies:

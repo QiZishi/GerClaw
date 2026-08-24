@@ -3,15 +3,15 @@ import type {
   InvariantFailure,
   InvariantInstaller,
 } from '@deepseek-ai/dsh-invariants'
-const PACKAGE_NAME = '@gerclaw/local-rag'
-export const name = 'gerclaw-local-rag-invariant'
+const PACKAGE_NAME = '@gerclaw/shared-knowledge'
+export const name = 'gerclaw-shared-knowledge-invariant'
 export const inject = ['invariants']
 const install: InvariantInstaller = Object.assign(
   (scope: Context, fail: InvariantFailure) => {
-    if (scope.get('gerclawRag') === undefined)
-      fail('gerclawRag service is unavailable')
+    if (scope.get('gerclawSharedKnowledge') === undefined)
+      fail('gerclawSharedKnowledge service is unavailable')
   },
-  { inject: ['gerclawRag'] },
+  { inject: ['gerclawSharedKnowledge'] },
 )
 export const apply = (ctx: Context): Promise<() => void> =>
   Promise.resolve(ctx.invariants.register(PACKAGE_NAME, install))

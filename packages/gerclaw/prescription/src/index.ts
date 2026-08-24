@@ -2,7 +2,7 @@
 import { Context, Service } from '@deepseek-ai/cordis'
 import { BlockAssembler, createUserMessage } from '@deepseek-ai/dsh-llm'
 import type { MedicationReview } from '@gerclaw/medication-review'
-import type { LocalRagHit } from '@gerclaw/local-rag'
+import type { GerclawRagHit as LocalRagHit } from '@gerclaw/library'
 export interface EvidenceSource {
   evidenceId: string
   title: string
@@ -426,7 +426,7 @@ export class PrescriptionService extends Service {
           ? prompt
           : JSON.stringify({
             correction: `上一次输出未通过结构校验：${validationError}。重新生成完整 JSON，不要解释。`,
-            request: JSON.parse(prompt),
+            request: JSON.parse(prompt) as unknown,
           })
         for await (const chunk of this.ctx.llm.stream({
           provider: route.provider,

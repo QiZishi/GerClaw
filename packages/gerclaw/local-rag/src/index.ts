@@ -1,4 +1,4 @@
-/** Shared immutable medical corpus plus account-private dsh-library overlay. */
+/** Shared immutable medical corpus provider derived from dsh-library 0.1.3. */
 import { createHash, randomUUID } from 'node:crypto'
 import {
   mkdir,
@@ -11,56 +11,23 @@ import {
   unlink,
   writeFile,
 } from 'node:fs/promises'
-import { dirname, join, relative } from 'node:path'
+import { join, relative } from 'node:path'
 import { Context, Service } from '@deepseek-ai/cordis'
-import { CallId } from '@deepseek-ai/dsh-llm'
-import { DomainFacility, type Domain, type DomainSpec } from '@deepseek-ai/dsh-storage-domain'
-import { SqliteStorageBackend } from '@deepseek-ai/dsh-storage-sqlite'
-import type {} from '@deepseek-ai/dsh-storage'
+import type { Domain } from '@deepseek-ai/dsh-storage-domain'
 import type {} from '@deepseek-ai/dsh-subprocess'
-import type {} from '@deepseek-ai/dsh-tools'
-
-interface LibrarySearchHit {
-  readonly chunkId: string
-  readonly documentId: string
-  readonly seq: number
-  readonly snippet: string
-  readonly score: number
-}
-
-interface LibraryListEntry {
-  readonly documentId: string
-  readonly name: string
-}
-
-interface LibraryStoreLike {
-  add(
-    library: string,
-    docName: string,
-    content: string,
-  ): Promise<{ documentId: string }>
-  list(library?: string): LibraryListEntry[]
-  search(library: string, query: string, topK?: number): Promise<LibrarySearchHit[]>
-}
-
-interface LibraryRuntime {
-  LibraryStore: new (
-    domain: Domain<DomainSpec>,
-    config: unknown,
-    deps: { subprocess: Context['subprocess'] },
-  ) => LibraryStoreLike
-  libraryDomainSpec: DomainSpec
-  resolveConfig: (config: Record<string, unknown>) => unknown
-}
-
-const loadLibraryRuntime = async (): Promise<LibraryRuntime> => {
-  // Keep dsh-library's package-level SessionEventMap augmentation outside the
-  // DSH Typert program. The runtime value is still the unmodified 0.1.3
-  // implementation selected by the workspace lockfile.
-  const packageName = ['dsh', 'library'].join('-')
-  const runtime: unknown = await import(packageName)
-  return runtime as LibraryRuntime
-}
+import z from '@deepseek-ai/schemastery'
+import {
+  LibraryStore,
+  libraryDomainSpec,
+  resolveConfig,
+  type LibrarySearchHit,
+  type ResolvedConfig,
+} from 'dsh-library'
+import {
+  GerclawSharedKnowledge,
+  type GerclawRagHit as LocalRagHit,
+  type GerclawRagStatus as LocalRagStatus,
+} from '@gerclaw/library'
 
 export interface LocalRagConfig {
   knowledgeBasePath: string
@@ -95,24 +62,6 @@ export interface CorpusManifest {
   files: CorpusManifestEntry[]
 }
 
-export interface LocalRagHit {
-  chunkId: string
-  documentId: string
-  seq: number
-  snippet: string
-  score: number
-  origin: 'knowledge-base' | 'user'
-}
-
-export interface LocalRagStatus {
-  state: 'indexing' | 'ready' | 'failed'
-  total: number
-  indexed: number
-  version?: string
-  error?: string
-}
-
-const USER_LIBRARY = 'gerclaw-user'
 const LOCK_STALE_MS = 30 * 60_000
 const SHARED_CHUNK_SIZE = 4_000
 const SHARED_CHUNK_OVERLAP = 400
@@ -184,15 +133,6 @@ const delay = (ms: number, signal: AbortSignal) => new Promise<void>((resolve, r
   }
   signal.addEventListener('abort', abort, { once: true })
 })
-
-declare module '@deepseek-ai/cordis' {
-  interface Context { gerclawRag: LocalRagService }
-}
-
-interface SharedLibraryHandle {
-  store: LibraryStoreLike
-  close: () => Promise<void>
-}
 
 interface SharedSourceRef {
   path: string
@@ -287,72 +227,54 @@ export const planSharedShards = (
   return planned
 }
 
-export class LocalRagService extends Service {
-  static inject = ['tools', 'storage', 'subprocess']
+export class SharedKnowledgeProvider extends GerclawSharedKnowledge {
+  static inject = ['storageDomain', 'subprocess']
+  static Config: z<LocalRagConfig> = z.object({
+    knowledgeBasePath: z.string().required(),
+    sharedIndexRoot: z.string().required(),
+    library: z.string().default('gerclaw-medical'),
+    embeddingCommand: z.string().default(''),
+    embeddingDimensions: z.number().min(8).default(DEFAULT_EMBEDDING_DIMENSIONS),
+    embeddingModel: z.string().default(DEFAULT_EMBEDDING_MODEL),
+    rerankApiKey: z.string().required(),
+    rerankUrl: z.string().required(),
+    rerankModel: z.string().required(),
+  })
   private readonly controller = new AbortController()
   private readonly library: string
-  private readonly stagingDir: string
   private readonly baseSources = new Map<string, SharedSourceRef>()
   private readonly shardRoutes: SharedShardRoute[] = []
-  private readonly userSources = new Map<string, string>()
-  private runtime!: LibraryRuntime
-  private shared: SharedLibraryHandle | undefined
-  private hasUserDocuments = false
+  private domain: Domain<typeof libraryDomainSpec> | undefined
+  private store: LibraryStore | undefined
+  private readonly libraryConfig: ResolvedConfig
   private current: LocalRagStatus = { state: 'indexing', total: 0, indexed: 0 }
   private ready: Promise<void> = Promise.resolve()
 
   constructor(ctx: Context, private readonly config: LocalRagConfig) {
-    super(ctx, 'gerclawRag')
+    super(ctx)
     this.library = config.library ?? 'gerclaw-medical'
-    this.stagingDir = join(dirname(config.knowledgeBasePath), 'workspace', '.gerclaw-rag')
+    this.libraryConfig = this.resolveLibraryConfig()
     ctx.effect(() => async () => {
       this.controller.abort()
-      await this.shared?.close()
-      this.shared = undefined
+      this.store = undefined
+      const domain = this.domain
+      this.domain = undefined
+      await domain?.close()
     }, 'gerclaw.local-rag.lifecycle')
   }
 
   protected async [Service.init](): Promise<void> {
-    await mkdir(this.stagingDir, { recursive: true })
     await mkdir(this.config.sharedIndexRoot, { recursive: true })
-    this.runtime = await loadLibraryRuntime()
-    await this.waitForLibraryTools()
+    this.domain = await this.ctx.storageDomain.open(libraryDomainSpec)
+    this.store = new LibraryStore(this.domain, this.libraryConfig, { subprocess: this.ctx.subprocess })
     this.ready = this.initialize()
     void this.ready.catch(() => {})
   }
 
   status(): LocalRagStatus { return { ...this.current } }
 
-  private async waitForLibraryTools(): Promise<void> {
-    const deadline = Date.now() + 10_000
-    while (Date.now() < deadline) {
-      this.controller.signal.throwIfAborted()
-      if (this.ctx.tools.get('library_add') && this.ctx.tools.get('library_list') && this.ctx.tools.get('library_search')) return
-      await delay(25, this.controller.signal)
-    }
-    throw new Error('dsh-library 工具未能完成加载')
-  }
-
-  private async runLibraryTool<T>(
-    name: 'library_add' | 'library_list' | 'library_search',
-    args: Record<string, unknown>,
-    signal?: AbortSignal,
-  ): Promise<T> {
-    const result = await this.ctx.tools.execute({
-      callId: CallId(`gerclaw-rag-${randomUUID()}`),
-      name,
-      arguments: args,
-      signal: this.requestSignal(signal),
-    })
-    if (result.isError) {
-      const message = result.content.filter(block => block.type === 'text').map(block => block.text).join('\n')
-      throw new Error(message || `${name} 执行失败`)
-    }
-    return result.value as T
-  }
-
-  private libraryConfig() {
-    return this.runtime.resolveConfig({
+  private resolveLibraryConfig(): ResolvedConfig {
+    return resolveConfig({
       chunkSize: SHARED_CHUNK_SIZE,
       chunkOverlap: SHARED_CHUNK_OVERLAP,
       maxFileBytes: 5 * 1024 * 1024,
@@ -379,40 +301,17 @@ export class LocalRagService extends Service {
     })
   }
 
-  private async openSharedStore(databasePath: string): Promise<SharedLibraryHandle> {
-    await mkdir(dirname(databasePath), { recursive: true })
-    const backend = new SqliteStorageBackend({ path: databasePath, journalMode: 'wal' })
-    const backendName = `gerclaw-shared-rag-${randomUUID()}`
-    const unregister = this.ctx.storage.backend.register(backendName, backend)
-    const facility = new DomainFacility(this.ctx, { backend: backendName })
-    try {
-      const domain = await facility.open(this.runtime.libraryDomainSpec)
-      const store = new this.runtime.LibraryStore(domain, this.libraryConfig(), { subprocess: this.ctx.subprocess })
-      let closed = false
-      return {
-        store,
-        close: async () => {
-          if (closed) return
-          closed = true
-          await domain.close()
-          await facility.closeAll()
-          unregister()
-          await backend.close()
-        },
-      }
-    } catch (error) {
-      unregister()
-      await backend.close()
-      throw error
-    }
-  }
-
   private async buildSharedIndex(manifest: CorpusManifest, versionDir: string): Promise<void> {
     const staging = join(this.config.sharedIndexRoot, `.building-${manifest.version}-${randomUUID()}`)
     await mkdir(staging, { recursive: true })
-    let handle: SharedLibraryHandle | undefined
     try {
-      handle = await this.openSharedStore(join(staging, 'index.sqlite'))
+      const store = this.store
+      if (!store) throw new Error('共享知识库 storage domain 尚未就绪')
+      const versionPrefix = `${this.library}-${manifest.version.slice(0, 12)}-`
+      for (const entry of store.list().filter(row => row.library.startsWith(versionPrefix))) {
+        this.controller.signal.throwIfAborted()
+        await store.remove(entry.library, entry.documentId)
+      }
       const documents = await Promise.all(manifest.files.map(async entry => ({
         path: entry.path,
         content: await readFile(join(this.config.knowledgeBasePath, entry.path), 'utf8'),
@@ -422,12 +321,12 @@ export class LocalRagService extends Service {
       let indexed = 0
       const indexedPaths = new Set<string>()
       for (const [shardIndex, shard] of shards.entries()) {
-        const library = `${this.library}-s${shardIndex.toString(36)}`
+        const library = `${versionPrefix}s${shardIndex.toString(36)}`
         const routeParts = [shard.category]
         for (const [segmentIndex, segment] of shard.segments.entries()) {
           this.controller.signal.throwIfAborted()
           const sourceMarker = `<!-- gerclaw-source: ${segment.path}; segment: ${segment.seqBase} -->\n`
-          const added = await handle.store.add(
+          const added = await store.add(
             library,
             segment.path,
             `${sourceMarker}${segment.content}`,
@@ -454,22 +353,19 @@ export class LocalRagService extends Service {
           routeText: routeParts.join('\n').slice(0, 4_000),
         })
       }
-      const entries = handle.store.list()
+      const entries = store.list().filter(entry => entry.library.startsWith(versionPrefix))
       const names = new Set(entries.map(entry => entry.name))
       for (const entry of manifest.files) {
         if (!names.has(entry.path)) throw new Error(`共享知识库索引缺少：${entry.path}`)
       }
       if (routing.shards.length === 0 || Object.keys(routing.sources).length !== entries.length)
         throw new Error('共享知识库分片路由校验失败')
-      await handle.close()
-      handle = undefined
       await writeFile(join(staging, 'manifest.json'), JSON.stringify(manifest))
       await writeFile(join(staging, 'routing.json'), JSON.stringify(routing))
       await writeFile(join(staging, 'READY'), `${manifest.version}\n`)
       if (await exists(versionDir)) await rm(staging, { recursive: true, force: true })
       else await rename(staging, versionDir)
     } catch (error) {
-      await handle?.close().catch(() => {})
       await rm(staging, { recursive: true, force: true })
       throw error
     }
@@ -478,6 +374,14 @@ export class LocalRagService extends Service {
   private async ensureSharedIndex(manifest: CorpusManifest): Promise<string> {
     const versionDir = join(this.config.sharedIndexRoot, manifest.version)
     const ready = join(versionDir, 'READY')
+    if (await exists(ready)) {
+      const store = this.store
+      const routing = JSON.parse(await readFile(join(versionDir, 'routing.json'), 'utf8')) as SharedRouting
+      const indexed = new Set(store?.list().map(entry => entry.documentId) ?? [])
+      if (!Object.keys(routing.sources).every(documentId => indexed.has(documentId))) {
+        await rm(versionDir, { recursive: true, force: true })
+      }
+    }
     if (!(await exists(ready))) {
       const lockPath = join(this.config.sharedIndexRoot, `${manifest.version}.lock`)
       let lock: Awaited<ReturnType<typeof open>> | undefined
@@ -529,16 +433,12 @@ export class LocalRagService extends Service {
       })
       this.current = { state: 'indexing', total: manifest.files.length, indexed: 0, version: manifest.version }
       const versionDir = await this.ensureSharedIndex(manifest)
-      this.shared = await this.openSharedStore(join(versionDir, 'index.sqlite'))
       const routing = JSON.parse(
         await readFile(join(versionDir, 'routing.json'), 'utf8'),
       ) as SharedRouting
       this.shardRoutes.push(...routing.shards)
       for (const [documentId, source] of Object.entries(routing.sources))
         this.baseSources.set(documentId, source)
-      const userEntries = await this.runLibraryTool<{ entries: Array<{ documentId: string; name: string }> }>('library_list', { library: USER_LIBRARY })
-      this.hasUserDocuments = userEntries.entries.length > 0
-      for (const entry of userEntries.entries) this.userSources.set(entry.documentId, entry.name)
       this.current = {
         state: 'ready',
         total: manifest.files.length,
@@ -567,22 +467,6 @@ export class LocalRagService extends Service {
         origin: 'knowledge-base',
       }
     })
-  }
-
-  private async userHits(
-    query: string,
-    topK: number,
-    signal?: AbortSignal,
-  ): Promise<LocalRagHit[]> {
-    if (!this.hasUserDocuments) return []
-    const result = await this.runLibraryTool<{ results: LibrarySearchHit[] }>('library_search', {
-      library: USER_LIBRARY, query, topK, inject: false,
-    }, signal)
-    return result.results.map(hit => ({
-      ...hit,
-      documentId: this.userSources.get(hit.documentId) ?? hit.documentId,
-      origin: 'user',
-    }))
   }
 
   private requestSignal(signal?: AbortSignal): AbortSignal {
@@ -654,8 +538,8 @@ export class LocalRagService extends Service {
       })
     }
     signal?.throwIfAborted()
-    const shared = this.shared
-    if (!shared) throw new Error('共享知识库索引尚未就绪')
+    const store = this.store
+    if (!store) throw new Error('共享知识库索引尚未就绪')
     const limit = Math.max(topK, 20)
     const selectedRoutes = await this.rerankIndexes(
       query,
@@ -663,15 +547,12 @@ export class LocalRagService extends Service {
       SHARD_ROUTE_LIMIT,
       signal,
     )
-    const [baseGroups, user] = await Promise.all([
-      Promise.all(selectedRoutes.map(async ({ index }) => {
-        const route = this.shardRoutes[index]
-        if (route === undefined) throw new Error('共享知识库分片路由无效')
-        return this.baseHits(await shared.store.search(route.library, query, limit))
-      })),
-      this.userHits(query, limit, signal),
-    ])
-    const candidates = [...baseGroups.flat(), ...user]
+    const baseGroups = await Promise.all(selectedRoutes.map(async ({ index }) => {
+      const route = this.shardRoutes[index]
+      if (route === undefined) throw new Error('共享知识库分片路由无效')
+      return this.baseHits(await store.search(route.library, query, limit))
+    }))
+    const candidates = baseGroups.flat()
       .sort((a, b) => b.score - a.score)
       .slice(0, limit * SHARD_ROUTE_LIMIT)
     if (candidates.length === 0) return []
@@ -688,18 +569,6 @@ export class LocalRagService extends Service {
     })
   }
 
-  async addUserDocument(path: string, name: string): Promise<unknown> {
-    const text = await readFile(path, 'utf8')
-    const digest = createHash('sha256').update(`${name}\0${text}`).digest('hex')
-    const staged = join(this.stagingDir, `${digest}.md`)
-    await writeFile(staged, text, { flag: 'w' })
-    const added = await this.runLibraryTool<{ documentId: string; name: string }>('library_add', {
-      path: staged, library: USER_LIBRARY, name,
-    })
-    this.userSources.set(added.documentId, added.name)
-    this.hasUserDocuments = true
-    return added
-  }
 }
 
-export default LocalRagService
+export default SharedKnowledgeProvider

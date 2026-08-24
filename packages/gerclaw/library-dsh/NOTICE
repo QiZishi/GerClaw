@@ -1,0 +1,9 @@
+GerClaw account-private library provider
+
+Derived from dsh-library 0.1.3 (Apache-2.0):
+https://github.com/PerryLink/dsh-library/tree/0.1.3
+
+GerClaw retains LibraryStore, configuration, chunking, embedding and retrieval
+logic. It removes the upstream command and Tool registration surface and
+publishes the store through a replaceable Cordis Service instead. Storage is
+provided by the DSH Loader composition and is never instantiated here.

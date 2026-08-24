@@ -42,7 +42,7 @@ import {
   type PrescriptionIntakeState,
   type PrescriptionRequest,
 } from '@gerclaw/prescription'
-import type {} from '@gerclaw/local-rag'
+import type {} from '@gerclaw/library'
 import { GERCLAW_SYSTEM_PROMPT } from '@gerclaw/system-prompt'
 import type {
   ArtifactDescriptor,
