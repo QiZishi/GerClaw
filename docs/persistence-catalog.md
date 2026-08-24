@@ -393,6 +393,19 @@ Types: [ContentBlock](subsystems/core.md) · [TokenUsage](subsystems/llm-streami
 
 Source: [`packages/compaction/compaction/src/types.ts:33`](../packages/compaction/compaction/src/types.ts)
 
+### `dsh-talk/*`
+
+<a id="dsh-talkspeech--log-only"></a>
+
+#### `dsh-talk/speech` — log-only
+
+```ts persistence-catalog
+/** One sanitized TTS utterance and its playback outcome; raw audio is never persisted. */
+'dsh-talk/speech': DshTalkSpeechEvent
+```
+
+Source: [`packages/gerclaw/voice/src/speech.ts:20`](../packages/gerclaw/voice/src/speech.ts)
+
 ### `feedback/*`
 
 <a id="feedbackrecord--log-only"></a>
@@ -408,6 +421,45 @@ Source: [`packages/compaction/compaction/src/types.ts:33`](../packages/compactio
 ```
 
 Source: [`packages/feedback/command-feedback/src/index.ts:62`](../packages/feedback/command-feedback/src/index.ts)
+
+### `gerclaw/*`
+
+<a id="gerclawprescription-intake--log-only"></a>
+
+#### `gerclaw/prescription-intake` — log-only
+
+```ts persistence-catalog
+/** Whole-value, session-restorable five-prescription intake state. */
+'gerclaw/prescription-intake': {
+  version: 1
+  turn: null
+  intake: PrescriptionIntakeState
+}
+```
+
+Source: [`packages/gerclaw/client/src/index.ts:85`](../packages/gerclaw/client/src/index.ts)
+
+<a id="gerclawtask--log-only"></a>
+
+#### `gerclaw/task` — log-only
+
+```ts persistence-catalog
+/** Versioned, reconstructable GerClaw medical task result. */
+'gerclaw/task': { version: 1; turn: null; task: TaskRun }
+```
+
+Source: [`packages/gerclaw/client/src/index.ts:83`](../packages/gerclaw/client/src/index.ts)
+
+<a id="gerclawvoice--log-only"></a>
+
+#### `gerclaw/voice` — log-only
+
+```ts persistence-catalog
+/** Versioned ASR/TTS outcome; never contains audio chunks, credentials or upstream addresses. */
+'gerclaw/voice': GerclawVoiceEvent
+```
+
+Source: [`packages/gerclaw/voice/src/speech.ts:22`](../packages/gerclaw/voice/src/speech.ts)
 
 ### `goal/*`
 

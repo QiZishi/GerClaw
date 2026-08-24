@@ -5,20 +5,40 @@
 - id: system-prompt
   disabled: true
 
+# The voice service is mounted through the GerClaw bundle layer. Declare its
+# package-owned Typert face explicitly so all Remote routes (notably
+# talk/interrupt) are registered before the browser contribution starts.
+- id: typert-loader
+  config:
+    packages:
+      - "@gerclaw/voice"
+      - "@gerclaw/app"
+
 - insert:
     - id: gerclaw-system-prompt
       name: "@gerclaw/system-prompt"
 
 - id: skill-filesystem
   name: "@deepseek-ai/dsh-skill-filesystem"
-  disabled: false
-  config:
-    includeDefaultRoots: false
-    customSkillDirs:
-      - !!js "process.getBuiltinModule('node:url').fileURLToPath(new URL('../skills/skills/', baseUrl))"
+  # The web profile deliberately leaves this host-level provider disabled.
+  # GerClaw's preset mounts the provider inside the agent scope below, which
+  # makes the same catalog visible to the native skill tool and the model.
+  disabled: true
 
 - id: tool-skill
   disabled: false
+
+- id: command-feedback
+  disabled: true
+
+- id: command-compact
+  disabled: true
+
+- id: session-log-download
+  disabled: true
+
+- id: permission
+  disabled: true
 
 # Keep the native, account-scoped user tools required by health conversations.
 # Developer shell and Cordis management tools remain outside the product profile.
@@ -34,11 +54,28 @@
     fetch: false
     searchTimeoutMs: 60000
 
+- id: web
+  config:
+    searchProvider: anysearch
+    fetchProvider: anysearch
+
+- id: web-search-deepseek
+  disabled: true
+
 - id: tool-goal
   disabled: false
 
 - id: compaction-basic
   disabled: false
+
+- id: agent-presets
+  name: "@deepseek-ai/dsh-agent-presets"
+  config:
+    default: gerclaw
+    # The gateway installs this repository-owned preset into each isolated
+    # account home. DSH keeps its shipped root and discovers this user root
+    # through the supported preset extension point.
+    includeUserRoot: true
 
 # Goal and Plan are deliberately restated to make their presence an explicit
 # GerClaw product contract rather than an accidental bundle inheritance.
@@ -56,16 +93,17 @@
   disabled: false
   config:
     section: |-
-      你正在使用 GerClaw 计划模式。先读取当前账号可用的健康资料和用户目标，把任务拆成用户能理解的步骤；只做读取、检索和分析，不执行会改变数据的动作。计划应说明输入、关键步骤、风险信号、预期产物和验证方法。计划完成后使用 exit_plan_mode 提交，只有用户明确批准后才能执行。
+      你正在使用 GerClaw 计划模式。先读取当前账号可用的健康资料和用户目标，把任务拆成用户能理解的步骤；只做读取、检索和分析，不执行会改变数据的动作。计划最多 5 步、每步一句，正文不超过 800 个中文字符；只保留必要输入、风险信号、预期产物和验证方法，不重复背景知识。本轮禁止把计划作为普通最终回复输出；完成计划后必须立即调用 exit_plan_mode，把完整 Markdown 计划作为该工具参数提交审核。只有工具返回用户明确批准后才能执行。
 
 - id: agent-default-model
   name: "@deepseek-ai/dsh-agent-default-model"
   config:
-    provider: deepseek-official
+    provider: gerclaw-primary
     model: !!js process.env.AGENT_PRIMARY_MODEL || 'deepseek-chat'
 
 - id: llm-deepseek
   name: "@deepseek-ai/dsh-llm-deepseek"
+  disabled: true
   config:
     apiKeyEnv: AGENT_PRIMARY_API_KEY
     baseURL: !!js process.env.AGENT_PRIMARY_URL
@@ -110,6 +148,12 @@
     port: !!js Number(process.env.GERCLAW_HOST_PORT || 3080)
 
 - insert:
+    - id: web-search-anysearch
+      name: "@anysearch/anysearch-dsh"
+      config:
+        apiKeyEnv: ANYSEARCH_API_KEY
+        baseURL: !!js process.env.ANYSEARCH_URL || 'https://api.anysearch.com'
+
     - id: storage-sqlite
       name: "@deepseek-ai/dsh-storage-sqlite"
       config:
@@ -122,6 +166,36 @@
         tokenCredential: MINERU_API_KEY
         mode: auto
         exposeMode: always
+
+    - id: dsh-library
+      name: dsh-library
+      config:
+        chunkSize: 900
+        chunkOverlap: 120
+        maxFileBytes: 5242880
+        embedding:
+          dims: !!js Number(process.env.GERCLAW_RAG_EMBEDDING_DIMENSIONS || 1024)
+          command: !!js "process.execPath + ' --env-file=' + process.getBuiltinModule('node:path').join(process.env.GERCLAW_ROOT_DIR, '.env') + ' ' + process.getBuiltinModule('node:path').join(process.env.GERCLAW_ROOT_DIR, 'packages/gerclaw/local-rag/scripts/siliconflow-embedder.mjs')"
+          timeoutMs: 300000
+          graceMs: 1000
+          maxOutputBytes: 67108864
+          maxBatchItems: 64
+        search:
+          topK: 8
+          hybridWeight: 0.6
+          # dsh-library 0.1.3 tokenizes a contiguous CJK phrase as one lexical
+          # token. A positive lexical gate therefore rejects semantically
+          # relevant Chinese chunks before the configured SiliconFlow vectors
+          # and GerClaw reranker can rank them.
+          minRelevance: 0
+          diversityLambda: 0.5
+          lostMiddleHead: 1
+          lostMiddleTail: 1
+          maxResultChars: 16000
+        injection: { enabled: true, maxChars: 12000 }
+        citation: { windowChars: 150, minScore: 40, minSemantic: 0.1 }
+        purge: { signatureLength: 4, maxProbes: 24 }
+        diagnose: { maxDuplicatePairs: 24, sampleCap: 200, positionBins: 5 }
 
     - id: memorix
       name: "@deepseek-ai/dsh-mcp-client"
@@ -145,6 +219,7 @@
     - { id: gerclaw-companion, name: "@gerclaw/companion" }
     - { id: gerclaw-risk-alert, name: "@gerclaw/risk-alert" }
     - { id: gerclaw-medical-evidence, name: "@gerclaw/medical-evidence" }
+    - { id: gerclaw-skills, name: "@gerclaw/skills" }
 
     - id: gerclaw-voice
       name: "@gerclaw/voice"
@@ -156,14 +231,26 @@
         asrModel: !!js process.env.ASR_MODEL
         ttsModel: !!js process.env.TTS_MODEL
         ttsVoice: Cherry
+        record:
+          enabled: true
+          maxSeconds: 60
+          autoSubmit: true
+        stt:
+          language: zh-CN
+          interim: true
+        tts:
+          voice: Cherry
+        interrupt: true
 
     - id: gerclaw-local-rag
       name: "@gerclaw/local-rag"
       config:
-        knowledgeBasePath: !!js "process.getBuiltinModule('node:path').join(process.env.GERCLAW_ACCOUNT_DATA_DIR, 'knowledge-base')"
+        knowledgeBasePath: !!js "process.getBuiltinModule('node:path').join(process.env.GERCLAW_ROOT_DIR, 'knowledge-base')"
+        sharedIndexRoot: !!js "process.getBuiltinModule('node:path').join(process.env.GERCLAW_ROOT_DIR, '.gerclaw', 'shared-rag')"
         library: gerclaw-medical-sf-v2
         embeddingCommand: !!js "process.execPath + ' --env-file=' + process.getBuiltinModule('node:path').join(process.env.GERCLAW_ROOT_DIR, '.env') + ' ' + process.getBuiltinModule('node:path').join(process.env.GERCLAW_ROOT_DIR, 'packages/gerclaw/local-rag/scripts/siliconflow-embedder.mjs')"
         embeddingDimensions: !!js Number(process.env.GERCLAW_RAG_EMBEDDING_DIMENSIONS || 1024)
+        embeddingModel: !!js "process.env.EMBEDDING_MODEL || 'BAAI/bge-m3'"
         rerankApiKey: !!js process.env.SILICONFLOW_API_KEY
         rerankUrl: !!js process.env.SILICONFLOW_URL
         rerankModel: !!js process.env.RERANK_MODEL
@@ -173,7 +260,7 @@
       config:
         routes:
           - {
-              provider: deepseek-official,
+              provider: gerclaw-primary,
               model: !!js "process.env.AGENT_PRIMARY_MODEL || 'deepseek-chat'",
             }
 
@@ -186,7 +273,7 @@
         audience: !!js process.env.GERCLAW_AUDIENCE || 'patient'
         routes:
           - {
-              provider: deepseek-official,
+              provider: gerclaw-primary,
               model: !!js "process.env.AGENT_PRIMARY_MODEL || 'deepseek-chat'",
             }
           - {
@@ -198,87 +285,41 @@
               model: !!js "process.env.AGENT_BACKUP2_MODEL || process.env.AGENT_PRIMARY_MODEL || 'deepseek-chat'",
             }
 
+    - id: better-sidebar
+      name: dsh-better-sidebar
+
+    - id: gerclaw-client-ui
+      name: "@gerclaw/client-ui"
+
 - id: storage-domain
   config:
     backend: sqlite
 
-# GerClaw owns the complete browser surface. Native DSH backend capabilities
-# above remain active, while the developer-oriented browser modules are absent.
-- id: web-runtime
-  disabled: true
-- id: client-hmr
-  disabled: true
-- id: modules
-  disabled: true
-- id: connection
-  disabled: true
-- id: api-remotes
-  disabled: true
-- id: client-runtime
-  disabled: true
-- id: cordis-client-runner
-  disabled: true
-- id: ui-theme
-  disabled: true
-- id: locale
-  disabled: true
-- id: ui-layout
-  disabled: true
-- id: ui-renderer
-  disabled: true
-- id: ui-sidebar
-  disabled: true
+# GerClaw uses the native DSH Web Client and adds product UI through client
+# slots. Only generic developer and official-brand occupants stay disabled.
 - id: ui-settings
-  disabled: true
+  disabled: false
 - id: ui-settings-general
   disabled: true
 - id: ui-settings-models
   disabled: true
 - id: ui-settings-plugin-inventory
   disabled: true
-- id: ui-conversation
-  disabled: true
 - id: ui-brand-official
-  disabled: true
-- id: ui-attachment
-  disabled: true
-- id: ui-tool
   disabled: true
 - id: ui-cordis
   disabled: true
 - id: ui-workflow-run
   disabled: true
-- id: ui-deliverables
-  disabled: true
-- id: ui-workspace
-  disabled: true
-- id: ui-input-trigger
-  disabled: true
-- id: ui-commands
-  disabled: true
-- id: ui-skill
-  disabled: true
 - id: ui-subagent
   disabled: true
-- id: ui-reference
-  disabled: true
 - id: ui-jobs
-  disabled: true
-- id: ui-goal
-  disabled: true
-- id: ui-message-feedback
-  disabled: true
-- id: ui-model-selection
   disabled: true
 - id: ui-permission
   disabled: true
 - id: ui-agent-preset
   disabled: true
 - id: ui-settings-plugins
-  disabled: true
-- id: ui-plan
-  disabled: true
-- id: ui-user-questions
   disabled: true
 - id: ui-trajectory
   disabled: true

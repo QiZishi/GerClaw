@@ -95,6 +95,8 @@
     { "path": "./packages/client/ui-settings-plugin-inventory" },
     { "path": "./packages/client/locale" },
     { "path": "./packages/client/ui-renderer" },
+    { "path": "./packages/gerclaw/client-ui" },
+    { "path": "./packages/gerclaw/voice/tsconfig.client.json" },
     { "path": "./packages/client/web" },
     { "path": "./apps/web" }
   ]

@@ -1,6 +1,6 @@
 GerClaw voice is derived from the following community designs:
 
-- dsh-talk 0.1.2, commit 21c8206e883e81578f4ba91c90256bc61f7881a8
+- dsh-talk 0.1.3, commit e50a5bca708b629a558084f57a7134ff6366f482
   (Apache-2.0): session projection, speak-to-interrupt, lifecycle and sanitization
   design. Source: https://github.com/PerryLink/dsh-talk
 - dsh-speech-plugin, commit bcfb8d1ee53bc92af74aa4d10757db6f0b976261

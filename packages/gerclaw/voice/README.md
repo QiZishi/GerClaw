@@ -6,7 +6,7 @@
 
 ## 复用、协议与配置
 
-以 Apache-2.0 的 `dsh-talk@0.1.2` 及 `dsh-speech-plugin` 的生命周期设计为基线，来源与改动见 `NOTICE` 和 `LICENSES/`；新增 Qianwen realtime provider。服务端使用 `MODEL_ASR_*`、`MODEL_TTS_*`、`ASR_MODEL=qwen3-asr-flash-realtime`、`TTS_MODEL=qwen3-tts-instruct-flash-realtime`，绝不读取 `SILICONFLOW_*`。会话协议覆盖 ready、音频块、临时/最终转写、TTS 块、停止、打断、完成和错误。
+以 Apache-2.0 的 `dsh-talk@0.1.3` 及 `dsh-speech-plugin` 的生命周期设计为基线，来源与改动见 `NOTICE` 和 `LICENSES/`；新增 Qianwen realtime provider。`dsh-talk@0.1.3` 相对已采用的 `0.1.2` 只更新文档和版本元数据，运行源码相同。服务端使用 `MODEL_ASR_*`、`MODEL_TTS_*`、`ASR_MODEL=qwen3-asr-flash-realtime`、`TTS_MODEL=qwen3-tts-instruct-flash-realtime`，绝不读取 `SILICONFLOW_*`。会话协议覆盖 ready、音频块、临时/最终转写、TTS 块、停止、打断、完成和错误。
 
 ## 数据、卸载与改进
 

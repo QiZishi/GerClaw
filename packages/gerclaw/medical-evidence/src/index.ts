@@ -27,6 +27,16 @@ const decodeXml = (value: string) =>
     .replace(/&quot;/g, '"')
     .replace(/&apos;/g, "'")
     .replace(/&amp;/g, '&')
+const OPENFDA_ALIASES: ReadonlyArray<readonly [RegExp, string]> = [
+  [/阿司匹林/u, 'aspirin'],
+  [/华法林/u, 'warfarin'],
+  [/二甲双胍/u, 'metformin'],
+  [/氨氯地平/u, 'amlodipine'],
+  [/辛伐他汀/u, 'simvastatin'],
+  [/地高辛/u, 'digoxin'],
+  [/布洛芬/u, 'ibuprofen'],
+  [/对乙酰氨基酚/u, 'acetaminophen'],
+]
 const getJson = async (
   url: string,
   signal?: AbortSignal,
@@ -74,8 +84,15 @@ export class MedicalEvidenceService extends Service {
     query: string,
     signal?: AbortSignal,
   ): Promise<MedicalEvidence[]> {
+    const alias = OPENFDA_ALIASES.find(([pattern]) => pattern.test(query))?.[1]
+    const latin = query.match(/[a-z][a-z0-9-]{2,}/gi)?.[0]
+    const genericName = alias ?? latin
+    // openFDA's generic_name field is an English drug-name index. A Chinese
+    // symptom query is not an API failure; it simply has no applicable drug
+    // label lookup. Known Chinese medicine names are normalized above.
+    if (genericName === undefined) return []
     const data = (await getJson(
-      `https://api.fda.gov/drug/label.json?limit=5&search=openfda.generic_name:${encodeURIComponent(`\"${query.trim().slice(0, 120)}\"`)}`,
+      `https://api.fda.gov/drug/label.json?limit=5&search=openfda.generic_name:${encodeURIComponent(`\"${genericName.slice(0, 120)}\"`)}`,
       signal,
       true,
     )) as {
@@ -88,7 +105,7 @@ export class MedicalEvidenceService extends Service {
     }
     return (data.results ?? []).map((item, index) => ({
       evidenceId: `openfda_${(item.id ?? String(index)).replace(/[^a-zA-Z0-9]/g, '').slice(0, 32)}`,
-      title: `${item.openfda?.generic_name?.[0] ?? query} 药品标签`,
+      title: `${item.openfda?.generic_name?.[0] ?? genericName} 药品标签`,
       source: 'openFDA',
       locator: item.id ?? `result-${index + 1}`,
       url: 'https://open.fda.gov/apis/drug/label/',

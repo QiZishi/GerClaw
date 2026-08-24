@@ -10,4 +10,4 @@
 
 ## 改进与测试
 
-修改规则必须保留可审计规则编号、精确匹配和边界用例，并同步处方附录测试。运行 `pnpm exec vitest run packages/gerclaw/medication-review/tests/medication-review.spec.ts`。结果仅为复核提示，用户应由专业人员结合实际情况判断。
+修改规则必须保留可审计规则编号、精确匹配和边界用例，并同步处方附录测试。运行 `pnpm exec vitest run packages/gerclaw/medication-review/tests/review.spec.ts`。结果仅为复核提示，用户应由专业人员结合实际情况判断。

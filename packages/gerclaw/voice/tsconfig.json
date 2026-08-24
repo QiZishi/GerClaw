@@ -1,10 +1,23 @@
 {
   "extends": "../../../tsconfig.base.json",
-  "compilerOptions": { "rootDir": "src", "outDir": "lib/types" },
-  "include": ["src"],
+  "compilerOptions": {
+    "rootDir": "src",
+    "outDir": "lib/types",
+    "tsBuildInfoFile": "lib/tsconfig.host.tsbuildinfo"
+  },
+  "include": ["src/**/*.ts"],
+  "exclude": ["src/client"],
   "references": [
     { "path": "../../../vendor/cordis" },
+    { "path": "../../../vendor/schemastery" },
+    { "path": "../../core/agent" },
+    { "path": "../../core/session" },
+    { "path": "../../core/tools" },
     { "path": "../../host/webserver" },
-    { "path": "../../runtime-diagnostics/invariants" }
+    { "path": "../../interaction/user-approval" },
+    { "path": "../../runtime-diagnostics/invariants" },
+    { "path": "../../session/session-projection" },
+    { "path": "../../subprocess/subprocess" },
+    { "path": "../../typert/protocol" }
   ]
 }

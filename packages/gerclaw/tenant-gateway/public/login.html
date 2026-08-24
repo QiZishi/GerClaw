@@ -3,12 +3,12 @@
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width,initial-scale=1" />
-    <title>GerClaw 智能健康助手</title>
+    <title>GerClaw｜老年慢病智慧诊疗助手</title>
     <style>
       :root {
         font-family: Inter, "PingFang SC", "Microsoft YaHei", sans-serif;
-        color: #173b31;
-        background: #eef6f1;
+        color: #173f63;
+        background: #f3f7fa;
       }
       * {
         box-sizing: border-box;
@@ -19,22 +19,22 @@
         display: grid;
         place-items: center;
         background:
-          radial-gradient(circle at 20% 10%, #d9eee2, transparent 38%),
-          linear-gradient(135deg, #f7fbf8, #eaf4ee);
+          radial-gradient(circle at 20% 10%, #dceffc, transparent 38%),
+          linear-gradient(135deg, #f8fbfd, #eaf4fb);
       }
       main {
         width: min(940px, 94vw);
         display: grid;
         grid-template-columns: 1fr 440px;
-        border: 1px solid #d4e6db;
+        border: 1px solid #d3e4ef;
         border-radius: 28px;
         overflow: hidden;
-        box-shadow: 0 24px 70px #183e2c22;
+        box-shadow: 0 24px 70px #174a7022;
         background: #fff;
       }
       .intro {
         padding: 64px;
-        background: #174b3b;
+        background: linear-gradient(145deg, #316f9f, #214f74);
         color: #fff;
       }
       .brand {
@@ -50,7 +50,7 @@
       }
       .intro p {
         line-height: 1.8;
-        color: #dcebe5;
+        color: #e3f2fb;
       }
       .features {
         margin-top: 34px;
@@ -66,7 +66,7 @@
         width: 9px;
         height: 9px;
         border-radius: 50%;
-        background: #9fe3bd;
+        background: #a8dcf7;
       }
       .panel {
         padding: 42px;
@@ -81,12 +81,12 @@
         border: 0;
         border-radius: 12px;
         padding: 11px;
-        background: #edf5f0;
-        color: #315647;
+        background: #eaf3f9;
+        color: #315b79;
         cursor: pointer;
       }
       .tabs button.active {
-        background: #1f6a50;
+        background: #397fb5;
         color: #fff;
       }
       form {
@@ -95,13 +95,13 @@
       }
       label {
         font-size: 14px;
-        color: #47655a;
+        color: #47677e;
       }
       input,
       select {
         width: 100%;
         margin-top: 6px;
-        border: 1px solid #cbded3;
+        border: 1px solid #c4d9e7;
         border-radius: 12px;
         padding: 13px 14px;
         font: inherit;
@@ -109,8 +109,8 @@
       }
       input:focus,
       select:focus {
-        border-color: #287a5d;
-        box-shadow: 0 0 0 3px #287a5d18;
+        border-color: #397fb5;
+        box-shadow: 0 0 0 3px #397fb518;
       }
       .primary,
       .guest {
@@ -121,18 +121,18 @@
         cursor: pointer;
       }
       .primary {
-        background: #1f6a50;
+        background: #397fb5;
         color: #fff;
       }
       .guest {
         margin-top: 12px;
         width: 100%;
-        background: #eaf4ee;
-        color: #245a45;
+        background: #e6f2fa;
+        color: #245a7e;
       }
       .hint {
         font-size: 13px;
-        color: #668078;
+        color: #667d8e;
         line-height: 1.6;
       }
       .message {
@@ -171,17 +171,18 @@
   <body>
     <main>
       <section class="intro">
-        <img class="brand" src="/brand-icon.png" alt="GerClaw" />
+        <img class="brand" src="/brand-icon.png" alt="GerClaw 品牌图标" title="GerClaw 老年慢病智慧诊疗助手" />
         <h1>GerClaw</h1>
+        <h2 style="margin:0 0 18px;font-size:19px;font-weight:600;color:#ddecf7">老年慢病智慧诊疗助手</h2>
         <p>
-          把健康资料、量表、五大处方、用药核对与语音沟通放在一个清楚易用的工作台中。
+          面向老年慢病诊疗与健康管理，从资料理解、综合评估到个体化建议，全程在自然对话中完成。
         </p>
         <div class="features">
           <div class="feature">
-            <i class="dot"></i>医生与患者使用相同完整功能
+            <i class="dot"></i>对话收集资料，生成药物、运动、营养、心理和康复处方
           </div>
-          <div class="feature"><i class="dot"></i>每个账号的数据单独保存</div>
-          <div class="feature"><i class="dot"></i>结果可查看、导出与下载</div>
+          <div class="feature"><i class="dot"></i>完成五类老年综合评估，联动用药核对与风险提醒</div>
+          <div class="feature"><i class="dot"></i>支持语音与病历资料解析，结合本地医学知识库提供可追溯依据</div>
         </div>
       </section>
       <section class="panel">
@@ -255,6 +256,10 @@
         if (!response.ok) throw new Error(value.error || "操作失败");
         return value;
       }
+      function enterWorkspace(delay = 0) {
+        sessionStorage.setItem("gerclaw.newConversationOnBoot", "1");
+        setTimeout(() => location.reload(), delay);
+      }
       form.onsubmit = async (event) => {
         event.preventDefault();
         try {
@@ -267,8 +272,8 @@
               value.recoveryCode +
               "。它只显示这一次。";
             message.textContent = "注册成功，保存恢复码后即可进入。";
-            setTimeout(() => location.reload(), 6000);
-          } else location.reload();
+            enterWorkspace(6000);
+          } else enterWorkspace();
         } catch (error) {
           message.textContent = error.message;
         }
@@ -276,7 +281,7 @@
       document.querySelector("#guest").onclick = async () => {
         try {
           await call("/auth/guest", {});
-          location.reload();
+          enterWorkspace();
         } catch (error) {
           message.textContent = error.message;
         }

@@ -146,6 +146,7 @@ export const SERVICE_WALK_EXEMPTIONS: Record<string, string> = {
   gerclawRiskAlert: 'private GerClaw medical service — packages/gerclaw/profile-bundle/README.md',
   gerclawTenantGateway: 'private GerClaw tenancy service — packages/gerclaw/tenant-gateway/README.md',
   gerclawVoice: 'private GerClaw voice service — packages/gerclaw/profile-bundle/README.md',
+  talk: 'private GerClaw voice protocol service — packages/gerclaw/voice/README.md',
   agent: 'not a service: the DX accessor field on Agent.ctx (root accessor defaulting to undefined) — docs/subsystems/core.md owns the Agent handle',
   appExit: 'not a service: launcher-provided bounded process-exit callback — packages/boot/cmdline/README.md owns the launcher contract',
   cmdlineArgs: 'not a service: launcher-provided immutable app argument accessor — packages/boot/cmdline/README.md owns the launcher contract',

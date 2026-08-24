@@ -46,27 +46,45 @@ if (missing.length)
 if (rows.length === 0) process.exit(0)
 
 const batchSize = 32
+const retryableStatus = new Set([408, 409, 425, 429, 500, 502, 503, 504])
+const requestEmbeddings = async (batch) => {
+  let lastStatus
+  for (let attempt = 0; attempt < 6; attempt += 1) {
+    let response
+    try {
+      response = await fetch(
+        `${process.env.SILICONFLOW_URL.replace(/\/$/, '')}/embeddings`,
+        {
+          method: 'POST',
+          headers: {
+            Authorization: `Bearer ${process.env.SILICONFLOW_API_KEY}`,
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify({
+            model: process.env.EMBEDDING_MODEL,
+            input: batch.map(row => String(row.text)),
+            encoding_format: 'float',
+          }),
+          signal: AbortSignal.timeout(60_000),
+        },
+      )
+    } catch (error) {
+      if (attempt === 5) throw new Error('SiliconFlow embedding 网络请求失败', { cause: error })
+      await new Promise(resolve => setTimeout(resolve, 500 * 2 ** attempt))
+      continue
+    }
+    if (response.ok) return await response.json()
+    lastStatus = response.status
+    if (!retryableStatus.has(response.status) || attempt === 5) break
+    await response.body?.cancel().catch(() => {})
+    await new Promise(resolve => setTimeout(resolve, 500 * 2 ** attempt))
+  }
+  throw new Error(`SiliconFlow embedding 请求失败（${lastStatus ?? '网络错误'}）`)
+}
+
 for (let offset = 0; offset < rows.length; offset += batchSize) {
   const batch = rows.slice(offset, offset + batchSize)
-  const response = await fetch(
-    `${process.env.SILICONFLOW_URL.replace(/\/$/, '')}/embeddings`,
-    {
-      method: 'POST',
-      headers: {
-        Authorization: `Bearer ${process.env.SILICONFLOW_API_KEY}`,
-        'Content-Type': 'application/json',
-      },
-      body: JSON.stringify({
-        model: process.env.EMBEDDING_MODEL,
-        input: batch.map(row => String(row.text)),
-        encoding_format: 'float',
-      }),
-      signal: AbortSignal.timeout(60_000),
-    },
-  )
-  if (!response.ok)
-    throw new Error(`SiliconFlow embedding 请求失败（${response.status}）`)
-  const payload = await response.json()
+  const payload = await requestEmbeddings(batch)
   const byIndex = new Map(
     (payload.data ?? []).map(item => [item.index, item.embedding]),
   )

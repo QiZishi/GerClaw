@@ -64,7 +64,8 @@ To update the corpus, add or replace source files in `knowledge-base/` intention
 
 | Plugin | Location | Responsibility |
 | --- | --- | --- |
-| Product Web app | `packages/gerclaw/client` | Patient/clinician UI, task protocol, exports |
+| Business app | `packages/gerclaw/client` | Typed business API, task/session events, exports |
+| Product client | `packages/gerclaw/client-ui` | Native chat theme, medical entries, task cards, artifact sidebar |
 | CGA | `packages/gerclaw/cga` | Five deterministic assessments |
 | Chronic care | `packages/gerclaw/chronic-care` | Measurements and trends |
 | Companion | `packages/gerclaw/companion` | Supportive mode and urgent-signal detection |
@@ -114,4 +115,4 @@ GerClaw's prescription, assessment, medication-review, risk, and companion outpu
 
 ## License and third-party notices
 
-The DSH baseline retains its original license. Derived voice code records its `dsh-talk@0.1.2` and `dsh-speech-plugin` origins in `packages/gerclaw/voice/NOTICE` and `LICENSES/`. Community packages retain their upstream licenses and locked versions.
+The DSH baseline retains its original license. Derived voice code records its `dsh-talk@0.1.3` and `dsh-speech-plugin` origins in `packages/gerclaw/voice/NOTICE` and `LICENSES/`. Community packages retain their upstream licenses and locked versions.

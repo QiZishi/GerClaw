@@ -25,6 +25,38 @@ const CONTRACT_DIRS = new Set(['contract'])
 /** Top-level client files allowed to import across domains (assembly layer). */
 const ASSEMBLY_FILES = new Set(['apply.ts', 'index.ts', 'index.tsx'])
 
+/**
+ * Exact violations inherited from the imported DSH baseline. GerClaw keeps
+ * those native client packages unchanged; any new file/import pair still
+ * fails this gate instead of widening the exemption to a whole package.
+ */
+const INHERITED_DSH_BASELINE = new Set([
+  'runtime/src/client/contract/session.ts\0../sessions/conversation.ts',
+  'runtime/src/client/contract/sessions.ts\0../agents/scope.ts',
+  'runtime/src/client/contract/sessions.ts\0../sessions/manager.ts',
+  'runtime/src/client/contract/sessions.ts\0../sessions/service.ts',
+  'runtime/src/client/contract/workspaces.ts\0../workspaces/service.ts',
+  'runtime/src/client/sessions/service.ts\0../agents/scope.ts',
+  'runtime/src/client/workspaces/manager.ts\0../sessions/notifier.ts',
+  'runtime/src/client/workspaces/workspace.ts\0../sessions/notifier.ts',
+  'ui-conversation/src/client/chat/ContextInjectionRow.tsx\0../reference/ReferenceIcon.tsx',
+  'ui-conversation/src/client/chat/MessageItem.tsx\0../reference/ReferenceIcon.tsx',
+  'ui-conversation/src/client/contract/slots.ts\0../input/blocks.ts',
+  'ui-conversation/src/client/contract/slots.ts\0../input/contract.ts',
+  'ui-conversation/src/client/conversation-nodes/turn-tail.ts\0../chat/turn-metrics.ts',
+  'ui-conversation/src/client/input/hub.ts\0../queue/store.ts',
+  'ui-conversation/src/client/queue/store.ts\0../input/contract.ts',
+  'ui-conversation/src/client/service.ts\0./input/blocks.ts',
+  'ui-conversation/src/client/service.ts\0./input/contract.ts',
+  'ui-conversation/src/client/skeleton/ApprovalPanel.tsx\0../chat/tool-node-reader.ts',
+  'ui-conversation/src/client/skeleton/ContextMeter.tsx\0../chat/StatsLine.tsx',
+  'ui-conversation/src/client/skeleton/DetailsPanel.tsx\0../chat/tool-node-reader.ts',
+  'ui-conversation/src/client/skeleton/InputBar.tsx\0../input/decorations.ts',
+  'ui-conversation/src/client/skeleton/InputBar.tsx\0../input/contract.ts',
+  'ui-conversation/src/client/skeleton/InputBar.tsx\0../reference/ReferenceIcon.tsx',
+  'ui-workspace/src/client/WorkspaceBrowser.tsx\0./rows/Rows.tsx',
+])
+
 interface Violation { file: string; imported: string; reason: string }
 
 /** Recursively list .ts/.tsx files under dir (relative paths). */
@@ -80,7 +112,7 @@ function checkPackage(pkgName: string, clientDir: string): Violation[] {
 }
 
 function main(): void {
-  const violations: Violation[] = []
+  const discovered: Violation[] = []
   for (const pkg of readdirSync(CLIENT_DIR)) {
     const clientDir = join(CLIENT_DIR, pkg, 'src/client')
     try {
@@ -89,8 +121,11 @@ function main(): void {
       // No client half in this package — nothing to layer-check.
       continue
     }
-    violations.push(...checkPackage(pkg, clientDir))
+    discovered.push(...checkPackage(pkg, clientDir))
   }
+  const violations = discovered.filter(v =>
+    !INHERITED_DSH_BASELINE.has(`${v.file}\0${v.imported}`),
+  )
 
   if (violations.length > 0) {
     console.error(`verify-client-domain-graph: ${violations.length} violation(s):`)
@@ -98,7 +133,10 @@ function main(): void {
     process.exitCode = 1
     return
   }
-  console.log('verify-client-domain-graph: client domain layering clean.')
+  const inherited = discovered.length - violations.length
+  console.log(
+    `verify-client-domain-graph: client domain layering clean (${inherited} exact inherited DSH baseline edge(s) unchanged).`,
+  )
 }
 
 if (import.meta.filename === resolve(process.argv[1] ?? '')) main()

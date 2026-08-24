@@ -14,12 +14,14 @@ import {
 } from 'node:http'
 import {
   cp,
+  lstat,
   mkdir,
   readFile,
   readdir,
   rename,
   rm,
   symlink,
+  unlink,
   writeFile,
 } from 'node:fs/promises'
 import { join } from 'node:path'
@@ -32,7 +34,9 @@ const scrypt = promisify(scryptCallback)
 const COOKIE = 'gerclaw_session'
 const THIRTY_MINUTES = 30 * 60 * 1000
 const CHILD_PLUGIN_PACKAGES = [
+  '@anysearch/anysearch-dsh',
   '@gerclaw/app',
+  '@gerclaw/client-ui',
   '@gerclaw/cga',
   '@gerclaw/chronic-care',
   '@gerclaw/companion',
@@ -42,9 +46,11 @@ const CHILD_PLUGIN_PACKAGES = [
   '@gerclaw/medication-review',
   '@gerclaw/prescription',
   '@gerclaw/risk-alert',
+  '@gerclaw/skills',
   '@gerclaw/system-prompt',
   '@gerclaw/voice',
   '@deepseek-ai/dsh-storage-sqlite',
+  'dsh-better-sidebar',
   'dsh-library',
   'dsh-mineru',
 ] as const
@@ -90,6 +96,14 @@ const equalHash = (left: string, right: string) => {
   return a.length === b.length && timingSafeEqual(a, b)
 }
 const recoveryCode = () => randomBytes(9).toString('base64url')
+const rotateCredentials = async (account: Account, password: string) => {
+  const code = recoveryCode()
+  account.salt = randomBytes(16).toString('hex')
+  account.passwordHash = await hashSecret(password, account.salt)
+  account.recoverySalt = randomBytes(16).toString('hex')
+  account.recoveryHash = await hashSecret(code, account.recoverySalt)
+  return code
+}
 const json = (res: ServerResponse, status: number, value: unknown) => {
   const body = JSON.stringify(value)
   res.writeHead(status, {
@@ -128,13 +142,18 @@ const asText = (value: unknown): string =>
 const safeMessage = (error: unknown) =>
   error instanceof Error ? error.message : '操作失败'
 
-const syncKnowledgeBase = async (source: string, target: string): Promise<void> => {
+const syncControlledDirectory = async (
+  source: string,
+  target: string,
+  label: string,
+  replaceManagedFiles = false,
+): Promise<void> => {
   await mkdir(target, { recursive: true })
   for (const entry of await readdir(source, { withFileTypes: true })) {
     const from = join(source, entry.name)
     const to = join(target, entry.name)
     if (entry.isDirectory()) {
-      await syncKnowledgeBase(from, to)
+      await syncControlledDirectory(from, to, label, replaceManagedFiles)
       continue
     }
     if (!entry.isFile()) continue
@@ -143,8 +162,11 @@ const syncKnowledgeBase = async (source: string, target: string): Promise<void> 
         readFile(from),
         readFile(to),
       ])
-      if (!expected.equals(existing))
-        throw new Error(`知识库文件冲突：${entry.name}`)
+      if (!expected.equals(existing)) {
+        if (!replaceManagedFiles)
+          throw new Error(`${label}文件冲突：${entry.name}`)
+        await cp(from, to, { force: true })
+      }
     } catch (error) {
       if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error
       await cp(from, to, { force: false, errorOnExist: true })
@@ -162,6 +184,7 @@ export class GerclawTenantGateway extends Service {
   private registry: Registry = { version: 1, accounts: [] }
   private readonly sessions = new Map<string, LoginSession>()
   private readonly hosts = new Map<string, Host>()
+  private readonly hostStarts = new Map<string, Promise<Host>>()
   private timer?: NodeJS.Timeout
   constructor(
     ctx: Context,
@@ -204,10 +227,16 @@ export class GerclawTenantGateway extends Service {
     const fallback = this.ctx.webServer.registerFallback((req, res) =>
       this.route(req, res),
     )
-    const upgrade = this.ctx.webServer.registerUpgrade({
-      path: '/gerclaw/api/voice/asr-stream',
+    const upgrades = [
+      '/api/events.mux',
+      '/api/events.host',
+      '/gerclaw/api/voice/asr-stream',
+      '/sidebar/ws/terminal',
+      '/sidebar/ws/agent-terminals',
+    ].map(path => this.ctx.webServer.registerUpgrade({
+      path,
       handler: (req, socket, head) => this.upgrade(req, socket, head),
-    })
+    }))
     this.timer = setInterval(() => {
       void this.reap()
     }, 60_000)
@@ -218,7 +247,7 @@ export class GerclawTenantGateway extends Service {
         icon()
         favicon()
         fallback()
-        upgrade()
+        for (const dispose of upgrades) dispose()
         if (this.timer) clearInterval(this.timer)
         await Promise.all(
           [...this.hosts.keys()].map(id => this.stopHost(id, false)),
@@ -359,12 +388,36 @@ export class GerclawTenantGateway extends Service {
         const password = asText(input.password)
         if (password.length < 8 || password.length > 128)
           throw new Error('密码需为 8 至 128 个字符')
-        const code = recoveryCode()
-        account.salt = randomBytes(16).toString('hex')
-        account.passwordHash = await hashSecret(password, account.salt)
-        account.recoverySalt = randomBytes(16).toString('hex')
-        account.recoveryHash = await hashSecret(code, account.recoverySalt)
+        const code = await rotateCredentials(account, password)
         await this.save()
+        json(res, 200, { ok: true, recoveryCode: code })
+        return
+      }
+      if (req.method === 'POST' && path === '/auth/credentials') {
+        const current = this.current(req)
+        if (!current || current[1].guest)
+          throw new Error('请先登录持久账号')
+        const account = this.registry.accounts.find(
+          value => value.id === current[1].accountId,
+        )
+        const input = await body(req)
+        if (
+          !account ||
+          !equalHash(
+            await hashSecret(asText(input.currentPassword), account.salt),
+            account.passwordHash,
+          )
+        )
+          throw new Error('当前密码不正确')
+        const password = asText(input.password)
+        if (password.length < 8 || password.length > 128)
+          throw new Error('新密码需为 8 至 128 个字符')
+        const code = await rotateCredentials(account, password)
+        await this.save()
+        for (const [token, session] of this.sessions) {
+          if (session.accountId === account.id && token !== current[0])
+            this.sessions.delete(token)
+        }
         json(res, 200, { ok: true, recoveryCode: code })
         return
       }
@@ -409,7 +462,9 @@ export class GerclawTenantGateway extends Service {
   private proxy(req: IncomingMessage, res: ServerResponse, port: number) {
     const headers = { ...req.headers }
     delete headers.cookie
-    delete headers.host
+    headers.host = `127.0.0.1:${port}`
+    if (headers.origin !== undefined)
+      headers.origin = `http://127.0.0.1:${port}`
     const upstream = httpRequest(
       { host: '127.0.0.1', port, path: req.url, method: req.method, headers },
       (reply) => {
@@ -433,7 +488,11 @@ export class GerclawTenantGateway extends Service {
     const host = await this.ensureHost(current[1])
     const net = await import('node:net')
     const upstream = net.connect(host.port, '127.0.0.1', () => {
-      const headers = Object.entries(req.headers)
+      const headers = Object.entries({
+        ...req.headers,
+        host: `127.0.0.1:${host.port}`,
+        origin: `http://127.0.0.1:${host.port}`,
+      })
         .filter(([key]) => key.toLowerCase() !== 'cookie')
         .map(
           ([key, value]) =>
@@ -457,20 +516,27 @@ export class GerclawTenantGateway extends Service {
   }
   private async prepareProfileModules(dshHome: string) {
     const modules = join(dshHome, 'profiles', 'node_modules')
+    const profileDependencies = join(
+      this.config.rootDir,
+      'packages/gerclaw/profile-bundle/node_modules',
+    )
     await mkdir(modules, { recursive: true })
     for (const packageName of CHILD_PLUGIN_PACKAGES) {
       const target = join(
-        this.config.rootDir,
-        'node_modules',
+        profileDependencies,
         ...packageName.split('/'),
       )
       const link = join(modules, ...packageName.split('/'))
       await mkdir(join(link, '..'), { recursive: true })
       try {
-        await symlink(target, link, 'dir')
+        const stat = await lstat(link)
+        if (!stat.isSymbolicLink())
+          throw new Error(`插件目录冲突：${packageName}`)
+        await unlink(link)
       } catch (error) {
-        if ((error as NodeJS.ErrnoException).code !== 'EEXIST') throw error
+        if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error
       }
+      await symlink(target, link, 'dir')
     }
   }
   private async freePort() {
@@ -488,20 +554,46 @@ export class GerclawTenantGateway extends Service {
     })
   }
   private async ensureHost(session: LoginSession): Promise<Host> {
+    const starting = this.hostStarts.get(session.accountId)
+    if (starting) {
+      const host = await starting
+      host.lastSeen = Date.now()
+      return host
+    }
     const existing = this.hosts.get(session.accountId)
     if (existing && existing.process.exitCode === null) {
       existing.lastSeen = Date.now()
       return existing
     }
+    const start = this.startHost(session)
+    this.hostStarts.set(session.accountId, start)
+    try {
+      return await start
+    } catch (error) {
+      await this.stopHost(session.accountId, session.guest)
+      throw error
+    } finally {
+      if (this.hostStarts.get(session.accountId) === start)
+        this.hostStarts.delete(session.accountId)
+    }
+  }
+  private async startHost(session: LoginSession): Promise<Host> {
     const dir = this.accountDir(session)
     await mkdir(dir, { recursive: true })
     const accountDataDir = join(dir, 'data')
     await mkdir(accountDataDir, { recursive: true })
-    await syncKnowledgeBase(
-      join(this.config.rootDir, 'knowledge-base'),
-      join(accountDataDir, 'knowledge-base'),
-    )
+    const workspaceDir = join(accountDataDir, 'workspace')
+    await mkdir(workspaceDir, { recursive: true })
     const childDshHome = join(dir, 'dsh')
+    await syncControlledDirectory(
+      join(
+        this.config.rootDir,
+        'packages/gerclaw/profile-bundle/presets/gerclaw',
+      ),
+      join(childDshHome, '.agent-presets/gerclaw'),
+      'GerClaw 运行预设',
+      true,
+    )
     await this.prepareProfileModules(childDshHome)
     const port = await this.freePort()
     const account = this.registry.accounts.find(
@@ -567,12 +659,71 @@ export class GerclawTenantGateway extends Service {
         }
         throw new Error('账号服务未能启动')
       }
+      let ready = false
       try {
-        const response = await fetch(
-          `http://127.0.0.1:${port}/gerclaw/api/bootstrap`,
-        )
-        if (response.ok) return host
+        ready = (
+          await fetch(`http://127.0.0.1:${port}/gerclaw/api/bootstrap`)
+        ).ok
       } catch {}
+      if (ready) {
+        const workspace = await fetch(
+          `http://127.0.0.1:${port}/api/workspace.create`,
+          {
+            method: 'POST',
+            headers: { 'content-type': 'application/json' },
+            body: JSON.stringify({
+              type: 'client-request',
+              rpcId: randomUUID(),
+              method: 'workspace.create',
+              payload: { path: workspaceDir },
+            }),
+          },
+        )
+        if (!workspace.ok)
+          throw new Error('账号默认工作区创建失败')
+        const result = await workspace.json() as {
+          result?: { ok?: boolean; error?: { message?: string } }
+        }
+        if (result.result?.ok !== true)
+          throw new Error(
+            result.result?.error?.message ?? '账号默认工作区创建失败',
+          )
+        const sidebar = await fetch(
+          `http://127.0.0.1:${port}/sidebar/api/settings.update`,
+          {
+            method: 'POST',
+            headers: { 'content-type': 'application/json' },
+            body: JSON.stringify({
+              patch: {
+                openByDefault: true,
+                defaultWidthPercent: 25,
+                autoOpenSubagent: false,
+                autoOpenJobs: false,
+                agentTerminalTools: false,
+                bottomPanelAutoTerminal: false,
+                interceptOpenPath: false,
+                browserInterceptLinks: false,
+                tabsEnabled: {
+                  editor: false,
+                  git: false,
+                  subagent: false,
+                  sidechat: false,
+                  terminal: false,
+                  browser: false,
+                  diff: false,
+                  'gerclaw-artifacts': true,
+                },
+              },
+            }),
+          },
+        )
+        if (!sidebar.ok)
+          throw new Error('账号产物栏初始化失败')
+        const sidebarResult = await sidebar.json() as { ok?: boolean }
+        if (sidebarResult.ok !== true)
+          throw new Error('账号产物栏初始化失败')
+        return host
+      }
       await new Promise(resolve => setTimeout(resolve, 250))
     }
     await this.stopHost(session.accountId, session.guest)

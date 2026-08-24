@@ -7,7 +7,9 @@
     { "path": "../../llm/llm" },
     { "path": "../../core/tools" },
     { "path": "../../interaction/commands" },
+    { "path": "../../storage/storage" },
     { "path": "../../storage/storage-domain" },
+    { "path": "../../storage/storage-sqlite" },
     { "path": "../../subprocess/subprocess" },
     { "path": "../../runtime-diagnostics/invariants" }
   ]

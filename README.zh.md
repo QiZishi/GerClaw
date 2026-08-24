@@ -66,7 +66,8 @@ PDF 和 DOCX 通过 GerClaw 的“文档资料”页面上传，由 `dsh-mineru@
 
 | 插件 | 路径 | 职责 |
 | --- | --- | --- |
-| 产品前端 | `packages/gerclaw/client` | 用户界面、任务状态、导出下载 |
+| 业务 App | `packages/gerclaw/client` | 类型化业务 API、任务状态、session events 与导出 |
+| 产品前端 | `packages/gerclaw/client-ui` | 原生对话工作台主题、医疗入口、任务卡与产物侧栏 |
 | CGA | `packages/gerclaw/cga` | 五种固定规则量表 |
 | 慢病管理 | `packages/gerclaw/chronic-care` | 测量与趋势 |
 | 陪伴模式 | `packages/gerclaw/companion` | 支持性对话与危险信号 |
@@ -116,4 +117,4 @@ GerClaw 的处方、量表、用药核对、风险和陪伴结果都保持辅助
 
 ## 许可证与来源
 
-DSH 底座保留原许可证。语音派生实现的 `dsh-talk@0.1.2` 和 `dsh-speech-plugin` 来源、许可证与修改记录位于 `packages/gerclaw/voice/NOTICE` 和 `LICENSES/`。社区依赖使用锁定版本并保留上游许可证。
+DSH 底座保留原许可证。语音派生实现的 `dsh-talk@0.1.3` 和 `dsh-speech-plugin` 来源、许可证与修改记录位于 `packages/gerclaw/voice/NOTICE` 和 `LICENSES/`。社区依赖使用锁定版本并保留上游许可证。

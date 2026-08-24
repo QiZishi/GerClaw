@@ -4,6 +4,8 @@
   "include": ["src"],
   "references": [
     { "path": "../../../vendor/cordis" },
+    { "path": "../../interaction/commands" },
+    { "path": "../../llm/llm" },
     { "path": "../../runtime-diagnostics/invariants" }
   ]
 }

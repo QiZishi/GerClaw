@@ -16,7 +16,14 @@ export interface CgaResult {
   components?: Record<string, number>
   safetyAlert?: string
   followUp: 'routine' | 'priority' | 'immediate'
+  comparison?: CgaComparison
   disclaimer: string
+}
+export interface CgaComparison {
+  previousScore: number
+  delta: number
+  direction: 'improved' | 'worsened' | 'unchanged'
+  previousCompletedAt?: string
 }
 
 const DISCLAIMER =
@@ -229,6 +236,32 @@ export function scoreCga(input: CgaAssessment): CgaResult {
   }
 }
 
+/** Attach a deterministic same-scale comparison without changing scoring. */
+export function compareCgaHistory(
+  current: CgaResult,
+  previous?: { result: CgaResult; completedAt?: string },
+): CgaResult {
+  if (previous === undefined || previous.result.kind !== current.kind) return current
+  const delta = current.score - previous.result.score
+  const higherIsBetter = current.kind === 'minicog' || current.kind === 'mmse'
+  const direction = delta === 0
+    ? 'unchanged'
+    : (higherIsBetter ? delta > 0 : delta < 0)
+      ? 'improved'
+      : 'worsened'
+  return {
+    ...current,
+    comparison: {
+      previousScore: previous.result.score,
+      delta,
+      direction,
+      ...(previous.completedAt === undefined
+        ? {}
+        : { previousCompletedAt: previous.completedAt }),
+    },
+  }
+}
+
 declare module '@deepseek-ai/cordis' {
   interface Context {
     gerclawCga: CgaService
@@ -240,6 +273,12 @@ export class CgaService extends Service {
   }
   score(input: CgaAssessment): CgaResult {
     return scoreCga(input)
+  }
+  compare(
+    current: CgaResult,
+    previous?: { result: CgaResult; completedAt?: string },
+  ): CgaResult {
+    return compareCgaHistory(current, previous)
   }
 }
 export default CgaService
