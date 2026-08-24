@@ -55,6 +55,20 @@ const all = (
   Array.from({ length: count }, (_, index) =>
     numeric(a, `${prefix}${index + 1}`, min, max),
   )
+
+const assertKeys = (
+  answers: CgaAssessment['answers'],
+  required: readonly string[],
+  optional: readonly string[] = [],
+) => {
+  const allowed = new Set([...required, ...optional])
+  const missing = required.filter(key => !(key in answers))
+  const unexpected = Object.keys(answers).filter(key => !allowed.has(key))
+  if (missing.length > 0 || unexpected.length > 0)
+    throw new Error(
+      `答案字段不完整或包含未知字段${missing.length ? `；缺少 ${missing.join('、')}` : ''}${unexpected.length ? `；未知 ${unexpected.join('、')}` : ''}`,
+    )
+}
 const band = (value: number, limits: readonly [number, number, number]) =>
   value <= limits[0] ? 0 : value <= limits[1] ? 1 : value <= limits[2] ? 2 : 3
 const timeMinutes = (value: unknown, key: string): number => {
@@ -65,12 +79,15 @@ const timeMinutes = (value: unknown, key: string): number => {
 }
 
 export function scoreCga(input: CgaAssessment): CgaResult {
+  if (!['phq9', 'sas', 'psqi', 'minicog', 'mmse'].includes(input.kind))
+    throw new Error('不支持的量表类型')
   const base = {
     kind: input.kind,
     version: CGA_VERSION,
     disclaimer: DISCLAIMER,
   } as const
   if (input.kind === 'phq9') {
+    assertKeys(input.answers, Array.from({ length: 9 }, (_, index) => `q${index + 1}`))
     const values = all(input.answers, 'q', 9, 0, 3)
     const score = values.reduce((sum, value) => sum + value, 0)
     const severity =
@@ -100,6 +117,7 @@ export function scoreCga(input: CgaAssessment): CgaResult {
     }
   }
   if (input.kind === 'sas') {
+    assertKeys(input.answers, Array.from({ length: 20 }, (_, index) => `q${index + 1}`))
     const values = all(input.answers, 'q', 20, 1, 4)
     const reverse = new Set([5, 9, 13, 17, 19])
     const raw = values.reduce(
@@ -123,6 +141,7 @@ export function scoreCga(input: CgaAssessment): CgaResult {
     }
   }
   if (input.kind === 'minicog') {
+    assertKeys(input.answers, ['clock', 'recall'])
     const clock = numeric(input.answers, 'clock', 0, 2)
     const recall = numeric(input.answers, 'recall', 0, 3)
     const score = clock + recall
@@ -134,6 +153,10 @@ export function scoreCga(input: CgaAssessment): CgaResult {
     }
   }
   if (input.kind === 'mmse') {
+    assertKeys(
+      input.answers,
+      ['education', ...Array.from({ length: 30 }, (_, index) => `q${index + 1}`)],
+    )
     const values = all(input.answers, 'q', 30, 0, 1)
     const education = input.answers.education
     if (
@@ -161,11 +184,20 @@ export function scoreCga(input: CgaAssessment): CgaResult {
     }
   }
   const q = input.answers
+  assertKeys(
+    q,
+    [
+      'bedtime', 'waketime', 'sleepMinutes', 'latencyMinutes',
+      ...Array.from({ length: 10 }, (_, index) => `q5${String.fromCharCode(97 + index)}`),
+      'q6', 'q7', 'q8', 'q9',
+    ],
+    ['q10'],
+  )
   const bed = timeMinutes(q.bedtime, '上床时间')
   const wake = timeMinutes(q.waketime, '起床时间')
   const timeInBed = (wake - bed + 1440) % 1440
   if (timeInBed === 0) throw new Error('上床与起床时间不能相同')
-  const sleepMinutes = numeric(q, 'sleepMinutes', 0, 1440)
+  const sleepMinutes = numeric(q, 'sleepMinutes', 1, 1440)
   if (sleepMinutes > timeInBed) throw new Error('实际睡眠时间不能超过卧床时间')
   const latencyMinutes = numeric(q, 'latencyMinutes', 0, 1440)
   const sleepQuality = numeric(q, 'q6', 0, 3)

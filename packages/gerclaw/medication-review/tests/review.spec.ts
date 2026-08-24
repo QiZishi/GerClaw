@@ -41,6 +41,16 @@ describe('medication rules v4', () => {
     },
   )
 
+  it('preserves source traceability and returns all four exact dose thresholds', () => {
+    for (const rule of rules.dose_rules) {
+      const report = reviewMedication({ medicationList: `${alias(rule.drug)} ${rule.max_daily_mg + 1}mg 每日一次` })
+      const finding = report.findings.find(item => item.findingId.startsWith(rule.id))
+      expect(finding, rule.id).toBeDefined()
+      expect(finding?.sourceIds.length, rule.id).toBeGreaterThan(0)
+      expect(finding?.conclusion, rule.id).toContain('剂量')
+    }
+  })
+
   it('escalates moderate findings at age 75 but not age 74', () => {
     const medicationList = '左旋氨氯地平 6mg 每日一次'
     const age74 = reviewMedication({ medicationList, patientAge: 74 })
@@ -70,6 +80,16 @@ describe('medication rules v4', () => {
     expect(ten.findings.find(item => item.kind === 'polypharmacy')).toMatchObject({
       findingId: 'polypharmacy_10_or_more', severity: 'major',
     })
+  })
+
+  it('detects multi-generic entries and preserves highest severity ordering', () => {
+    const report = reviewMedication({
+      medicationList: '瑞舒伐他汀；环孢素；地西泮；阿托伐他汀；氯吡格雷',
+      patientAge: 75,
+    })
+    expect(report.findings.length).toBeGreaterThan(1)
+    expect(report.findings[0]?.severity).toBe('contraindicated')
+    expect(report.sources.every(source => source.content_sha256.length === 64)).toBe(true)
   })
 
   it('reports unrecognized entries without claiming complete safety', () => {

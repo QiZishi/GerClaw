@@ -72,6 +72,9 @@ describe('GerClaw CGA deterministic scoring', () => {
     expect(() => scoreCga({ kind: 'sas', answers: { ...answers(20, 1), q3: 5 } })).toThrow('q3')
     expect(() => scoreCga({ kind: 'psqi', answers: psqi({ sleepMinutes: 600 }) })).toThrow('不能超过卧床时间')
     expect(() => scoreCga({ kind: 'psqi', answers: psqi({ bedtime: '24:00' }) })).toThrow('HH:mm')
+    expect(() => scoreCga({ kind: 'psqi', answers: psqi({ sleepMinutes: 0 }) })).toThrow('1 到 1440')
+    expect(() => scoreCga({ kind: 'phq9', answers: { ...answers(9, 0), extra: 0 } })).toThrow('未知')
+    expect(() => scoreCga({ kind: 'mmse', answers: { education: 'secondary', ...binaryAnswers(30), q31: 0 } })).toThrow('未知')
   })
 
   it('applies Mini-Cog and education-specific MMSE boundaries', () => {
@@ -97,5 +100,34 @@ describe('GerClaw CGA deterministic scoring', () => {
       result: scoreCga({ kind: 'minicog', answers: { clock: 1, recall: 1 } }),
     }).comparison?.direction).toBe('improved')
     expect(compareCgaHistory(current, { result: minicog }).comparison).toBeUndefined()
+  })
+
+  it('covers all MMSE severity boundaries and all education-specific screening limits', () => {
+    for (const [education, threshold] of [['none', 17], ['primary', 20], ['secondary', 24]] as const) {
+      expect(scoreCga({ kind: 'mmse', answers: { education, ...binaryAnswers(threshold) } }).followUp).toBe('priority')
+      expect(scoreCga({ kind: 'mmse', answers: { education, ...binaryAnswers(threshold + 1) } }).followUp).toBe('routine')
+    }
+    expect(scoreCga({ kind: 'mmse', answers: { education: 'secondary', ...binaryAnswers(9) } }).severity).toBe('重度')
+    expect(scoreCga({ kind: 'mmse', answers: { education: 'secondary', ...binaryAnswers(10) } }).severity).toBe('中度')
+    expect(scoreCga({ kind: 'mmse', answers: { education: 'secondary', ...binaryAnswers(20) } }).severity).toBe('中度')
+    expect(scoreCga({ kind: 'mmse', answers: { education: 'secondary', ...binaryAnswers(21) } }).severity).toBe('轻度')
+    expect(scoreCga({ kind: 'mmse', answers: { education: 'secondary', ...binaryAnswers(26) } }).severity).toBe('轻度')
+    expect(scoreCga({ kind: 'mmse', answers: { education: 'secondary', ...binaryAnswers(27) } }).severity).toBe('正常')
+  })
+
+  it('covers SAS reverse items and PSQI timing across midnight', () => {
+    const reverseOnly = answers(20, 1)
+    for (const index of [5, 9, 13, 17, 19]) reverseOnly[`q${index}`] = 4
+    expect(scoreCga({ kind: 'sas', answers: reverseOnly }).score).toBe(25)
+    expect(scoreCga({ kind: 'psqi', answers: psqi({ bedtime: '23:30', waketime: '07:00', sleepMinutes: 420 }) })).toMatchObject({ score: 1 })
+  })
+
+  it('rejects missing or malformed Mini-Cog and MMSE answers', () => {
+    expect(() => scoreCga({ kind: 'minicog', answers: { clock: 2 } })).toThrow('缺少')
+    expect(() => scoreCga({ kind: 'minicog', answers: { clock: true as unknown as number, recall: 1 } })).toThrow('数字')
+    const missingMmse = binaryAnswers(30)
+    delete missingMmse.q30
+    expect(() => scoreCga({ kind: 'mmse', answers: { education: 'secondary', ...missingMmse } })).toThrow('缺少')
+    expect(() => scoreCga({ kind: 'mmse', answers: { education: 'unknown', ...binaryAnswers(30) } })).toThrow('受教育程度')
   })
 })

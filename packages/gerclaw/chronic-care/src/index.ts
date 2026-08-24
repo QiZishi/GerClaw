@@ -12,6 +12,7 @@ export interface ChronicMeasurement {
 }
 
 export interface ChronicTrend {
+  conditionId: string
   metricLabel: string
   unit: string
   direction: 'up' | 'down' | 'unchanged' | 'first'
@@ -26,7 +27,7 @@ export function calculateTrends(items: ChronicMeasurement[]): ChronicTrend[] {
   for (const item of items) {
     if (!Number.isFinite(item.value) || item.value < 0 || item.value > 10_000_000)
       throw new Error('测量值必须是有效的非负数')
-    const key = `${item.metricLabel}\0${item.unit}`
+    const key = `${item.conditionId}\0${item.metricLabel}\0${item.unit}`
     groups.set(key, [...(groups.get(key) ?? []), item])
   }
   return [...groups.values()].map((group) => {
@@ -35,6 +36,7 @@ export function calculateTrends(items: ChronicMeasurement[]): ChronicTrend[] {
     if (!latest) throw new Error('缺少测量记录')
     const previous = group.at(-2)
     return {
+      conditionId: latest.conditionId,
       metricLabel: latest.metricLabel,
       unit: latest.unit,
       direction:

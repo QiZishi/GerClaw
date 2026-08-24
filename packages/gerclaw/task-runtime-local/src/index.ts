@@ -425,7 +425,11 @@ export class LocalGerclawTaskRuntime extends GerclawTaskRuntime {
     await this.ctx.healthRepository.put(`chronic:${item.measurementId}`, 'chronic', item)
     const direction = this.ctx.gerclawChronicCare
       .trends(this.ctx.healthRepository.list<ChronicMeasurement>('chronic'))
-      .find(trend => trend.metricLabel === item.metricLabel && trend.unit === item.unit)?.direction ?? 'first'
+      .find(trend =>
+        trend.conditionId === item.conditionId
+        && trend.metricLabel === item.metricLabel
+        && trend.unit === item.unit,
+      )?.direction ?? 'first'
     return { ...item, direction }
   }
 
