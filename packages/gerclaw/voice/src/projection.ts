@@ -2,8 +2,8 @@
  * The `talk:speech` session-projection unit: a last-wins fold of
  * `dsh-talk/speech` events into one whole value per session. The web client's
  * session-scoped record button reads the value through `useProjection` and
- * plays each fresh utterance (audio fetched through `talk/audio`, or spoken
- * by the browser voice for the browser engine). Pure mathematics only — the
+ * plays each fresh Qianwen utterance (audio fetched through `talk/audio`).
+ * Pure mathematics only — the
  * projection registry owns the drive and notification. Imports the pure
  * `/types` outlet of dsh-session (never its root), so the client program can
  * pull the `SessionProjectionMap` merge in without host `Context` merges.

@@ -38,8 +38,13 @@ const stopActive = async (): Promise<void> => {
   playback.onStopped()
 }
 
+/** Stop the current Qianwen playback from another composer control. */
+export function interruptPlayback(): void {
+  void stopActive()
+}
+
 export function installPlaybackInterruption(): () => void {
-  const interrupt = (): void => { void stopActive() }
+  const interrupt = interruptPlayback
   const interruptOnComposerInput = (event: Event): void => {
     if (event.target instanceof HTMLTextAreaElement
       || event.target instanceof HTMLInputElement
@@ -50,7 +55,7 @@ export function installPlaybackInterruption(): () => void {
   return () => {
     window.removeEventListener('gerclaw:voice-interrupt', interrupt)
     document.removeEventListener('input', interruptOnComposerInput, true)
-    void stopActive()
+    interruptPlayback()
   }
 }
 

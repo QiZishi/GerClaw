@@ -2,6 +2,7 @@
 import { useEffect, useRef, useState, type ChangeEvent, type ReactNode } from 'react'
 import type { InjectFace, PropsRuntime } from '@deepseek-ai/dsh-client-ui-slots'
 import type { TalkInterruptResult } from '../wire.ts'
+import { interruptPlayback } from './TalkMessageButton.tsx'
 
 export interface TalkMicInjected {
   interrupt: () => Promise<TalkInterruptResult>
@@ -97,8 +98,8 @@ const socketUrl = (sessionId: string): string => {
 
 /**
  * Composer microphone derived from dsh-talk@0.1.3. It deliberately has no
- * Web Speech fallback: captured/decoded PCM always reaches the account-local
- * Qianwen provider through the authenticated gateway.
+ * Captured/decoded PCM always reaches the account-local Qianwen provider
+ * through the authenticated gateway.
  */
 export function TalkMicButton({ interrupt, inputActions, sessionId }: TalkMicProps): ReactNode {
   const [phase, setPhase] = useState<'idle' | 'connecting' | 'recording' | 'uploading' | 'finishing' | 'error'>('idle')
@@ -161,17 +162,32 @@ export function TalkMicButton({ interrupt, inputActions, sessionId }: TalkMicPro
     const socket = new WebSocket(socketUrl(String(sessionId)))
     socket.binaryType = 'arraybuffer'
     let settled = false
+    const cleanupHandshake = () => {
+      window.clearTimeout(timeout)
+      socket.removeEventListener('error', onError)
+      socket.removeEventListener('close', onClose)
+    }
+    const onError = () => {
+      if (settled) return
+      settled = true
+      cleanupHandshake()
+      reject(new Error('无法连接语音识别服务'))
+    }
+    const onClose = () => {
+      if (settled) return
+      settled = true
+      cleanupHandshake()
+      reject(new Error('语音识别连接提前关闭'))
+    }
     const timeout = window.setTimeout(() => {
-      socket.close()
+      if (settled) return
+      settled = true
+      cleanupHandshake()
+      socket.close(1000)
       reject(new Error('语音识别服务连接超时'))
     }, 15_000)
-    socket.addEventListener('error', () => {
-      if (!settled) {
-        window.clearTimeout(timeout)
-        settled = true
-        reject(new Error('无法连接语音识别服务'))
-      }
-    })
+    socket.addEventListener('error', onError)
+    socket.addEventListener('close', onClose)
     socket.addEventListener('message', (event) => {
       let payload: BrowserVoiceEvent
       try {
@@ -182,7 +198,7 @@ export function TalkMicButton({ interrupt, inputActions, sessionId }: TalkMicPro
         return
       }
       if (payload.type === 'ready' && !settled) {
-        window.clearTimeout(timeout)
+        cleanupHandshake()
         settled = true
         resolve(socket)
       } else if (payload.type === 'partial' && payload.text) {
@@ -203,7 +219,7 @@ export function TalkMicButton({ interrupt, inputActions, sessionId }: TalkMicPro
       } else if (payload.type === 'error') {
         const reason = payload.message ?? '语音识别失败'
         if (!settled) {
-          window.clearTimeout(timeout)
+          cleanupHandshake()
           settled = true
           reject(new Error(reason))
         }
@@ -217,7 +233,7 @@ export function TalkMicButton({ interrupt, inputActions, sessionId }: TalkMicPro
     const token = ++operationToken.current
     setPhase('connecting')
     setMessage('正在连接语音识别…')
-    window.dispatchEvent(new CustomEvent('gerclaw:voice-interrupt'))
+    interruptPlayback()
     await interrupt().catch(() => ({ stopped: false }))
     let pendingSocket: WebSocket | null = null
     let pendingStream: MediaStream | null = null
@@ -308,7 +324,7 @@ export function TalkMicButton({ interrupt, inputActions, sessionId }: TalkMicPro
     const token = ++operationToken.current
     setPhase('uploading')
     setMessage('正在处理音频…')
-    window.dispatchEvent(new CustomEvent('gerclaw:voice-interrupt'))
+    interruptPlayback()
     await interrupt().catch(() => ({ stopped: false }))
     let context: AudioContext | null = null
     let socket: WebSocket | null = null

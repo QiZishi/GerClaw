@@ -48,25 +48,29 @@ const realtimeUrl = (base: string, model: string) => {
 const waitForOpen = (socket: WebSocket, signal?: AbortSignal) =>
   new Promise<void>((resolve, reject) => {
     const timer = setTimeout(() => {
+      cleanup()
       reject(new Error('语音服务连接超时'))
     }, 15_000)
     const cleanup = () => {
       clearTimeout(timer)
+      socket.off('open', onOpen)
+      socket.off('error', onError)
       signal?.removeEventListener('abort', abort)
     }
     const abort = () => {
       cleanup()
-      socket.terminate()
       reject(new DOMException('语音请求已取消', 'AbortError'))
     }
-    socket.once('open', () => {
+    const onOpen = () => {
       cleanup()
       resolve()
-    })
-    socket.once('error', (error) => {
+    }
+    const onError = (error: Error) => {
       cleanup()
       reject(error)
-    })
+    }
+    socket.once('open', onOpen)
+    socket.once('error', onError)
     signal?.addEventListener('abort', abort, { once: true })
   })
 const rawText = (data: WebSocket.RawData): string => {
@@ -89,6 +93,7 @@ const waitForEvent = (
   new Promise<void>((resolve, reject) => {
     const timer = setTimeout(
       () => {
+        cleanup()
         reject(new Error('语音服务初始化超时'))
       },
       15_000,
@@ -135,12 +140,18 @@ const upstream = (url: string, apiKey: string, signal: AbortSignal): WebSocket =
       'OpenAI-Beta': 'realtime=v1',
     },
   })
+  // ws emits an error when a still-connecting socket is terminated. During
+  // cancellation that error is expected, but it must remain observed after
+  // the handshake waiter has detached its listener.
+  const observeAbortError = () => {}
   const abort = () => {
+    socket.on('error', observeAbortError)
     socket.terminate()
   }
   signal.addEventListener('abort', abort, { once: true })
   socket.once('close', () => {
     signal.removeEventListener('abort', abort)
+    socket.off('error', observeAbortError)
   })
   return socket
 }
@@ -239,6 +250,7 @@ export class QianwenSpeechProvider extends SpeechProvider {
   ): void {
     this.server.handleUpgrade(req, socket, head, (browser) => {
       const controller = new AbortController()
+      let emitted = false
       this.live.add(controller)
       browser.once('close', () => {
         controller.abort('client-disconnected')
@@ -246,10 +258,34 @@ export class QianwenSpeechProvider extends SpeechProvider {
       browser.once('error', () => {
         controller.abort('client-disconnected')
       })
-      void this.bridgeAsr(browser, controller, emit).finally(() => {
-        this.live.delete(controller)
-        if (browser.readyState === WebSocket.OPEN) browser.close(1000)
+      void this.bridgeAsr(browser, controller, (event) => {
+        emitted = true
+        emit(event)
       })
+        .catch((error: unknown) => {
+          // bridgeAsr sends errors that occur after the upstream session has
+          // started. This covers failed handshakes as well, while preserving
+          // one durable outcome event for the request.
+          if (!emitted) {
+            const message = safeMessage(error)
+            emit({
+              version: 1,
+              kind: 'asr',
+              status: 'failed',
+              model: this.config.asrModel ?? QIANWEN_ASR_MODEL,
+              text: '',
+              elapsedMs: 0,
+              error: message,
+            })
+            if (browser.readyState === WebSocket.OPEN)
+              browser.send(JSON.stringify({ type: 'error', message }))
+          }
+        })
+        .finally(() => {
+          controller.abort('client-disconnected')
+          this.live.delete(controller)
+          if (browser.readyState === WebSocket.OPEN) browser.close(1000)
+        })
     })
   }
   private async bridgeAsr(
@@ -257,15 +293,24 @@ export class QianwenSpeechProvider extends SpeechProvider {
     controller: AbortController,
     emit: SpeechEventSink,
   ): Promise<void> {
+    const started = performance.now()
+    const model = this.config.asrModel ?? QIANWEN_ASR_MODEL
     const missing = this.missingForAsr()
     if (missing.length) {
-      browser.send(JSON.stringify({
-        type: 'error',
-        message: `缺少环境变量：${missing.join('、')}`,
-      }))
+      const message = `缺少环境变量：${missing.join('、')}`
+      emit({
+        version: 1,
+        kind: 'asr',
+        status: 'failed',
+        model,
+        text: '',
+        elapsedMs: Math.round(performance.now() - started),
+        error: message,
+      })
+      if (browser.readyState === WebSocket.OPEN)
+        browser.send(JSON.stringify({ type: 'error', message }))
       return
     }
-    const model = this.config.asrModel ?? QIANWEN_ASR_MODEL
     const socket = upstream(
       realtimeUrl(this.config.asrUrl ?? '', model),
       this.config.asrApiKey ?? '',
@@ -275,7 +320,6 @@ export class QianwenSpeechProvider extends SpeechProvider {
       waitForOpen(socket, controller.signal),
       waitForEvent(socket, 'session.created', controller.signal),
     ])
-    const started = performance.now()
     let audioBytes = 0
     let committed = false
     let finalText = ''
@@ -301,10 +345,63 @@ export class QianwenSpeechProvider extends SpeechProvider {
     browser.send(JSON.stringify({ type: 'ready' }))
     await new Promise<void>((resolve, reject) => {
       let settled = false
+      const onUpstream = (data: WebSocket.RawData) => {
+        let event: UpstreamEvent
+        try {
+          event = parseEvent(data)
+        } catch (error) {
+          fail(error)
+          return
+        }
+        if (event.type === 'error') {
+          fail(new Error(event.error?.message ?? '语音识别失败'))
+          return
+        }
+        if (event.type === 'conversation.item.input_audio_transcription.text') {
+          const text = `${event.text ?? ''}${event.stash ?? ''}`.trim()
+          if (text && browser.readyState === WebSocket.OPEN)
+            browser.send(JSON.stringify({ type: 'partial', text }))
+        }
+        if (event.type === 'conversation.item.input_audio_transcription.failed') {
+          fail(new Error(event.error?.message ?? '语音识别失败'))
+          return
+        }
+        if (event.type === 'conversation.item.input_audio_transcription.completed') {
+          finalText = (event.transcript ?? event.text ?? finalText).trim()
+          if (browser.readyState === WebSocket.OPEN)
+            browser.send(JSON.stringify({
+              type: 'final',
+              text: finalText,
+              model,
+              elapsedMs: Math.round(performance.now() - started),
+            }))
+        }
+        if (event.type === 'session.finished') {
+          if (!finalText) {
+            fail(new Error('没有识别出可用语音'))
+            return
+          }
+          if (browser.readyState === WebSocket.OPEN)
+            browser.send(JSON.stringify({ type: 'done' }))
+          appendVoiceEvent({
+            version: 1,
+            kind: 'asr',
+            status: 'completed',
+            model,
+            text: finalText,
+            elapsedMs: Math.round(performance.now() - started),
+          })
+          socket.close(1000)
+          finish()
+        }
+      }
       const finish = () => {
         if (settled) return
         settled = true
         browser.off('message', onBrowser)
+        socket.off('message', onUpstream)
+        socket.off('error', fail)
+        socket.off('close', onClose)
         controller.signal.removeEventListener('abort', onAbort)
         resolve()
       }
@@ -324,6 +421,9 @@ export class QianwenSpeechProvider extends SpeechProvider {
         if (browser.readyState === WebSocket.OPEN)
           browser.send(JSON.stringify({ type: 'error', message }))
         browser.off('message', onBrowser)
+        socket.off('message', onUpstream)
+        socket.off('error', fail)
+        socket.off('close', onClose)
         controller.signal.removeEventListener('abort', onAbort)
         socket.terminate()
         reject(error instanceof Error ? error : new Error(safeMessage(error)))
@@ -396,61 +496,13 @@ export class QianwenSpeechProvider extends SpeechProvider {
       }
       browser.on('message', onBrowser)
       controller.signal.addEventListener('abort', onAbort, { once: true })
-      socket.on('message', (data) => {
-        let event: UpstreamEvent
-        try {
-          event = parseEvent(data)
-        } catch (error) {
-          fail(error)
-          return
-        }
-        if (event.type === 'error') {
-          fail(new Error(event.error?.message ?? '语音识别失败'))
-          return
-        }
-        if (event.type === 'conversation.item.input_audio_transcription.text') {
-          const text = `${event.text ?? ''}${event.stash ?? ''}`.trim()
-          if (text && browser.readyState === WebSocket.OPEN)
-            browser.send(JSON.stringify({ type: 'partial', text }))
-        }
-        if (event.type === 'conversation.item.input_audio_transcription.failed') {
-          fail(new Error(event.error?.message ?? '语音识别失败'))
-          return
-        }
-        if (event.type === 'conversation.item.input_audio_transcription.completed') {
-          finalText = (event.transcript ?? event.text ?? finalText).trim()
-          if (browser.readyState === WebSocket.OPEN)
-            browser.send(JSON.stringify({
-              type: 'final',
-              text: finalText,
-              model,
-              elapsedMs: Math.round(performance.now() - started),
-            }))
-        }
-        if (event.type === 'session.finished') {
-          if (!finalText) {
-            fail(new Error('没有识别出可用语音'))
-            return
-          }
-          if (browser.readyState === WebSocket.OPEN)
-            browser.send(JSON.stringify({ type: 'done' }))
-          appendVoiceEvent({
-            version: 1,
-            kind: 'asr',
-            status: 'completed',
-            model,
-            text: finalText,
-            elapsedMs: Math.round(performance.now() - started),
-          })
-          socket.close(1000)
-          finish()
-        }
-      })
-      socket.once('error', fail)
-      socket.once('close', () => {
+      const onClose = () => {
         if (!controller.signal.aborted && !settled)
           fail(new Error('语音识别连接提前关闭'))
-      })
+      }
+      socket.on('message', onUpstream)
+      socket.once('error', fail)
+      socket.once('close', onClose)
     })
   }
   /** Stream 24 kHz PCM16LE chunks for a completed assistant reply. */

@@ -44,9 +44,13 @@ describe('dsh-talk interaction consumer', () => {
 
   it('returns the reply action to idle whenever composer input interrupts playback', async () => {
     const client = await source('src/client/TalkMessageButton.tsx')
+    const mic = await source('src/client/TalkMicButton.tsx')
     expect(client).toContain("onStopped: () => { if (mounted.current) setPhase('idle') }")
     expect(client).toContain('playback.onStopped()')
+    expect(client).toContain('export function interruptPlayback()')
     expect(client).toContain('active.lease = lease.current')
     expect(client).toContain('if (active?.lease === expectedLease) void stopActive()')
+    expect(mic).toContain('interruptPlayback()')
+    expect(mic).not.toContain('gerclaw:voice-interrupt')
   })
 })
