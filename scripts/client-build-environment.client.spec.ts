@@ -85,6 +85,13 @@ describe('client build environment', () => {
       DSH_CLIENT_COMMIT_HASH: COMMIT_HASH.slice(0, 7),
       DSH_CLIENT_TITLE: 'DeepSeek Harness',
     })
+    expect(resolveClientBuildEnvironment({
+      DSH_CLIENT_COMMIT_HASH: COMMIT_HASH.slice(0, 7),
+    }, 'gerclaw')).toEqual({
+      DSH_CLIENT_BUILD_PROFILE: 'gerclaw',
+      DSH_CLIENT_COMMIT_HASH: COMMIT_HASH.slice(0, 7),
+      DSH_CLIENT_TITLE: 'GerClaw｜老年慢病智慧诊疗助手',
+    })
     expect(() => {
       resolveClientBuildEnvironment({ DSH_BUILD_CLIENT_PROFILE: 'official' })
     }).toThrow(/DSH_CLIENT_COMMIT_HASH/)

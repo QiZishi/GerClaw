@@ -19,7 +19,7 @@
   "scripts": {
     "gerclaw": "tsx packages/gerclaw/launcher/src/bin.ts",
     "gerclaw:dump-config": "tsx packages/gerclaw/launcher/src/bin.ts --dump-config",
-    "build": "tsx scripts/build.ts",
+    "build": "tsx scripts/build.ts --profile gerclaw",
     "build:official": "tsx scripts/build.ts --profile official",
     "build:lib": "npm run build:lib:host && npm run build:lib:client",
     "build:lib:host": "tsc -b tsconfig.host.json && tsdown --env.DSH_BUILD_FACE host",
