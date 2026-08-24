@@ -1,5 +1,11 @@
 # Repository Guidelines
 
+## 最高优先级：插件必须原生热插拔
+
+**所有插件的启用、禁用、更新与卸载必须使用 DSH/Cordis 原生 Loader、`cordis.yml`/profile overlay 和 HMR 生命周期；禁止手搓任何平行的插件开关机制。** 这一要求高于下文其他实现约定。产品中的插件控制入口必须修改 Loader 管理的组合状态，由 DSH 完成依赖解析、卸载和重新加载；不得只切换业务层布尔值、维护自定义插件注册表、手动 `import`/调用插件、用条件分支隐藏功能，或依赖重启进程实现启停。
+
+所有新插件必须把注册和外部资源绑定到 Cordis 生命周期：使用 `ctx.effect()`、`ctx.on()` 或返回 disposer 的原生注册接口，确保禁用或热重载时工具、服务、监听器、定时器、连接和 UI 投影均被完整移除，重新启用时不会重复注册或残留旧状态。每个插件必须通过真实 Loader 组合测试验证“启用后出现 → 运行中禁用后消失且资源释放 → 再启用后恢复”，不能用直接调用 `apply()` 的单元测试代替。开始相关开发前先阅读 `docs/cordis-tutorial/02-lifecycle-and-effects.zh.md` 与 `docs/cordis-tutorial/06-composition-and-hmr.zh.md`。
+
 ## 项目目标
 
 本仓库用于将 `/Users/qizs/conclusion/gerclaw/gerclaw-main-codex` 的关键产品能力迁移为 DeepSeek Harness（DSH）插件，最终形成基于 DSH 底座的新版 GerClaw。业务功能的流程、计算逻辑和最终效果应与原 GerClaw 一致；通用 Harness 能力必须优先复用 DSH，不得平移 GerClaw 自建实现。
@@ -49,7 +55,7 @@ Memory、RAG、session、文件/产物、搜索、工具执行等通用能力采
 
 ## 完成标准
 
-功能只有在以下条件全部满足后才算完成：已证明无法直接复用现有插件；新能力以独立插件接入 DSH；未修改所采用的原生插件；无医患权限差异；账号数据隔离有效；界面不暴露开发者功能或完整日志；关键业务结果与原 GerClaw 一致；相关测试和构建实际通过；当前阶段已形成可追溯的本地 Git 提交。
+功能只有在以下条件全部满足后才算完成：插件启停已通过 DSH 原生热插拔测试；已证明无法直接复用现有插件；新能力以独立插件接入 DSH；未修改所采用的原生插件；无医患权限差异；账号数据隔离有效；界面不暴露开发者功能或完整日志；关键业务结果与原 GerClaw 一致；相关测试和构建实际通过；当前阶段已形成可追溯的本地 Git 提交。
 
 ## Conventions
 
