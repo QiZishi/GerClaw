@@ -133,20 +133,6 @@
         baseURL: !!js process.env.AGENT_PRIMARY_URL
         compat: { thinkingFormat: deepseek }
         models: !!js "[{ id: process.env.AGENT_PRIMARY_MODEL || 'deepseek-chat', name: 'GerClaw 主模型' }]"
-      gerclaw-backup1:
-        displayName: GerClaw 备用模型一
-        apiKeyEnv: AGENT_BACKUP1_API_KEY
-        api: openai-completions
-        baseURL: !!js process.env.AGENT_BACKUP1_URL || process.env.AGENT_PRIMARY_URL
-        compat: { thinkingFormat: deepseek }
-        models: !!js "[{ id: process.env.AGENT_BACKUP1_MODEL || process.env.AGENT_PRIMARY_MODEL || 'deepseek-chat', name: 'GerClaw 备用模型一' }]"
-      gerclaw-backup2:
-        displayName: GerClaw 备用模型二
-        apiKeyEnv: AGENT_BACKUP2_API_KEY
-        api: openai-completions
-        baseURL: !!js process.env.AGENT_BACKUP2_URL || process.env.AGENT_PRIMARY_URL
-        compat: { thinkingFormat: deepseek }
-        models: !!js "[{ id: process.env.AGENT_BACKUP2_MODEL || process.env.AGENT_PRIMARY_MODEL || 'deepseek-chat', name: 'GerClaw 备用模型二' }]"
 
 - id: webserver
   name: "@deepseek-ai/dsh-host-webserver"
@@ -259,11 +245,7 @@
     - id: gerclaw-prescription
       name: "@gerclaw/prescription"
       config:
-        routes:
-          - {
-              provider: gerclaw-primary,
-              model: !!js "process.env.AGENT_PRIMARY_MODEL || 'deepseek-chat'",
-            }
+        subagentProvider: spawn
 
     - id: gerclaw-app
       name: "@gerclaw/app"
@@ -272,19 +254,6 @@
         dataDir: !!js process.env.GERCLAW_ACCOUNT_DATA_DIR || dshHomePath('gerclaw-data')
         accountId: !!js process.env.GERCLAW_ACCOUNT_ID || 'local'
         audience: !!js process.env.GERCLAW_AUDIENCE || 'patient'
-        routes:
-          - {
-              provider: gerclaw-primary,
-              model: !!js "process.env.AGENT_PRIMARY_MODEL || 'deepseek-chat'",
-            }
-          - {
-              provider: gerclaw-backup1,
-              model: !!js "process.env.AGENT_BACKUP1_MODEL || process.env.AGENT_PRIMARY_MODEL || 'deepseek-chat'",
-            }
-          - {
-              provider: gerclaw-backup2,
-              model: !!js "process.env.AGENT_BACKUP2_MODEL || process.env.AGENT_PRIMARY_MODEL || 'deepseek-chat'",
-            }
 
     - id: gerclaw-client-ui
       name: "@gerclaw/client-ui"

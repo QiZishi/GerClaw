@@ -4,7 +4,9 @@
   "include": ["src"],
   "references": [
     { "path": "../../../vendor/cordis" },
-    { "path": "../../llm/llm" },
+    { "path": "../../core/agent" },
+    { "path": "../../core/tools" },
+    { "path": "../../subagent/subagent" },
     { "path": "../medication-review" },
     { "path": "../library" },
     { "path": "../../runtime-diagnostics/invariants" }

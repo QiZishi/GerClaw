@@ -4,6 +4,7 @@ import type {} from '@deepseek-ai/dsh-client-ui-conversation/client'
 import type {} from '@deepseek-ai/dsh-client-ui-layout/client'
 import type {} from '@deepseek-ai/dsh-client-ui-sidebar/client'
 import type {} from '@deepseek-ai/dsh-client-ui-theme/client'
+import type { SessionId } from '@deepseek-ai/dsh-session'
 import type {} from 'dsh-better-sidebar/client'
 import gerclawAppRemote from '@gerclaw/app/remote'
 import type { ArtifactDescriptor, GerclawJsonValue, MedicalTaskKind } from '@gerclaw/app/types'
@@ -37,20 +38,21 @@ export async function apply(ctx: ClientContext): Promise<void> {
       requestId: string,
       signal: AbortSignal,
     ) => {
-      const result = await ctx.remote.gerclawApp.submit({ requestId, sessionId, kind, input }, signal)
+      const result = await ctx.remote.gerclawApp.submit(sessionId as SessionId, { requestId, kind, input }, signal)
       if (!result.ok) throw new Error(result.error.message)
       return result.value
     },
-    cancel: async (requestId: string): Promise<boolean> => {
-      const result = await ctx.remote.gerclawApp.cancel({ requestId })
+    cancel: async (sessionId: string, requestId: string): Promise<boolean> => {
+      const result = await ctx.remote.gerclawApp.cancel(sessionId as SessionId, { requestId })
       if (!result.ok) throw new Error(result.error.message)
       return result.value.cancelled
     },
     export: async (
+      sessionId: string,
       taskId: string,
       formats: ArtifactDescriptor['format'][],
     ): Promise<ArtifactDescriptor[]> => {
-      const result = await ctx.remote.gerclawApp.export({ taskId, formats })
+      const result = await ctx.remote.gerclawApp.export(sessionId as SessionId, { taskId, formats })
       if (!result.ok) throw new Error(result.error.message)
       return result.value.artifacts
     },
@@ -98,7 +100,7 @@ export async function apply(ctx: ClientContext): Promise<void> {
       }
       for (const element of document.querySelectorAll<HTMLElement>('body *')) {
         if (element.children.length !== 0) continue
-        const original = element.textContent?.trim() ?? ''
+        const original = element.textContent.trim()
         const expectedPlanDiscussion = 'The user dismissed the plan review to speak instead'
         const expectedPlanRevision = 'The user chose to keep planning'
         if (original === '失败') {
@@ -109,7 +111,7 @@ export async function apply(ctx: ClientContext): Promise<void> {
           }
           let parent: HTMLElement | null = element.parentElement
           for (let level = 0; level < 6 && parent; level++, parent = parent.parentElement) {
-            const text = parent.textContent ?? ''
+            const text = parent.textContent
             if (text.includes(expectedPlanDiscussion)) {
               element.textContent = '继续讨论'
               break
@@ -279,16 +281,16 @@ export async function apply(ctx: ClientContext): Promise<void> {
                   : '已完成此步骤'
         }
         if (cleaned !== original) element.textContent = cleaned
-        if (element.textContent?.trim() === 'Think') {
+        if (element.textContent.trim() === 'Think') {
           const row = element.closest<HTMLElement>('[data-disclosure-row]')
           if (row?.parentElement) row.parentElement.hidden = false
         }
-        const translated = productTerms[element.textContent?.trim() ?? '']
+        const translated = productTerms[element.textContent.trim()]
         if (translated) element.textContent = translated
-        if (element.textContent?.trim() === '查阅健康资料') {
+        if (element.textContent.trim() === '查阅健康资料') {
           let parent: HTMLElement | null = element.parentElement
           for (let level = 0; level < 6 && parent; level++, parent = parent.parentElement) {
-            const text = parent.textContent ?? ''
+            const text = parent.textContent
             if (
               text.includes('用户选择回到对话继续修改计划')
               || text.includes('用户选择继续规划')
@@ -305,16 +307,16 @@ export async function apply(ctx: ClientContext): Promise<void> {
           textarea.placeholder = '请描述最想解决的健康问题'
       }
       for (const button of document.querySelectorAll<HTMLButtonElement>('button')) {
-        const label = button.getAttribute('aria-label') ?? button.textContent?.trim() ?? ''
+        const label = button.getAttribute('aria-label') ?? button.textContent.trim()
         if (label === '命令') {
           button.setAttribute('aria-label', '能力')
           button.title = '能力：选择健康技能、计划模式或目标'
         }
         if (label === 'Session log' || label.startsWith('上下文已用')) button.hidden = true
         if (label === '关闭详情') button.parentElement?.parentElement?.setAttribute('hidden', '')
-        if (button.textContent?.trim() === '去聊天里说') {
+        if (button.textContent.trim() === '去聊天里说') {
           const textLabel = Array.from(button.querySelectorAll<HTMLElement>('span'))
-            .find(element => element.children.length === 0 && element.textContent?.trim() === '去聊天里说')
+            .find(element => element.children.length === 0 && element.textContent.trim() === '去聊天里说')
           const textNode = Array.from(button.childNodes)
             .find(node => node.nodeType === Node.TEXT_NODE && node.textContent?.trim() === '去聊天里说')
           if (textLabel) textLabel.textContent = '继续讨论'
@@ -322,11 +324,11 @@ export async function apply(ctx: ClientContext): Promise<void> {
           button.setAttribute('aria-label', '继续讨论计划')
           button.title = '返回对话补充意见，当前计划暂不执行'
         }
-        if (button.textContent?.trim() === '拒绝') {
+        if (button.textContent.trim() === '拒绝') {
           button.textContent = '拒绝并修改'
           button.title = '保留计划模式，并把修改意见交给助手'
         }
-        if (button.textContent?.trim() === '确认执行') {
+        if (button.textContent.trim() === '确认执行') {
           button.title = '批准计划，从下一步开始执行'
         }
       }
@@ -384,7 +386,7 @@ export async function apply(ctx: ClientContext): Promise<void> {
         textNode = textWalker.nextNode()
       }
       for (const metric of document.querySelectorAll<HTMLElement>('span')) {
-        if (!metric.textContent?.includes('首 token')) continue
+        if (!metric.textContent.includes('首 token')) continue
         if (metric.children.length === 0) {
           metric.hidden = true
           continue
@@ -426,7 +428,7 @@ export async function apply(ctx: ClientContext): Promise<void> {
       if (sessionStorage.getItem('gerclaw.newConversationOnBoot') === '1') {
         const newConversation = Array.from(
           document.querySelectorAll<HTMLButtonElement>('button[aria-label="新建会话"]'),
-        ).find(button => button.textContent?.trim() === '新会话')
+        ).find(button => button.textContent.trim() === '新会话')
         if (newConversation && !newConversation.disabled) {
           sessionStorage.removeItem('gerclaw.newConversationOnBoot')
           newConversation.click()

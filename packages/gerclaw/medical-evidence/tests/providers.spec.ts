@@ -7,7 +7,7 @@ afterEach(() => { vi.unstubAllGlobals() })
 describe('medical evidence providers', () => {
   it('keeps PubMed, openFDA and MedlinePlus identities separate', async () => {
     vi.stubGlobal('fetch', vi.fn(async (input: string | URL | Request) => {
-      const url = String(input)
+      const url = typeof input === 'string' ? input : input instanceof URL ? input.href : input.url
       if (url.includes('esearch')) return Response.json({ esearchresult: { idlist: ['123'] } })
       if (url.includes('esummary')) return Response.json({ result: { 123: { title: 'Trial', sortpubdate: '2026' } } })
       if (url.includes('api.fda.gov')) return Response.json({ results: [{ id: 'label-1', openfda: { generic_name: ['aspirin'] }, warnings: ['warning'] }] })
@@ -21,7 +21,7 @@ describe('medical evidence providers', () => {
 
   it('fails the combined task when any required provider fails', async () => {
     vi.stubGlobal('fetch', vi.fn(async (input: string | URL | Request) => {
-      const url = String(input)
+      const url = typeof input === 'string' ? input : input instanceof URL ? input.href : input.url
       if (url.includes('esearch')) return new Response('', { status: 503 })
       if (url.includes('api.fda.gov')) return Response.json({ results: [] })
       return new Response('<nlmSearchResult/>')

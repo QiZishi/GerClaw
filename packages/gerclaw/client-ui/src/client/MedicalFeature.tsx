@@ -42,8 +42,8 @@ export interface MedicalRemoteActions {
     requestId: string,
     signal: AbortSignal,
   ) => Promise<MedicalTaskSubmitResult>
-  cancel: (requestId: string) => Promise<boolean>
-  export: (taskId: string, formats: ArtifactDescriptor['format'][]) => Promise<ArtifactDescriptor[]>
+  cancel: (sessionId: string, requestId: string) => Promise<boolean>
+  export: (sessionId: string, taskId: string, formats: ArtifactDescriptor['format'][]) => Promise<ArtifactDescriptor[]>
 }
 
 const labels: Record<string, string> = {
@@ -144,7 +144,7 @@ function StructuredValue({ value, depth = 0 }: { value: unknown; depth?: number 
   </dl>
 }
 
-export function TaskResult({ response, sessionId: _sessionId, remote }: {
+export function TaskResult({ response, sessionId, remote }: {
   response: Response
   sessionId: string
   remote: MedicalRemoteActions
@@ -154,7 +154,7 @@ export function TaskResult({ response, sessionId: _sessionId, remote }: {
   const result = response.result ?? response.reply ?? response.item ?? response
   const [exporting, setExporting] = useState(false)
   const [exported, setExported] = useState('')
-  const evidence = result !== null && typeof result === 'object'
+  const evidence = typeof result === 'object'
     && Array.isArray((result as JsonObject).evidenceSources)
     ? (result as JsonObject).evidenceSources as unknown[]
     : []
@@ -176,7 +176,7 @@ export function TaskResult({ response, sessionId: _sessionId, remote }: {
     {taskId && <div data-gerclaw-form-actions>
       <button type="button" disabled={exporting} onClick={() => {
         setExporting(true)
-        void remote.export(taskId, ['md', 'html', 'docx', 'pdf', 'png', 'jpg', 'json']).then((artifacts) => {
+        void remote.export(sessionId, taskId, ['md', 'html', 'docx', 'pdf', 'png', 'jpg', 'json']).then((artifacts) => {
           const count = artifacts.length
           setExported(`已生成 ${count} 个格式，右侧“产物”可预览和下载`)
           window.dispatchEvent(new CustomEvent('gerclaw:artifacts-updated'))
@@ -227,7 +227,7 @@ function Runner({ children, submitLabel, request, sessionId, remote }: {
         const current = active.current
         if (current === null) return
         current.controller.abort()
-        void remote.cancel(current.requestId)
+        void remote.cancel(sessionId, current.requestId)
       }}>停止任务</button>}
       {running && <span role="status">正在执行 · {((now - started) / 1000).toFixed(1)} 秒</span>}
     </div>
@@ -253,9 +253,9 @@ function QuestionGroup({ title, children }: { title: string; children: ReactNode
 
 function CgaForm({ sessionId, remote }: { sessionId: string; remote: MedicalRemoteActions }) {
   const [kind, setKind] = useState('phq9')
-  const [answers, setAnswers] = useState<Record<string, number | string>>({})
+  const [answers, setAnswers] = useState<Partial<Record<string, number | string>>>({})
   useEffect(() => { setAnswers({}) }, [kind])
-  const set = (key: string, value: number | string) => setAnswers(current => ({ ...current, [key]: value }))
+  const set = (key: string, value: number | string) => { setAnswers(current => ({ ...current, [key]: value })) }
   const questions = useMemo(() => {
     const renderRows = (items: readonly string[], options: CgaOption[], start = 0) => items.map((question, index) => {
       const key = `q${start + index + 1}`
@@ -264,7 +264,7 @@ function CgaForm({ sessionId, remote }: { sessionId: string; remote: MedicalRemo
         <AnswerSelect
           value={answers[key] ?? options[0]?.value ?? 0}
           options={options}
-          onChange={value => set(key, value)}
+          onChange={(value) => { set(key, value) }}
         />
       </label>
     })
@@ -273,7 +273,7 @@ function CgaForm({ sessionId, remote }: { sessionId: string; remote: MedicalRemo
     if (kind === 'mmse') {
       let start = 0
       return <>
-        <label>受教育程度<select value={String(answers.education ?? 'secondary')} onChange={event => set('education', event.target.value)}><option value="none">未受过学校教育</option><option value="primary">小学或受教育年限不超过6年</option><option value="secondary">中学或以上</option></select></label>
+        <label>受教育程度<select value={String(answers.education ?? 'secondary')} onChange={(event) => { set('education', event.target.value) }}><option value="none">未受过学校教育</option><option value="primary">小学或受教育年限不超过6年</option><option value="secondary">中学或以上</option></select></label>
         {mmseGroups.map((group) => {
           const groupStart = start
           start += group.questions.length
@@ -283,23 +283,23 @@ function CgaForm({ sessionId, remote }: { sessionId: string; remote: MedicalRemo
     }
     if (kind === 'minicog') return <>
       <QuestionGroup title="第 1 步 · 记住三个词"><p>请先记住三个词：<strong>苹果、手表、国旗</strong>。稍后会请您回忆。</p><label><span>准备好后继续</span><select aria-label="记忆准备"><option>已记住，继续</option></select></label></QuestionGroup>
-      <QuestionGroup title="第 2 步 · 画钟"><p>请在纸上画一个时钟，写上 1 到 12，并把指针指向 11 点 10 分。</p><label><span>实际完成情况</span><AnswerSelect value={answers.clock ?? 0} options={[{ value: 0, label: '表盘或时间尚未完成，或我不确定' }, { value: 1, label: '数字和表盘完整，指针位置不确定' }, { value: 2, label: '数字和表盘完整，指针指向11点10分' }]} onChange={value => set('clock', value)} /></label></QuestionGroup>
-      <QuestionGroup title="第 3 步 · 回忆"><p>现在请回忆刚才记住的“苹果、手表、国旗”。</p><label><span>能回忆出几个？</span><AnswerSelect value={answers.recall ?? 0} options={[0, 1, 2, 3].map(value => ({ value, label: value === 0 ? '没有回忆出来' : `回忆出${value}个` }))} onChange={value => set('recall', value)} /></label></QuestionGroup>
+      <QuestionGroup title="第 2 步 · 画钟"><p>请在纸上画一个时钟，写上 1 到 12，并把指针指向 11 点 10 分。</p><label><span>实际完成情况</span><AnswerSelect value={answers.clock ?? 0} options={[{ value: 0, label: '表盘或时间尚未完成，或我不确定' }, { value: 1, label: '数字和表盘完整，指针位置不确定' }, { value: 2, label: '数字和表盘完整，指针指向11点10分' }]} onChange={(value) => { set('clock', value) }} /></label></QuestionGroup>
+      <QuestionGroup title="第 3 步 · 回忆"><p>现在请回忆刚才记住的“苹果、手表、国旗”。</p><label><span>能回忆出几个？</span><AnswerSelect value={answers.recall ?? 0} options={[0, 1, 2, 3].map(value => ({ value, label: value === 0 ? '没有回忆出来' : `回忆出${value}个` }))} onChange={(value) => { set('recall', value) }} /></label></QuestionGroup>
     </>
     return <>
       <QuestionGroup title="睡眠时间">
-        <label><span>1. 过去1个月，您通常上床睡觉的时间</span><input type="time" value={String(answers.bedtime ?? '22:00')} onChange={event => set('bedtime', event.target.value)} /></label>
-        <label><span>2. 过去1个月，您每晚通常要多长时间才能入睡</span><input type="number" min="0" max="1440" value={Number(answers.latencyMinutes ?? 20)} onChange={event => set('latencyMinutes', Number(event.target.value))} /><small>请填写分钟数</small></label>
-        <label><span>3. 过去1个月，您每天早上通常什么时候起床</span><input type="time" value={String(answers.waketime ?? '06:00')} onChange={event => set('waketime', event.target.value)} /></label>
-        <label><span>4. 过去1个月，您每晚实际睡眠的时长</span><input type="number" min="0" max="1440" value={Number(answers.sleepMinutes ?? 420)} onChange={event => set('sleepMinutes', Number(event.target.value))} /><small>请填写分钟数</small></label>
+        <label><span>1. 过去1个月，您通常上床睡觉的时间</span><input type="time" value={String(answers.bedtime ?? '22:00')} onChange={(event) => { set('bedtime', event.target.value) }} /></label>
+        <label><span>2. 过去1个月，您每晚通常要多长时间才能入睡</span><input type="number" min="0" max="1440" value={Number(answers.latencyMinutes ?? 20)} onChange={(event) => { set('latencyMinutes', Number(event.target.value)) }} /><small>请填写分钟数</small></label>
+        <label><span>3. 过去1个月，您每天早上通常什么时候起床</span><input type="time" value={String(answers.waketime ?? '06:00')} onChange={(event) => { set('waketime', event.target.value) }} /></label>
+        <label><span>4. 过去1个月，您每晚实际睡眠的时长</span><input type="number" min="0" max="1440" value={Number(answers.sleepMinutes ?? 420)} onChange={(event) => { set('sleepMinutes', Number(event.target.value)) }} /><small>请填写分钟数</small></label>
       </QuestionGroup>
-      <QuestionGroup title="影响睡眠的情况">{psqiDisturbanceQuestions.map(([key, question], index) => <label key={key}><span>{index + 5}. {question}</span><AnswerSelect value={answers[key] ?? 0} options={psqiFrequencyOptions} onChange={value => set(key, value)} /></label>)}</QuestionGroup>
+      <QuestionGroup title="影响睡眠的情况">{psqiDisturbanceQuestions.map(([key, question], index) => <label key={key}><span>{index + 5}. {question}</span><AnswerSelect value={answers[key] ?? 0} options={psqiFrequencyOptions} onChange={(value) => { set(key, value) }} /></label>)}</QuestionGroup>
       <QuestionGroup title="总体睡眠与日间状态">
-        <label><span>15. 对过去1个月睡眠质量总的评价</span><AnswerSelect value={answers.q6 ?? 0} options={psqiQualityOptions} onChange={value => set('q6', value)} /></label>
-        <label><span>16. 近1个月使用催眠药物的情况</span><AnswerSelect value={answers.q7 ?? 0} options={psqiFrequencyOptions} onChange={value => set('q7', value)} /></label>
-        <label><span>17. 开车、吃饭或参加社会活动时难以保持清醒</span><AnswerSelect value={answers.q8 ?? 0} options={psqiFrequencyOptions} onChange={value => set('q8', value)} /></label>
-        <label><span>18. 积极完成事情有无困难</span><AnswerSelect value={answers.q9 ?? 0} options={psqiDaytimeOptions} onChange={value => set('q9', value)} /></label>
-        <label><span>19. 您是与人同睡一床或有室友</span><AnswerSelect value={answers.q10 ?? 0} options={psqiPartnerOptions} onChange={value => set('q10', value)} /></label>
+        <label><span>15. 对过去1个月睡眠质量总的评价</span><AnswerSelect value={answers.q6 ?? 0} options={psqiQualityOptions} onChange={(value) => { set('q6', value) }} /></label>
+        <label><span>16. 近1个月使用催眠药物的情况</span><AnswerSelect value={answers.q7 ?? 0} options={psqiFrequencyOptions} onChange={(value) => { set('q7', value) }} /></label>
+        <label><span>17. 开车、吃饭或参加社会活动时难以保持清醒</span><AnswerSelect value={answers.q8 ?? 0} options={psqiFrequencyOptions} onChange={(value) => { set('q8', value) }} /></label>
+        <label><span>18. 积极完成事情有无困难</span><AnswerSelect value={answers.q9 ?? 0} options={psqiDaytimeOptions} onChange={(value) => { set('q9', value) }} /></label>
+        <label><span>19. 您是与人同睡一床或有室友</span><AnswerSelect value={answers.q10 ?? 0} options={psqiPartnerOptions} onChange={(value) => { set('q10', value) }} /></label>
       </QuestionGroup>
     </>
   }, [answers, kind])
@@ -316,14 +316,16 @@ function CgaForm({ sessionId, remote }: { sessionId: string; remote: MedicalRemo
       for (const key of ['q5a','q5b','q5c','q5d','q5e','q5f','q5g','q5h','q5i','q5j','q6','q7','q8','q9']) next[key] ??= 0
       next.q10 ??= 0
     }
-    return next
+    return Object.fromEntries(
+      Object.entries(next).filter((entry): entry is [string, number | string] => entry[1] !== undefined),
+    )
   }, [answers, kind])
   return <Runner sessionId={sessionId} remote={remote} submitLabel="完成确定性计分" request={async (requestId, signal) => {
     const value = await remote.submit('cga', sessionId, { kind, answers: normalized }, requestId, signal)
     return value.response as Response
   }}>
     <p data-gerclaw-intro>量表完全按固定规则计分，不调用模型。请按真实情况逐项填写。</p>
-    <label>选择量表<select value={kind} onChange={event => setKind(event.target.value)}><option value="phq9">PHQ-9 抑郁筛查</option><option value="sas">SAS 焦虑自评</option><option value="psqi">PSQI 睡眠质量</option><option value="minicog">Mini-Cog 认知筛查</option><option value="mmse">MMSE 简易精神状态检查</option></select></label>
+    <label>选择量表<select value={kind} onChange={(event) => { setKind(event.target.value) }}><option value="phq9">PHQ-9 抑郁筛查</option><option value="sas">SAS 焦虑自评</option><option value="psqi">PSQI 睡眠质量</option><option value="minicog">Mini-Cog 认知筛查</option><option value="mmse">MMSE 简易精神状态检查</option></select></label>
     <div data-gerclaw-question-list>{questions}</div>
   </Runner>
 }
@@ -336,8 +338,8 @@ function MedicationForm({ sessionId, remote }: { sessionId: string; remote: Medi
     return value.response as Response
   }}>
     <p data-gerclaw-intro>按规则 v4 检查 30 条相互作用、剂量阈值、重复用药、多药联用与老年用药信号。</p>
-    <label>年龄（可选）<input type="number" min="0" max="130" value={age} onChange={event => setAge(event.target.value)} /></label>
-    <label>用药清单（每行一项）<textarea required value={list} onChange={event => setList(event.target.value)} /></label>
+    <label>年龄（可选）<input type="number" min="0" max="130" value={age} onChange={(event) => { setAge(event.target.value) }} /></label>
+    <label>用药清单（每行一项）<textarea required value={list} onChange={(event) => { setList(event.target.value) }} /></label>
   </Runner>
 }
 
@@ -360,11 +362,11 @@ function ProfileForm({ sessionId, remote }: { sessionId: string; remote: Medical
         goals: rows('goals'),
       })
     }).catch(() => {})
-    return () => controller.abort()
+    return () => { controller.abort() }
   }, [sessionId])
   const field = (key: keyof typeof values, label: string, area = false) => <label>{label}{area
-    ? <textarea value={values[key]} onChange={event => setValues(current => ({ ...current, [key]: event.target.value }))} />
-    : <input type={key === 'age' ? 'number' : 'text'} min={key === 'age' ? 0 : undefined} max={key === 'age' ? 130 : undefined} value={values[key]} onChange={event => setValues(current => ({ ...current, [key]: event.target.value }))} />}</label>
+    ? <textarea value={values[key]} onChange={(event) => { setValues(current => ({ ...current, [key]: event.target.value })) }} />
+    : <input type={key === 'age' ? 'number' : 'text'} min={key === 'age' ? 0 : undefined} max={key === 'age' ? 130 : undefined} value={values[key]} onChange={(event) => { setValues(current => ({ ...current, [key]: event.target.value })) }} />}</label>
   return <Runner sessionId={sessionId} remote={remote} submitLabel="保存健康档案" request={async (requestId, signal) => {
     const value = await remote.submit('profile', sessionId, { displayName: values.name, ...(values.age ? { age: Number(values.age) } : {}), allergies: lineList(values.allergies), conditions: lineList(values.conditions), medications: lineList(values.medications), goals: lineList(values.goals), preferences: [] }, requestId, signal)
     return value.response as Response
@@ -379,7 +381,7 @@ function ChronicForm({ sessionId, remote }: { sessionId: string; remote: Medical
   const input = (key: keyof typeof values, label: string) => <label>{label}<input
     required
     value={values[key]}
-    onChange={event => setValues(current => ({ ...current, [key]: event.target.value }))}
+    onChange={(event) => { setValues(current => ({ ...current, [key]: event.target.value })) }}
   /></label>
   return <Runner sessionId={sessionId} remote={remote} submitLabel="保存测量" request={async (requestId, signal) => {
     const value = await remote.submit('chronic', sessionId, { ...values, value: Number(values.value) }, requestId, signal)
@@ -404,7 +406,7 @@ function CompanionForm({ sessionId, remote }: { sessionId: string; remote: Medic
     <p data-gerclaw-intro>只根据这一次文字提供支持，不读取长期记忆、文档或知识库。</p>
     <label>
       此刻想说的话
-      <textarea required value={text} onChange={event => setText(event.target.value)} />
+      <textarea required value={text} onChange={(event) => { setText(event.target.value) }} />
     </label>
   </Runner>
 }
@@ -452,7 +454,7 @@ function EvidenceForm({ sessionId, remote }: { sessionId: string; remote: Medica
         <a href={`/gerclaw/api/documents/${encodeURIComponent(document.documentId)}`} download>下载</a>
       </li>)}</ul>
     </section>}
-    <label>检索词<input required value={query} onChange={event => setQuery(event.target.value)} placeholder="例如：老年高血压睡眠管理" /></label>
+    <label>检索词<input required value={query} onChange={(event) => { setQuery(event.target.value) }} placeholder="例如：老年高血压睡眠管理" /></label>
   </Runner>
 }
 

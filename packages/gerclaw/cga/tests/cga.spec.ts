@@ -43,8 +43,9 @@ describe('GerClaw CGA deterministic scoring', () => {
   })
 
   it('raises the PHQ-9 item 9 safety result independently of total score', () => {
-    expect(scoreCga({ kind: 'phq9', answers: { ...answers(9, 0), q9: 1 } }))
-      .toMatchObject({ score: 1, followUp: 'immediate', safetyAlert: expect.any(String) })
+    const result = scoreCga({ kind: 'phq9', answers: { ...answers(9, 0), q9: 1 } })
+    expect(result).toMatchObject({ score: 1, followUp: 'immediate' })
+    expect(typeof result.safetyAlert).toBe('string')
   })
 
   it.each([

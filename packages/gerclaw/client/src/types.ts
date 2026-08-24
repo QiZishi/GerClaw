@@ -86,8 +86,6 @@ export type MedicalTaskKind =
 export interface MedicalTaskSubmitRequest {
   /** Browser-generated id used for cancellation while the call is in flight. */
   requestId: string
-  /** Native DSH session that owns the task event and result card. */
-  sessionId: string
   /** Medical plugin operation to run. */
   kind: MedicalTaskKind
   /** JSON-only business input interpreted by the selected medical plugin. */

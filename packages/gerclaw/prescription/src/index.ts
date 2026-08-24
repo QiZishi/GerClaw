@@ -1,6 +1,8 @@
 /** Evidence-bound five-prescription generation over the native DSH LLM service. */
 import { Context, Service } from '@deepseek-ai/cordis'
-import { BlockAssembler, createUserMessage } from '@deepseek-ai/dsh-llm'
+import type { Agent } from '@deepseek-ai/dsh-agent'
+import type {} from '@deepseek-ai/dsh-subagent'
+import type { ObjectJsonSchema } from '@deepseek-ai/dsh-tools'
 import type { MedicationReview } from '@gerclaw/medication-review'
 import type { GerclawRagHit as LocalRagHit } from '@gerclaw/library'
 export interface EvidenceSource {
@@ -188,7 +190,7 @@ export interface PrescriptionReport {
   disclaimer: string
 }
 export interface PrescriptionConfig {
-  routes?: Array<{ provider: string; model: string }>
+  subagentProvider?: string
 }
 const TITLES = [
   '药物处方',
@@ -205,52 +207,50 @@ const KINDS = [
   'rehabilitation',
 ] as const
 const SYSTEM = '你是 GerClaw 五大处方草案助手。只依据给定个人资料与证据，生成供复核的结构化草案。必须且只能按药物处方、运动处方、营养处方、心理处方、康复处方排列；睡眠内容放入心理处方。不得编造诊断、检查、来源或患者事实；“管理血压”等健康目标不等于已经诊断高血压，也不得写成既往病史。每条建议必须引用 allowedEvidenceIds 中真实存在的 evidenceId，禁止使用示例占位符或自造编号。药物调整只作为待复核候选。运动和康复必须写明循序渐进及停止条件。康复训练需有频次以及时长或强度。只输出 JSON，不要 Markdown。'
-const cleanJson = (text: string): unknown => {
-  const parsed: unknown[] = []
-  let start = -1
-  let depth = 0
-  let inString = false
-  let escaped = false
-  for (let index = 0; index < text.length; index += 1) {
-    const char = text[index]
-    if (inString) {
-      if (escaped) escaped = false
-      else if (char === '\\') escaped = true
-      else if (char === '"') inString = false
-      continue
-    }
-    if (char === '"') {
-      inString = true
-      continue
-    }
-    if (char === '{') {
-      if (depth === 0) start = index
-      depth += 1
-    } else if (char === '}' && depth > 0) {
-      depth -= 1
-      if (depth === 0 && start >= 0) {
-        try {
-          parsed.push(JSON.parse(text.slice(start, index + 1)))
-        } catch {
-          // Continue scanning: reasoning models can emit braces before final JSON.
-        }
-        start = -1
-      }
-    }
-  }
-  if (parsed.length === 0)
-    throw new Error(
-      text.includes('{')
-        ? '模型返回的处方结构无法解析'
-        : '模型没有返回处方结构',
-    )
-  return (
-    parsed.findLast((value) => {
-      if (typeof value !== 'object' || value === null) return false
-      const candidate = value as Record<string, unknown>
-      return 'healthAssessment' in candidate && Array.isArray(candidate.sections)
-    }) ?? parsed.at(-1)
-  )
+const modelOutputSchema: ObjectJsonSchema = {
+  type: 'object',
+  additionalProperties: false,
+  required: ['healthAssessment', 'sections'],
+  properties: {
+    healthAssessment: {
+      type: 'object',
+      additionalProperties: false,
+      required: ['summary', 'keyIssues', 'riskFactors'],
+      properties: {
+        summary: { type: 'string' },
+        keyIssues: { type: 'array', items: { type: 'string' } },
+        riskFactors: { type: 'array', items: { type: 'string' } },
+      },
+    },
+    sections: {
+      type: 'array',
+      items: {
+        type: 'object',
+        additionalProperties: false,
+        required: ['kind', 'title', 'goal', 'recommendations', 'precautions', 'evidenceIds'],
+        properties: {
+          kind: { type: 'string', enum: [...KINDS] },
+          title: { type: 'string', enum: [...TITLES] },
+          goal: { type: 'string' },
+          recommendations: {
+            type: 'array',
+            items: {
+              type: 'object',
+              additionalProperties: false,
+              required: ['content', 'evidenceIds'],
+              properties: {
+                content: { type: 'string' },
+                evidenceIds: { type: 'array', items: { type: 'string' } },
+              },
+            },
+          },
+          precautions: { type: 'array', items: { type: 'string' } },
+          evidenceIds: { type: 'array', items: { type: 'string' } },
+          details: { type: 'object', additionalProperties: true, properties: {} },
+        },
+      },
+    },
+  },
 }
 const strings = (value: unknown, min = 1, max = 20): string[] => {
   if (!Array.isArray(value)) throw new Error('处方列表字段无效')
@@ -340,7 +340,7 @@ declare module '@deepseek-ai/cordis' {
   }
 }
 export class PrescriptionService extends Service {
-  static inject = ['llm', 'gerclawMedicationReview', 'gerclawRag']
+  static inject = ['subagents', 'gerclawMedicationReview', 'gerclawRag']
   constructor(
     ctx: Context,
     private readonly config: PrescriptionConfig = {},
@@ -348,6 +348,7 @@ export class PrescriptionService extends Service {
     super(ctx, 'gerclawPrescription')
   }
   async generate(
+    agent: Agent,
     request: PrescriptionRequest,
     signal?: AbortSignal,
     onRoute?: (route: string) => void,
@@ -380,9 +381,6 @@ export class PrescriptionService extends Service {
       throw new Error('本地知识库与权威医学源均未检索到可引用证据')
     const primaryEvidenceId = evidence[0]?.evidenceId
     if (!primaryEvidenceId) throw new Error('证据编号无效')
-    const routes = this.config.routes ?? []
-    if (routes.length === 0)
-      throw new Error('缺少环境变量：AGENT_PRIMARY_MODEL')
     const prompt = JSON.stringify({
       allowedEvidenceIds: evidence.map(item => item.evidenceId),
       schema: {
@@ -414,58 +412,48 @@ export class PrescriptionService extends Service {
       },
       evidence,
     })
-    const route = routes[0]
-    if (!route) throw new Error('缺少环境变量：AGENT_PRIMARY_MODEL')
+    const provider = this.config.subagentProvider ?? 'spawn'
     try {
-      onRoute?.(`${route.provider}/${route.model}`)
+      onRoute?.(`subagent/${provider}`)
       let parsed: ReturnType<typeof validateModel> | undefined
       let validationError = ''
       for (let attempt = 0; attempt < 2; attempt += 1) {
-        const assembler = new BlockAssembler()
         const requestPrompt = attempt === 0
           ? prompt
           : JSON.stringify({
             correction: `上一次输出未通过结构校验：${validationError}。重新生成完整 JSON，不要解释。`,
             request: JSON.parse(prompt) as unknown,
           })
-        for await (const chunk of this.ctx.llm.stream({
-          provider: route.provider,
-          model: route.model,
-          messages: [
-            createUserMessage({
-              content: [{ type: 'text', text: requestPrompt }],
-              source: { kind: 'user' },
-            }),
-          ],
-          system: SYSTEM,
-          // Reasoning-capable primary models account their analysis against the
-          // output budget before emitting the schema-bound final JSON. The five
-          // sections and their citations need materially more headroom than an
-          // ordinary chat reply.
-          maxTokens: 8000,
-          temperature: attempt === 0 ? 0.2 : 0,
-          ...(signal === undefined ? {} : { signal }),
-        }))
-          assembler.push(chunk)
-        if (assembler.finish.kind === 'max-tokens')
-          validationError = '模型输出达到长度上限，未完成处方结构'
-        else if (assembler.finish.kind !== 'stop') {
-          this.ctx.logger.warn(
-            `gerclaw-prescription: generation ended with ${assembler.finish.kind}`,
-          )
-          validationError = '模型生成未完成'
-        } else {
-          const text = assembler
-            .blocks()
-            .filter(block => block.type === 'text')
-            .map(block => block.text)
-            .join('')
+        const runSignal = signal ?? new AbortController().signal
+        const run = await agent.ctx.subagents.start(provider, {
+          label: attempt === 0 ? '生成五大处方' : '修正五大处方结构',
+          parent: agent,
+          signal: runSignal,
+          prompt: [{ type: 'text', text: requestPrompt }],
+          persona: SYSTEM,
+          outputSchema: modelOutputSchema,
+          maxDepth: 1,
+          toolFilter: { allow: [] },
+          agentOptions: { maxTokens: 8000 },
+        })
+        try {
+          const outcome = await run.result
+          if (outcome.stopReason !== 'completed') {
+            validationError = outcome.diagnostic ?? `处方子智能体未完成（${outcome.stopReason}）`
+            continue
+          }
+          if (outcome.structured === undefined) {
+            validationError = '处方子智能体没有提交结构化结果'
+            continue
+          }
           try {
-            parsed = validateModel(cleanJson(text), evidence)
+            parsed = validateModel(outcome.structured, evidence)
             break
           } catch (error) {
             validationError = error instanceof Error ? error.message : '处方结构无效'
           }
+        } finally {
+          await run.dispose()
         }
       }
       if (parsed === undefined)

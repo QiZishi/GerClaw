@@ -10,6 +10,7 @@
     { "path": "../../core/agent" },
     { "path": "../../core/tools" },
     { "path": "../../session/session-persistence" },
+    { "path": "../../subagent/subagent" },
     { "path": "../../plan/plan-mode" },
     { "path": "../../goal/goal" },
     { "path": "../../llm/llm" },
