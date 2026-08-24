@@ -33,7 +33,7 @@ import type {
   MedicalTaskSubmitRequest,
   MedicalTaskSubmitResult,
   TaskRun,
-} from '@gerclaw/task-runtime'
+} from './types.ts'
 import type {} from '@gerclaw/task-runtime'
 
 export type * from './types.ts'
