@@ -218,7 +218,6 @@ export class GerclawApp extends TypertRemoteService {
     'sessions',
     'sessionPersistence',
     'agents',
-    'planMode',
     'goals',
     'tools',
     'systemPrompt',
@@ -1057,7 +1056,7 @@ export class GerclawApp extends TypertRemoteService {
           throw new Error('目标模式需要先填写目标')
         }
         const agent = this.agentHandle.agent
-        this.ctx.planMode.set(agent, interaction.mode === 'plan')
+        agent.ctx.planMode.set(agent, interaction.mode === 'plan')
         let goal = this.ctx.goals.get(agent)
         if (interaction.mode === 'goal' && interaction.goal) {
           if (!goal || goal.phase === 'complete')
@@ -1084,7 +1083,7 @@ export class GerclawApp extends TypertRemoteService {
         await this.put('interaction', 'interaction', interaction)
         json(res, 200, {
           ...interaction,
-          plan: this.ctx.planMode.get(agent),
+          plan: agent.ctx.planMode.get(agent),
           goal,
         })
         return
@@ -1659,8 +1658,9 @@ export class GerclawApp extends TypertRemoteService {
     throw new Error(`模型服务不可用：${safeError(last)}`)
   }
   private interactionSettings(): InteractionSettings {
-    const plan = this.ctx.planMode.get(this.agentHandle.agent)
-    const goal = this.ctx.goals.get(this.agentHandle.agent)
+    const agent = this.agentHandle.agent
+    const plan = agent.ctx.planMode.get(agent)
+    const goal = this.ctx.goals.get(agent)
     if (plan.pending ?? plan.active) return { mode: 'plan' }
     if (goal?.phase === 'active')
       return { mode: 'goal', goal: goal.objective }

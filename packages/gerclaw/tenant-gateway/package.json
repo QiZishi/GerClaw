@@ -23,7 +23,19 @@
     "public/**/*",
     "gateway.patch.yml"
   ],
+  "dsh": {
+    "bundle": {
+      "patch": "./gateway.patch.yml"
+    }
+  },
   "license": "MIT",
+  "dependencies": {
+    "@gerclaw/auth": "workspace:*",
+    "@gerclaw/tenant-host": "workspace:*",
+    "@gerclaw/tenant-host-local": "workspace:*",
+    "@gerclaw/tenant-store": "workspace:*",
+    "dsh-multi-tenant": "0.2.0-rc.3"
+  },
   "peerDependencies": {
     "@deepseek-ai/cordis": "workspace:^",
     "@deepseek-ai/dsh-host-webserver": "workspace:^",

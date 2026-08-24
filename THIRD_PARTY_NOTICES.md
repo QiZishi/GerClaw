@@ -59,8 +59,8 @@ External packages that a workspace package resolves at runtime. The tier covers 
 | [`diff`](https://github.com/kpdecker/jsdiff) | BSD-3-Clause |
 | [`dotenv`](https://github.com/motdotla/dotenv) | BSD-2-Clause |
 | [`dsh-better-sidebar`](https://github.com/omdsh-dev/DSH-better-sidebar) | MIT |
-| [`dsh-library`](https://github.com/PerryLink/dsh-library) | Apache-2.0 |
 | [`dsh-mineru`](https://github.com/Lee-Hilex/dsh-mineru) | MIT |
+| [`dsh-multi-tenant`](https://github.com/GuoMonth/dsh-multi-tenant) | MIT |
 | [`e2b`](https://github.com/e2b-dev/e2b) | MIT |
 | [`eventsource-parser`](https://github.com/rexxars/eventsource-parser) | MIT |
 | [`fflate`](https://github.com/101arrowz/fflate) | MIT |
@@ -151,6 +151,7 @@ External packages **directly declared** only by repository tooling, test infrast
 | [`dayjs`](https://github.com/iamkun/dayjs) | MIT |
 | [`debug`](https://github.com/debug-js/debug) | MIT |
 | [`docx`](https://github.com/dolanmiu/docx) | MIT |
+| [`dsh-library`](https://github.com/PerryLink/dsh-library) | Apache-2.0 |
 | [`esbuild`](https://github.com/evanw/esbuild) | MIT |
 | [`eslint-plugin-sonarjs`](https://github.com/SonarSource/SonarJS) | LGPL-3.0-only |
 | [`execa`](https://github.com/sindresorhus/execa) | MIT |

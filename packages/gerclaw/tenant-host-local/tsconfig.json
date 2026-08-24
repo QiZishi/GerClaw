@@ -4,9 +4,9 @@
   "include": ["src"],
   "references": [
     { "path": "../../../vendor/cordis" },
-    { "path": "../../host/webserver" },
-    { "path": "../../runtime-diagnostics/invariants" },
-    { "path": "../auth" },
+    { "path": "../../../vendor/timer" },
+    { "path": "../../boot/app-boot" },
+    { "path": "../../subprocess/subprocess" },
     { "path": "../tenant-host" }
   ]
 }

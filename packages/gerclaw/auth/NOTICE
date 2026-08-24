@@ -1,0 +1,9 @@
+GerClaw authentication provider
+
+Cookie, session-token and scrypt account structures are derived from dsh-login
+at commit c0430904da87bbd38e9d3997cd9dba9aed85c0df (MIT).
+https://github.com/islibaodong/dsh-login
+
+Removed: administrator exception, global user management, fixed DSH API
+allow-list and provider-owned connection child plugin. Added: self-registration,
+recovery codes, guest principals and migration of GerClaw legacy accounts.

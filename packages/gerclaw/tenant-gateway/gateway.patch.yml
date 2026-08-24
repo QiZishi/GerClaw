@@ -1,19 +1,86 @@
-# Public GerClaw entry: authentication and per-account child DSH Host gateway.
+# Public GerClaw entry. dsh-multi-tenant is a preceding bundle layer; this
+# layer replaces only its store provider and composes authentication, local
+# account Hosts and the HTTP/WebSocket consumer through Cordis services.
+
 - id: webserver
   name: "@deepseek-ai/dsh-host-webserver"
   config:
     host: !!js process.env.GERCLAW_BIND_HOST || '127.0.0.1'
     port: !!js Number(process.env.GERCLAW_PORT || 3000)
 
+- id: tenant-session-store
+  disabled: true
+
 - insert:
+    - id: gerclaw-tenant-session-store
+      name: "@gerclaw/tenant-store"
+
+    - id: gerclaw-auth
+      name: "@gerclaw/auth"
+      config:
+        dataDir: !!js process.env.GERCLAW_DATA_DIR || dshHomePath('gerclaw-tenants')
+        sessionTtlSeconds: 2592000
+
+    - id: gerclaw-tenant-host-local
+      name: "@gerclaw/tenant-host-local"
+      config:
+        rootDir: !!js process.cwd()
+        dataDir: !!js process.env.GERCLAW_DATA_DIR || dshHomePath('gerclaw-tenants')
+        cliPath: !!js "process.getBuiltinModule('node:path').join(process.cwd(), 'apps/cli/lib/bin.js')"
+        profilePackageSpecs:
+          - "@anysearch/anysearch-dsh@0.1.2"
+          - "dsh-better-sidebar@0.15.2"
+          - "dsh-mineru@0.1.9"
+          - "memorix@1.3.0"
+          - !!js "'link:' + process.getBuiltinModule('node:path').join(process.cwd(), 'packages/gerclaw/client')"
+          - !!js "'link:' + process.getBuiltinModule('node:path').join(process.cwd(), 'packages/gerclaw/client-ui')"
+          - !!js "'link:' + process.getBuiltinModule('node:path').join(process.cwd(), 'packages/gerclaw/cga')"
+          - !!js "'link:' + process.getBuiltinModule('node:path').join(process.cwd(), 'packages/gerclaw/chronic-care')"
+          - !!js "'link:' + process.getBuiltinModule('node:path').join(process.cwd(), 'packages/gerclaw/companion')"
+          - !!js "'link:' + process.getBuiltinModule('node:path').join(process.cwd(), 'packages/gerclaw/health-profile')"
+          - !!js "'link:' + process.getBuiltinModule('node:path').join(process.cwd(), 'packages/gerclaw/local-rag')"
+          - !!js "'link:' + process.getBuiltinModule('node:path').join(process.cwd(), 'packages/gerclaw/medical-evidence')"
+          - !!js "'link:' + process.getBuiltinModule('node:path').join(process.cwd(), 'packages/gerclaw/medication-review')"
+          - !!js "'link:' + process.getBuiltinModule('node:path').join(process.cwd(), 'packages/gerclaw/prescription')"
+          - !!js "'link:' + process.getBuiltinModule('node:path').join(process.cwd(), 'packages/gerclaw/risk-alert')"
+          - !!js "'link:' + process.getBuiltinModule('node:path').join(process.cwd(), 'packages/gerclaw/skills')"
+          - !!js "'link:' + process.getBuiltinModule('node:path').join(process.cwd(), 'packages/gerclaw/system-prompt')"
+          - !!js "'link:' + process.getBuiltinModule('node:path').join(process.cwd(), 'packages/gerclaw/voice')"
+          - !!js "'link:' + process.getBuiltinModule('node:path').join(process.cwd(), 'packages/gerclaw/profile-bundle')"
+        forwardEnv:
+          - AGENT_PRIMARY_API_KEY
+          - AGENT_PRIMARY_URL
+          - AGENT_PRIMARY_MODEL
+          - AGENT_BACKUP1_API_KEY
+          - AGENT_BACKUP1_URL
+          - AGENT_BACKUP1_MODEL
+          - AGENT_BACKUP2_API_KEY
+          - AGENT_BACKUP2_URL
+          - AGENT_BACKUP2_MODEL
+          - MODEL_ASR_KEY
+          - MODEL_ASR_URL
+          - ASR_MODEL
+          - MODEL_TTS_KEY
+          - MODEL_TTS_URL
+          - TTS_MODEL
+          - SILICONFLOW_API_KEY
+          - SILICONFLOW_URL
+          - EMBEDDING_MODEL
+          - RERANK_MODEL
+          - MINERU_API_KEY
+          - MINERU_URL
+          - ANYSEARCH_API_KEY
+          - ANYSEARCH_URL
+        idleMs: 1800000
+        startupTimeoutMs: 120000
+
     - id: gerclaw-tenant-gateway
       name: "@gerclaw/tenant-gateway"
       config:
         rootDir: !!js process.cwd()
-        dataDir: !!js process.env.GERCLAW_DATA_DIR || dshHomePath('gerclaw-tenants')
-        childPatch: !!js "process.getBuiltinModule('node:path').join(process.cwd(), 'packages/gerclaw/profile-bundle/cordis.patch.yml')"
-        idleMs: 1800000
 
+# The public process is only an authentication/proxy boundary. The complete
+# native Web Client loads inside each account Host.
 - id: web-runtime
   disabled: true
 - id: client-hmr

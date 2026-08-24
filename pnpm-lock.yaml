@@ -4739,6 +4739,18 @@ importers:
         specifier: workspace:^
         version: link:../../core/tools
 
+  packages/gerclaw/auth:
+    devDependencies:
+      '@deepseek-ai/cordis':
+        specifier: workspace:^
+        version: link:../../../vendor/cordis
+      '@deepseek-ai/cordis-plugin-timer':
+        specifier: workspace:^
+        version: link:../../../vendor/timer
+      '@deepseek-ai/dsh-credentials':
+        specifier: workspace:^
+        version: link:../../credentials/credentials
+
   packages/gerclaw/cga:
     devDependencies:
       '@deepseek-ai/cordis':
@@ -5087,9 +5099,6 @@ importers:
       dsh-better-sidebar:
         specifier: 0.15.2
         version: 0.15.2(@deepseek-ai/cordis@vendor+cordis)(@deepseek-ai/dsh-agent@packages+core+agent)(@deepseek-ai/dsh-client-locale@packages+client+locale)(@deepseek-ai/dsh-client-runtime@packages+client+runtime)(@deepseek-ai/dsh-client-ui-conversation@packages+client+ui-conversation)(@deepseek-ai/dsh-client-ui-primitives@packages+client+ui-primitives)(@deepseek-ai/dsh-client-ui-settings@packages+client+ui-settings)(@deepseek-ai/dsh-client-ui-slots@packages+client+ui-slots)(@deepseek-ai/dsh-host-webserver@packages+host+webserver)(@deepseek-ai/dsh-invariants@packages+runtime-diagnostics+invariants)(@deepseek-ai/dsh-llm@packages+llm+llm)(@deepseek-ai/dsh-session@packages+core+session)(@deepseek-ai/dsh-settings@packages+settings+settings)(@deepseek-ai/dsh-subagent@packages+subagent+subagent)(@deepseek-ai/dsh-tools@packages+core+tools)(react-dom@18.3.1(react@19.2.7))(react@19.2.7)
-      dsh-library:
-        specifier: 0.1.3
-        version: 0.1.3(@deepseek-ai/cordis@vendor+cordis)(@deepseek-ai/dsh-fs@packages+fs+fs)(@deepseek-ai/dsh-llm@packages+llm+llm)(@deepseek-ai/dsh-session@packages+core+session)(@deepseek-ai/dsh-storage-domain@packages+storage+storage-domain)(@deepseek-ai/dsh-storage-json@packages+storage+storage-json)(@deepseek-ai/dsh-storage@packages+storage+storage)(@deepseek-ai/dsh-subprocess@packages+subprocess+subprocess)(@deepseek-ai/dsh-tools@packages+core+tools)(@deepseek-ai/schemastery@vendor+schemastery)(oxc-resolver@11.20.0)(publint@0.3.21)(tsx@4.22.4)
       dsh-mineru:
         specifier: 0.1.9
         version: 0.1.9(@deepseek-ai/cordis@vendor+cordis)(@deepseek-ai/dsh-credentials@packages+credentials+credentials)(@deepseek-ai/dsh-host-webserver@packages+host+webserver)(@deepseek-ai/dsh-llm@packages+llm+llm)(@deepseek-ai/dsh-settings@packages+settings+settings)(@deepseek-ai/dsh-skill@packages+skill+skill)(@deepseek-ai/dsh-tools@packages+core+tools)(@deepseek-ai/schemastery@vendor+schemastery)
@@ -5144,6 +5153,22 @@ importers:
         version: link:../../core/system-prompt
 
   packages/gerclaw/tenant-gateway:
+    dependencies:
+      '@gerclaw/auth':
+        specifier: workspace:*
+        version: link:../auth
+      '@gerclaw/tenant-host':
+        specifier: workspace:*
+        version: link:../tenant-host
+      '@gerclaw/tenant-host-local':
+        specifier: workspace:*
+        version: link:../tenant-host-local
+      '@gerclaw/tenant-store':
+        specifier: workspace:*
+        version: link:../tenant-store
+      dsh-multi-tenant:
+        specifier: 0.2.0-rc.3
+        version: 0.2.0-rc.3(@deepseek-ai/cordis@vendor+cordis)
     devDependencies:
       '@deepseek-ai/cordis':
         specifier: workspace:^
@@ -5154,6 +5179,54 @@ importers:
       '@deepseek-ai/dsh-invariants':
         specifier: workspace:^
         version: link:../../runtime-diagnostics/invariants
+
+  packages/gerclaw/tenant-host:
+    dependencies:
+      dsh-multi-tenant:
+        specifier: 0.2.0-rc.3
+        version: 0.2.0-rc.3(@deepseek-ai/cordis@vendor+cordis)
+    devDependencies:
+      '@deepseek-ai/cordis':
+        specifier: workspace:^
+        version: link:../../../vendor/cordis
+
+  packages/gerclaw/tenant-host-local:
+    dependencies:
+      '@gerclaw/tenant-host':
+        specifier: workspace:*
+        version: link:../tenant-host
+      dsh-multi-tenant:
+        specifier: 0.2.0-rc.3
+        version: 0.2.0-rc.3(@deepseek-ai/cordis@vendor+cordis)
+    devDependencies:
+      '@deepseek-ai/cordis':
+        specifier: workspace:^
+        version: link:../../../vendor/cordis
+      '@deepseek-ai/cordis-plugin-timer':
+        specifier: workspace:^
+        version: link:../../../vendor/timer
+      '@deepseek-ai/dsh-app-boot':
+        specifier: workspace:^
+        version: link:../../boot/app-boot
+      '@deepseek-ai/dsh-subprocess':
+        specifier: workspace:^
+        version: link:../../subprocess/subprocess
+
+  packages/gerclaw/tenant-store:
+    dependencies:
+      dsh-multi-tenant:
+        specifier: 0.2.0-rc.3
+        version: 0.2.0-rc.3(@deepseek-ai/cordis@vendor+cordis)
+      zod:
+        specifier: ^4.3.6
+        version: 4.4.3
+    devDependencies:
+      '@deepseek-ai/cordis':
+        specifier: workspace:^
+        version: link:../../../vendor/cordis
+      '@deepseek-ai/dsh-storage-domain':
+        specifier: workspace:^
+        version: link:../../storage/storage-domain
 
   packages/gerclaw/voice:
     dependencies:
@@ -13764,6 +13837,12 @@ packages:
       '@deepseek-ai/dsh-tools': ^0.1.0-rc.6
       '@deepseek-ai/schemastery': ^3.18.0
 
+  dsh-multi-tenant@0.2.0-rc.3:
+    resolution: {integrity: sha512-u48S2m5qe2Gamzi2ibnqhIX+pjImXF71gX+b8MTJ1H/qJFrvDo4tR5mIYf9aMe2tjNm3KIUpI6F0Up3DgB5SiA==}
+    engines: {node: ^22.19.0 || >=24.0.0}
+    peerDependencies:
+      '@deepseek-ai/cordis': '>=4.0.1 <5'
+
   dts-resolver@3.0.0:
     resolution: {integrity: sha512-1T1f+z+4tl9XD+m+0HBgWoL/nm0bOIffyWaUuUSBlFg/86IWvfx+wjNaO/ybU0AJzG9/Mi5hBUgGV6zCmWEN7Q==}
     engines: {node: ^22.18.0 || >=24.0.0}
@@ -20311,6 +20390,10 @@ snapshots:
       '@deepseek-ai/dsh-skill': link:packages/skill/skill
       '@deepseek-ai/dsh-tools': link:packages/core/tools
       '@deepseek-ai/schemastery': link:vendor/schemastery
+
+  dsh-multi-tenant@0.2.0-rc.3(@deepseek-ai/cordis@vendor+cordis):
+    dependencies:
+      '@deepseek-ai/cordis': link:vendor/cordis
 
   dts-resolver@3.0.0(oxc-resolver@11.20.0):
     optionalDependencies:

@@ -159,17 +159,24 @@ describe('GerClaw integration plugin contracts', () => {
   })
 
   it('tenant-gateway isolates child Hosts and uses strict cookies', async () => {
-    const text = await source('tenant-gateway/src/index.ts')
-    expect(text).toContain('DSH_HOME')
-    expect(text).toContain('SameSite=Strict')
-    expect(text).toContain('GERCLAW_ACCOUNT_DATA_DIR')
+    const gateway = await source('tenant-gateway/src/index.ts')
+    const host = await source('tenant-host-local/src/index.ts')
+    expect(gateway).toContain('SameSite=Strict')
+    expect(gateway).toContain("static inject = ['webServer', 'gerclawAuth', 'gerclawTenantHost', 'multiTenant']")
+    expect(gateway).not.toContain('DSH_HOME')
+    expect(host).toContain('DSH_HOME: dshHome')
+    expect(host).toContain('GERCLAW_ACCOUNT_DATA_DIR')
+    expect(host).toContain("'plugin',")
+    expect(host).not.toContain('child_process')
   })
 
   it('profile-bundle loads native Plan/Goal and every GerClaw provider through Cordis', async () => {
     const text = await source('profile-bundle/cordis.patch.yml')
-    for (const name of ['plan-mode', 'goal', '@gerclaw/system-prompt', '@gerclaw/voice', '@gerclaw/local-rag', '@gerclaw/app'])
+    const agent = await source('profile-bundle/presets/gerclaw/agent.cordis.yml')
+    for (const name of ['goal', '@gerclaw/system-prompt', '@gerclaw/voice', '@gerclaw/local-rag', '@gerclaw/app'])
       expect(text).toContain(name)
-    expect(text).toContain('dsh-mineru')
+    expect(agent).toContain('plan-mode')
+    expect(await source('profile-bundle/package.json')).toContain('dsh-mineru')
     expect(await source('local-rag/package.json')).toContain('dsh-library')
   })
 
@@ -257,7 +264,9 @@ describe('GerClaw integration plugin contracts', () => {
   it('launcher reads the root env and starts the real profile patch', async () => {
     const text = await source('launcher/src/bin.ts')
     expect(text).toContain("join(root, '.env')")
-    expect(text).toContain('gateway.patch.yml')
+    expect(text).toContain("'plugin', '--profile', 'web'")
+    expect(text).toContain('gatewayPackage')
+    expect(text).not.toContain("'--patch'")
     expect(text).toContain('--profile')
   })
 })

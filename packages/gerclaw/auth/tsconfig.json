@@ -4,9 +4,7 @@
   "include": ["src"],
   "references": [
     { "path": "../../../vendor/cordis" },
-    { "path": "../../host/webserver" },
-    { "path": "../../runtime-diagnostics/invariants" },
-    { "path": "../auth" },
-    { "path": "../tenant-host" }
+    { "path": "../../../vendor/timer" },
+    { "path": "../../credentials/credentials" }
   ]
 }

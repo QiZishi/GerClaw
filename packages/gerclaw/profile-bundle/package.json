@@ -58,7 +58,6 @@
     "@gerclaw/skills": "workspace:*",
     "@gerclaw/voice": "workspace:*",
     "dsh-better-sidebar": "0.15.2",
-    "dsh-library": "0.1.3",
     "dsh-mineru": "0.1.9",
     "memorix": "1.3.0"
   },

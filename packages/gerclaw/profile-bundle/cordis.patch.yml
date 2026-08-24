@@ -59,6 +59,11 @@
     searchProvider: anysearch
     fetchProvider: anysearch
 
+- id: web-search-anysearch
+  config:
+    apiKeyEnv: ANYSEARCH_API_KEY
+    baseURL: !!js process.env.ANYSEARCH_URL || 'https://api.anysearch.com'
+
 - id: web-search-deepseek
   disabled: true
 
@@ -72,13 +77,13 @@
   name: "@deepseek-ai/dsh-agent-presets"
   config:
     default: gerclaw
-    # The gateway installs this repository-owned preset into each isolated
-    # account home. DSH keeps its shipped root and discovers this user root
-    # through the supported preset extension point.
-    includeUserRoot: true
+    roots:
+      - path: !!js "process.getBuiltinModule('node:path').join(process.env.GERCLAW_ROOT_DIR, 'packages/gerclaw/profile-bundle/presets')"
+        trust: system
+    includeUserRoot: false
 
-# Goal and Plan are deliberately restated to make their presence an explicit
-# GerClaw product contract rather than an accidental bundle inheritance.
+# Goal is Host-scoped. Plan stays exclusively inside the GerClaw agent preset,
+# matching DSH's native isolated plan composition.
 - id: goal
   name: "@deepseek-ai/dsh-goal"
 
@@ -87,13 +92,6 @@
 
 - id: command-goal
   name: "@deepseek-ai/dsh-command-goal"
-
-- id: plan-mode
-  name: "@deepseek-ai/dsh-plan-mode"
-  disabled: false
-  config:
-    section: |-
-      你正在使用 GerClaw 计划模式。先读取当前账号可用的健康资料和用户目标，把任务拆成用户能理解的步骤；只做读取、检索和分析，不执行会改变数据的动作。计划最多 5 步、每步一句，正文不超过 800 个中文字符；只保留必要输入、风险信号、预期产物和验证方法，不重复背景知识。本轮禁止把计划作为普通最终回复输出；完成计划后必须立即调用 exit_plan_mode，把完整 Markdown 计划作为该工具参数提交审核。只有工具返回用户明确批准后才能执行。
 
 - id: agent-default-model
   name: "@deepseek-ai/dsh-agent-default-model"
@@ -147,25 +145,18 @@
     host: 127.0.0.1
     port: !!js Number(process.env.GERCLAW_HOST_PORT || 3080)
 
-- insert:
-    - id: web-search-anysearch
-      name: "@anysearch/anysearch-dsh"
-      config:
-        apiKeyEnv: ANYSEARCH_API_KEY
-        baseURL: !!js process.env.ANYSEARCH_URL || 'https://api.anysearch.com'
+- id: mineru
+  config:
+    apiBaseUrl: !!js "process.env.MINERU_URL ? new URL(process.env.MINERU_URL).origin : 'https://mineru.net'"
+    tokenCredential: MINERU_API_KEY
+    mode: auto
+    exposeMode: always
 
+- insert:
     - id: storage-sqlite
       name: "@deepseek-ai/dsh-storage-sqlite"
       config:
         path: !!js dshHomePath('storages/gerclaw.sqlite')
-
-    - id: mineru
-      name: dsh-mineru
-      config:
-        apiBaseUrl: !!js "process.env.MINERU_URL ? new URL(process.env.MINERU_URL).origin : 'https://mineru.net'"
-        tokenCredential: MINERU_API_KEY
-        mode: auto
-        exposeMode: always
 
     - id: dsh-library
       name: dsh-library
@@ -284,9 +275,6 @@
               provider: gerclaw-backup2,
               model: !!js "process.env.AGENT_BACKUP2_MODEL || process.env.AGENT_PRIMARY_MODEL || 'deepseek-chat'",
             }
-
-    - id: better-sidebar
-      name: dsh-better-sidebar
 
     - id: gerclaw-client-ui
       name: "@gerclaw/client-ui"
