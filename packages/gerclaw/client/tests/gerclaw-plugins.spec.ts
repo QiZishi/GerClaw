@@ -175,11 +175,18 @@ describe('GerClaw integration plugin contracts', () => {
   })
 
   it('medical-evidence keeps only the three public providers', async () => {
-    const text = await source('medical-evidence/src/index.ts')
-    expect(text).toContain('eutils.ncbi.nlm.nih.gov')
-    expect(text).toContain('api.fda.gov')
-    expect(text).toContain('wsearch.nlm.nih.gov')
-    expect(text).not.toContain('persona')
+    const [definition, provider, profile] = await Promise.all([
+      source('medical-evidence/src/index.ts'),
+      source('medical-evidence-public/src/index.ts'),
+      source('profile-bundle/cordis.patch.yml'),
+    ])
+    expect(definition).toContain('abstract class MedicalEvidenceProvider')
+    expect(provider).toContain('extends MedicalEvidenceProvider')
+    expect(provider).toContain('eutils.ncbi.nlm.nih.gov')
+    expect(provider).toContain('api.fda.gov')
+    expect(provider).toContain('wsearch.nlm.nih.gov')
+    expect(provider).not.toContain('persona')
+    expect(profile).toContain('name: "@gerclaw/medical-evidence-public"')
   })
 
   it('tenant-gateway isolates child Hosts and uses strict cookies', async () => {
@@ -201,14 +208,17 @@ describe('GerClaw integration plugin contracts', () => {
     for (const name of ['goal', '@gerclaw/system-prompt', '@gerclaw/voice', '@gerclaw/shared-knowledge', '@gerclaw/rag', '@gerclaw/app'])
       expect(text).toContain(name)
     expect(agent).toContain('plan-mode')
-    expect(await source('profile-bundle/package.json')).toContain('dsh-mineru')
+    expect(await source('profile-bundle/package.json')).toContain('@gerclaw/document-parser-mineru')
+    expect(await source('profile-bundle/package.json')).not.toContain('"dsh-mineru"')
+    expect(await source('document-parser-mineru/package.json')).toContain('"dsh-mineru": "0.1.9"')
     expect(await source('local-rag/package.json')).toContain('dsh-library')
   })
 
-  it('app is GerClaw-only, chat-centred, and exposes seven exports', async () => {
+  it('app is GerClaw-only, chat-centred, and delegates seven exports to the artifact service', async () => {
     const client = await source('client-ui/src/client/index.ts')
     const navigation = await source('client-ui/src/client/MedicalNavigation.tsx')
     const app = await source('client/src/index.ts')
+    const artifacts = await source('artifact-local/src/index.ts')
     expect(client).toContain('老年慢病智慧诊疗助手')
     expect(navigation).toContain('健康对话')
     expect(navigation).toContain('startPrescription')
@@ -221,14 +231,19 @@ describe('GerClaw integration plugin contracts', () => {
     expect(app).not.toContain("path === '/chat'")
     expect(app).not.toContain("path === '/interaction'")
     expect(app).not.toContain('ctx.llm.stream(')
+    expect(app).not.toContain('ctx.tools.execute(')
+    expect(app).not.toContain('activeMedicalTasks')
+    expect(app).not.toContain('defineDomain(')
     for (const format of ['md', 'html', 'docx', 'pdf', 'png', 'jpg', 'json'])
-      expect(app).toContain(`'${format}'`)
-    expect(app).toContain('workspaceRef = `artifacts/${artifactId}.${format}`')
-    expect(app).toContain("createHash('sha256')")
+      expect(artifacts).toContain(`'${format}'`)
+    expect(artifacts).toContain('workspaceRef = `artifacts/${artifactId}.${format}`')
+    expect(artifacts).toContain("createHash('sha256')")
+    expect(app).toContain('this.ctx.gerclawTasks.export(')
   })
 
   it('submits, cancels, restores and exports medical work through typed DSH Remote', async () => {
     const app = await source('client/src/index.ts')
+    const runtime = await source('task-runtime-local/src/index.ts')
     const appPackage = await source('client/package.json')
     const profile = await source('profile-bundle/cordis.patch.yml')
     const client = await source('client-ui/src/client/index.ts')
@@ -237,6 +252,13 @@ describe('GerClaw integration plugin contracts', () => {
       expect(appPackage).toContain(`"${path}"`)
     for (const method of ['submit', 'cancel', 'status', 'export'])
       expect(app).toContain(`@Remote('${method}')`)
+    expect(runtime).toContain("this.ctx.jobs.attachController('gerclaw-task-runtime')")
+    expect(runtime).toContain('this.ctx.jobs.start({')
+    expect(runtime).toContain('this.ctx.jobs.kill(')
+    expect(runtime).not.toMatch(/new Map[<(]/u)
+    expect(profile).toContain('name: "@gerclaw/task-runtime-local"')
+    expect(profile).toContain('name: "@gerclaw/health-repository-storage"')
+    expect(profile).toContain('name: "@gerclaw/artifact-local"')
     expect(profile).toContain('- "@gerclaw/voice"')
     expect(profile).toContain('- "@gerclaw/app"')
     expect(client).toContain("from '@gerclaw/app/remote'")

@@ -1,11 +1,11 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { Context } from '@deepseek-ai/cordis'
-import { MedicalEvidenceService } from '../src/index.ts'
+import { PublicMedicalEvidenceProvider } from '../src/index.ts'
 
 afterEach(() => { vi.unstubAllGlobals() })
 
 describe('medical evidence providers', () => {
-  it('keeps PubMed, openFDA and MedlinePlus identities separate', async () => {
+  it('returns separate success status for all three public sources', async () => {
     vi.stubGlobal('fetch', vi.fn(async (input: string | URL | Request) => {
       const url = typeof input === 'string' ? input : input instanceof URL ? input.href : input.url
       if (url.includes('esearch')) return Response.json({ esearchresult: { idlist: ['123'] } })
@@ -13,26 +13,29 @@ describe('medical evidence providers', () => {
       if (url.includes('api.fda.gov')) return Response.json({ results: [{ id: 'label-1', openfda: { generic_name: ['aspirin'] }, warnings: ['warning'] }] })
       return new Response('<nlmSearchResult><list><document url="https://medlineplus.gov/a.html"><content name="title">Aspirin</content><content name="snippet">Health topic</content></document></list></nlmSearchResult>')
     }))
-    const service = new MedicalEvidenceService(new Context())
-    const rows = await service.search('aspirin')
-    expect(rows.map(row => row.source)).toEqual(['PubMed', 'openFDA', 'MedlinePlus'])
-    expect(rows.every(row => row.url.startsWith('https://'))).toBe(true)
+    const service = new PublicMedicalEvidenceProvider(new Context())
+    const result = await service.searchDetailed('aspirin')
+    expect(result.sources.map(item => [item.source, item.status])).toEqual([
+      ['PubMed', 'success'], ['openFDA', 'success'], ['MedlinePlus', 'success'],
+    ])
+    expect(result.results.map(row => row.source)).toEqual(['PubMed', 'openFDA', 'MedlinePlus'])
   })
 
-  it('fails the combined task when any required provider fails', async () => {
+  it('exposes one source failure and refuses aggregate success', async () => {
     vi.stubGlobal('fetch', vi.fn(async (input: string | URL | Request) => {
       const url = typeof input === 'string' ? input : input instanceof URL ? input.href : input.url
       if (url.includes('esearch')) return new Response('', { status: 503 })
       if (url.includes('api.fda.gov')) return Response.json({ results: [] })
       return new Response('<nlmSearchResult/>')
     }))
-    const service = new MedicalEvidenceService(new Context())
-    await expect(service.search('aspirin')).rejects.toThrow('503')
-  })
-
-  it('treats an openFDA 404 as an empty drug-label result, not a source failure', async () => {
-    vi.stubGlobal('fetch', vi.fn(async () => new Response('', { status: 404 })))
-    const service = new MedicalEvidenceService(new Context())
-    await expect(service.searchOpenFda('aspirin')).resolves.toEqual([])
+    const service = new PublicMedicalEvidenceProvider(new Context())
+    await expect(service.searchDetailed('aspirin')).resolves.toMatchObject({
+      sources: [
+        { source: 'PubMed', status: 'failed' },
+        { source: 'openFDA', status: 'success' },
+        { source: 'MedlinePlus', status: 'success' },
+      ],
+    })
+    await expect(service.search('aspirin')).rejects.toThrow('PubMed')
   })
 })

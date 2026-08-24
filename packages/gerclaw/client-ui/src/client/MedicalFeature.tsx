@@ -27,6 +27,7 @@ export type TaskStep = { name?: string; summary?: string; elapsedMs?: number; st
 export type Task = {
   taskId?: string
   kind?: string
+  status?: 'running' | 'completed' | 'failed' | 'cancelled'
   elapsedMs?: number
   steps?: TaskStep[]
   result?: unknown
@@ -179,7 +180,6 @@ export function TaskResult({ response, sessionId, remote }: {
         void remote.export(sessionId, taskId, ['md', 'html', 'docx', 'pdf', 'png', 'jpg', 'json']).then((artifacts) => {
           const count = artifacts.length
           setExported(`已生成 ${count} 个格式，右侧“产物”可预览和下载`)
-          window.dispatchEvent(new CustomEvent('gerclaw:artifacts-updated'))
         }).catch((error: unknown) => { setExported(error instanceof Error ? error.message : '导出失败') })
           .finally(() => { setExporting(false) })
       }}>{exporting ? '正在导出…' : '导出七种格式'}</button>

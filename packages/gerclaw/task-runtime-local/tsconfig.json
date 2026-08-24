@@ -1,0 +1,25 @@
+{
+  "extends": "../../../tsconfig.base.json",
+  "compilerOptions": { "rootDir": "src", "outDir": "lib/types" },
+  "include": ["src"],
+  "references": [
+    { "path": "../../../vendor/cordis" },
+    { "path": "../../core/agent" },
+    { "path": "../../core/session" },
+    { "path": "../../jobs/jobs" },
+    { "path": "../../subagent/subagent" },
+    { "path": "../artifact" },
+    { "path": "../health-repository" },
+    { "path": "../task-runtime" },
+    { "path": "../cga" },
+    { "path": "../chronic-care" },
+    { "path": "../companion" },
+    { "path": "../health-profile" },
+    { "path": "../library" },
+    { "path": "../medical-evidence" },
+    { "path": "../medication-review" },
+    { "path": "../prescription" },
+    { "path": "../risk-alert" },
+    { "path": "../../runtime-diagnostics/invariants" }
+  ]
+}

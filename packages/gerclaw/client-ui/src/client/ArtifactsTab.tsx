@@ -19,7 +19,11 @@ interface Bootstrap {
 const artifactUrl = (artifact: Artifact): string =>
   `/gerclaw/api/artifacts/${encodeURIComponent(artifact.artifactId)}`
 
-export function ArtifactsTab({ visible, scope }: TabComponentProps) {
+export interface ArtifactsTabProps extends TabComponentProps {
+  subscribe?: (sessionId: string, listener: () => void) => () => void
+}
+
+export function ArtifactsTab({ visible, scope, subscribe }: ArtifactsTabProps) {
   const [artifacts, setArtifacts] = useState<Artifact[]>([])
   const [selected, setSelected] = useState<Artifact | null>(null)
   const [showAll, setShowAll] = useState(false)
@@ -47,10 +51,8 @@ export function ArtifactsTab({ visible, scope }: TabComponentProps) {
   useEffect(() => {
     if (!visible) return
     void load()
-    const onCreated = (): void => { void load() }
-    window.addEventListener('gerclaw:artifacts-updated', onCreated)
-    return () => { window.removeEventListener('gerclaw:artifacts-updated', onCreated) }
-  }, [load, visible])
+    return subscribe?.(scope.sessionId, () => { void load() })
+  }, [load, scope.sessionId, subscribe, visible])
   const previewUrl = selected === null ? '' : artifactUrl(selected)
   return (
     <section data-gerclaw-artifacts aria-label="产物">

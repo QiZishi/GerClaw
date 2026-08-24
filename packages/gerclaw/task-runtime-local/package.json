@@ -1,0 +1,54 @@
+{
+  "name": "@gerclaw/task-runtime-local",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "main": "lib/index.js",
+  "types": "lib/types/index.d.ts",
+  "exports": {
+    ".": { "types": "./lib/types/index.d.ts", "default": "./lib/index.js" },
+    "./invariant": { "types": "./lib/types/invariant.d.ts", "default": "./lib/invariant.js" },
+    "./src/*": "./src/*"
+  },
+  "files": ["lib/index.js", "lib/invariant.js", "lib/types/**/*.d.ts", "README.md"],
+  "license": "MIT",
+  "dependencies": {
+    "@gerclaw/artifact": "workspace:*",
+    "@gerclaw/health-repository": "workspace:*",
+    "@gerclaw/task-runtime": "workspace:*"
+  },
+  "peerDependencies": {
+    "@deepseek-ai/cordis": "workspace:^",
+    "@deepseek-ai/dsh-agent": "workspace:^",
+    "@deepseek-ai/dsh-invariants": "workspace:^",
+    "@deepseek-ai/dsh-jobs": "workspace:^",
+    "@deepseek-ai/dsh-session": "workspace:^",
+    "@deepseek-ai/dsh-subagent": "workspace:^",
+    "@gerclaw/cga": "workspace:*",
+    "@gerclaw/chronic-care": "workspace:*",
+    "@gerclaw/companion": "workspace:*",
+    "@gerclaw/health-profile": "workspace:*",
+    "@gerclaw/library": "workspace:*",
+    "@gerclaw/medical-evidence": "workspace:*",
+    "@gerclaw/medication-review": "workspace:*",
+    "@gerclaw/prescription": "workspace:*",
+    "@gerclaw/risk-alert": "workspace:*"
+  },
+  "devDependencies": {
+    "@deepseek-ai/cordis": "workspace:^",
+    "@deepseek-ai/dsh-agent": "workspace:^",
+    "@deepseek-ai/dsh-invariants": "workspace:^",
+    "@deepseek-ai/dsh-jobs": "workspace:^",
+    "@deepseek-ai/dsh-session": "workspace:^",
+    "@deepseek-ai/dsh-subagent": "workspace:^",
+    "@gerclaw/cga": "workspace:*",
+    "@gerclaw/chronic-care": "workspace:*",
+    "@gerclaw/companion": "workspace:*",
+    "@gerclaw/health-profile": "workspace:*",
+    "@gerclaw/library": "workspace:*",
+    "@gerclaw/medical-evidence": "workspace:*",
+    "@gerclaw/medication-review": "workspace:*",
+    "@gerclaw/prescription": "workspace:*",
+    "@gerclaw/risk-alert": "workspace:*"
+  }
+}

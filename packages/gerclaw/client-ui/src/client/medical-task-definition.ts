@@ -36,14 +36,17 @@ export const medicalTaskDefinition: ConversationNodeDefinition<Task> = {
   match: (event) => {
     const matched = taskEvent(event)
     if (matched === undefined) return null
-    return { id: String(matched.data.task.taskId ?? matched.seq), role: 'start' }
+    return {
+      id: String(matched.data.task.taskId ?? matched.seq),
+      role: matched.data.task.status === 'running' ? 'start' : 'update',
+    }
   },
   start: (_context, match) => {
     const matched = taskEvent(match.event)
     if (matched === undefined) throw new Error('gerclaw-task start requires gerclaw/task')
     return matched.data.task
   },
-  update: context => context.state,
+  update: (context, match) => taskEvent(match.event)?.data.task ?? context.state,
   buildViewNode: (context): ChatConversationViewNode | null => {
     if (context.start === undefined || context.state === undefined) return null
     return {

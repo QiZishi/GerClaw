@@ -1,4 +1,5 @@
 import type { ClientContext } from '@deepseek-ai/dsh-client-runtime/client'
+import { createElement } from 'react'
 import type {} from '@deepseek-ai/dsh-api-remotes/client'
 import type {} from '@deepseek-ai/dsh-client-ui-conversation/client'
 import type {} from '@deepseek-ai/dsh-client-ui-layout/client'
@@ -20,6 +21,13 @@ import { QuickPrompts } from './QuickPrompts.tsx'
 import { installProductStyles } from './styles.ts'
 
 export const inject = ['slots', 'theme', 'layout', 'betterSidebar', 'sessions', 'workspaces', 'conversation', 'conversationEvents', 'remote']
+
+declare module '@deepseek-ai/cordis' {
+  interface Events {
+    /** A GerClaw export completed in this browser client. */
+    'gerclaw/artifacts-created'(sessionId: SessionId): void
+  }
+}
 
 const INTERNAL_PLATFORM_NAME = ['DeepSeek', 'Harness'].join(' ')
 
@@ -54,6 +62,7 @@ export async function apply(ctx: ClientContext): Promise<void> {
     ): Promise<ArtifactDescriptor[]> => {
       const result = await ctx.remote.gerclawApp.export(sessionId as SessionId, { taskId, formats })
       if (!result.ok) throw new Error(result.error.message)
+      ctx.emit('gerclaw/artifacts-created', sessionId as SessionId)
       return result.value.artifacts
     },
   }
@@ -544,12 +553,19 @@ export async function apply(ctx: ClientContext): Promise<void> {
     inject: sessionId => ({ sessionId }),
   }, ConversationDocumentUpload))
 
+  const ArtifactsTabWithEvents = (props: Parameters<typeof ArtifactsTab>[0]) => createElement(ArtifactsTab, {
+    ...props,
+    subscribe: (sessionId: string, listener: () => void) => ctx.on(
+      'gerclaw/artifacts-created',
+      (createdFor) => { if (createdFor === sessionId) listener() },
+    ),
+  })
   ctx.effect(() => ctx.betterSidebar.registerTab({
     id: 'gerclaw-artifacts',
     title: '产物',
     order: -100,
     single: true,
-    component: ArtifactsTab,
+    component: ArtifactsTabWithEvents,
   }), 'gerclaw client: artifacts tab')
 
   const openedArtifactSessions = new Set<string>()
@@ -565,16 +581,9 @@ export async function apply(ctx: ClientContext): Promise<void> {
     ensureArtifactTab()
     return off
   }, 'gerclaw client: open artifacts tab per session')
-  ctx.effect(() => {
-    const openArtifacts = (): void => {
-      const sessionId = ctx.sessions.list.getSnapshot().current
-      if (sessionId !== undefined) {
-        ctx.betterSidebar.openTab({ type: 'gerclaw-artifacts' }, { sessionId })
-      }
-    }
-    window.addEventListener('gerclaw:artifacts-updated', openArtifacts)
-    return () => { window.removeEventListener('gerclaw:artifacts-updated', openArtifacts) }
-  }, 'gerclaw client: reveal new artifacts')
+  ctx.on('gerclaw/artifacts-created', (sessionId) => {
+    ctx.betterSidebar.openTab({ type: 'gerclaw-artifacts' }, { sessionId })
+  })
 
   const disabledTabs = Object.fromEntries([
     'editor', 'git', 'subagent', 'sidechat', 'terminal', 'browser', 'diff',

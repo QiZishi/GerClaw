@@ -1,3 +1,0 @@
-This package adapts the PubMed, openFDA and MedlinePlus provider concepts from
-dsh-medseek 0.1.1 (Apache-2.0), copyright its contributors. GerClaw-specific
-provider composition and Chinese user output are original changes.

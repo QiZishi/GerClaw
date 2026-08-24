@@ -1,0 +1,4 @@
+This provider reuses the pinned dsh-mineru 0.1.9 MineruClient, ZIP extraction,
+polling, upload, timeout and cancellation implementation (MIT, Lee-Hilex and
+contributors). GerClaw removes its settings, branding, persona, UI, skill and
+Tool surface and exposes only an injected Cordis document-parser provider.

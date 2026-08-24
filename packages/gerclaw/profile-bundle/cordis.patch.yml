@@ -140,13 +140,6 @@
     host: 127.0.0.1
     port: !!js Number(process.env.GERCLAW_HOST_PORT || 3080)
 
-- id: mineru
-  config:
-    apiBaseUrl: !!js "process.env.MINERU_URL ? new URL(process.env.MINERU_URL).origin : 'https://mineru.net'"
-    tokenCredential: MINERU_API_KEY
-    mode: auto
-    exposeMode: always
-
 - insert:
     - id: gerclaw-library-dsh
       name: "@gerclaw/library-dsh"
@@ -215,8 +208,28 @@
     - { id: gerclaw-chronic-care, name: "@gerclaw/chronic-care" }
     - { id: gerclaw-companion, name: "@gerclaw/companion" }
     - { id: gerclaw-risk-alert, name: "@gerclaw/risk-alert" }
-    - { id: gerclaw-medical-evidence, name: "@gerclaw/medical-evidence" }
+    - { id: gerclaw-medical-evidence, name: "@gerclaw/medical-evidence-public" }
     - { id: gerclaw-skills, name: "@gerclaw/skills" }
+
+    - id: gerclaw-health-repository
+      name: "@gerclaw/health-repository-storage"
+
+    - id: gerclaw-artifacts
+      name: "@gerclaw/artifact-local"
+      config:
+        dataDir: !!js process.env.GERCLAW_ACCOUNT_DATA_DIR || dshHomePath('gerclaw-data')
+
+    - id: gerclaw-task-runtime
+      name: "@gerclaw/task-runtime-local"
+
+    - id: gerclaw-document-parser
+      name: "@gerclaw/document-parser-mineru"
+      config:
+        apiBaseUrl: !!js "process.env.MINERU_URL ? new URL(process.env.MINERU_URL).origin : 'https://mineru.net'"
+        tokenCredential: MINERU_API_KEY
+        modelVersion: vlm
+        language: ch
+        timeoutMs: 600000
 
     - id: gerclaw-speech-qianwen
       name: "@gerclaw/speech-qianwen"
