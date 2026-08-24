@@ -2,7 +2,7 @@
 import { connect, createServer, type Socket } from 'node:net'
 import { mkdir, rm, writeFile } from 'node:fs/promises'
 import { join } from 'node:path'
-import { Context } from '@deepseek-ai/cordis'
+import { Context, Service } from '@deepseek-ai/cordis'
 import type {} from '@deepseek-ai/cordis-plugin-timer'
 import { initProfile, PROFILE_TEMPLATES, resolveProfileDir } from '@deepseek-ai/dsh-app-boot'
 import z from '@deepseek-ai/schemastery'
@@ -89,6 +89,15 @@ export class LocalTenantHostRuntime extends TenantHostRuntime {
 
   constructor(ctx: Context, private readonly config: LocalTenantHostConfig) {
     super(ctx)
+  }
+
+  protected async [Service.init](): Promise<void> {
+    // Guest Hosts are never durable. A process-level interruption can prevent
+    // principal disposers from finishing, so the next native Loader activation
+    // clears only the dedicated guest root before accepting new principals.
+    const guestsRoot = join(this.config.dataDir, 'guests')
+    await rm(guestsRoot, { recursive: true, force: true })
+    await mkdir(guestsRoot, { recursive: true })
   }
 
   async ensure(request: TenantHostRequest): Promise<TenantHostEndpoint> {
