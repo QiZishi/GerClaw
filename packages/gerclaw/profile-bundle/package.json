@@ -54,6 +54,8 @@
     "@gerclaw/medication-review": "workspace:*",
     "@gerclaw/prescription": "workspace:*",
     "@gerclaw/risk-alert": "workspace:*",
+    "@gerclaw/speech": "workspace:*",
+    "@gerclaw/speech-qianwen": "workspace:*",
     "@gerclaw/system-prompt": "workspace:*",
     "@gerclaw/skills": "workspace:*",
     "@gerclaw/voice": "workspace:*",

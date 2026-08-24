@@ -23,6 +23,7 @@ interface Playback {
 }
 
 let active: Playback | null = null
+const isActive = (playback: Playback): boolean => active === playback
 
 const stopActive = async (): Promise<void> => {
   const playback = active
@@ -172,14 +173,14 @@ export function TalkMessageButton({ messageId, useSession, sessionId }: Props): 
       }
       const waitMs = Math.max(0, (playback.next - context.currentTime) * 1_000)
       await new Promise(resolve => window.setTimeout(resolve, waitMs + 80))
-      if (active !== null && active.owner === owner) await stopActive()
+      if (isActive(playback)) await stopActive()
       setPhase('idle')
     } catch (reason) {
       if (controller.signal.aborted) {
         setPhase('idle')
         return
       }
-      if (active !== null && active.owner === owner) await stopActive()
+      if (isActive(playback)) await stopActive()
       setError(reason instanceof Error ? reason.message : '朗读失败')
       setPhase('error')
     }

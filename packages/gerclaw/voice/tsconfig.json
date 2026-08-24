@@ -18,6 +18,7 @@
     { "path": "../../runtime-diagnostics/invariants" },
     { "path": "../../session/session-projection" },
     { "path": "../../subprocess/subprocess" },
-    { "path": "../../typert/protocol" }
+    { "path": "../../typert/protocol" },
+    { "path": "../speech" }
   ]
 }

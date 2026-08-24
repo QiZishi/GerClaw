@@ -23,7 +23,6 @@
     { "path": "../risk-alert" },
     { "path": "../companion" },
     { "path": "../prescription" },
-    { "path": "../voice" },
     { "path": "../local-rag" },
     { "path": "../system-prompt" },
     { "path": "../../runtime-diagnostics/invariants" }

@@ -164,6 +164,8 @@
     "@gerclaw/prescription": "workspace:*",
     "@gerclaw/profile-bundle": "workspace:*",
     "@gerclaw/risk-alert": "workspace:*",
+    "@gerclaw/speech": "workspace:*",
+    "@gerclaw/speech-qianwen": "workspace:*",
     "@gerclaw/skills": "workspace:*",
     "@gerclaw/system-prompt": "workspace:*",
     "@gerclaw/tenant-gateway": "workspace:*",

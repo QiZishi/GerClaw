@@ -1,6 +1,8 @@
 /** Shared, secret-free GerClaw voice event vocabulary. */
 import { z } from 'zod'
 
+export type { GerclawVoiceEvent } from '@gerclaw/speech'
+
 export type SpeechReason = 'user-read-aloud'
 export type SpeechTtsEngine = 'qianwen'
 
@@ -13,18 +15,6 @@ export interface DshTalkSpeechEvent {
   reason: SpeechReason
   error?: string | undefined
   interrupted?: boolean | undefined
-}
-
-export interface GerclawVoiceEvent {
-  version: 1
-  kind: 'asr' | 'tts'
-  status: 'completed' | 'interrupted' | 'failed'
-  model: string
-  text: string
-  elapsedMs: number
-  voice?: string | undefined
-  interruptionReason?: 'user-cancelled' | 'new-input' | 'client-disconnected' | 'plugin-unloaded' | undefined
-  error?: string | undefined
 }
 
 export interface TalkSpeechProjection {

@@ -319,6 +319,8 @@
     { "path": "./packages/gerclaw/prescription" },
     { "path": "./packages/gerclaw/profile-bundle" },
     { "path": "./packages/gerclaw/risk-alert" },
+    { "path": "./packages/gerclaw/speech" },
+    { "path": "./packages/gerclaw/speech-qianwen" },
     { "path": "./packages/gerclaw/skills" },
     { "path": "./packages/gerclaw/system-prompt" },
     { "path": "./packages/gerclaw/tenant-gateway" },

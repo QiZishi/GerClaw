@@ -3,12 +3,18 @@ import { randomUUID } from 'node:crypto'
 import type { IncomingMessage } from 'node:http'
 import type { Duplex } from 'node:stream'
 import { Context, Service } from '@deepseek-ai/cordis'
-import type {} from '@deepseek-ai/dsh-host-webserver'
-import { SessionId, type Session } from '@deepseek-ai/dsh-session'
-import type { GerclawVoiceEvent } from './vocabulary.ts'
+import z from '@deepseek-ai/schemastery'
+import {
+  QIANWEN_ASR_MODEL,
+  QIANWEN_TTS_MODEL,
+  SpeechProvider,
+  type SpeechAudioChunk,
+  type SpeechEventSink,
+  type SpeechProviderInfo,
+} from '@gerclaw/speech'
 import WebSocket, { WebSocketServer } from 'ws'
 
-export interface VoiceConfig {
+export interface QianwenSpeechConfig {
   asrApiKey?: string
   asrUrl?: string
   ttsApiKey?: string
@@ -17,12 +23,6 @@ export interface VoiceConfig {
   ttsModel?: string
   ttsVoice?: string
   ttsInstructions?: string
-}
-export interface VoiceAudioChunk {
-  audio: Uint8Array
-  sampleRate: 24000
-  channels: 1
-  encoding: 'pcm16le'
 }
 type UpstreamEvent = {
   type?: string
@@ -33,8 +33,6 @@ type UpstreamEvent = {
   error?: { message?: string }
 }
 
-const DEFAULT_ASR_MODEL = 'qwen3-asr-flash-realtime'
-const DEFAULT_TTS_MODEL = 'qwen3-tts-instruct-flash-realtime'
 const DEFAULT_VOICE = 'Cherry'
 const DEFAULT_INSTRUCTIONS = '用温和、清晰、关怀的中文语气朗读，语速适中。'
 /** Exactly 60 seconds of 16 kHz mono PCM16LE. */
@@ -174,26 +172,38 @@ export function splitTtsText(input: string, limit = MAX_TTS_SEGMENT_CHARS): stri
  * Account-local Qianwen realtime ASR/TTS service.
  * Raw audio only crosses the live socket and is never written to session/storage.
  */
-export class VoiceService extends Service {
-  static inject = ['webServer', 'sessions']
+export class QianwenSpeechProvider extends SpeechProvider {
+  static Config: z<QianwenSpeechConfig> = z.object({
+    asrApiKey: z.string().required(),
+    asrUrl: z.string().required(),
+    ttsApiKey: z.string().required(),
+    ttsUrl: z.string().required(),
+    asrModel: z.const(QIANWEN_ASR_MODEL).required(),
+    ttsModel: z.const(QIANWEN_TTS_MODEL).required(),
+    ttsVoice: z.string().default(DEFAULT_VOICE),
+    ttsInstructions: z.string().default(DEFAULT_INSTRUCTIONS),
+  }) as unknown as z<QianwenSpeechConfig>
+
+  readonly info: SpeechProviderInfo
   private readonly server = new WebSocketServer({ noServer: true })
   private readonly live = new Set<AbortController>()
+
   constructor(
     ctx: Context,
-    private readonly config: VoiceConfig = {},
+    private readonly config: QianwenSpeechConfig,
   ) {
-    super(ctx, 'gerclawVoice')
-  }
-  protected [Service.init](): void {
-    const disposeUpgrade = this.ctx.webServer.registerUpgrade({
-      path: '/gerclaw/api/voice/asr-stream',
-      handler: (req, socket, head) => {
-        this.handleAsrUpgrade(req, socket, head)
-      },
+    super(ctx)
+    this.info = Object.freeze({
+      engine: 'qianwen',
+      asrModel: QIANWEN_ASR_MODEL,
+      ttsModel: QIANWEN_TTS_MODEL,
+      defaultVoice: config.ttsVoice ?? DEFAULT_VOICE,
     })
+  }
+
+  protected [Service.init](): void {
     this.ctx.effect(
       () => async () => {
-        disposeUpgrade()
         for (const controller of this.live) controller.abort('plugin-unloaded')
         for (const client of this.server.clients) client.terminate()
         await new Promise<void>((resolve) => {
@@ -202,7 +212,7 @@ export class VoiceService extends Service {
           })
         })
       },
-      'gerclaw.voice.realtime',
+      'gerclaw.speech-qianwen.realtime',
     )
   }
   missingForAsr(): string[] {
@@ -221,14 +231,12 @@ export class VoiceService extends Service {
     }
     return Object.keys(values).filter(name => !values[name])
   }
-  private handleAsrUpgrade(req: IncomingMessage, socket: Duplex, head: Buffer): void {
-    const url = new URL(req.url ?? '/', `http://${req.headers.host ?? 'localhost'}`)
-    const rawSessionId = url.searchParams.get('sessionId')
-    const session = rawSessionId ? this.ctx.sessions.get(SessionId(rawSessionId)) : undefined
-    if (session === undefined) {
-      socket.end('HTTP/1.1 400 Bad Request\r\nConnection: close\r\n\r\n')
-      return
-    }
+  acceptAsrUpgrade(
+    req: IncomingMessage,
+    socket: Duplex,
+    head: Buffer,
+    emit: SpeechEventSink,
+  ): void {
     this.server.handleUpgrade(req, socket, head, (browser) => {
       const controller = new AbortController()
       this.live.add(controller)
@@ -238,7 +246,7 @@ export class VoiceService extends Service {
       browser.once('error', () => {
         controller.abort('client-disconnected')
       })
-      void this.bridgeAsr(browser, controller, session).finally(() => {
+      void this.bridgeAsr(browser, controller, emit).finally(() => {
         this.live.delete(controller)
         if (browser.readyState === WebSocket.OPEN) browser.close(1000)
       })
@@ -247,7 +255,7 @@ export class VoiceService extends Service {
   private async bridgeAsr(
     browser: WebSocket,
     controller: AbortController,
-    session: Session,
+    emit: SpeechEventSink,
   ): Promise<void> {
     const missing = this.missingForAsr()
     if (missing.length) {
@@ -257,7 +265,7 @@ export class VoiceService extends Service {
       }))
       return
     }
-    const model = this.config.asrModel ?? DEFAULT_ASR_MODEL
+    const model = this.config.asrModel ?? QIANWEN_ASR_MODEL
     const socket = upstream(
       realtimeUrl(this.config.asrUrl ?? '', model),
       this.config.asrApiKey ?? '',
@@ -272,11 +280,10 @@ export class VoiceService extends Service {
     let committed = false
     let finalText = ''
     let eventPersisted = false
-    const appendVoiceEvent = (event: GerclawVoiceEvent): void => {
+    const appendVoiceEvent = (event: Parameters<SpeechEventSink>[0]): void => {
       if (eventPersisted) return
       eventPersisted = true
-      session.append('gerclaw/voice', event)
-      void this.ctx.sessions.flush(session)
+      emit(event)
     }
     const updated = waitForEvent(socket, 'session.updated', controller.signal)
     socket.send(JSON.stringify({
@@ -451,7 +458,7 @@ export class VoiceService extends Service {
     text: string,
     signal?: AbortSignal,
     requestedVoice?: string,
-  ): AsyncGenerator<VoiceAudioChunk> {
+  ): AsyncGenerator<SpeechAudioChunk> {
     const missing = this.missingForTts()
     if (missing.length)
       throw new Error(`缺少环境变量：${missing.join('、')}`)
@@ -467,14 +474,14 @@ export class VoiceService extends Service {
     text: string,
     signal?: AbortSignal,
     requestedVoice?: string,
-  ): AsyncGenerator<VoiceAudioChunk> {
+  ): AsyncGenerator<SpeechAudioChunk> {
     const controller = new AbortController()
     const abort = () => {
       controller.abort()
     }
     signal?.addEventListener('abort', abort, { once: true })
     this.live.add(controller)
-    const model = this.config.ttsModel ?? DEFAULT_TTS_MODEL
+    const model = this.config.ttsModel ?? QIANWEN_TTS_MODEL
     const voice = ['Cherry', 'Serena', 'Ethan'].includes(requestedVoice ?? '')
       ? requestedVoice
       : this.config.ttsVoice ?? DEFAULT_VOICE
@@ -576,10 +583,4 @@ export class VoiceService extends Service {
     }
   }
 }
-
-declare module '@deepseek-ai/cordis' {
-  interface Context {
-    gerclawVoice: VoiceService
-  }
-}
-export default VoiceService
+export default QianwenSpeechProvider

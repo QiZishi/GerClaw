@@ -1,8 +1,6 @@
-/** Qianwen-only GerClaw voice configuration. */
+/** dsh-talk interaction configuration; provider credentials live outside this plugin. */
 import z from '@deepseek-ai/schemastery'
 
-export const QIANWEN_ASR_MODEL = 'qwen3-asr-flash-realtime'
-export const QIANWEN_TTS_MODEL = 'qwen3-tts-instruct-flash-realtime'
 export const DEFAULT_MAX_RECORD_SECONDS = 60
 export const MAX_RECORD_SECONDS = 60
 export const DEFAULT_MAX_SPEAK_CHARS = 20_000
@@ -20,14 +18,6 @@ export interface RecordConfig {
 }
 
 export interface Config {
-  asrApiKey?: string
-  asrUrl?: string
-  ttsApiKey?: string
-  ttsUrl?: string
-  asrModel?: string
-  ttsModel?: string
-  ttsVoice?: string
-  ttsInstructions?: string
   record?: RecordConfig
   stt?: { language?: string; interim?: boolean }
   tts?: { voice?: string }
@@ -44,9 +34,7 @@ export interface ResolvedConfig {
   sttEngine: 'qianwen'
   sttLanguage: string
   sttInterim: boolean
-  asrModel: typeof QIANWEN_ASR_MODEL
   ttsEngine: 'qianwen'
-  ttsModel: typeof QIANWEN_TTS_MODEL
   ttsVoice: string
   interruptEnabled: boolean
   maxSpeakChars: number
@@ -54,14 +42,6 @@ export interface ResolvedConfig {
 }
 
 export const Config: z<Config> = z.object({
-  asrApiKey: z.string(),
-  asrUrl: z.string(),
-  ttsApiKey: z.string(),
-  ttsUrl: z.string(),
-  asrModel: z.string(),
-  ttsModel: z.string(),
-  ttsVoice: z.string(),
-  ttsInstructions: z.string(),
   record: z.object({
     enabled: z.boolean().default(true),
     hotkey: z.union([z.string(), z.const(null)]).default(null),
@@ -93,21 +73,9 @@ const boundedNumber = (value: unknown, fallback: number, min: number, max: numbe
 }
 
 export function resolveConfig(config: Config | undefined): ResolvedConfig {
-  const asrModel = text(config?.asrModel, '', 'ASR_MODEL')
-  const ttsModel = text(config?.ttsModel, '', 'TTS_MODEL')
-  if (asrModel !== QIANWEN_ASR_MODEL)
-    throw new Error(`GerClaw 语音仅支持 ASR_MODEL=${QIANWEN_ASR_MODEL}`)
-  if (ttsModel !== QIANWEN_TTS_MODEL)
-    throw new Error(`GerClaw 语音仅支持 TTS_MODEL=${QIANWEN_TTS_MODEL}`)
-  for (const [label, value] of [
-    ['MODEL_ASR_KEY', config?.asrApiKey],
-    ['MODEL_ASR_URL', config?.asrUrl],
-    ['MODEL_TTS_KEY', config?.ttsApiKey],
-    ['MODEL_TTS_URL', config?.ttsUrl],
-  ] as const) text(value, '', label)
   if (config?.record?.maxSeconds !== undefined && config.record.maxSeconds !== 60)
     throw new Error('GerClaw 语音录音时长固定为 60 秒')
-  if (config?.record?.autoSubmit !== undefined && config.record.autoSubmit !== true)
+  if (config?.record?.autoSubmit === false)
     throw new Error('GerClaw 语音最终转写必须自动发送')
   const hotkey = config?.record?.hotkey
   if (hotkey !== undefined && hotkey !== null && (typeof hotkey !== 'string' || hotkey.length > 40))
@@ -120,10 +88,8 @@ export function resolveConfig(config: Config | undefined): ResolvedConfig {
     sttEngine: 'qianwen',
     sttLanguage: text(config?.stt?.language, 'zh-CN', 'stt.language'),
     sttInterim: config?.stt?.interim !== false,
-    asrModel: QIANWEN_ASR_MODEL,
     ttsEngine: 'qianwen',
-    ttsModel: QIANWEN_TTS_MODEL,
-    ttsVoice: text(config?.tts?.voice ?? config?.ttsVoice, 'Cherry', 'tts.voice'),
+    ttsVoice: text(config?.tts?.voice, 'Cherry', 'tts.voice'),
     interruptEnabled: config?.interrupt !== false,
     maxSpeakChars: boundedNumber(config?.maxSpeakChars, DEFAULT_MAX_SPEAK_CHARS, 1, MAX_SPEAK_CHARS, 'maxSpeakChars'),
     maxAudioCacheBytes: boundedNumber(config?.maxAudioCacheBytes, DEFAULT_MAX_AUDIO_CACHE_BYTES, 1024 * 1024, MAX_AUDIO_CACHE_BYTES, 'maxAudioCacheBytes'),

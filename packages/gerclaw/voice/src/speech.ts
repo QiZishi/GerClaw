@@ -10,15 +10,17 @@
  * @module dsh-talk/speech
  */
 
-import type { DshTalkSpeechEvent, GerclawVoiceEvent } from './vocabulary.ts'
+import type { GerclawVoiceEvent } from '@gerclaw/speech'
+import type { DshTalkSpeechEvent } from './vocabulary.ts'
 
-export type { DshTalkSpeechEvent, GerclawVoiceEvent, SpeechReason, SpeechTtsEngine } from './vocabulary.ts'
+export type { GerclawVoiceEvent } from '@gerclaw/speech'
+export type { DshTalkSpeechEvent, SpeechReason, SpeechTtsEngine } from './vocabulary.ts'
 
 declare module '@deepseek-ai/dsh-session/types' {
   interface SessionEventMap {
     /** One sanitized TTS utterance and its playback outcome; raw audio is never persisted. */
     'dsh-talk/speech': DshTalkSpeechEvent
-    /** Versioned ASR/TTS outcome; never contains audio chunks, credentials or upstream addresses. */
+    /** Versioned ASR/TTS outcome; raw audio, credentials and upstream addresses are excluded. */
     'gerclaw/voice': GerclawVoiceEvent
   }
 }

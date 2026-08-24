@@ -65,6 +65,12 @@ importers:
       '@gerclaw/skills':
         specifier: workspace:*
         version: link:packages/gerclaw/skills
+      '@gerclaw/speech':
+        specifier: workspace:*
+        version: link:packages/gerclaw/speech
+      '@gerclaw/speech-qianwen':
+        specifier: workspace:*
+        version: link:packages/gerclaw/speech-qianwen
       '@gerclaw/system-prompt':
         specifier: workspace:*
         version: link:packages/gerclaw/system-prompt
@@ -4843,9 +4849,6 @@ importers:
       '@gerclaw/system-prompt':
         specifier: workspace:*
         version: link:../system-prompt
-      '@gerclaw/voice':
-        specifier: workspace:*
-        version: link:../voice
       docx:
         specifier: 9.5.1
         version: 9.5.1
@@ -5090,6 +5093,12 @@ importers:
       '@gerclaw/skills':
         specifier: workspace:*
         version: link:../skills
+      '@gerclaw/speech':
+        specifier: workspace:*
+        version: link:../speech
+      '@gerclaw/speech-qianwen':
+        specifier: workspace:*
+        version: link:../speech-qianwen
       '@gerclaw/system-prompt':
         specifier: workspace:*
         version: link:../system-prompt
@@ -5139,6 +5148,31 @@ importers:
       '@deepseek-ai/dsh-llm':
         specifier: workspace:^
         version: link:../../llm/llm
+
+  packages/gerclaw/speech:
+    devDependencies:
+      '@deepseek-ai/cordis':
+        specifier: workspace:^
+        version: link:../../../vendor/cordis
+
+  packages/gerclaw/speech-qianwen:
+    dependencies:
+      '@deepseek-ai/schemastery':
+        specifier: link:../../../vendor/schemastery
+        version: link:../../../vendor/schemastery
+      '@gerclaw/speech':
+        specifier: workspace:*
+        version: link:../speech
+      ws:
+        specifier: 8.21.0
+        version: 8.21.0
+    devDependencies:
+      '@deepseek-ai/cordis':
+        specifier: workspace:^
+        version: link:../../../vendor/cordis
+      '@types/ws':
+        specifier: 8.18.1
+        version: 8.18.1
 
   packages/gerclaw/system-prompt:
     devDependencies:
@@ -5275,15 +5309,15 @@ importers:
       '@deepseek-ai/schemastery':
         specifier: link:../../../vendor/schemastery
         version: link:../../../vendor/schemastery
+      '@gerclaw/speech':
+        specifier: workspace:*
+        version: link:../speech
       react:
         specifier: ^18.2.0
         version: 18.3.1
       react-dom:
         specifier: ^18.2.0
         version: 18.3.1(react@18.3.1)
-      ws:
-        specifier: 8.21.0
-        version: 8.21.0
       zod:
         specifier: 4.4.3
         version: 4.4.3
@@ -5297,9 +5331,6 @@ importers:
       '@types/react-dom':
         specifier: ~18.3.1
         version: 18.3.7(@types/react@18.3.31)
-      '@types/ws':
-        specifier: 8.18.1
-        version: 8.18.1
 
   packages/goal/command-goal:
     devDependencies:

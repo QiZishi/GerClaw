@@ -43,6 +43,8 @@
           - !!js "'link:' + process.getBuiltinModule('node:path').join(process.cwd(), 'packages/gerclaw/medication-review')"
           - !!js "'link:' + process.getBuiltinModule('node:path').join(process.cwd(), 'packages/gerclaw/prescription')"
           - !!js "'link:' + process.getBuiltinModule('node:path').join(process.cwd(), 'packages/gerclaw/risk-alert')"
+          - !!js "'link:' + process.getBuiltinModule('node:path').join(process.cwd(), 'packages/gerclaw/speech')"
+          - !!js "'link:' + process.getBuiltinModule('node:path').join(process.cwd(), 'packages/gerclaw/speech-qianwen')"
           - !!js "'link:' + process.getBuiltinModule('node:path').join(process.cwd(), 'packages/gerclaw/skills')"
           - !!js "'link:' + process.getBuiltinModule('node:path').join(process.cwd(), 'packages/gerclaw/system-prompt')"
           - !!js "'link:' + process.getBuiltinModule('node:path').join(process.cwd(), 'packages/gerclaw/voice')"

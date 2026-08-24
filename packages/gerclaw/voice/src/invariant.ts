@@ -8,10 +8,12 @@ export const name = 'gerclaw-voice-invariant'
 export const inject = ['invariants']
 const install: InvariantInstaller = Object.assign(
   (scope: Context, fail: InvariantFailure) => {
-    if (scope.get('gerclawVoice') === undefined)
-      fail('gerclawVoice service is unavailable')
+    if (scope.get('speech') === undefined)
+      fail('speech service is unavailable')
+    if (scope.get('talk') === undefined)
+      fail('talk service is unavailable')
   },
-  { inject: ['gerclawVoice'] },
+  { inject: ['speech', 'talk'] },
 )
 export const apply = (ctx: Context): Promise<() => void> =>
   Promise.resolve(ctx.invariants.register(PACKAGE_NAME, install))

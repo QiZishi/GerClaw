@@ -123,13 +123,23 @@ describe('GerClaw integration plugin contracts', () => {
   })
 
   it('voice is Qianwen-only and never routes through SiliconFlow', async () => {
-    const text = await source('voice/src/qianwen.ts')
+    const [definition, provider, consumer] = await Promise.all([
+      source('speech/src/index.ts'),
+      source('speech-qianwen/src/index.ts'),
+      source('voice/src/service.ts'),
+    ])
     const profile = await source('profile-bundle/cordis.patch.yml')
-    expect(text).toContain('qwen3-asr-flash-realtime')
-    expect(text).toContain('qwen3-tts-instruct-flash-realtime')
-    expect(text).toContain('/gerclaw/api/voice/asr-stream')
-    expect(text).not.toContain('SILICONFLOW_')
-    expect(text).not.toContain('MIMO_')
+    expect(definition).toContain('qwen3-asr-flash-realtime')
+    expect(definition).toContain('qwen3-tts-instruct-flash-realtime')
+    expect(consumer).toContain('/gerclaw/api/voice/asr-stream')
+    expect(provider).toContain('extends SpeechProvider')
+    expect(consumer).toContain("static inject = ['speech'")
+    expect(consumer).toContain("path: '/gerclaw/api/voice/tts'")
+    expect(await source('client/src/index.ts')).not.toContain("'talk',")
+    for (const text of [definition, provider, consumer]) {
+      expect(text).not.toContain('SILICONFLOW_')
+      expect(text).not.toContain('MIMO_')
+    }
     expect(profile).not.toContain('fallbackToBrowser')
     expect(profile).not.toMatch(/engine:\s*(?:auto|browser|edge-tts|piper|whisper|funasr)/)
   })
@@ -167,6 +177,7 @@ describe('GerClaw integration plugin contracts', () => {
     expect(host).toContain('DSH_HOME: dshHome')
     expect(host).toContain('GERCLAW_ACCOUNT_DATA_DIR')
     expect(host).toContain("'plugin',")
+    expect(host).toContain("join(this.config.dataDir, 'guests')")
     expect(host).not.toContain('child_process')
   })
 

@@ -247,14 +247,15 @@ export function TalkMicButton({ interrupt, inputActions, sessionId }: TalkMicPro
       sink.gain.value = 0
       let flushResolve: (() => void) | undefined
       processor.port.onmessage = (event) => {
-        if (typeof event.data === 'object' && event.data !== null && 'type' in event.data && event.data.type === 'flushed') {
+        const data: unknown = event.data
+        if (typeof data === 'object' && data !== null && 'type' in data && data.type === 'flushed') {
           flushResolve?.()
           flushResolve = undefined
           return
         }
         if (socket.readyState !== WebSocket.OPEN) return
-        if (!(event.data instanceof Float32Array)) return
-        socket.send(pcm16(resample(event.data, context.sampleRate)))
+        if (!(data instanceof Float32Array)) return
+        socket.send(pcm16(resample(data, context.sampleRate)))
       }
       source.connect(processor)
       processor.connect(sink)

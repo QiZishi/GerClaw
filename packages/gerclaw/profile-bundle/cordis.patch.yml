@@ -212,8 +212,8 @@
     - { id: gerclaw-medical-evidence, name: "@gerclaw/medical-evidence" }
     - { id: gerclaw-skills, name: "@gerclaw/skills" }
 
-    - id: gerclaw-voice
-      name: "@gerclaw/voice"
+    - id: gerclaw-speech-qianwen
+      name: "@gerclaw/speech-qianwen"
       config:
         asrApiKey: !!js process.env.MODEL_ASR_KEY
         asrUrl: !!js process.env.MODEL_ASR_URL
@@ -222,6 +222,10 @@
         asrModel: !!js process.env.ASR_MODEL
         ttsModel: !!js process.env.TTS_MODEL
         ttsVoice: Cherry
+
+    - id: gerclaw-voice
+      name: "@gerclaw/voice"
+      config:
         record:
           enabled: true
           maxSeconds: 60
@@ -229,8 +233,7 @@
         stt:
           language: zh-CN
           interim: true
-        tts:
-          voice: Cherry
+        tts: { voice: Cherry }
         interrupt: true
 
     - id: gerclaw-local-rag

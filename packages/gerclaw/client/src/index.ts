@@ -42,7 +42,6 @@ import {
   type PrescriptionIntakeState,
   type PrescriptionRequest,
 } from '@gerclaw/prescription'
-import type {} from '@gerclaw/voice'
 import type {} from '@gerclaw/local-rag'
 import { GERCLAW_SYSTEM_PROMPT } from '@gerclaw/system-prompt'
 import type {
@@ -231,7 +230,6 @@ export class GerclawApp extends TypertRemoteService {
     'gerclawRiskAlert',
     'gerclawCompanion',
     'gerclawPrescription',
-    'talk',
     'gerclawRag',
   ]
   private domain!: Domain<typeof appDomainSpec>
@@ -1400,52 +1398,6 @@ export class GerclawApp extends TypertRemoteService {
           nativeSessionId,
         )
         json(res, 200, { result, task })
-        return
-      }
-      if (method === 'POST' && path === '/voice/tts') {
-        const body = await readJson(req)
-        const started = performance.now()
-        const nativeSession = nativeSessionId === undefined
-          ? undefined
-          : this.ctx.sessions.get(nativeSessionId)
-        if (nativeSession === undefined)
-          throw new Error('当前对话会话不存在，无法朗读')
-        const stream = this.ctx.talk.synthesizeForPlayback(
-          asText(body.text),
-          {
-            session: nativeSession,
-            signal: controller.signal,
-            voice: asText(body.voice),
-          },
-        )
-        const first = await stream.next()
-        if (first.done) throw new Error('朗读服务没有返回音频')
-        res.writeHead(200, {
-          'Content-Type': 'application/x-ndjson; charset=utf-8',
-          'Cache-Control': 'no-store',
-          'X-Content-Type-Options': 'nosniff',
-        })
-        res.write(JSON.stringify({
-          type: 'meta',
-          sampleRate: 24000,
-          channels: 1,
-          encoding: 'pcm16le',
-        }) + '\n')
-        res.write(JSON.stringify({
-          type: 'audio',
-          audio: Buffer.from(first.value.audio).toString('base64'),
-        }) + '\n')
-        for await (const chunk of stream) {
-          res.write(JSON.stringify({
-            type: 'audio',
-            audio: Buffer.from(chunk.audio).toString('base64'),
-          }) + '\n')
-        }
-        res.end(JSON.stringify({
-          type: 'done',
-          elapsedMs: Math.round(performance.now() - started),
-        }) + '\n')
-        await this.ctx.sessions.flush(nativeSession)
         return
       }
       if (method === 'POST' && path === '/documents') {

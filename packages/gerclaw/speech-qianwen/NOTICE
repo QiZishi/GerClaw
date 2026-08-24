@@ -1,0 +1,10 @@
+GerClaw Qianwen speech provider is derived from these community designs:
+
+- dsh-talk 0.1.3, commit e50a5bca708b629a558084f57a7134ff6366f482
+  (Apache-2.0), by PerryLink: interruption, projection and lifecycle design.
+- dsh-speech-plugin, commit bcfb8d1ee53bc92af74aa4d10757db6f0b976261
+  (MIT), by Command-Awesome: no-server WebSocket and browser PCM bridge design.
+
+GerClaw splits the replaceable provider from the DSH talk consumer and adds
+the official Qianwen realtime ASR/TTS protocols. The upstream licenses are
+retained in LICENSES/.

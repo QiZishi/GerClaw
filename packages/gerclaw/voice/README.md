@@ -6,8 +6,12 @@
 
 ## 复用、协议与配置
 
-以 Apache-2.0 的 `dsh-talk@0.1.3` 及 `dsh-speech-plugin` 的生命周期设计为基线，来源与改动见 `NOTICE` 和 `LICENSES/`；新增 Qianwen realtime provider。`dsh-talk@0.1.3` 相对已采用的 `0.1.2` 只更新文档和版本元数据，运行源码相同。服务端使用 `MODEL_ASR_*`、`MODEL_TTS_*`、`ASR_MODEL=qwen3-asr-flash-realtime`、`TTS_MODEL=qwen3-tts-instruct-flash-realtime`，绝不读取 `SILICONFLOW_*`。会话协议覆盖 ready、音频块、临时/最终转写、TTS 块、停止、打断、完成和错误。
+以 Apache-2.0 的 `dsh-talk@0.1.3` 及 `dsh-speech-plugin` 的生命周期设计为基线，来源与改动见 `NOTICE` 和 `LICENSES/`。本包不保存供应商凭据，也不实现模型协议；它通过 Cordis `inject: speech` 消费 `@gerclaw/speech` 定义的可替换服务。当前提供方由独立 Loader 行 `@gerclaw/speech-qianwen` 提供。
+
+本包注册账号 Host 内的 ASR upgrade、TTS 流式 HTTP、`talk` Remote 和 `talk:speech` projection。会话协议覆盖临时/最终转写、TTS 完成、停止、打断和错误。
 
 ## 数据、卸载与改进
 
-只把最终转写、回复、模型名和耗时交给当前账号 session。上游 WebSocket、AbortController、流和浏览器音频节点在停止、页面卸载或 Cordis 卸载时释放。新增 provider 应复用同一打断协议并保持密钥只在服务端。运行 GerClaw contract test，再用浏览器真实录音、标准音频上传、朗读、停止和打断。非 localhost 录音要求可信 HTTPS。
+只把最终转写、回复、模型名和耗时写入当前账号 session；原始音频不落盘。AbortController、HTTP 流、缓存和浏览器音频节点在停止、页面卸载或 Cordis 卸载时释放。禁用 `speech` 提供方时，本包由 Loader 级联卸载，恢复后自动重新激活。
+
+运行 `packages/gerclaw/voice/tests` 后，再用真实账号 Host 验证录音、标准音频、朗读、停止和打断。非 localhost 录音要求可信 HTTPS。
