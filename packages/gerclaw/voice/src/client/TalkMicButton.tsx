@@ -1,5 +1,5 @@
-/** Qianwen realtime microphone and audio-upload controls for the native composer. */
-import { useEffect, useRef, useState, type ChangeEvent, type ReactNode } from 'react'
+/** Qianwen realtime microphone control for the native composer. */
+import { useEffect, useRef, useState, type ReactNode } from 'react'
 import type { InjectFace, PropsRuntime } from '@deepseek-ai/dsh-client-ui-slots'
 import type { TalkInterruptResult } from '../wire.ts'
 import { interruptPlayback } from './TalkMessageButton.tsx'
@@ -97,16 +97,14 @@ const socketUrl = (sessionId: string): string => {
 }
 
 /**
- * Composer microphone derived from dsh-talk@0.1.3. It deliberately has no
- * Captured/decoded PCM always reaches the account-local Qianwen provider
- * through the authenticated gateway.
+ * Composer microphone derived from dsh-talk@0.1.3. Captured PCM always reaches
+ * the account-local Qianwen provider through the authenticated gateway.
  */
 export function TalkMicButton({ interrupt, inputActions, sessionId }: TalkMicProps): ReactNode {
-  const [phase, setPhase] = useState<'idle' | 'connecting' | 'recording' | 'uploading' | 'finishing' | 'error'>('idle')
+  const [phase, setPhase] = useState<'idle' | 'connecting' | 'recording' | 'finishing' | 'error'>('idle')
   const [message, setMessage] = useState('')
   const resources = useRef<RecordingResources | null>(null)
-  const uploadSocket = useRef<WebSocket | null>(null)
-  const fileInput = useRef<HTMLInputElement | null>(null)
+  const activeSocket = useRef<WebSocket | null>(null)
   const finishing = useRef(false)
   const operationToken = useRef(0)
   // The native composer can replace its blank-session shell with the real
@@ -130,11 +128,11 @@ export function TalkMicButton({ interrupt, inputActions, sessionId }: TalkMicPro
   const cancel = async (): Promise<void> => {
     operationToken.current += 1
     finishing.current = false
-    const socket = resources.current?.socket ?? uploadSocket.current
+    const socket = resources.current?.socket ?? activeSocket.current
     if (socket?.readyState === WebSocket.OPEN)
       socket.send(JSON.stringify({ type: 'cancel' }))
     socket?.close(1000)
-    uploadSocket.current = null
+    activeSocket.current = null
     await releaseRecording()
     setMessage('已取消录音')
     setPhase('idle')
@@ -154,8 +152,8 @@ export function TalkMicButton({ interrupt, inputActions, sessionId }: TalkMicPro
       current.stream.getTracks().forEach((track) => { track.stop() })
       void current.context.close().catch(() => {})
     }
-    uploadSocket.current?.close(1000)
-    uploadSocket.current = null
+    activeSocket.current?.close(1000)
+    activeSocket.current = null
   }, [])
 
   const openSocket = (): Promise<WebSocket> => new Promise((resolve, reject) => {
@@ -213,7 +211,7 @@ export function TalkMicButton({ interrupt, inputActions, sessionId }: TalkMicPro
         }
       } else if (payload.type === 'done') {
         finishing.current = false
-        uploadSocket.current = null
+        activeSocket.current = null
         setPhase('idle')
         socket.close(1000)
       } else if (payload.type === 'error') {
@@ -288,6 +286,7 @@ export function TalkMicButton({ interrupt, inputActions, sessionId }: TalkMicPro
       })
       const stopTimer = window.setTimeout(() => { void finish() }, 60_000)
       resources.current = { socket, stream, context, source, processor, sink, stopTimer, flush }
+      activeSocket.current = socket
       pendingSocket = null
       pendingStream = null
       pendingContext = null
@@ -317,57 +316,6 @@ export function TalkMicButton({ interrupt, inputActions, sessionId }: TalkMicPro
       current.socket.send(JSON.stringify({ type: 'commit' }))
   }
 
-  const upload = async (event: ChangeEvent<HTMLInputElement>): Promise<void> => {
-    const file = event.target.files?.[0]
-    event.target.value = ''
-    if (file === undefined) return
-    const token = ++operationToken.current
-    setPhase('uploading')
-    setMessage('正在处理音频…')
-    interruptPlayback()
-    await interrupt().catch(() => ({ stopped: false }))
-    let context: AudioContext | null = null
-    let socket: WebSocket | null = null
-    try {
-      context = new AudioContext()
-      const decoded = await context.decodeAudioData(await file.arrayBuffer())
-      if (token !== operationToken.current) throw new DOMException('音频上传已取消', 'AbortError')
-      if (decoded.duration > 60.001) throw new Error('音频不能超过 60 秒')
-      socket = await openSocket()
-      if (token !== operationToken.current) throw new DOMException('音频上传已取消', 'AbortError')
-      uploadSocket.current = socket
-      const mono = new Float32Array(decoded.length)
-      for (let channel = 0; channel < decoded.numberOfChannels; channel += 1) {
-        const values = decoded.getChannelData(channel)
-        for (let index = 0; index < mono.length; index += 1)
-          mono[index] = (mono[index] ?? 0) + (values[index] ?? 0) / decoded.numberOfChannels
-      }
-      const samples = resample(mono, decoded.sampleRate)
-      for (let offset = 0; offset < samples.length; offset += 1_600) {
-        if (token !== operationToken.current) throw new DOMException('音频上传已取消', 'AbortError')
-        if (socket.readyState !== WebSocket.OPEN) throw new Error('语音识别连接提前关闭')
-        socket.send(pcm16(samples.subarray(offset, offset + 1_600)))
-        await new Promise(resolve => window.setTimeout(resolve, 100))
-      }
-      await context.close()
-      context = null
-      finishing.current = true
-      setPhase('finishing')
-      setMessage('音频已上传，正在确认转写…')
-      socket.send(JSON.stringify({ type: 'commit' }))
-    } catch (error) {
-      socket?.close()
-      uploadSocket.current?.close()
-      uploadSocket.current = null
-      if (token === operationToken.current) {
-        setPhase('error')
-        setMessage(error instanceof Error ? error.message : '音频识别失败')
-      }
-    } finally {
-      await context?.close().catch(() => {})
-    }
-  }
-
   return (
     <span data-gerclaw-voice-controls style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
       <button
@@ -376,24 +324,14 @@ export function TalkMicButton({ interrupt, inputActions, sessionId }: TalkMicPro
         data-recording={phase === 'recording' ? 'true' : 'false'}
         aria-label={phase === 'recording' ? '停止录音并发送' : '开始语音输入'}
         title={phase === 'recording' ? '停止录音并发送' : '语音输入'}
-        disabled={phase === 'connecting' || phase === 'uploading' || phase === 'finishing'}
+        disabled={phase === 'connecting' || phase === 'finishing'}
         onClick={() => { void (phase === 'recording' ? finish() : start()) }}
       >
         {phase === 'recording' ? '■' : '🎙'}
       </button>
-      <button
-        type="button"
-        aria-label="上传音频进行识别"
-        title="上传音频"
-        disabled={phase !== 'idle' && phase !== 'error'}
-        onClick={() => fileInput.current?.click()}
-      >
-        ♫
-      </button>
-      {(phase === 'recording' || phase === 'connecting' || phase === 'uploading' || phase === 'finishing') && (
+      {(phase === 'recording' || phase === 'connecting' || phase === 'finishing') && (
         <button type="button" aria-label="取消语音输入" title="取消语音输入" onClick={() => { void cancel() }}>×</button>
       )}
-      <input ref={fileInput} type="file" accept="audio/*" hidden onChange={(event) => { void upload(event) }} />
       {message && <span role="status" aria-live="polite" style={{ maxWidth: 220, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', fontSize: 12 }}>{message}</span>}
     </span>
   )

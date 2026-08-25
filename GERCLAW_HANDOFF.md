@@ -47,7 +47,7 @@
 | 优先级 | 范围 | 未完成事实 | 完成条件 |
 |---:|---|---|---|
 | P0 | 新会话冷启动 | 游客真实路径在第一条消息前被“选择工作区”阻断，输入区处于 inert 状态 | 新会话自动创建并打开，用户无需选择内部存储空间；刷新、重连和 Host 重启后仍可恢复 |
-| P0 | 语音输入可见性 | `TalkMicButton` 已实现并注册，但截图和游客冷启动中没有渲染麦克风及音频上传按钮 | 登录或游客进入空白新会话后，输入区右下方发送按钮左侧持续显示“开始语音输入”和“上传音频进行识别” |
+| P0 | 语音输入可见性 | `TalkMicButton` 已实现并注册，但截图和游客冷启动中没有渲染麦克风按钮 | 登录或游客进入空白新会话后，输入区右下方发送按钮左侧持续显示唯一的“开始语音输入”按钮，不显示音频上传按钮 |
 | P0 | 左栏医疗入口 | 当前存在与“新会话”重复的“健康对话”图标；展开态把六项功能压成无文字的小图标横排 | 删除“健康对话”；五大处方、综合量表、用药核对、健康档案、更多按顺序纵向排列并显示中文标签，折叠态保留图标、tooltip 和 `aria-label` |
 | P0 | 网页产品语义 | 页面仍出现“工作区”“选择一个工作区开始”等开发者式概念 | 用户可见 DOM、metadata、提示和错误中不出现“工作区”；每个会话自动绑定账号内独立 DSH workspace，内部服务继续保留 |
 | P0 | 游客 E2E | 游客完整真实路径因冷启动问题失败 | 修复后先重跑游客失败场景，再跑医生、患者、游客完整矩阵；结束后清理游客目录与进程 |
@@ -65,9 +65,9 @@
 
 ### 5.1 输入区必须显示语音按钮
 
-`@gerclaw/voice` 已在 `packages/gerclaw/voice/src/client/index.ts` 注册 DSH 原生 `conversation.input.left` 槽，麦克风和音频上传按钮位于 `TalkMicButton.tsx`。DSH 原生对话组件只有在当前会话 zone 已建立时才渲染该槽；冷启动没有自动创建并打开会话，因此语音按钮与资料上传按钮同时消失。
+`@gerclaw/voice` 已在 `packages/gerclaw/voice/src/client/index.ts` 注册 DSH 原生 `conversation.input.left` 槽，麦克风按钮位于 `TalkMicButton.tsx`。DSH 原生对话组件只有在当前会话 zone 已建立时才渲染该槽；冷启动没有自动创建并打开会话，因此语音按钮消失。
 
-整改必须修复原生会话初始化，不得把按钮绝对定位到页面或另建输入框。删除 `packages/gerclaw/client-ui/src/client/index.ts` 中无来源的 `sessionStorage` 启动门槛，使用 DSH `sessions.create({ workspaceId })` 与 `sessions.open(sessionId)` 建立当前会话。按钮位置为发送按钮相邻左侧；麦克风、音频上传、发送三个控件应始终处于同一输入区。
+整改必须修复原生会话初始化，不得把按钮绝对定位到页面或另建输入框。删除 `packages/gerclaw/client-ui/src/client/index.ts` 中无来源的 `sessionStorage` 启动门槛，使用 DSH `sessions.create({ workspaceId })` 与 `sessions.open(sessionId)` 建立当前会话。语音输入按钮位于发送按钮相邻左侧；输入区不得提供音频文件上传按钮。
 
 ### 5.2 用户界面删除“工作区”概念
 
@@ -104,7 +104,7 @@ GerClaw Profile 应禁用纯用户界面的 workspace picker/browser，同时保
 
 ```ts
 await expect(page.getByRole('button', { name: '开始语音输入' })).toBeVisible()
-await expect(page.getByRole('button', { name: '上传音频进行识别' })).toBeVisible()
+expect(await page.getByRole('button', { name: '上传音频进行识别' }).count()).toBe(0)
 await expect(page.getByRole('button', { name: '发送消息' })).toBeVisible()
 expect(await page.getByRole('button', { name: '健康对话', exact: true }).count()).toBe(0)
 expect(await page.locator('body').innerText()).not.toMatch(/工作区|选择工作区|添加工作区/)

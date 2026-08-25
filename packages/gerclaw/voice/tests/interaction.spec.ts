@@ -39,7 +39,8 @@ describe('dsh-talk interaction consumer', () => {
     expect(client).toContain('window.clearTimeout(current.stopTimer)')
     expect(client).toContain('current.stream.getTracks().forEach')
     expect(client).toContain('await current.context.close().catch')
-    expect(client).toContain("throw new Error('音频不能超过 60 秒')")
+    expect(client).not.toContain('上传音频')
+    expect(client).not.toContain('type="file"')
   })
 
   it('returns the reply action to idle whenever composer input interrupts playback', async () => {
