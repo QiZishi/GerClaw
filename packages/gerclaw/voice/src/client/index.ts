@@ -20,8 +20,10 @@ import { installPlaybackInterruption, TalkMessageButton } from './TalkMessageBut
 import { en, zh, type TalkLocaleKey } from './locales.ts'
 import { TALK_REMOTE } from './remote.ts'
 import { installTalkStyles } from './styles.ts'
+import { VoiceFileTranscriber } from './VoiceFileTranscriber.ts'
 
 export type { TalkMicInjected, TalkMicProps } from './TalkMicButton.tsx'
+export type { GerclawVoiceFiles, VoiceFileTranscriptionResult } from './VoiceFileTranscriber.ts'
 export type { TalkLocaleKey } from './locales.ts'
 export { foldMic, initMic, clampRecordSeconds, type MicEvent, type MicPhase, type MicViewModel } from './present.ts'
 
@@ -48,12 +50,14 @@ export const inject = ['slots', 'locale', 'remote']
  * @param ctx - client root context.
  */
 export async function apply(ctx: ClientContext): Promise<void> {
+  ctx.plugin(VoiceFileTranscriber)
   ctx.effect(() => ctx.locale.register(NS, { zh, en }), 'dsh-talk: dictionaries')
   ctx.effect(() => installTalkStyles(), 'dsh-talk: stylesheet')
   ctx.effect(() => installPlaybackInterruption(), 'gerclaw voice: playback interruption')
 
   // $mount registers the 'remote.talk' namespace service and owns its removal.
-  await ctx.remote.$mount(TALK_REMOTE)
+  const disposeTalkRemote = await ctx.remote.$mount(TALK_REMOTE)
+  ctx.effect(() => async () => { await disposeTalkRemote() }, 'gerclaw voice: talk remote')
 
   ctx.inject(['remote.talk'], (scope) => {
     const talk = scope.remote.talk

@@ -1,4 +1,4 @@
-import { useRef, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { Tooltip } from '@deepseek-ai/dsh-client-ui-primitives'
 import type { InjectFace, PropsRuntime } from '@deepseek-ai/dsh-client-ui-slots'
 import { UploadIcon } from './icons.tsx'
@@ -11,10 +11,23 @@ interface UploadedDocument {
 
 export interface ConversationDocumentUploadInjected {
   sessionId: string
+  getVoiceFiles: () => VoiceFiles | undefined
+}
+
+interface VoiceFiles {
+  transcribe(
+    file: File,
+    sessionId: string,
+    hooks: { onPartial(text: string): void; onStatus(message: string): void },
+    signal?: AbortSignal,
+  ): Promise<{ text: string; elapsedMs: number }>
 }
 
 type ConversationDocumentUploadProps = PropsRuntime<'conversation.input.left'>
   & InjectFace<ConversationDocumentUploadInjected>
+
+const isAudioFile = (file: File): boolean =>
+  file.type.startsWith('audio/') || /\.(?:aac|flac|m4a|mp3|ogg|opus|wav|webm)$/iu.test(file.name)
 
 async function fileBase64(file: File): Promise<string> {
   const bytes = new Uint8Array(await file.arrayBuffer())
@@ -49,23 +62,59 @@ export function ConversationDocumentUpload({
   sessionId,
   input,
   inputActions,
+  getVoiceFiles,
 }: ConversationDocumentUploadProps) {
   const picker = useRef<HTMLInputElement>(null)
   const [uploading, setUploading] = useState(false)
   const [status, setStatus] = useState('')
+  const operation = useRef<AbortController | null>(null)
+  useEffect(() => () => { operation.current?.abort() }, [])
   const select = (): void => { picker.current?.click() }
   return (
     <div data-gerclaw-composer-document>
       <input
         ref={picker}
         type="file"
-        accept=".pdf,.docx,.md,.txt,application/pdf,text/plain,text/markdown,application/vnd.openxmlformats-officedocument.wordprocessingml.document"
+        accept=".pdf,.docx,.md,.txt,audio/*,application/pdf,text/plain,text/markdown,application/vnd.openxmlformats-officedocument.wordprocessingml.document"
         multiple
         hidden
         onChange={(event) => {
           const files = [...(event.target.files ?? [])]
           event.target.value = ''
           if (files.length === 0) return
+          const audioFiles = files.filter(isAudioFile)
+          if (audioFiles.length > 0) {
+            const audioFile = audioFiles[0]
+            if (audioFile === undefined) return
+            if (files.length !== 1) {
+              setStatus('音频请单独上传，每次选择 1 个音频文件')
+              return
+            }
+            const voiceFiles = getVoiceFiles()
+            if (voiceFiles === undefined) {
+              setStatus('语音识别服务尚未启用')
+              return
+            }
+            operation.current?.abort()
+            const controller = new AbortController()
+            operation.current = controller
+            setUploading(true)
+            void voiceFiles.transcribe(audioFile, sessionId, {
+              onPartial: text => inputActions.setDraft(text),
+              onStatus: setStatus,
+            }, controller.signal).then(({ text, elapsedMs }) => {
+              inputActions.setDraft(text)
+              setStatus(`已完成转写 · ${(elapsedMs / 1000).toFixed(2)} 秒`)
+              window.requestAnimationFrame(() => inputActions.submit())
+            }).catch((error: unknown) => {
+              if (!controller.signal.aborted)
+                setStatus(error instanceof Error ? error.message : '音频识别失败')
+            }).finally(() => {
+              if (operation.current === controller) operation.current = null
+              setUploading(false)
+            })
+            return
+          }
           if (files.length > 10) {
             setStatus('一次最多上传 10 份资料')
             return
@@ -89,10 +138,10 @@ export function ConversationDocumentUpload({
             .finally(() => { setUploading(false) })
         }}
       />
-      <Tooltip label="上传健康资料（PDF、Word、Markdown 或文本）" side="top" delayMs={350}>
+      <Tooltip label="上传健康资料或音频" side="top" delayMs={350}>
         <button
           type="button"
-          aria-label="上传健康资料"
+          aria-label="上传文件"
           disabled={uploading || input.phase !== 'plain'}
           onClick={select}
         >

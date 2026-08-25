@@ -11,7 +11,10 @@ import gerclawAppRemote from '@gerclaw/app/remote'
 import type { ArtifactDescriptor, GerclawJsonValue, MedicalTaskKind } from '@gerclaw/app/types'
 import { ArtifactsTab } from './ArtifactsTab.tsx'
 import { GerclawBrandMark, GerclawBrandName } from './Brand.tsx'
-import { ConversationDocumentUpload } from './ConversationDocumentUpload.tsx'
+import {
+  ConversationDocumentUpload,
+  type ConversationDocumentUploadInjected,
+} from './ConversationDocumentUpload.tsx'
 import { FriendlySettings } from './FriendlySettings.tsx'
 import { MedicalNavigation, type MedicalNavigationInjected } from './MedicalNavigation.tsx'
 import type { MedicalRemoteActions } from './MedicalFeature.tsx'
@@ -550,7 +553,11 @@ export async function apply(ctx: ClientContext): Promise<void> {
     name: 'conversation.input.left',
     id: 'gerclaw-document-upload',
     order: -50,
-    inject: sessionId => ({ sessionId }),
+    inject: sessionId => ({
+      sessionId,
+      getVoiceFiles: () => ctx.get('gerclawVoiceFiles') as
+        ReturnType<ConversationDocumentUploadInjected['getVoiceFiles']>,
+    }),
   }, ConversationDocumentUpload))
 
   const ArtifactsTabWithEvents = (props: Parameters<typeof ArtifactsTab>[0]) => createElement(ArtifactsTab, {

@@ -43,6 +43,23 @@ describe('dsh-talk interaction consumer', () => {
     expect(client).not.toContain('type="file"')
   })
 
+  it('keeps audio-file decoding behind the general upload control', async () => {
+    const [client, transcriber, upload] = await Promise.all([
+      source('src/client/TalkMicButton.tsx'),
+      source('src/client/VoiceFileTranscriber.ts'),
+      readFile(join(pkg, '../client-ui/src/client/ConversationDocumentUpload.tsx'), 'utf8'),
+    ])
+    expect(client).not.toContain('type="file"')
+    expect(client).not.toContain('上传音频')
+    expect(transcriber).toContain("super(ctx, 'gerclawVoiceFiles')")
+    expect(transcriber).toContain('context.decodeAudioData')
+    expect(transcriber).toContain("file.type.startsWith('audio/')")
+    expect(transcriber).toContain('ctx.effect(() => () =>')
+    expect(upload).toContain('audio/*')
+    expect(upload).toContain('getVoiceFiles()')
+    expect(upload).toContain('voiceFiles.transcribe')
+  })
+
   it('returns the reply action to idle whenever composer input interrupts playback', async () => {
     const client = await source('src/client/TalkMessageButton.tsx')
     const mic = await source('src/client/TalkMicButton.tsx')
