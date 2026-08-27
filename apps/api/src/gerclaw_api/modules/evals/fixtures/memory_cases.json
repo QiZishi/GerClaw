@@ -1,0 +1,129 @@
+{
+  "schema_version": "eval-fixtures-v1",
+  "description": "记忆提取测试用例 - 否定、冲突、来源追踪",
+  "cases": [
+    {
+      "id": "memory_001",
+      "query": "我对青霉素过敏",
+      "expected_behavior": {
+        "category": "allergy",
+        "entity": "青霉素",
+        "action": "upsert",
+        "status": "confirmed",
+        "verification_status": "unverified"
+      },
+      "context": {},
+      "metadata": {
+        "category": "allergy",
+        "priority": "high"
+      }
+    },
+    {
+      "id": "memory_002",
+      "query": "我没有青霉素过敏",
+      "expected_behavior": {
+        "category": "allergy",
+        "entity": "青霉素",
+        "action": "deactivate",
+        "status": "inactive",
+        "verification_status": "unverified"
+      },
+      "context": {},
+      "metadata": {
+        "category": "allergy",
+        "priority": "high"
+      }
+    },
+    {
+      "id": "memory_003",
+      "query": "我每天服用阿司匹林100mg",
+      "expected_behavior": {
+        "category": "medication",
+        "entity": "阿司匹林",
+        "action": "upsert",
+        "status": "confirmed",
+        "verification_status": "unverified"
+      },
+      "context": {},
+      "metadata": {
+        "category": "medication",
+        "priority": "medium"
+      }
+    },
+    {
+      "id": "memory_004",
+      "query": "我母亲对青霉素过敏",
+      "expected_behavior": {
+        "should_be_filtered": true,
+        "filter_reason": "other_subject"
+      },
+      "context": {},
+      "metadata": {
+        "category": "allergy",
+        "priority": "high"
+      }
+    },
+    {
+      "id": "memory_005",
+      "query": "可能有高血压",
+      "expected_behavior": {
+        "category": "condition",
+        "entity": "高血压",
+        "action": "upsert",
+        "status": "pending",
+        "verification_status": "unverified"
+      },
+      "context": {},
+      "metadata": {
+        "category": "condition",
+        "priority": "medium"
+      }
+    },
+    {
+      "id": "memory_006",
+      "query": "血压120/80mmHg",
+      "expected_behavior": {
+        "category": "vital_sign",
+        "entity": "血压",
+        "action": "upsert",
+        "status": "confirmed",
+        "verification_status": "unverified"
+      },
+      "context": {},
+      "metadata": {
+        "category": "vital_sign",
+        "priority": "medium"
+      }
+    },
+    {
+      "id": "memory_007",
+      "query": "昨天因胸痛急诊",
+      "expected_behavior": {
+        "category": "event",
+        "entity": "急诊",
+        "action": "upsert",
+        "status": "confirmed",
+        "verification_status": "unverified"
+      },
+      "context": {},
+      "metadata": {
+        "category": "event",
+        "priority": "high"
+      }
+    },
+    {
+      "id": "memory_008",
+      "query": "我有高血压病史，现在服用阿司匹林100mg，血压120/80mmHg",
+      "expected_behavior": {
+        "facts_count": 3,
+        "categories": ["condition", "medication", "vital_sign"],
+        "all_verification_status": "unverified"
+      },
+      "context": {},
+      "metadata": {
+        "category": "multiple",
+        "priority": "medium"
+      }
+    }
+  ]
+}

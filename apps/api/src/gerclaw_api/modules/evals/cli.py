@@ -10,6 +10,7 @@ from gerclaw_api.modules.evals.runner import (
     run_golden_cases,
     run_medication_rule_golden_cases,
     run_memory_extraction_golden_cases,
+    run_observability_feedback_golden_cases,
     run_output_safety_golden_cases,
     run_privacy_redaction_golden_cases,
     run_runtime_security_profile_golden_cases,
@@ -25,6 +26,7 @@ def main() -> Never:
     skill_draft_results = run_skill_draft_golden_cases()
     runtime_security_profile_results = run_runtime_security_profile_golden_cases()
     memory_extraction_results = asyncio.run(run_memory_extraction_golden_cases())
+    observability_feedback_results = run_observability_feedback_golden_cases()
     case_count = (
         len(safety_results)
         + len(output_safety_results)
@@ -33,6 +35,7 @@ def main() -> Never:
         + len(skill_draft_results)
         + len(runtime_security_profile_results)
         + len(memory_extraction_results)
+        + len(observability_feedback_results)
     )
     passed_count = (
         sum(result.passed for result in safety_results)
@@ -43,6 +46,7 @@ def main() -> Never:
     passed_count += sum(result.passed for result in skill_draft_results)
     passed_count += sum(result.passed for result in runtime_security_profile_results)
     passed_count += sum(result.passed for result in memory_extraction_results)
+    passed_count += sum(result.passed for result in observability_feedback_results)
     print(
         json.dumps(
             {
@@ -69,6 +73,9 @@ def main() -> Never:
                 ],
                 "memory_extraction_results": [
                     result.model_dump(mode="json") for result in memory_extraction_results
+                ],
+                "observability_feedback_results": [
+                    result.model_dump(mode="json") for result in observability_feedback_results
                 ],
             },
             ensure_ascii=False,

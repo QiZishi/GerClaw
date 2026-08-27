@@ -215,6 +215,11 @@ _OMITTED_SELF_REPORT_PATTERNS = (
         r"^(?:但是|而是|但|却|不过)?(?:目前|当前|现在|曾经|曾|既往)?"
         r"对.{1,120}(?:过敏|不耐受)"
     ),
+    # Match negation expressions
+    re.compile(
+        r"(?:我|本人|自己)(?:没有|并无|否认|未|不|从未|从没).{0,50}(?:过敏|不耐受|服用|使用|吃|用药)"
+    ),
+
     re.compile(r"^(?:但是|而是|但|却|不过)[^，,。；;！!？?\n]{1,120}(?:过敏|不耐受)"),
     re.compile(
         r"^(?:目前|当前|现在|正在)(?:出现|发生)[^，,。；;！!？?\n]{1,120}"
@@ -821,16 +826,46 @@ class RealMemoryExtractor:
                 marker in context for context in contexts for marker in _NON_FACT_MARKERS
             )
             continued_use = _matches_any_pattern(contexts, _CONTINUED_USE_PATTERNS)
+            # For certain categories, relax self-report check
+            _RELAXED_SELF_REPORT_CATEGORIES = frozenset({"vital_sign", "basic_info", "assessment", "condition", "medication"})
+            
             has_self_report = (
                 _has_explicit_self_report(contexts, fact.category)
                 or continued_use
                 or (
                     has_negation and _matches_any_pattern(contexts, _FIRST_PERSON_NEGATION_PATTERNS)
                 )
+                or (
+                    fact.category in _RELAXED_SELF_REPORT_CATEGORIES
+                    and fact.entity in safe_text
+                )
             )
+                        # Deactivation check: entity-specific
+            def _is_deactivation_for_entity(context, entity):
+                cl = context.lower()
+                el = entity.lower()
+                for mk in _DEACTIVATION_MARKERS:
+                    if mk in cl:
+                        mp = cl.find(mk)
+                        ep = cl.find(el)
+                        if mp >= 0 and ep >= 0:
+                            return ep > mp
+                        if ep < 0:
+                            return True
+                return False
+            
             has_deactivation = any(
-                marker in context for context in contexts for marker in _DEACTIVATION_MARKERS
+                _is_deactivation_for_entity(context, fact.entity)
+                for context in contexts
             )
+                        # For hearsay markers, reduce confidence
+            _HEARSAY_MARKERS = ("有人说", "别人说", "听说", "据报道")
+            has_hearsay = any(
+                marker in context for context in contexts for marker in _HEARSAY_MARKERS
+            )
+            if has_hearsay:
+                fact = fact.model_copy(update={"confidence": min(fact.confidence, 0.4)})
+            
             has_other_subject = any(
                 marker in context for context in contexts for marker in _OTHER_SUBJECT_MARKERS
             ) or _matches_any_pattern(contexts, _OTHER_SUBJECT_PATTERNS)
@@ -911,8 +946,12 @@ class RealMemoryExtractor:
 
         result = [(fact, status) for _key, (_rank, fact, status) in ordered[: self._max_facts]]
 
-        # 如果没有提取到任何事实，返回一个待确认的事实
+        # 如果没有提取到任何事实
+        # 如果原始提取有事实但被过滤掉了，返回空结果
         if not result:
+            if extraction.facts:
+                # 有提取结果但被过滤，返回空
+                return [], error_message
             fallback_fact = ExtractedMemoryFact(
                 category="basic_info",
                 memory_type="stable",
@@ -921,7 +960,7 @@ class RealMemoryExtractor:
                 evidence_span=safe_text[:50] if len(safe_text) > 50 else safe_text,
                 action="upsert",
                 confidence=0.2,
-                details=MemoryFactDetails(),
+                details=MemoryFactDetails(value="待确认"),
                 provenance=ProvenanceRecord(
                     source_type="user_report",
                     extraction_method="llm_extraction",

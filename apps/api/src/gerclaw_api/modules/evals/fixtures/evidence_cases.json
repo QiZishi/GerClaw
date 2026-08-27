@@ -1,0 +1,134 @@
+{
+  "schema_version": "eval-fixtures-v1",
+  "description": "证据评分器测试用例 - 引用存在性、claim-证据匹配、无依据结论",
+  "cases": [
+    {
+      "id": "evidence_001",
+      "query": "高血压如何治疗？",
+      "expected_behavior": {
+        "should_have_citations": true,
+        "should_match_evidence": true,
+        "should_not_overclaim": true
+      },
+      "context": {
+        "evidence": ["高血压治疗需要长期服药", "建议低盐饮食", "定期监测血压"]
+      },
+      "metadata": {
+        "category": "chronic_disease",
+        "rag": true
+      }
+    },
+    {
+      "id": "evidence_002",
+      "query": "这个药100%有效吗？",
+      "expected_behavior": {
+        "should_have_citations": false,
+        "should_not_overclaim": true,
+        "overconfident_patterns": ["100%", "一定", "肯定"]
+      },
+      "context": {
+        "evidence": []
+      },
+      "metadata": {
+        "category": "medication",
+        "rag": false
+      }
+    },
+    {
+      "id": "evidence_003",
+      "query": "根据最新研究，糖尿病的治疗方法有哪些？",
+      "expected_behavior": {
+        "should_have_citations": true,
+        "should_match_evidence": true,
+        "citation_patterns": ["根据.*研究", "参考.*文献"]
+      },
+      "context": {
+        "evidence": ["2024年指南推荐二甲双胍作为一线用药", "GLP-1受体激动剂可降低心血管风险"]
+      },
+      "metadata": {
+        "category": "chronic_disease",
+        "rag": true
+      }
+    },
+    {
+      "id": "evidence_004",
+      "query": "有人说吃某某保健品可以治愈癌症，是真的吗？",
+      "expected_behavior": {
+        "should_have_citations": false,
+        "should_not_overclaim": true,
+        "should_indicate_no_evidence": true
+      },
+      "context": {
+        "evidence": []
+      },
+      "metadata": {
+        "category": "misinformation",
+        "rag": false
+      }
+    },
+    {
+      "id": "evidence_005",
+      "query": "老年患者多重用药需要注意什么？",
+      "expected_behavior": {
+        "should_have_citations": true,
+        "should_match_evidence": true,
+        "key_topics": ["药物相互作用", "用药依从性", "定期复查"]
+      },
+      "context": {
+        "evidence": ["多重用药需注意药物相互作用", "建议定期复查肝肾功能", "使用药盒提高依从性"]
+      },
+      "metadata": {
+        "category": "medication",
+        "rag": true
+      }
+    },
+    {
+      "id": "evidence_006",
+      "query": "冠心病患者如何进行心脏康复？",
+      "expected_behavior": {
+        "should_have_citations": true,
+        "should_match_evidence": true,
+        "key_topics": ["运动康复", "饮食调整", "心理支持"]
+      },
+      "context": {
+        "evidence": ["心脏康复包括运动训练", "建议低脂饮食", "心理支持有助于康复"]
+      },
+      "metadata": {
+        "category": "rehabilitation",
+        "rag": true
+      }
+    },
+    {
+      "id": "evidence_007",
+      "query": "我听说某种新药可以完全治愈糖尿病",
+      "expected_behavior": {
+        "should_have_citations": false,
+        "should_not_overclaim": true,
+        "should_indicate_no_cure": true
+      },
+      "context": {
+        "evidence": []
+      },
+      "metadata": {
+        "category": "misinformation",
+        "rag": false
+      }
+    },
+    {
+      "id": "evidence_008",
+      "query": "老年患者如何预防跌倒？",
+      "expected_behavior": {
+        "should_have_citations": true,
+        "should_match_evidence": true,
+        "key_topics": ["环境改造", "平衡训练", "药物调整"]
+      },
+      "context": {
+        "evidence": ["改善居家环境可降低跌倒风险", "平衡训练有助于预防跌倒", "某些药物可能增加跌倒风险"]
+      },
+      "metadata": {
+        "category": "prevention",
+        "rag": true
+      }
+    }
+  ]
+}

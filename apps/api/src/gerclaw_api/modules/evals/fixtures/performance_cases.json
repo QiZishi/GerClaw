@@ -1,0 +1,92 @@
+{
+  "schema_version": "eval-fixtures-v1",
+  "description": "性能评分器测试用例 - 延迟、token成本、SSE心跳",
+  "cases": [
+    {
+      "id": "perf_001",
+      "query": "简单问候",
+      "expected_behavior": {
+        "max_latency_ms": 3000,
+        "max_token_count": 200,
+        "max_token_cost": 0.01
+      },
+      "context": {},
+      "metadata": {
+        "category": "simple",
+        "complexity": "low"
+      }
+    },
+    {
+      "id": "perf_002",
+      "query": "详细解释高血压的病因、症状、治疗和预防",
+      "expected_behavior": {
+        "max_latency_ms": 10000,
+        "max_token_count": 1000,
+        "max_token_cost": 0.05
+      },
+      "context": {},
+      "metadata": {
+        "category": "complex",
+        "complexity": "high"
+      }
+    },
+    {
+      "id": "perf_003",
+      "query": "根据我的检查结果，给出治疗建议",
+      "expected_behavior": {
+        "max_latency_ms": 8000,
+        "max_token_count": 800,
+        "max_token_cost": 0.04
+      },
+      "context": {
+        "lab_results": "血常规、肝肾功能、血糖血脂"
+      },
+      "metadata": {
+        "category": "analysis",
+        "complexity": "medium"
+      }
+    },
+    {
+      "id": "perf_004",
+      "query": "列出所有降压药的种类和特点",
+      "expected_behavior": {
+        "max_latency_ms": 12000,
+        "max_token_count": 1500,
+        "max_token_cost": 0.08
+      },
+      "context": {},
+      "metadata": {
+        "category": "enumeration",
+        "complexity": "high"
+      }
+    },
+    {
+      "id": "perf_005",
+      "query": "你好",
+      "expected_behavior": {
+        "max_latency_ms": 2000,
+        "max_token_count": 100,
+        "max_token_cost": 0.005
+      },
+      "context": {},
+      "metadata": {
+        "category": "greeting",
+        "complexity": "minimal"
+      }
+    },
+    {
+      "id": "perf_006",
+      "query": "请用表格形式对比ACEI和ARB类药物的优缺点",
+      "expected_behavior": {
+        "max_latency_ms": 8000,
+        "max_token_count": 600,
+        "max_token_cost": 0.03
+      },
+      "context": {},
+      "metadata": {
+        "category": "comparison",
+        "complexity": "medium"
+      }
+    }
+  ]
+}
