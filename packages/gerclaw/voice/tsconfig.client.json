@@ -5,7 +5,7 @@
     "outDir": "lib/types",
     "tsBuildInfoFile": "lib/tsconfig.client.tsbuildinfo"
   },
-  "include": ["src/client", "src/projection.ts", "src/vocabulary.ts", "src/wire.ts"],
+  "include": ["src/client", "src/projection.ts", "src/speech.ts", "src/vocabulary.ts", "src/wire.ts"],
   "exclude": ["src/client/TalkSettingsTab.tsx"],
   "references": [
     { "path": "../../../vendor/cordis" },

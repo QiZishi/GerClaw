@@ -9,10 +9,15 @@ import type { GerclawVoiceEvent, SpeechAudioChunk } from '@gerclaw/speech'
 import { Config, type ResolvedConfig } from './config.ts'
 import {
   applyTalkSpeechProjection,
+  applyGerclawVoiceProjection,
+  GERCLAW_VOICE_PROJECTION_STATE_VERSION,
   initTalkSpeechProjection,
+  initGerclawVoiceProjection,
   TALK_SPEECH_PROJECTION_STATE_VERSION,
   talkSpeechProjectionSchema,
+  gerclawVoiceProjectionSchema,
   viewTalkSpeechProjection,
+  viewGerclawVoiceProjection,
 } from './projection.ts'
 import { sanitizeText } from './sanitize.ts'
 import type { TalkAudio, TalkInterruptResult, TalkStatus } from './wire.ts'
@@ -149,6 +154,17 @@ export class TalkService extends TypertRemoteService {
       },
       stateVersion: TALK_SPEECH_PROJECTION_STATE_VERSION,
     }), 'dsh-talk: talk:speech projection')
+    ctx.effect(() => ctx.sessionProjections.register<'gerclaw/voice', ReturnType<typeof initGerclawVoiceProjection>>({
+      key: 'gerclaw/voice',
+      stateSchema: gerclawVoiceProjectionSchema,
+      init: initGerclawVoiceProjection,
+      apply: applyGerclawVoiceProjection,
+      wire: {
+        viewSchema: gerclawVoiceProjectionSchema,
+        view: viewGerclawVoiceProjection,
+      },
+      stateVersion: GERCLAW_VOICE_PROJECTION_STATE_VERSION,
+    }), 'gerclaw: voice projection')
     ctx.effect(() => () => {
       for (const controller of this.activeSyntheses.values()) controller.abort('plugin-unloaded')
       this.activeSyntheses.clear()

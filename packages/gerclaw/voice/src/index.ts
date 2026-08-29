@@ -7,5 +7,6 @@ export { sanitizeText, redactSecrets, displayPath } from './sanitize.ts'
 export type { TalkAudio, TalkInterruptResult, TalkStatus } from './wire.ts'
 export type { DshTalkSpeechEvent, GerclawVoiceEvent, SpeechReason, SpeechTtsEngine } from './speech.ts'
 export type { TalkSpeechProjection, TalkSpeechProjectionState } from './projection.ts'
+export type { GerclawVoiceProjectionState } from './projection.ts'
 
 export default TalkService

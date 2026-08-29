@@ -528,10 +528,6 @@ export class QianwenSpeechProvider extends SpeechProvider {
     requestedVoice?: string,
   ): AsyncGenerator<SpeechAudioChunk> {
     const controller = new AbortController()
-    const abort = () => {
-      controller.abort()
-    }
-    signal?.addEventListener('abort', abort, { once: true })
     this.live.add(controller)
     const model = this.config.ttsModel ?? QIANWEN_TTS_MODEL
     const voice = ['Cherry', 'Serena', 'Ethan'].includes(requestedVoice ?? '')
@@ -550,6 +546,11 @@ export class QianwenSpeechProvider extends SpeechProvider {
       wake?.()
       wake = undefined
     }
+    const abort = () => {
+      controller.abort()
+      push(new DOMException('语音请求已取消', 'AbortError'))
+    }
+    signal?.addEventListener('abort', abort, { once: true })
     try {
       await Promise.all([
         waitForOpen(socket, controller.signal),

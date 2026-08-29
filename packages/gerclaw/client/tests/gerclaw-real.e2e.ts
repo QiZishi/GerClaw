@@ -249,11 +249,30 @@ const runMedicalTasks = async (page: Page): Promise<void> => {
 }
 
 const runVoice = async (page: Page): Promise<void> => {
-  const upload = page.getByRole('button', { name: '上传音频进行识别' })
-  const picker = upload.locator('xpath=following-sibling::input[@type="file"]')
-  await picker.setInputFiles(AUDIO_FIXTURE)
+  const replies = await page.locator('button[data-gerclaw-read-aloud]').count()
+  const mic = page.getByRole('button', { name: '开始语音输入' })
+  await mic.click()
+  const stop = page.getByRole('button', { name: '停止录音并发送' })
+  await visible(stop)
+  await visible(page.getByRole('status').filter({ hasText: /正在识别/u }), 60_000)
+  // Chromium loops the fake microphone fixture after EOF. Stop as soon as the
+  // complete first utterance reaches the native composer so the next loop
+  // cannot append a duplicate prefix to Qianwen's final transcript.
+  await expect.poll(
+    () => composer(page).inputValue(),
+    { timeout: 30_000 },
+  ).toContain('正在服用阿司匹林')
+  await stop.click()
   await visible(page.getByRole('status').filter({ hasText: /已完成转写/u }), 120_000)
-  await visible(page.getByText('我今年七十五岁，最近晚上睡不好，正在服用阿司匹林。', { exact: true }), 120_000)
+  const transcript = /最近晚上睡不好.*正在服用阿司匹林/u
+  await visible(page.getByText(transcript).last(), 120_000)
+  await expect.poll(
+    async () => {
+      await answerVisibleQuestion(page, '暂不补充更多个人资料，请直接给出简短的健康回应。')
+      return page.locator('button[data-gerclaw-read-aloud]').count()
+    },
+    { timeout: 180_000 },
+  ).toBeGreaterThan(replies)
   const read = page.locator('button[data-gerclaw-read-aloud]').last()
   await read.click()
   await hasAttribute(read, 'aria-label', '停止朗读', 60_000)
@@ -265,7 +284,20 @@ const runVoice = async (page: Page): Promise<void> => {
   await hasAttribute(read, 'aria-label', '朗读这条回复')
   await composer(page).fill('')
 
-  const mic = page.getByRole('button', { name: '开始语音输入' })
+  const transcriptCount = await page.getByText(transcript).count()
+  const repliesBeforeUpload = await page.locator('button[data-gerclaw-read-aloud]').count()
+  await page.locator('[data-gerclaw-composer-document] input[type="file"]').setInputFiles(AUDIO_FIXTURE)
+  await visible(page.getByRole('status').filter({ hasText: /正在(?:解码|连接|识别)音频/u }), 30_000)
+  await visible(page.getByRole('status').filter({ hasText: /已完成转写/u }), 120_000)
+  await expect.poll(
+    () => page.getByText(transcript).count(),
+    { timeout: 120_000 },
+  ).toBeGreaterThan(transcriptCount)
+  await expect.poll(
+    () => page.locator('button[data-gerclaw-read-aloud]').count(),
+    { timeout: 180_000 },
+  ).toBeGreaterThan(repliesBeforeUpload)
+
   await mic.click()
   await visible(page.getByRole('button', { name: '停止录音并发送' }))
   await page.getByRole('button', { name: '取消语音输入' }).click()
@@ -332,10 +364,36 @@ const runPlanGoalAndSkills = async (page: Page): Promise<void> => {
 
 const runPrescription = async (page: Page): Promise<void> => {
   const before = await page.locator('[data-gerclaw-conversation-task]').count()
-  await page.getByRole('button', { name: '五大处方' }).click()
-  await visible(page.getByText(/最希望改善|健康目标/u).last(), 180_000)
-  await sendChat(page, '我的健康目标是改善睡眠。')
-  await sendChat(page, '我最近夜间易醒，正在服用阿司匹林每日一次，没有已知药物过敏。', 240_000)
+  let replies = await page.locator('button[data-gerclaw-read-aloud]').count()
+  await page.getByRole('button', { name: '五大处方', exact: true }).click()
+  await expect.poll(async () =>
+    await page.locator('[data-gerclaw-conversation-task]').count() > before
+    || await page.locator('button[data-gerclaw-read-aloud]').count() > replies
+    || await page.locator('[data-question-key]').isVisible().catch(() => false),
+  { timeout: 180_000 }).toBe(true)
+  for (const answer of [
+    '我的健康目标是改善睡眠。',
+    '我最近夜间易醒，正在服用阿司匹林每日一次，没有已知药物过敏。',
+    '没有其他需要补充的个人资料，请根据已经提供的信息继续。',
+  ]) {
+    if (await page.locator('[data-gerclaw-conversation-task]').count() > before) break
+    const question = page.locator('[data-question-key]')
+    const questionKey = await question.getAttribute('data-question-key').catch(() => null)
+    replies = await page.locator('button[data-gerclaw-read-aloud]').count()
+    if (!(await answerVisibleQuestion(page, answer))) {
+      const send = page.getByRole('button', { name: '发送消息' })
+      await send.waitFor({ state: 'visible', timeout: 180_000 })
+      await composer(page).fill(answer)
+      await send.click()
+    }
+    await expect.poll(async () =>
+      await page.locator('[data-gerclaw-conversation-task]').count() > before
+      || await page.locator('button[data-gerclaw-read-aloud]').count() > replies
+      || (questionKey !== null
+        && await page.locator('[data-question-key]').isVisible().catch(() => false)
+        && await page.locator('[data-question-key]').getAttribute('data-question-key') !== questionKey),
+    { timeout: 240_000 }).toBe(true)
+  }
   await expect.poll(() => page.locator('[data-gerclaw-conversation-task]').count(), { timeout: 240_000 }).toBe(before + 1)
   const card = page.locator('[data-gerclaw-conversation-task]').last()
   for (const chapter of ['药物处方', '运动处方', '营养处方', '心理处方', '康复处方'])
@@ -455,6 +513,21 @@ describe.skipIf(!ENABLED)('GerClaw 正式 Gateway 全功能真实 E2E', { concur
     await logout(page)
     assertClean(tripwire)
   }, 180_000)
+
+  for (const identity of ['doctor', 'patient', 'guest'] as const) {
+    it(`阶段二：${identity === 'doctor' ? '医生' : identity === 'patient' ? '患者' : '游客'}语音与五大处方`, async () => {
+      const context = await browser.newContext({ locale: 'zh-CN', permissions: ['microphone'], viewport: { width: 1440, height: 960 } })
+      contexts.push(context)
+      const page = await context.newPage()
+      const tripwire = watch(page)
+      if (identity === 'guest') await enterAsGuest(page)
+      else await login(page, identities()[identity === 'doctor' ? 0 : 1]!)
+      await runVoice(page)
+      await runPrescription(page)
+      assertClean(tripwire)
+      await logout(page)
+    }, 1_500_000)
+  }
 
   for (const identity of ['doctor', 'patient'] as const) {
     it(`${identity === 'doctor' ? '医生' : '患者'}账号完整真实路径`, async () => {

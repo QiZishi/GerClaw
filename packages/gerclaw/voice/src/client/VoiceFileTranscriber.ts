@@ -81,12 +81,14 @@ export class VoiceFileTranscriber extends Service implements GerclawVoiceFiles {
     signal?: AbortSignal,
   ): Promise<VoiceFileTranscriptionResult> {
     if (!isAudioFile(file)) throw new Error('所选文件不是音频文件')
-    if (signal?.aborted === true) throw new DOMException('音频识别已取消', 'AbortError')
+    const isAborted = (): boolean => signal?.aborted ?? false
+    if (isAborted()) throw new DOMException('音频识别已取消', 'AbortError')
 
     const context = new AudioContext()
     const socket = new WebSocket(socketUrl(sessionId))
     socket.binaryType = 'arraybuffer'
     let settled = false
+    let cancelled = false
     let finalText = ''
     let elapsedMs = 0
     let timeout = 0
@@ -102,7 +104,7 @@ export class VoiceFileTranscriber extends Service implements GerclawVoiceFiles {
     }
     const cancel = (): void => {
       if (settled) return
-      settled = true
+      cancelled = true
       cleanup(true)
     }
     this.active.add(cancel)
@@ -111,7 +113,7 @@ export class VoiceFileTranscriber extends Service implements GerclawVoiceFiles {
     try {
       hooks.onStatus('正在解码音频…')
       const decoded = await context.decodeAudioData(await file.arrayBuffer())
-      if (signal?.aborted === true) throw new DOMException('音频识别已取消', 'AbortError')
+      if (cancelled || isAborted()) throw new DOMException('音频识别已取消', 'AbortError')
       if (decoded.duration > 60.001) throw new Error('音频不能超过 60 秒')
 
       const mono = new Float32Array(decoded.length)
@@ -124,6 +126,10 @@ export class VoiceFileTranscriber extends Service implements GerclawVoiceFiles {
       hooks.onStatus('正在连接语音识别…')
 
       await new Promise<void>((resolve, reject) => {
+        if (cancelled || isAborted()) {
+          reject(new DOMException('音频识别已取消', 'AbortError'))
+          return
+        }
         timeout = window.setTimeout(() => reject(new Error('语音识别服务连接超时')), 15_000)
         socket.addEventListener('error', () => reject(new Error('无法连接语音识别服务')), { once: true })
         socket.addEventListener('close', () => {
@@ -148,7 +154,7 @@ export class VoiceFileTranscriber extends Service implements GerclawVoiceFiles {
 
       hooks.onStatus('正在识别音频…')
       for (let offset = 0; offset < samples.length; offset += 1_600) {
-        if (signal?.aborted === true) throw new DOMException('音频识别已取消', 'AbortError')
+        if (isAborted()) throw new DOMException('音频识别已取消', 'AbortError')
         if (socket.readyState !== WebSocket.OPEN) throw new Error('语音识别连接提前关闭')
         socket.send(pcm16(samples.subarray(offset, offset + 1_600)))
         await new Promise(resolve => window.setTimeout(resolve, 100))

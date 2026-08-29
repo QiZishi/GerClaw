@@ -204,11 +204,10 @@ export function TalkMicButton({ interrupt, inputActions, sessionId }: TalkMicPro
         setMessage(`正在识别：${payload.text}`)
       } else if (payload.type === 'final' && payload.text) {
         const text = payload.text.trim()
-        inputActionsRef.current.setDraft(text)
+        const actions = inputActionsRef.current
+        actions.setDraft(text)
         setMessage(`已完成转写 · ${((payload.elapsedMs ?? 0) / 1000).toFixed(2)} 秒`)
-        if (text && finishing.current) {
-          window.requestAnimationFrame(() => { inputActionsRef.current.submit() })
-        }
+        if (text && finishing.current) actions.submit()
       } else if (payload.type === 'done') {
         finishing.current = false
         activeSocket.current = null

@@ -7,6 +7,7 @@ import { Context, Service } from '@deepseek-ai/cordis'
 import type { Agent } from '@deepseek-ai/dsh-agent'
 import type {} from '@deepseek-ai/dsh-host-webserver'
 import { SessionId } from '@deepseek-ai/dsh-session'
+import type {} from '@deepseek-ai/dsh-session-projection'
 import type {} from '@deepseek-ai/dsh-subagent'
 import type {} from '@deepseek-ai/dsh-system-prompt'
 import { defineTool } from '@deepseek-ai/dsh-tools'
@@ -36,6 +37,12 @@ import type {
   TaskRun,
 } from './types.ts'
 import type {} from '@gerclaw/task-runtime'
+import {
+  applyPrescriptionIntakeProjection,
+  initPrescriptionIntakeProjection,
+  PRESCRIPTION_INTAKE_PROJECTION_STATE_VERSION,
+  prescriptionIntakeProjectionSchema,
+} from './projection.ts'
 
 export type * from './types.ts'
 
@@ -104,13 +111,29 @@ export class GerclawApp extends TypertRemoteService {
   static inject = [
     'webServer', 'sessions', 'agents', 'tools', 'systemPrompt', 'subagents',
     'healthRepository', 'gerclawArtifacts', 'gerclawTasks', 'gerclawDocumentParser', 'gerclawMedicalEvidence',
-    'gerclawPrescription', 'gerclawRag', 'workspaceRegistry',
+    'gerclawPrescription', 'gerclawRag',
+    'sessionProjections', 'workspaceRegistry',
   ]
 
   private readonly controllers = new Set<AbortController>()
 
   constructor(ctx: Context, private readonly config: AppConfig) {
     super(ctx, 'gerclawApp')
+    // The registry owns the drive; registration is scoped to this plugin fiber
+    // and disappears with the GerClaw application plugin.
+    ctx.inject(['sessionProjections'], (projectionCtx) => {
+      projectionCtx.sessionProjections.register<'gerclaw/prescription-intake', ReturnType<typeof initPrescriptionIntakeProjection>>({
+        key: 'gerclaw/prescription-intake',
+        stateSchema: prescriptionIntakeProjectionSchema,
+        init: initPrescriptionIntakeProjection,
+        apply: applyPrescriptionIntakeProjection,
+        wire: {
+          viewSchema: prescriptionIntakeProjectionSchema,
+          view: state => state,
+        },
+        stateVersion: PRESCRIPTION_INTAKE_PROJECTION_STATE_VERSION,
+      })
+    })
   }
 
   protected async [Service.init](): Promise<void> {
@@ -181,20 +204,19 @@ export class GerclawApp extends TypertRemoteService {
     })
     this.ctx.effect(() => this.ctx.tools.register(defineTool({
       name: 'collect_prescription_information',
-      description: '开始或继续五大处方资料收集。把本轮文字、语音转写、图片和已解析资料中明确出现的健康目标、当前问题、当前用药映射到参数，未知字段省略。资料齐全时自动检索证据、生成五章处方并执行格式校验。',
+      description: '仅在用户明确要求五大处方时开始或继续资料收集；普通健康咨询、症状或用药陈述不得启动。把本轮文字、语音转写、图片和已解析资料中明确出现的健康目标、当前问题、当前用药映射到参数，未知字段省略。资料齐全时自动检索证据、生成五章处方并执行格式校验。',
       parameters: {
         healthGoal: { type: 'string', description: '本轮明确提供的健康目标。' },
         currentConcerns: { type: 'string', description: '本轮明确提供的当前问题。' },
         currentMedications: { type: 'string', description: '本轮明确提供的当前用药。' },
         documentRefs: { type: 'array', items: { type: 'string' }, description: '真实资料编号，最多 10 个。' },
-        startNew: { type: 'boolean', description: '用户明确要求重新开始时为 true。' },
       },
       output: {
         schema: {
           type: 'object',
           additionalProperties: false,
           properties: {
-            status: { type: 'string', required: true, enum: ['collecting', 'limit_reached', 'completed'] },
+            status: { type: 'string', required: true, enum: ['not_started', 'collecting', 'limit_reached', 'completed'] },
             conversationTurns: { type: 'integer', required: true },
             missingFields: { type: 'array', required: true, items: { type: 'string' } },
             nextQuestion: { type: 'string' },
@@ -212,13 +234,19 @@ export class GerclawApp extends TypertRemoteService {
         if (exec.agent === undefined) throw new Error('五大处方资料收集需要当前对话会话')
         const existing = this.prescriptionIntake(exec.agent)
         const active = existing?.status === 'collecting' || existing?.status === 'information_complete'
-        if (!active && args.startNew !== true) throw new Error('只有用户明确要求开始五大处方时才能启动资料收集')
+        const startNew = !active && this.hasExplicitPrescriptionRequest(exec.agent)
+        if (!active && !startNew) return {
+          status: 'not_started' as const,
+          conversationTurns: 0,
+          missingFields: [],
+          summary: '用户尚未明确要求开始五大处方，本次没有启动资料收集。',
+        }
         return this.runPrescriptionIntake(exec.agent, {
           ...(args.healthGoal === undefined ? {} : { healthGoal: args.healthGoal }),
           ...(args.currentConcerns === undefined ? {} : { currentConcerns: args.currentConcerns }),
           ...(args.currentMedications === undefined ? {} : { currentMedications: args.currentMedications }),
           ...(args.documentRefs === undefined ? {} : { documentRefs: args.documentRefs }),
-          startNew: args.startNew === true,
+          startNew,
         }, exec.signal)
       },
     })), 'gerclaw.app.prescription-intake-tool')
@@ -232,8 +260,15 @@ export class GerclawApp extends TypertRemoteService {
   }
 
   private prescriptionIntake(agent: Agent): PrescriptionIntakeState | undefined {
-    const event = agent.session.events.findLast(candidate => candidate.type === 'gerclaw/prescription-intake')
-    return event?.type === 'gerclaw/prescription-intake' ? event.data.intake : undefined
+    return this.ctx.sessionProjections.stateOf(agent.session, 'gerclaw/prescription-intake') ?? undefined
+  }
+
+  private hasExplicitPrescriptionRequest(agent: Agent): boolean {
+    const events = agent.session.events
+    const lastIntake = events.findLastIndex(event => event.type === 'gerclaw/prescription-intake')
+    return events.slice(lastIntake + 1).some(event => event.type === 'user/message'
+      && event.data.content.some(block => block.type === 'text'
+        && /(?:开始|生成|制定|做|需要|想).{0,12}五大处方|五大处方.{0,12}(?:开始|生成|制定|做|来一份|新的)/u.test(block.text)))
   }
 
   private appendPrescriptionIntake(agent: Agent, intake: PrescriptionIntakeState): void {

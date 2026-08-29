@@ -15,6 +15,13 @@ const evidenceProvider = packageEntry('../../medical-evidence-public/lib/index.j
 const taskRuntime = packageEntry('../../task-runtime-local/lib/index.js')
 const speechProvider = packageEntry('../../speech-qianwen/lib/index.js')
 const voiceConsumer = packageEntry('../../voice/lib/index.js')
+const planCompliance = packageEntry('../../plan-compliance/lib/index.js')
+const sessionStore = packageEntry('../../../core/session/lib/index.js')
+const sessionProjection = packageEntry('../../../session/session-projection/lib/index.js')
+const typert = packageEntry('../../../typert/registry/lib/index.js')
+const typertLoader = packageEntry('../../../typert/loader/lib/index.js')
+const typertGateway = packageEntry('../../../api/gateway/lib/index.js')
+const webServer = packageEntry('../../../host/webserver/lib/index.js')
 
 const entryById = (ctx: Context, id: string) => {
   const entry = [...ctx.loader.entries()].find(candidate => candidate.options.id === id)
@@ -95,6 +102,91 @@ describe('GerClaw replaceable services through the real Loader', () => {
     } finally {
       await ctx.fiber.dispose()
       expect(Reflect.get(globalThis, marker)).toBeUndefined()
+      await rm(dir, { recursive: true, force: true })
+    }
+  })
+
+  it('hot-unplugs and restores the actual voice/provider composition', async () => {
+    const dir = await mkdtemp(join(tmpdir(), 'gerclaw-voice-composition-hotplug-'))
+    const config = join(dir, 'cordis.yml')
+    await writeFile(config, [
+      `- id: session\n  name: "${sessionStore}"`,
+      `- id: session-projection\n  name: "${sessionProjection}"`,
+      `- id: typert\n  name: "${typert}"`,
+      `- id: typert-loader\n  name: "${typertLoader}"`,
+      `- id: typert-gateway\n  name: "${typertGateway}"`,
+      `- id: webserver\n  name: "${webServer}"\n  config:\n    host: 127.0.0.1\n    port: 0`,
+      `- id: speech-provider\n  name: "${speechProvider}"\n  config:\n    asrApiKey: test-asr-key\n    asrUrl: wss://example.invalid/asr\n    ttsApiKey: test-tts-key\n    ttsUrl: wss://example.invalid/tts\n    asrModel: qwen3-asr-flash-realtime\n    ttsModel: qwen3-tts-instruct-flash-realtime`,
+      `- id: voice\n  name: "${voiceConsumer}"`,
+      '',
+    ].join('\n'))
+    const ctx = await boot('gerclaw-voice-composition-hotplug-test', config)
+    try {
+      const provider = entryById(ctx, 'speech-provider')
+      const voice = entryById(ctx, 'voice')
+      expect(provider.fiber?.state).toBe(FiberState.ACTIVE)
+      expect(voice.fiber?.state).toBe(FiberState.ACTIVE)
+      expect(ctx.get('speech')).toBeDefined()
+      expect(ctx.get('talk')).toBeDefined()
+
+      await ctx.loader.update(provider.id, { disabled: true })
+      await ctx.loader.await()
+      expect(provider.fiber).toBeUndefined()
+      expect(voice.fiber?.state).toBe(FiberState.PENDING)
+      expect(ctx.get('speech')).toBeUndefined()
+      expect(ctx.get('talk')).toBeUndefined()
+
+      await ctx.loader.update(provider.id, { disabled: false })
+      await ctx.loader.await()
+      expect(provider.fiber?.state).toBe(FiberState.ACTIVE)
+      expect(voice.fiber?.state).toBe(FiberState.ACTIVE)
+      expect(ctx.get('speech')).toBeDefined()
+      expect(ctx.get('talk')).toBeDefined()
+    } finally {
+      await ctx.fiber.dispose()
+      await rm(dir, { recursive: true, force: true })
+    }
+  })
+
+  it('hot-unplugs and restores plan compliance with a Loader-mounted planMode provider', async () => {
+    const dir = await mkdtemp(join(tmpdir(), 'gerclaw-plan-compliance-hotplug-'))
+    const config = join(dir, 'cordis.yml')
+    const provider = join(dir, 'plan-mode-provider.mjs')
+    await writeFile(provider, [
+      'export const name = "gerclaw-test-plan-mode-provider"',
+      'export function apply(ctx) {',
+      '  ctx.provide("planMode", { get: () => ({ active: true, pending: true }) })',
+      '}',
+      '',
+    ].join('\n'))
+    await writeFile(config, [
+      `- id: plan-mode-provider\n  name: "${pathToFileURL(provider).href}"`,
+      `- id: plan-compliance\n  name: "${planCompliance}"\n  inject: [planMode]`,
+      '',
+    ].join('\n'))
+    const ctx = await boot('gerclaw-plan-compliance-hotplug-test', config)
+    try {
+      const providerEntry = entryById(ctx, 'plan-mode-provider')
+      const compliance = entryById(ctx, 'plan-compliance')
+      const firstProviderFiber = providerEntry.fiber
+      expect(providerEntry.fiber?.state).toBe(FiberState.ACTIVE)
+      expect(compliance.fiber?.state).toBe(FiberState.ACTIVE)
+      expect(ctx.get('planMode')).toBeDefined()
+
+      await ctx.loader.update(providerEntry.id, { disabled: true })
+      await ctx.loader.await()
+      expect(providerEntry.fiber).toBeUndefined()
+      expect(compliance.fiber?.state).toBe(FiberState.PENDING)
+      expect(ctx.get('planMode')).toBeUndefined()
+
+      await ctx.loader.update(providerEntry.id, { disabled: false })
+      await ctx.loader.await()
+      expect(providerEntry.fiber?.state).toBe(FiberState.ACTIVE)
+      expect(compliance.fiber?.state).toBe(FiberState.ACTIVE)
+      expect(providerEntry.fiber).not.toBe(firstProviderFiber)
+      expect(ctx.get('planMode')).toBeDefined()
+    } finally {
+      await ctx.fiber.dispose()
       await rm(dir, { recursive: true, force: true })
     }
   })

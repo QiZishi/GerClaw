@@ -105,7 +105,7 @@ export function ConversationDocumentUpload({
             }, controller.signal).then(({ text, elapsedMs }) => {
               inputActions.setDraft(text)
               setStatus(`已完成转写 · ${(elapsedMs / 1000).toFixed(2)} 秒`)
-              window.requestAnimationFrame(() => inputActions.submit())
+              inputActions.submit()
             }).catch((error: unknown) => {
               if (!controller.signal.aborted)
                 setStatus(error instanceof Error ? error.message : '音频识别失败')

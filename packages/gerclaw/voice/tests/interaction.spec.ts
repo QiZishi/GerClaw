@@ -54,10 +54,13 @@ describe('dsh-talk interaction consumer', () => {
     expect(transcriber).toContain("super(ctx, 'gerclawVoiceFiles')")
     expect(transcriber).toContain('context.decodeAudioData')
     expect(transcriber).toContain("file.type.startsWith('audio/')")
+    expect(transcriber).toContain('if (cancelled || isAborted())')
     expect(transcriber).toContain('ctx.effect(() => () =>')
     expect(upload).toContain('audio/*')
     expect(upload).toContain('getVoiceFiles()')
     expect(upload).toContain('voiceFiles.transcribe')
+    expect(upload).toContain('inputActions.submit()')
+    expect(upload).not.toContain('requestAnimationFrame(() => inputActions.submit())')
   })
 
   it('returns the reply action to idle whenever composer input interrupts playback', async () => {
@@ -69,6 +72,9 @@ describe('dsh-talk interaction consumer', () => {
     expect(client).toContain('active.lease = lease.current')
     expect(client).toContain('if (active?.lease === expectedLease) void stopActive()')
     expect(mic).toContain('interruptPlayback()')
+    expect(mic).toContain('const actions = inputActionsRef.current')
+    expect(mic).toContain('if (text && finishing.current) actions.submit()')
+    expect(mic).not.toContain('requestAnimationFrame')
     expect(mic).not.toContain('gerclaw:voice-interrupt')
   })
 })

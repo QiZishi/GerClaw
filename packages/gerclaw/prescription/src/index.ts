@@ -227,7 +227,7 @@ const modelOutputSchema: ObjectJsonSchema = {
       items: {
         type: 'object',
         additionalProperties: false,
-        required: ['kind', 'title', 'goal', 'recommendations', 'precautions', 'evidenceIds'],
+        required: ['kind', 'goal', 'recommendations', 'precautions', 'evidenceIds'],
         properties: {
           kind: { type: 'string', enum: [...KINDS] },
           title: { type: 'string', enum: [...TITLES] },
@@ -266,6 +266,15 @@ const textValue = (value: unknown): string =>
   typeof value === 'string' || typeof value === 'number'
     ? String(value).trim()
     : ''
+const parseJsonOutput = (output: readonly { type: string; text?: string }[]): unknown | undefined => {
+  const text = output.filter(block => block.type === 'text').map(block => block.text ?? '').join('\n').trim()
+  const fenced = /^```(?:json)?\s*\n([\s\S]*?)\n```$/u.exec(text)
+  try {
+    return JSON.parse(fenced?.[1] ?? text) as unknown
+  } catch {
+    return undefined
+  }
+}
 function validateModel(
   value: unknown,
   evidence: EvidenceSource[],
@@ -291,7 +300,7 @@ function validateModel(
     if (typeof entry !== 'object' || entry === null)
       throw new Error('处方章节无效')
     const item = entry as Record<string, unknown>
-    if (item.title !== title || item.kind !== kind)
+    if ((item.title !== undefined && item.title !== title) || item.kind !== kind)
       throw new Error('处方章节名称或顺序不正确')
     const evidenceIds = strings(item.evidenceIds)
     if (evidenceIds.some(id => !available.has(id)))
@@ -425,7 +434,7 @@ export class PrescriptionService extends Service {
             request: JSON.parse(prompt) as unknown,
           })
         const runSignal = signal ?? new AbortController().signal
-        const run = await agent.ctx.subagents.start(provider, {
+        const run = await this.ctx.subagents.start(provider, {
           label: attempt === 0 ? '生成五大处方' : '修正五大处方结构',
           parent: agent,
           signal: runSignal,
@@ -438,16 +447,19 @@ export class PrescriptionService extends Service {
         })
         try {
           const outcome = await run.result
-          if (outcome.stopReason !== 'completed') {
+          const candidate = outcome.structured ?? parseJsonOutput(outcome.output)
+          if (candidate === undefined) {
+            validationError = outcome.diagnostic ?? (outcome.stopReason === 'completed'
+              ? '处方子智能体没有提交结构化结果'
+              : `处方子智能体未完成（${outcome.stopReason}）`)
+            continue
+          }
+          if (outcome.stopReason !== 'completed' && outcome.stopReason !== 'error') {
             validationError = outcome.diagnostic ?? `处方子智能体未完成（${outcome.stopReason}）`
             continue
           }
-          if (outcome.structured === undefined) {
-            validationError = '处方子智能体没有提交结构化结果'
-            continue
-          }
           try {
-            parsed = validateModel(outcome.structured, evidence)
+            parsed = validateModel(candidate, evidence)
             break
           } catch (error) {
             validationError = error instanceof Error ? error.message : '处方结构无效'

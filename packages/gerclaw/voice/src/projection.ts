@@ -13,6 +13,8 @@
 
 import { z } from 'zod'
 import type { SessionEvent } from '@deepseek-ai/dsh-session/types'
+import type { GerclawVoiceEvent } from '@gerclaw/speech'
+import type {} from './speech.ts'
 import { talkSpeechProjectionSchema as talkSpeechValueSchema } from './vocabulary.ts'
 import type { TalkSpeechProjection } from './vocabulary.ts'
 
@@ -65,11 +67,55 @@ export function viewTalkSpeechProjection(state: TalkSpeechProjectionState): Talk
 /** Cache-invalidation version for the persisted projection cache. */
 export const TALK_SPEECH_PROJECTION_STATE_VERSION = 1
 
+/** Latest sanitized ASR/TTS outcome; audio and credentials never enter state. */
+export type GerclawVoiceProjectionState = (GerclawVoiceEvent & { seq: number }) | null
+
+const gerclawVoiceEventSchema = z.object({
+  version: z.literal(1),
+  kind: z.enum(['asr', 'tts']),
+  status: z.enum(['completed', 'interrupted', 'failed']),
+  model: z.string(),
+  text: z.string(),
+  elapsedMs: z.number().nonnegative(),
+  voice: z.string().optional(),
+  interruptionReason: z.enum(['user-cancelled', 'new-input', 'client-disconnected', 'plugin-unloaded']).optional(),
+  error: z.string().optional(),
+})
+
+export const gerclawVoiceProjectionSchema = z.union([
+  gerclawVoiceEventSchema.extend({ seq: z.number().int().nonnegative() }),
+  z.null(),
+])
+
+export function initGerclawVoiceProjection(): GerclawVoiceProjectionState {
+  return null
+}
+
+export function applyGerclawVoiceProjection(
+  state: GerclawVoiceProjectionState,
+  event: SessionEvent,
+): GerclawVoiceProjectionState {
+  if (event.type !== 'gerclaw/voice') return state
+  return { seq: event.seq, ...event.data }
+}
+
+export function viewGerclawVoiceProjection(
+  state: GerclawVoiceProjectionState,
+): GerclawVoiceProjectionState {
+  return state
+}
+
+export const GERCLAW_VOICE_PROJECTION_STATE_VERSION = 1
+
 declare module '@deepseek-ai/dsh-session-projection/types' {
   interface SessionProjectionMap {
     'talk:speech': TalkSpeechProjection | null
   }
   interface SessionProjectionStateMap {
     'talk:speech': TalkSpeechProjectionState
+    'gerclaw/voice': GerclawVoiceProjectionState
+  }
+  interface SessionProjectionMap {
+    'gerclaw/voice': GerclawVoiceProjectionState
   }
 }

@@ -10,13 +10,13 @@
 
 | 阶段 | 状态 | 验收与提交 |
 | --- | --- | --- |
-| 一：产品壳层与主对话 | 进行中 | 游客 6/6、医生与患者 2/2、加载器 7/7 通过；待提交 |
-| 二：语音与五大处方 | 未开始 | 待阶段一提交后开始 |
+| 一：产品壳层与主对话 | 完成 | 游客 6/6、医生与患者 2/2、加载器 7/7 通过；`3ec56fd` |
+| 二：语音与五大处方 | 进行中 | 正在盘点现有语音与处方链路 |
 | 三：共享与私有医学资料 | 未开始 | 待阶段二提交后开始 |
 | 四：账号隔离与七种产物 | 未开始 | 待阶段三提交后开始 |
 | 五：热插拔与最终收口 | 未开始 | 待阶段四提交后开始 |
 
-## 当前阶段：产品壳层与主对话
+## 阶段一记录：产品壳层与主对话
 
 ### 已完成
 
@@ -70,9 +70,42 @@
 - `GERCLAW_REAL_E2E=1 node --env-file=.env node_modules/vitest/vitest.mjs --config vitest.e2e.config.ts run --retry=0 packages/gerclaw/client/tests/gerclaw-real.e2e.ts -t '阶段一：'`：1 个测试文件、医生与患者 2 项真实浏览器测试通过，9 项按阶段筛选跳过，耗时 853.14 秒；覆盖真实登录、产品壳层、主模型回复、计划审核、目标创建／编辑／暂停／恢复／清除和四项健康能力。
 - `pnpm exec vitest run packages/gerclaw/profile-bundle/tests/agent-preset-loader.spec.ts packages/gerclaw/profile-bundle/tests/service-hotplug.spec.ts`：2 个测试文件、7 项真实加载器测试通过。
 - `pnpm verify-md-wrap` 与 `git diff --check`：退出码均为 0。
-- 本阶段尚无提交号；三身份浏览器和加载器门槛已满足，正在完成阶段差异与敏感文件检查。
+- 阶段一提交：`3ec56fdca715413a35d7b22ba6390e5158a517d8`，提交信息为
+  `fix(web): stabilize GerClaw product shell`。
+
+## 当前阶段：语音与五大处方
+
+### 当前任务
+
+- 重新检索 DSH 市场的语音、录音、转写、朗读和处方候选，不新增重复插件。
+- 盘点现有 `SpeechProvider`、通义千问提供方、底部麦克风、通用上传入口和五大处方多轮状态，删除旁路实现。
+- 修复真实链路根因后运行局部测试、真实加载器启停测试和医生、患者、游客真实网关验收。
+
+### 输入条件
+
+- 两个固定账号密码已与根目录安全配置一致，真实登录已通过。
+- 阶段一提交已形成；后续改动继续保留在工作区并按阶段归属提交。
+
+### 复用与市场盘点
+
+- 实时检索 `https://dsh.market/` 的语音、转写、朗读和处方关键词；页面仍显示收录
+  0 个插件，没有可采用的市场候选，本阶段不新增插件。
+- 继续复用现有 `SpeechProvider`、通义千问提供方、底部麦克风、通用上传入口、
+  DSH 原生会话投影和子智能体；GerClaw 只保留语音产品交互与五大处方领域规则。
+
+### 已完成与证据
+
+- 已修复录音和音频文件最终转写的提交时序：在同一个 DSH 原生输入实例中同步写入并发送，避免跨帧切换会话输入实例。
+- 已补齐音频文件取消和插件卸载期间的连接清理，取消不会留下永久等待的转写承诺。
+- 已将五大处方收集状态改为可恢复会话投影；仍保持每轮一个问题、最多五轮和单张五章结果卡。
+- `pnpm exec vitest run packages/gerclaw/speech-qianwen/tests/qianwen.spec.ts packages/gerclaw/speech-qianwen/tests/realtime-protocol.spec.ts packages/gerclaw/voice/tests/interaction.spec.ts packages/gerclaw/client/tests/gerclaw-plugins.spec.ts packages/gerclaw/client/tests/session-projection.spec.ts`：5 个测试文件、34 项测试通过。
+- `pnpm exec vitest run packages/gerclaw/profile-bundle/tests/service-hotplug.spec.ts -t 'speech|voice'`：3 项真实加载器测试通过，3 项按筛选跳过；覆盖提供方等待、运行中卸载、资源释放和恢复。
+- `pnpm exec tsc -b packages/gerclaw/speech-qianwen packages/gerclaw/voice packages/gerclaw/prescription packages/gerclaw/client`：退出码 0。
+- 首次三身份浏览器运行在逐字转写断言处 3 项失败；录音均已完成最终转写。将断言收敛为固定音频的稳定完整语义片段后，仍要求该片段真实出现在用户消息中。
+- 医生阶段二真实浏览器用例 1 项通过，耗时 257.18 秒；患者与游客 2 项通过，耗时 548.46 秒。三身份均覆盖浏览器录音、临时与最终转写、自动发送、音频上传、朗读、停止、重播、输入打断、录音取消和五章处方结果卡。
+- `pnpm gerclaw:dump-config` 与 `pnpm build`：退出码均为 0。
 
 ### 下一步
 
-首个执行动作：复核阶段一暂存差异和敏感文件，提交
-`fix(web): stabilize GerClaw product shell`，记录提交号后进入阶段二。
+首个执行动作：复核阶段二差异和敏感文件，只暂存语音与五大处方路径，提交
+`fix(health): complete voice and prescription flow`。
