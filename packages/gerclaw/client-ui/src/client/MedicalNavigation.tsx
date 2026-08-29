@@ -3,7 +3,7 @@ import { Tooltip } from '@deepseek-ai/dsh-client-ui-primitives'
 import type { InjectFace, PropsRuntime } from '@deepseek-ai/dsh-client-ui-slots'
 import type {} from '@deepseek-ai/dsh-client-ui-sidebar/client'
 import {
-  AssessmentIcon, ChatIcon, MedicationIcon, MoreIcon, PrescriptionIcon, ProfileIcon,
+  AssessmentIcon, MedicationIcon, MoreIcon, PrescriptionIcon, ProfileIcon,
 } from './icons.tsx'
 import { Modal } from './Modal.tsx'
 import { MedicalFeature, type MedicalRemoteActions } from './MedicalFeature.tsx'
@@ -11,7 +11,6 @@ import { MedicalFeature, type MedicalRemoteActions } from './MedicalFeature.tsx'
 export type FeatureId = 'cga' | 'medication' | 'profile' | 'chronic' | 'risks' | 'companion' | 'documents' | 'more'
 
 const entries = [
-  { id: 'chat', label: '健康对话', icon: ChatIcon },
   { id: 'prescription', label: '五大处方', icon: PrescriptionIcon },
   { id: 'cga', label: '综合量表', icon: AssessmentIcon },
   { id: 'medication', label: '用药核对', icon: MedicationIcon },
@@ -90,10 +89,7 @@ export function MedicalNavigation({ wide, getSessionId, ensureSessionId, startPr
               aria-busy={opening === id}
               disabled={opening !== null}
               onClick={() => {
-                if (id === 'chat') {
-                  setFeature(null)
-                  document.querySelector<HTMLElement>('textarea')?.focus()
-                } else if (id === 'prescription') openPrescription()
+                if (id === 'prescription') openPrescription()
                 else openFeature(id)
               }}
             >

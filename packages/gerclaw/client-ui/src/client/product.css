@@ -6,65 +6,44 @@ body {
   background: #f3f7fa;
 }
 
-/* Keep medical actions adjacent to “new conversation”, then hand the rest
-   of the column to native search/history. The native sidebar remains the
-   layout owner; these product markers only reorder its public slot output. */
-[data-gerclaw-sidebar-shell] {
-  gap: 0 !important;
-}
-
-[data-gerclaw-sidebar-foot] {
-  display: contents !important;
-}
-
-[data-gerclaw-new-conversation] {
-  order: 1;
-  margin-bottom: 4px !important;
-}
-
-[data-gerclaw-nav-actions] {
-  order: 2;
-  flex: none !important;
-  margin: 0 0 6px !important;
-  padding: 0 !important;
-}
-
-[data-gerclaw-conversation-history] {
-  order: 3;
-  min-height: 0;
-  flex: 1 1 auto !important;
-}
-
-[data-gerclaw-sidebar-settings] {
-  order: 4;
-  flex: none !important;
-  margin-top: auto !important;
-}
-
 /* Product profile keeps these native capabilities running but removes their
    developer-facing presentation from the patient/clinician workspace. */
 [data-chat-flow-kind='context'],
+[data-chat-flow-kind='command'],
+[data-chat-flow-kind='tool-call'],
+[data-variant='think'],
+[data-slot='details'],
 [data-slot='conversation.composer.dock'],
 button[aria-label='添加工作区'],
+button[aria-label='选择工作区'],
+button[aria-label='视图选项'],
 button[aria-label='新建标签页'],
 button[aria-label='展开底部面板'],
+button[aria-label='Session log'],
+button[aria-label^='上下文已用'],
 [hidden] {
+  display: none !important;
+}
+
+/* The product entry below replaces the raw command catalogue. */
+[data-composer-card] button[aria-label='命令'][aria-haspopup='listbox'] {
   display: none !important;
 }
 
 [data-gerclaw-brand-name] {
   display: grid;
-  grid-template-rows: 17px 12px;
+  grid-template-rows: 18px 14px;
   align-content: center;
-  height: 30px;
+  height: 36px;
   min-width: 0;
+  padding-block: 2px;
   overflow: visible;
 }
 
 [data-gerclaw-brand-name] strong {
   color: #173f63;
   font-size: 16px;
-  line-height: 17px;
+  line-height: 18px;
   letter-spacing: .01em;
 }
 
@@ -73,7 +52,7 @@ button[aria-label='展开底部面板'],
   overflow: hidden;
   color: #667786;
   font-size: 10px;
-  line-height: 12px;
+  line-height: 14px;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
@@ -82,13 +61,14 @@ button[aria-label='展开底部面板'],
    two-line wordmark, so only its slotted identity receives enough vertical
    room; the 60px native logo row remains the layout boundary. */
 button:has([data-gerclaw-brand-name]) {
-  min-height: 32px;
+  min-height: 40px;
+  padding-block: 2px !important;
   overflow: visible !important;
 }
 
 button:has([data-gerclaw-brand-name]) > span,
 span:has(> [data-gerclaw-brand-name]) {
-  height: 32px !important;
+  min-height: 40px !important;
   overflow: visible !important;
 }
 
@@ -108,8 +88,8 @@ span:has(> [data-gerclaw-brand-name]) {
 
 [data-gerclaw-composer-document] button {
   display: inline-grid;
-  width: 30px;
-  height: 30px;
+  width: 44px;
+  height: 44px;
   place-items: center;
   padding: 0;
   border: 0;
@@ -117,6 +97,46 @@ span:has(> [data-gerclaw-brand-name]) {
   background: transparent;
   color: #426b88;
   cursor: pointer;
+}
+
+[data-gerclaw-capabilities-trigger] {
+  min-height: 44px;
+  padding: 4px 9px;
+  border: 0;
+  border-radius: 9px;
+  background: transparent;
+  color: #426b88;
+  font: inherit;
+  font-size: 12px;
+  cursor: pointer;
+}
+
+[data-composer-card] button[aria-label='开始语音输入'],
+[data-composer-card] button[aria-label='停止语音输入'],
+[data-composer-card] button[aria-label='发送消息'] {
+  min-width: 44px;
+  min-height: 44px;
+}
+
+[data-gerclaw-capabilities-trigger]:hover,
+[data-gerclaw-capabilities-trigger]:focus-visible {
+  background: #e1eef7;
+  color: #173f63;
+  outline: 3px solid rgb(59 130 196 / 15%);
+}
+
+[data-gerclaw-recoverable-error] {
+  display: grid;
+  gap: 4px;
+  padding: 12px 14px;
+  border: 1px solid #e0b6a9;
+  border-radius: 12px;
+  background: #fff6f2;
+  color: #784030;
+}
+
+[data-gerclaw-recoverable-error] span {
+  font-size: 13px;
 }
 
 [data-gerclaw-composer-document] button:hover,
@@ -162,6 +182,14 @@ span:has(> [data-gerclaw-brand-name]) {
   gap: 6px;
 }
 
+[data-gerclaw-quick-prompts-title] {
+  margin: 0 0 10px;
+  color: #173f63;
+  font-size: 20px;
+  font-weight: 700;
+  text-align: center;
+}
+
 [data-gerclaw-quick-prompts] button {
   max-width: 230px;
   min-height: 30px;
@@ -189,17 +217,22 @@ span:has(> [data-gerclaw-brand-name]) {
   display: grid;
   gap: 3px;
   width: 100%;
-  padding: 4px 0;
+  padding: 0;
 }
 
 [data-gerclaw-medical-nav][data-wide='true'] {
-  grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: 4px 6px;
+  grid-template-columns: minmax(0, 1fr);
+  gap: 4px;
 }
 
 [data-gerclaw-medical-nav][data-wide='true'] button {
-  min-height: 38px;
-  padding: 7px 9px;
+  min-height: 44px;
+  justify-content: flex-start;
+  padding: 9px 12px;
+}
+
+[data-gerclaw-medical-nav][data-wide='true'] button span {
+  display: inline;
 }
 
 [data-gerclaw-medical-nav] button,
@@ -232,7 +265,15 @@ span:has(> [data-gerclaw-brand-name]) {
 [data-gerclaw-settings-trigger]:focus-visible {
   background: #dfedf8;
   color: #173f63;
-  outline: none;
+}
+
+[data-gerclaw-medical-nav] button:focus-visible,
+[data-gerclaw-settings-trigger]:focus-visible,
+[data-gerclaw-modal] button:focus-visible,
+[data-gerclaw-artifacts] button:focus-visible,
+[data-gerclaw-artifacts] a:focus-visible {
+  outline: 3px solid rgb(48 122 175 / 32%);
+  outline-offset: 2px;
 }
 
 [data-gerclaw-medical-nav] svg,
@@ -616,6 +657,19 @@ span:has(> [data-gerclaw-brand-name]) {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  [data-gerclaw-modal-backdrop],
+  [data-gerclaw-modal],
+  [data-gerclaw-medical-nav] button,
+  [data-gerclaw-settings-trigger],
+  [data-gerclaw-quick-prompts] button {
+    scroll-behavior: auto !important;
+    transition-duration: 0.01ms !important;
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+  }
 }
 
 [data-gerclaw-documents] a {

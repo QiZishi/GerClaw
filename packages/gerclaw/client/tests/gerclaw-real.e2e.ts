@@ -44,6 +44,8 @@ const watch = (page: Page): Tripwire => {
   const tripwire: Tripwire = { consoleErrors: [], pageErrors: [], failedRequests: [] }
   page.on('console', (message) => {
     if (message.type() === 'error') tripwire.consoleErrors.push(message.text())
+    if (message.type() === 'warning' && /agent-preset-not-found/u.test(message.text()))
+      tripwire.consoleErrors.push(message.text())
   })
   page.on('pageerror', error => tripwire.pageErrors.push(error.message))
   page.on('requestfailed', (request) => {
@@ -82,7 +84,7 @@ const hasAttribute = async (
 
 const waitForWorkspace = async (page: Page): Promise<void> => {
   await page.waitForURL(url => url.origin === BASE_URL && !url.pathname.startsWith('/auth/'), { timeout: 60_000 })
-  await page.getByRole('button', { name: '健康对话' }).waitFor({ timeout: 60_000 })
+  await page.getByRole('button', { name: '开始语音输入' }).waitFor({ timeout: 60_000 })
   await page.locator('[data-composer-card] textarea').waitFor({ timeout: 60_000 })
 }
 
@@ -91,13 +93,20 @@ const login = async (page: Page, identity: Identity): Promise<void> => {
   await page.getByLabel('用户名').fill(identity.username)
   await page.getByLabel('密码').fill(identity.password)
   await page.getByRole('button', { name: '进入健康工作台' }).click()
-  await waitForWorkspace(page)
+  await Promise.race([
+    waitForWorkspace(page),
+    page.getByText('用户名或密码不正确', { exact: true }).waitFor({ timeout: 60_000 })
+      .then(() => { throw new Error(`${identity.label}测试账号凭据不匹配`) }),
+  ])
+  await expect.poll(() => page.locator('button[data-gerclaw-read-aloud]').count(), { timeout: 30_000 }).toBe(0)
+  await expect.poll(() => page.locator('[data-gerclaw-conversation-task]').count(), { timeout: 30_000 }).toBe(0)
 }
 
 const enterAsGuest = async (page: Page): Promise<void> => {
   await page.goto(BASE_URL, { waitUntil: 'domcontentloaded' })
   await page.getByRole('button', { name: /游客体验/u }).click()
   await waitForWorkspace(page)
+  await expect.poll(() => page.locator('button[data-gerclaw-read-aloud]').count(), { timeout: 30_000 }).toBe(0)
 }
 
 const logout = async (page: Page): Promise<void> => {
@@ -126,6 +135,16 @@ const sendChat = async (page: Page, prompt: string, timeout = 180_000): Promise<
   ).toBeGreaterThan(before)
 }
 
+const answerVisibleQuestion = async (page: Page, text: string): Promise<boolean> => {
+  const question = page.locator('[data-question-key]')
+  if (!(await question.isVisible().catch(() => false))) return false
+  const answers = question.getByRole('textbox')
+  const count = await answers.count()
+  for (let index = 0; index < count; index += 1) await answers.nth(index).fill(text)
+  if (count > 0) await answers.last().press('Enter')
+  return count > 0
+}
+
 const sendInteractiveChat = async (
   page: Page,
   prompt: string,
@@ -137,12 +156,7 @@ const sendInteractiveChat = async (
   const deadline = Date.now() + timeout
   while (Date.now() < deadline) {
     if (await page.locator('button[data-gerclaw-read-aloud]').count() > before) return
-    const question = page.locator('[data-question-key]')
-    if (await question.isVisible().catch(() => false)) {
-      const answer = question.getByRole('textbox').last()
-      await answer.fill('请根据我已经提供的信息继续，必要时给出可填写的示例。')
-      await answer.press('Enter')
-    }
+    await answerVisibleQuestion(page, '请根据我已经提供的信息继续，必要时给出可填写的示例。')
     await page.waitForTimeout(250)
   }
   throw new Error(`交互式健康能力在 ${timeout}ms 内没有完成：${prompt}`)
@@ -282,19 +296,38 @@ const runPlanGoalAndSkills = async (page: Page): Promise<void> => {
   await composer(page).fill('/plan 为未来三天制定一个不超过三步的健康记录计划，并提交审核。')
   await composer(page).press('Enter')
   const review = page.locator('[data-plan-review-key]')
-  await review.waitFor({ timeout: 180_000 })
+  const planDeadline = Date.now() + 180_000
+  while (Date.now() < planDeadline && !(await review.isVisible().catch(() => false))) {
+    await answerVisibleQuestion(page, '无需补充个人资料，请按通用健康记录方案继续提交计划审核。')
+    await page.waitForTimeout(250)
+  }
+  await review.waitFor({ timeout: 1_000 })
   await visible(review.getByRole('button', { name: /确认执行/u }))
   await review.getByRole('button', { name: /确认执行/u }).click()
   await expect.poll(() => page.locator('button[data-gerclaw-read-aloud]').count(), { timeout: 180_000 }).toBeGreaterThan(before)
 
-  await sendChat(page, '/goal 建立一个持续记录血压的健康目标')
   const goal = page.locator('[data-goal-bar]')
+  if (await goal.isVisible().catch(() => false)) {
+    await composer(page).fill('/goal clear')
+    await composer(page).press('Enter')
+    await expect.poll(() => goal.count(), { timeout: 30_000 }).toBe(0)
+  }
+  await composer(page).fill('/goal 建立一个持续记录血压的健康目标')
+  await composer(page).press('Enter')
   await goal.waitFor({ timeout: 30_000 })
   await containsText(goal, /记录血压/u)
-  for (const name of [/暂停/u, /恢复/u]) {
-    const action = goal.getByRole('button', { name })
-    if (await action.count()) await action.click()
-  }
+  await goal.getByRole('button', { name: /暂停/u }).click()
+  await visible(goal.getByRole('button', { name: /恢复/u }))
+  await composer(page).fill('/goal edit 持续记录早晚血压并观察趋势')
+  await composer(page).press('Enter')
+  await containsText(goal, /早晚血压/u)
+  await goal.getByRole('button', { name: /恢复/u }).click()
+  await visible(goal.getByRole('button', { name: /暂停/u }))
+  await goal.getByRole('button', { name: /暂停/u }).click()
+  await visible(goal.getByRole('button', { name: /恢复/u }))
+  await composer(page).fill('/goal clear')
+  await composer(page).press('Enter')
+  await expect.poll(() => goal.count(), { timeout: 30_000 }).toBe(0)
 }
 
 const runPrescription = async (page: Page): Promise<void> => {
@@ -311,7 +344,7 @@ const runPrescription = async (page: Page): Promise<void> => {
 }
 
 const assertProductBaseline = async (page: Page): Promise<void> => {
-  const sidebarToggle = page.getByRole('button', { name: '打开侧边栏' })
+  const sidebarToggle = page.getByRole('button', { name: /^(?:打开|展开)侧边栏$/u }).first()
   const sidebarWasCollapsed = await sidebarToggle.isVisible().catch(() => false)
   if (sidebarWasCollapsed) await sidebarToggle.click()
   await visible(page.getByText('GerClaw', { exact: true }).first())
@@ -323,28 +356,28 @@ const assertProductBaseline = async (page: Page): Promise<void> => {
   expect(viewport).not.toBeNull()
   expect((box?.y ?? 0) + (box?.height ?? 0)).toBeGreaterThan((viewport?.height ?? 0) * 0.72)
   expect(await page.getByText(/DeepSeek Harness|插件管理|终端/u).count()).toBe(0)
-  for (const name of ['健康对话', '五大处方', '综合量表', '用药核对', '健康档案', '更多', '设置']) {
+  for (const name of ['五大处方', '综合量表', '用药核对', '健康档案', '更多', '设置']) {
     const button = page.getByRole('button', { name })
     await hasAttribute(button, 'aria-label', name)
   }
+  expect(await page.getByRole('button', { name: '健康对话', exact: true }).count()).toBe(0)
+  expect(await page.locator('body').innerText()).not.toMatch(/工作区|选择工作区|添加工作区/u)
   if (sidebarWasCollapsed) {
     await page.getByRole('button', { name: '收起侧边栏' }).click()
     await visible(composer(page))
   }
-  const artifacts = page.getByRole('region', { name: '产物' })
-  if ((viewport?.width ?? 0) < 768) {
-    await expect.poll(() => artifacts.isVisible()).toBe(false)
-  } else {
-    await visible(artifacts)
-  }
 }
 
-const runIdentityMatrix = async (page: Page): Promise<void> => {
+const runProductShellMatrix = async (page: Page): Promise<void> => {
   await assertProductBaseline(page)
   await sendChat(page, '请用二级标题、加粗文字和三项列表回答：老年人今天如何安全记录血压？')
   expect(await page.locator('pre').filter({ hasText: /老年人今天/u }).count()).toBe(0)
-  await runVoice(page)
   await runPlanGoalAndSkills(page)
+}
+
+const runIdentityMatrix = async (page: Page): Promise<void> => {
+  await runProductShellMatrix(page)
+  await runVoice(page)
   await runPrescription(page)
   await runMedicalTasks(page)
 }
@@ -372,6 +405,20 @@ describe.skipIf(!ENABLED)('GerClaw 正式 Gateway 全功能真实 E2E', { concur
     await Promise.all(contexts.map(context => context.close()))
     await browser?.close()
   })
+
+  for (const identity of ['doctor', 'patient'] as const) {
+    it(`阶段一：${identity === 'doctor' ? '医生' : '患者'}产品壳层与主对话`, async () => {
+      const selected = identities()[identity === 'doctor' ? 0 : 1]!
+      const context = await browser.newContext({ locale: 'zh-CN', viewport: { width: 1440, height: 960 } })
+      contexts.push(context)
+      const page = await context.newPage()
+      const tripwire = watch(page)
+      await login(page, selected)
+      await runProductShellMatrix(page)
+      assertClean(tripwire)
+      await logout(page)
+    }, 1_200_000)
+  }
 
   it('通过真实注册页完成注册、一次性恢复码重置、登录和退出', async () => {
     const context = await browser.newContext({ locale: 'zh-CN', viewport: { width: 1280, height: 900 } })
@@ -498,11 +545,11 @@ describe.skipIf(!ENABLED)('GerClaw 正式 Gateway 全功能真实 E2E', { concur
       await assertProductBaseline(page)
       const overflow = await page.evaluate(() => document.documentElement.scrollWidth - document.documentElement.clientWidth)
       expect(overflow).toBeLessThanOrEqual(1)
-      const health = page.getByRole('button', { name: '健康对话' })
-      await health.focus()
-      expect(await health.evaluate(element => element === document.activeElement)).toBe(true)
-      await health.hover()
-      await visible(page.getByText('健康对话', { exact: true }).first())
+      const prescription = page.getByRole('button', { name: '五大处方' })
+      await prescription.focus()
+      expect(await prescription.evaluate(element => element === document.activeElement)).toBe(true)
+      await prescription.hover()
+      await visible(page.getByText('五大处方', { exact: true }).first())
       await logout(page)
     })
   }

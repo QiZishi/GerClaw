@@ -4,8 +4,9 @@
   "include": ["src"],
   "references": [
     { "path": "../../../vendor/cordis" },
-    { "path": "../../../vendor/timer" },
-    { "path": "../auth-storage" },
-    { "path": "../../credentials/credentials" }
+    { "path": "../../core/agent" },
+    { "path": "../../llm/llm" },
+    { "path": "../../plan/plan-mode" },
+    { "path": "../../core/session" }
   ]
 }

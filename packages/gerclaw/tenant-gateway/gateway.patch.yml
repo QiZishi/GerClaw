@@ -15,10 +15,14 @@
     - id: gerclaw-tenant-session-store
       name: "@gerclaw/tenant-store"
 
+    - id: gerclaw-auth-storage
+      name: "@gerclaw/auth-storage"
+      config:
+        dataDir: !!js process.env.GERCLAW_DATA_DIR || dshHomePath('gerclaw-tenants')
+
     - id: gerclaw-auth
       name: "@gerclaw/auth"
       config:
-        dataDir: !!js process.env.GERCLAW_DATA_DIR || dshHomePath('gerclaw-tenants')
         sessionTtlSeconds: 2592000
 
     - id: gerclaw-tenant-host-local
@@ -51,6 +55,7 @@
           - !!js "'link:' + process.getBuiltinModule('node:path').join(process.cwd(), 'packages/gerclaw/document-parser')"
           - !!js "'link:' + process.getBuiltinModule('node:path').join(process.cwd(), 'packages/gerclaw/document-parser-mineru')"
           - !!js "'link:' + process.getBuiltinModule('node:path').join(process.cwd(), 'packages/gerclaw/medication-review')"
+          - !!js "'link:' + process.getBuiltinModule('node:path').join(process.cwd(), 'packages/gerclaw/plan-compliance')"
           - !!js "'link:' + process.getBuiltinModule('node:path').join(process.cwd(), 'packages/gerclaw/prescription')"
           - !!js "'link:' + process.getBuiltinModule('node:path').join(process.cwd(), 'packages/gerclaw/risk-alert')"
           - !!js "'link:' + process.getBuiltinModule('node:path').join(process.cwd(), 'packages/gerclaw/speech')"

@@ -5,27 +5,14 @@ import {
   scrypt as scryptCallback,
   timingSafeEqual,
 } from 'node:crypto'
-import { readFile } from 'node:fs/promises'
-import { join } from 'node:path'
 import { promisify } from 'node:util'
 import { Context, Service } from '@deepseek-ai/cordis'
 import type {} from '@deepseek-ai/cordis-plugin-timer'
-import { credentialRef } from '@deepseek-ai/dsh-credentials'
 import z from '@deepseek-ai/schemastery'
+import type { GerclawAccount, GerclawAccountStore } from '@gerclaw/auth-storage'
 
 const scrypt = promisify(scryptCallback)
-const ACCOUNT_REF = credentialRef('GERCLAW_AUTH_ACCOUNTS')
-
-export interface GerclawAccount {
-  id: string
-  username: string
-  audience: 'doctor' | 'patient'
-  salt: string
-  passwordHash: string
-  recoverySalt: string
-  recoveryHash: string
-  createdAt: string
-}
+export type { GerclawAccount } from '@gerclaw/auth-storage'
 
 export interface GerclawLoginSession {
   accountId: string
@@ -36,13 +23,7 @@ export interface GerclawLoginSession {
   expiresAt: number
 }
 
-interface Registry {
-  version: 1
-  accounts: GerclawAccount[]
-}
-
 export interface GerclawAuthConfig {
-  dataDir: string
   sessionTtlSeconds: number
 }
 
@@ -67,21 +48,26 @@ const recoveryCode = (): string => randomBytes(9).toString('base64url')
 const settled = (): void => {}
 
 export class GerclawAuthService extends Service {
-  static inject = ['credentials', 'timer']
+  static inject = ['gerclawAccountStore', 'timer']
   static Config: z<GerclawAuthConfig> = z.object({
-    dataDir: z.string().required(),
     sessionTtlSeconds: z.number().min(60).default(2_592_000),
   })
 
   private readonly sessions = new Map<string, GerclawLoginSession>()
   private writes: Promise<void> = Promise.resolve()
 
-  constructor(ctx: Context, private readonly config: GerclawAuthConfig) {
+  constructor(
+    ctx: Context,
+    private readonly config: GerclawAuthConfig,
+  ) {
     super(ctx, 'gerclawAuth')
   }
 
-  protected async [Service.init](): Promise<void> {
-    await this.migrateLegacyRegistry()
+  private get accountStore(): GerclawAccountStore {
+    return this.ctx.gerclawAccountStore
+  }
+
+  protected [Service.init](): void {
     this.ctx.interval(() => { this.sweepExpired() }, 60_000)
     this.ctx.effect(() => () => { this.sessions.clear() }, 'gerclaw.auth.sessions.clear')
   }
@@ -93,8 +79,8 @@ export class GerclawAuthService extends Service {
   ): Promise<{ account: GerclawAccount; token: string; recoveryCode: string }> {
     const username = this.normalizeUsername(usernameInput)
     this.validatePassword(password)
-    return this.mutateRegistry(async (registry) => {
-      if (registry.accounts.some(account => account.username === username)) {
+    return this.serialize(async () => {
+      if (this.accountStore.findByUsername(username) !== undefined) {
         throw new Error('用户名已存在')
       }
       const salt = randomBytes(16).toString('hex')
@@ -110,14 +96,14 @@ export class GerclawAuthService extends Service {
         recoveryHash: await hashSecret(code, recoverySalt),
         createdAt: new Date().toISOString(),
       }
-      registry.accounts.push(account)
+      await this.accountStore.put(account)
       return { account, token: this.createSession(account), recoveryCode: code }
     })
   }
 
   async login(usernameInput: string, password: string): Promise<{ account: GerclawAccount; token: string }> {
     const username = this.normalizeUsername(usernameInput)
-    const account = (await this.readRegistry()).accounts.find(value => value.username === username)
+    const account = this.accountStore.findByUsername(username)
     if (
       account === undefined
       || !equalHash(await hashSecret(password, account.salt), account.passwordHash)
@@ -163,15 +149,16 @@ export class GerclawAuthService extends Service {
   async recover(usernameInput: string, code: string, password: string): Promise<string> {
     const username = this.normalizeUsername(usernameInput)
     this.validatePassword(password)
-    return this.mutateRegistry(async (registry) => {
-      const account = registry.accounts.find(value => value.username === username)
+    return this.serialize(async () => {
+      const account = this.accountStore.findByUsername(username)
       if (
         account === undefined
         || !equalHash(await hashSecret(code, account.recoverySalt), account.recoveryHash)
       ) {
         throw new Error('恢复信息不正确')
       }
-      const nextCode = await this.rotateCredentials(account, password)
+      const { account: updated, code: nextCode } = await this.rotateCredentials(account, password)
+      await this.accountStore.put(updated)
       this.revokeAccountSessions(account.id)
       return nextCode
     })
@@ -184,27 +171,38 @@ export class GerclawAuthService extends Service {
     keepToken: string,
   ): Promise<string> {
     this.validatePassword(password)
-    return this.mutateRegistry(async (registry) => {
-      const account = registry.accounts.find(value => value.id === accountId)
+    return this.serialize(async () => {
+      const account = this.accountStore.findById(accountId)
       if (
         account === undefined
         || !equalHash(await hashSecret(currentPassword, account.salt), account.passwordHash)
       ) {
         throw new Error('当前密码不正确')
       }
-      const code = await this.rotateCredentials(account, password)
+      const { account: updated, code } = await this.rotateCredentials(account, password)
+      await this.accountStore.put(updated)
       this.revokeAccountSessions(account.id, keepToken)
       return code
     })
   }
 
-  private async rotateCredentials(account: GerclawAccount, password: string): Promise<string> {
+  private async rotateCredentials(
+    account: GerclawAccount,
+    password: string,
+  ): Promise<{ account: GerclawAccount; code: string }> {
     const code = recoveryCode()
-    account.salt = randomBytes(16).toString('hex')
-    account.passwordHash = await hashSecret(password, account.salt)
-    account.recoverySalt = randomBytes(16).toString('hex')
-    account.recoveryHash = await hashSecret(code, account.recoverySalt)
-    return code
+    const salt = randomBytes(16).toString('hex')
+    const recoverySalt = randomBytes(16).toString('hex')
+    return {
+      account: {
+        ...account,
+        salt,
+        passwordHash: await hashSecret(password, salt),
+        recoverySalt,
+        recoveryHash: await hashSecret(code, recoverySalt),
+      },
+      code,
+    }
   }
 
   private createSession(account: GerclawAccount): string {
@@ -248,43 +246,10 @@ export class GerclawAuthService extends Service {
     }
   }
 
-  private async readRegistry(): Promise<Registry> {
-    const value = await this.ctx.credentials.resolve(ACCOUNT_REF)
-    if (value === undefined) return { version: 1, accounts: [] }
-    const parsed = JSON.parse(value.value) as { version?: unknown; accounts?: unknown }
-    if (parsed.version !== 1 || !Array.isArray(parsed.accounts)) {
-      throw new Error('账号数据版本不受支持')
-    }
-    return parsed as Registry
-  }
-
-  private mutateRegistry<T>(mutate: (registry: Registry) => Promise<T>): Promise<T> {
-    const result = this.writes.then(async () => {
-      const registry = await this.readRegistry()
-      const value = await mutate(registry)
-      await this.ctx.credentials.set(ACCOUNT_REF, JSON.stringify(registry))
-      return value
-    })
+  private serialize<T>(operation: () => Promise<T>): Promise<T> {
+    const result = this.writes.then(operation)
     this.writes = result.then(settled, settled)
     return result
-  }
-
-  private async migrateLegacyRegistry(): Promise<void> {
-    if (await this.ctx.credentials.resolve(ACCOUNT_REF) !== undefined) return
-    let registry: Registry
-    try {
-      const parsed = JSON.parse(
-        await readFile(join(this.config.dataDir, 'accounts.json'), 'utf8'),
-      ) as { version?: unknown; accounts?: unknown }
-      if (parsed.version !== 1 || !Array.isArray(parsed.accounts)) {
-        throw new Error('旧账号数据版本不受支持')
-      }
-      registry = parsed as Registry
-    } catch (error) {
-      if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error
-      registry = { version: 1, accounts: [] }
-    }
-    await this.ctx.credentials.set(ACCOUNT_REF, JSON.stringify(registry))
   }
 }
 

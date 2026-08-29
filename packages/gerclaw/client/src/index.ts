@@ -11,6 +11,7 @@ import type {} from '@deepseek-ai/dsh-subagent'
 import type {} from '@deepseek-ai/dsh-system-prompt'
 import { defineTool } from '@deepseek-ai/dsh-tools'
 import { Remote, TypertRemoteService } from '@deepseek-ai/dsh-typert-protocol'
+import type {} from '@deepseek-ai/dsh-workspace'
 import type { HealthProfile } from '@gerclaw/health-profile'
 import type {} from '@gerclaw/artifact'
 import type {} from '@gerclaw/document-parser'
@@ -103,7 +104,7 @@ export class GerclawApp extends TypertRemoteService {
   static inject = [
     'webServer', 'sessions', 'agents', 'tools', 'systemPrompt', 'subagents',
     'healthRepository', 'gerclawArtifacts', 'gerclawTasks', 'gerclawDocumentParser', 'gerclawMedicalEvidence',
-    'gerclawPrescription', 'gerclawRag',
+    'gerclawPrescription', 'gerclawRag', 'workspaceRegistry',
   ]
 
   private readonly controllers = new Set<AbortController>()
@@ -114,6 +115,7 @@ export class GerclawApp extends TypertRemoteService {
 
   protected async [Service.init](): Promise<void> {
     await mkdir(join(this.config.dataDir, 'uploads'), { recursive: true })
+    await this.ensureConversationSpace()
     this.registerChronicTool()
     this.registerPrescriptionIntake()
     this.ctx.effect(() => () => {
@@ -125,6 +127,12 @@ export class GerclawApp extends TypertRemoteService {
       path: '/gerclaw/api',
       handler: (req, res) => this.handle(req, res),
     }), 'gerclaw.app.binary-http')
+  }
+
+  private async ensureConversationSpace(): Promise<void> {
+    const path = join(this.config.dataDir, 'conversations')
+    await mkdir(path, { recursive: true })
+    await this.ctx.workspaceRegistry.create(path, '健康对话')
   }
 
   private registerChronicTool(): void {

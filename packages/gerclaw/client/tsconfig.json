@@ -10,6 +10,7 @@
     { "path": "../../core/tools" },
     { "path": "../../subagent/subagent" },
     { "path": "../../core/system-prompt" },
+    { "path": "../../workspace/workspace" },
     { "path": "../medical-evidence" },
     { "path": "../health-profile" },
     { "path": "../prescription" },

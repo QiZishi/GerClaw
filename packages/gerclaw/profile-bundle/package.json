@@ -62,6 +62,7 @@
     "@gerclaw/medical-evidence": "workspace:*",
     "@gerclaw/medical-evidence-public": "workspace:*",
     "@gerclaw/medication-review": "workspace:*",
+    "@gerclaw/plan-compliance": "workspace:*",
     "@gerclaw/prescription": "workspace:*",
     "@gerclaw/risk-alert": "workspace:*",
     "@gerclaw/speech": "workspace:*",

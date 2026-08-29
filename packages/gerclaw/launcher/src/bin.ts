@@ -48,6 +48,7 @@ const runPlugin = (args: string[]): number | null => spawnSync(process.execPath,
 const install = runPlugin([
   'add',
   'dsh-multi-tenant@0.2.0-rc.3',
+  `link:${join(root, 'packages/gerclaw/auth-storage')}`,
   `link:${join(root, 'packages/gerclaw/auth')}`,
   `link:${join(root, 'packages/gerclaw/tenant-store')}`,
   `link:${join(root, 'packages/gerclaw/tenant-host')}`,

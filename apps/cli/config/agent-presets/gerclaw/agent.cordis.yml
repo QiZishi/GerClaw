@@ -1,0 +1,63 @@
+# GerClaw agent-plane composition. The deployment-level GerClaw system prompt
+# remains authoritative; this preset deliberately contributes no coding persona,
+# shell, terminal, plugin-management or developer skill roots. This file must
+# remain the top-level shipped preset: DSH PresetTree owns its HMR and prevents
+# session teardown from persisting the transient Loader tree back to disk.
+
+- id: skill-filesystem
+  name: '@deepseek-ai/dsh-skill-filesystem'
+  config:
+    includeDefaultRoots: false
+    customSkillDirs:
+      - !!js "process.getBuiltinModule('node:path').join(process.env.GERCLAW_ROOT_DIR, 'packages/gerclaw/skills/skills')"
+
+- id: tool-skill
+  name: '@deepseek-ai/dsh-tool-skill'
+
+- id: tool-goal
+  name: '@deepseek-ai/dsh-tool-goal'
+
+- id: planning
+  name: cordis:group
+  group: true
+  isolate:
+    planMode: true
+  config:
+    - id: plan-mode
+      name: '@deepseek-ai/dsh-plan-mode'
+      config:
+        section: |-
+          你正在使用 GerClaw 计划模式。在 exit_plan_mode 成功或用户主动切换模式前，始终保持计划模式。用户要求“执行”仅表示要为该任务制定计划，普通对话中的同意不等于审核通过。
+
+          先读取当前账号可用的健康资料和用户目标。只做读取、检索和分析，不改变健康记录、用药记录、目标或产物。计划最多 5 步、每步一句，正文不超过 800 个中文字符；只保留必要输入、风险信号、预期结果与验证方式。
+
+          准备完成后，必须调用 exit_plan_mode，参数是以 # 标题开头的完整 Markdown 计划。exit_plan_mode 必须是该次助手响应中唯一且最后一个工具调用。严禁把完整计划作为普通文本回复，严禁只说“将要提交”却不调用工具，也不要用普通问句代替计划审核。只有 exit_plan_mode 返回用户明确批准后，才能在后续步骤执行。
+    # Provider adaptation only; DSH plan-mode still owns state and approval.
+    - id: gerclaw-plan-compliance
+      name: '@gerclaw/plan-compliance'
+      inject: [planMode]
+
+- id: compaction
+  name: cordis:group
+  group: true
+  isolate:
+    compaction: true
+    toolResultPruner: true
+  config:
+    - id: compaction-basic
+      name: '@deepseek-ai/dsh-compaction-basic'
+    - id: tool-result-pruner
+      name: '@deepseek-ai/dsh-compaction-tool-result-pruner'
+      config:
+        thresholdChars: 8192
+        headChars: 4096
+        tailChars: 1024
+
+- id: tool-ask-user
+  name: '@deepseek-ai/dsh-tool-ask-user'
+
+- id: tool-web
+  name: '@deepseek-ai/dsh-tool-web'
+  config:
+    fetch: false
+    searchTimeoutMs: 60000

@@ -106,6 +106,7 @@ export class GerclawTenantGateway extends Service {
       '/api/events.mux',
       '/api/events.host',
       '/gerclaw/api/voice/asr-stream',
+      '/sidebar/ws/agent-terminals',
     ]) {
       this.ctx.effect(() => this.ctx.webServer.registerUpgrade({
         path,

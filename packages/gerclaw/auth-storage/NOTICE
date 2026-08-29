@@ -1,0 +1,5 @@
+GerClaw account persistence provider
+
+This package composes the DSH storage-domain and credentials seams. It does
+not copy or modify DSH source; see the repository-level dependency and license
+records for the upstream DSH packages.

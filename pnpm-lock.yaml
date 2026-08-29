@@ -29,6 +29,9 @@ importers:
       '@gerclaw/app':
         specifier: workspace:*
         version: link:packages/gerclaw/client
+      '@gerclaw/auth-storage':
+        specifier: workspace:*
+        version: link:packages/gerclaw/auth-storage
       '@gerclaw/cga':
         specifier: workspace:*
         version: link:packages/gerclaw/cga
@@ -56,6 +59,9 @@ importers:
       '@gerclaw/medication-review':
         specifier: workspace:*
         version: link:packages/gerclaw/medication-review
+      '@gerclaw/plan-compliance':
+        specifier: workspace:*
+        version: link:packages/gerclaw/plan-compliance
       '@gerclaw/prescription':
         specifier: workspace:*
         version: link:packages/gerclaw/prescription
@@ -4814,6 +4820,31 @@ importers:
       '@deepseek-ai/dsh-credentials':
         specifier: workspace:^
         version: link:../../credentials/credentials
+      '@gerclaw/auth-storage':
+        specifier: workspace:*
+        version: link:../auth-storage
+
+  packages/gerclaw/auth-storage:
+    dependencies:
+      '@deepseek-ai/schemastery':
+        specifier: link:../../../vendor/schemastery
+        version: link:../../../vendor/schemastery
+    devDependencies:
+      '@deepseek-ai/cordis':
+        specifier: workspace:^
+        version: link:../../../vendor/cordis
+      '@deepseek-ai/dsh-credentials':
+        specifier: workspace:^
+        version: link:../../credentials/credentials
+      '@deepseek-ai/dsh-invariants':
+        specifier: workspace:^
+        version: link:../../runtime-diagnostics/invariants
+      '@deepseek-ai/dsh-storage-domain':
+        specifier: workspace:^
+        version: link:../../storage/storage-domain
+      zod:
+        specifier: 4.4.3
+        version: 4.4.3
 
   packages/gerclaw/cga:
     devDependencies:
@@ -4862,6 +4893,9 @@ importers:
       '@deepseek-ai/dsh-typert-protocol':
         specifier: workspace:^
         version: link:../../typert/protocol
+      '@deepseek-ai/dsh-workspace':
+        specifier: workspace:^
+        version: link:../../workspace/workspace
       '@gerclaw/artifact':
         specifier: workspace:*
         version: link:../artifact
@@ -4898,6 +4932,9 @@ importers:
       '@deepseek-ai/dsh-api-remotes':
         specifier: workspace:^
         version: link:../../api/remotes
+      '@deepseek-ai/dsh-client-locale':
+        specifier: workspace:^
+        version: link:../../client/locale
       '@deepseek-ai/dsh-client-runtime':
         specifier: workspace:^
         version: link:../../client/runtime
@@ -5130,6 +5167,24 @@ importers:
         specifier: workspace:^
         version: link:../../runtime-diagnostics/invariants
 
+  packages/gerclaw/plan-compliance:
+    devDependencies:
+      '@deepseek-ai/cordis':
+        specifier: workspace:^
+        version: link:../../../vendor/cordis
+      '@deepseek-ai/dsh-agent':
+        specifier: workspace:^
+        version: link:../../core/agent
+      '@deepseek-ai/dsh-llm':
+        specifier: workspace:^
+        version: link:../../llm/llm
+      '@deepseek-ai/dsh-plan-mode':
+        specifier: workspace:^
+        version: link:../../plan/plan-mode
+      '@deepseek-ai/dsh-session':
+        specifier: workspace:^
+        version: link:../../core/session
+
   packages/gerclaw/prescription:
     devDependencies:
       '@deepseek-ai/cordis':
@@ -5243,6 +5298,9 @@ importers:
       '@gerclaw/medication-review':
         specifier: workspace:*
         version: link:../medication-review
+      '@gerclaw/plan-compliance':
+        specifier: workspace:*
+        version: link:../plan-compliance
       '@gerclaw/prescription':
         specifier: workspace:*
         version: link:../prescription
@@ -5492,6 +5550,9 @@ importers:
       '@gerclaw/auth':
         specifier: workspace:*
         version: link:../auth
+      '@gerclaw/auth-storage':
+        specifier: workspace:*
+        version: link:../auth-storage
       '@gerclaw/tenant-host':
         specifier: workspace:*
         version: link:../tenant-host

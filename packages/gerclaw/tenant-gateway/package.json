@@ -31,6 +31,7 @@
   "license": "MIT",
   "dependencies": {
     "@gerclaw/auth": "workspace:*",
+    "@gerclaw/auth-storage": "workspace:*",
     "@gerclaw/tenant-host": "workspace:*",
     "@gerclaw/tenant-host-local": "workspace:*",
     "@gerclaw/tenant-store": "workspace:*",

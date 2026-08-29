@@ -256,8 +256,14 @@
         if (!response.ok) throw new Error(value.error || "操作失败");
         return value;
       }
-      function enterWorkspace(delay = 0) {
-        sessionStorage.setItem("gerclaw.newConversationOnBoot", "1");
+      function enterApp(delay = 0) {
+        localStorage.setItem("dsh.workspace.view.v5", JSON.stringify({
+          groupBy: "flat",
+          orderBy: "updated",
+          groupExpansion: {},
+          sessionOrderByAccount: {},
+          sessionUpdatedAtByAccount: {},
+        }));
         setTimeout(() => location.reload(), delay);
       }
       form.onsubmit = async (event) => {
@@ -272,8 +278,8 @@
               value.recoveryCode +
               "。它只显示这一次。";
             message.textContent = "注册成功，保存恢复码后即可进入。";
-            enterWorkspace(6000);
-          } else enterWorkspace();
+            enterApp(6000);
+          } else enterApp();
         } catch (error) {
           message.textContent = error.message;
         }
@@ -281,7 +287,7 @@
       document.querySelector("#guest").onclick = async () => {
         try {
           await call("/auth/guest", {});
-          enterWorkspace();
+          enterApp();
         } catch (error) {
           message.textContent = error.message;
         }

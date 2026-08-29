@@ -4,8 +4,9 @@
   "include": ["src"],
   "references": [
     { "path": "../../../vendor/cordis" },
-    { "path": "../../../vendor/timer" },
-    { "path": "../auth-storage" },
-    { "path": "../../credentials/credentials" }
+    { "path": "../../credentials/credentials" },
+    { "path": "../../runtime-diagnostics/invariants" },
+    { "path": "../../storage/storage-domain" },
+    { "path": "../../../vendor/schemastery" }
   ]
 }

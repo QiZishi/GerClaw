@@ -214,7 +214,7 @@ export class LocalTenantHostRuntime extends TenantHostRuntime {
         'web',
         'add',
         ...this.config.profilePackageSpecs,
-        '--offline',
+        '--prefer-offline',
       ],
       cwd: this.config.rootDir,
       stdio: {
@@ -227,7 +227,15 @@ export class LocalTenantHostRuntime extends TenantHostRuntime {
       env: { DSH_HOME: dshHome },
     })
     const outcome = await handle.done
-    if (outcome.exitCode !== 0) throw new Error('账号运行配置安装失败')
+    if (outcome.exitCode !== 0) {
+      const stdout = handle.collected.stdout?.readFrom(0).text.trim()
+      const stderr = handle.collected.stderr?.readFrom(0).text.trim()
+      if (process.env.GERCLAW_DIAGNOSTICS === '1') {
+        if (stdout) process.stderr.write(`[GerClaw profile install stdout]\n${stdout}\n`)
+        if (stderr) process.stderr.write(`[GerClaw profile install stderr]\n${stderr}\n`)
+      }
+      throw new Error('账号运行配置安装失败')
+    }
   }
 
   private waitUntilReady(ctx: Context, instance: TenantHostInstance): Promise<void> {
