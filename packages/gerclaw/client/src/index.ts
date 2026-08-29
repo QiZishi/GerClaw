@@ -1,6 +1,6 @@
 /** GerClaw product Remote and binary routes over native DSH services. */
 import { randomUUID } from 'node:crypto'
-import { mkdir, readFile, writeFile } from 'node:fs/promises'
+import { mkdir } from 'node:fs/promises'
 import { basename, extname, join } from 'node:path'
 import type { IncomingMessage, ServerResponse } from 'node:http'
 import { Context, Service } from '@deepseek-ai/cordis'
@@ -137,7 +137,6 @@ export class GerclawApp extends TypertRemoteService {
   }
 
   protected async [Service.init](): Promise<void> {
-    await mkdir(join(this.config.dataDir, 'uploads'), { recursive: true })
     await this.ensureConversationSpace()
     this.registerLibrarySearch()
     this.registerChronicTool()
@@ -153,6 +152,12 @@ export class GerclawApp extends TypertRemoteService {
     }), 'gerclaw.app.binary-http')
   }
 
+  /**
+   * Register one account-owned internal directory with DSH's native
+   * WorkspaceRegistry. The native client runtime then owns initial session
+   * creation, selection, history and recovery; GerClaw does not maintain a
+   * parallel workspace or session registry.
+   */
   private async ensureConversationSpace(): Promise<void> {
     const path = join(this.config.dataDir, 'conversations')
     await mkdir(path, { recursive: true })
@@ -316,14 +321,14 @@ export class GerclawApp extends TypertRemoteService {
   ): Promise<{ healthGoal?: string; currentConcerns?: string; currentMedications?: string }> {
     if (documentRefs.length === 0) return {}
     const documents = await Promise.all(documentRefs.map(async (id) => {
-      const record = this.ctx.healthRepository.get(`document:${id}`) as {
-        name?: string
-        parsedRef?: string
-      } | undefined
+      const record = this.ctx.gerclawArtifacts.listDocuments(agent).find(item => item.documentId === id)
       if (record?.parsedRef === undefined) throw new Error('上传资料尚未解析完成或不属于当前账号')
-      return { name: record.name ?? '健康资料', text: await readFile(record.parsedRef, 'utf8') }
+      return {
+        name: record.name ?? '健康资料',
+        text: await this.ctx.gerclawArtifacts.readDocumentText(agent, id),
+      }
     }))
-    const run = await agent.ctx.subagents.start('spawn', {
+    const run = await this.ctx.subagents.start('spawn', {
       label: '整理上传的健康资料',
       parent: agent,
       signal,
@@ -391,7 +396,8 @@ export class GerclawApp extends TypertRemoteService {
     const intake = previous?.status === 'information_complete'
       ? previous
       : advancePrescriptionIntake(previous, resolvedUpdate)
-    if (intake.documentRefs.some(id => this.ctx.healthRepository.get(`document:${id}`) === undefined))
+    const ownedDocuments = new Set(this.ctx.gerclawArtifacts.listDocuments(agent).map(document => document.documentId))
+    if (intake.documentRefs.some(id => !ownedDocuments.has(id)))
       throw new Error('上传资料不存在或不属于当前账号')
     if (intake !== previous) this.appendPrescriptionIntake(agent, intake)
     if (intake.status === 'collecting') return {
@@ -492,11 +498,14 @@ export class GerclawApp extends TypertRemoteService {
           cga: this.ctx.healthRepository.list('cga').slice(0, 30),
           chronic: this.ctx.healthRepository.list('chronic').slice(0, 200),
           risks: this.ctx.healthRepository.list('risk').slice(0, 100),
-          documents: this.ctx.healthRepository.list('document').slice(0, 100),
+          documents: this.ctx.gerclawArtifacts.listDocuments(
+            nativeSessionId === undefined ? undefined : this.requireLiveAgent(nativeSessionId),
+          ).slice(0, 100),
         })
         return
       }
       if (method === 'POST' && path === '/documents') {
+        const agent = this.requireLiveAgent(nativeSessionId)
         const body = await readJson(req)
         const raw = Buffer.from(asText(body.data), 'base64')
         if (raw.length === 0 || raw.length > 10 * 1024 * 1024)
@@ -505,41 +514,37 @@ export class GerclawApp extends TypertRemoteService {
         const suffix = extname(original).toLowerCase()
         if (!['.pdf', '.md', '.txt', '.docx'].includes(suffix))
           throw new Error('支持 PDF、Markdown、TXT 和 DOCX 文件')
-        const id = randomUUID()
-        const absolutePath = join(this.config.dataDir, 'uploads', `${id}${suffix}`)
-        await writeFile(absolutePath, raw, { flag: 'wx' })
+        const stored = await this.ctx.gerclawArtifacts.storeDocument(agent, original, raw)
+        const id = stored.descriptor.documentId
+        const absolutePath = stored.sourcePath
         let parsedRef: string
-        if (suffix === '.md' || suffix === '.txt') {
-          await this.ctx.gerclawRag.addUserDocument(absolutePath, original)
-          parsedRef = absolutePath
-        } else {
-          const parsed = await this.ctx.gerclawDocumentParser.parse(
-            this.requireLiveAgent(nativeSessionId), absolutePath, original, controller.signal,
-          )
-          parsedRef = parsed.markdownPath
-          await this.ctx.gerclawRag.addUserDocument(parsedRef, original)
+        try {
+          if (suffix === '.md' || suffix === '.txt') {
+            await this.ctx.gerclawRag.addUserDocument(absolutePath, original)
+            parsedRef = absolutePath
+          } else {
+            const parsed = await this.ctx.gerclawDocumentParser.parse(
+              agent, absolutePath, original, controller.signal,
+            )
+            parsedRef = parsed.markdownPath
+            await this.ctx.gerclawRag.addUserDocument(parsedRef, original)
+          }
+        } catch (error) {
+          await this.ctx.gerclawArtifacts.updateDocument(agent, id, { parseStatus: 'failed' })
+          throw error
         }
-        const document = {
-          documentId: id,
-          name: original,
-          size: raw.length,
-          createdAt: new Date().toISOString(),
-          workspaceRef: `uploads/${id}${suffix}`,
+        const document = await this.ctx.gerclawArtifacts.updateDocument(agent, id, {
           parseStatus: 'ready',
           parsedRef,
-        }
-        await this.ctx.healthRepository.put(`document:${id}`, 'document', document)
+        })
         json(res, 201, document)
         return
       }
       if (method === 'GET' && path.startsWith('/documents/')) {
         const id = path.slice('/documents/'.length)
-        const document = this.ctx.healthRepository.get(`document:${id}`) as {
-          name: string
-          workspaceRef: string
-        } | undefined
-        if (document === undefined) throw new Error('文档不存在')
-        const data = await readFile(join(this.config.dataDir, document.workspaceRef))
+        const file = await this.ctx.gerclawArtifacts.readDocument(id)
+        if (file === undefined) throw new Error('文档不存在')
+        const { descriptor: document, content: data } = file
         const suffix = extname(document.name).toLowerCase()
         const contentType = suffix === '.pdf' ? 'application/pdf'
           : suffix === '.docx' ? 'application/vnd.openxmlformats-officedocument.wordprocessingml.document'

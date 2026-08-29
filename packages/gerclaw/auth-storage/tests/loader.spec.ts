@@ -65,6 +65,46 @@ const account = {
 } as const
 
 describe('GerClaw account persistence through the real DSH Loader', () => {
+  it('registers and recovers an isolated account without touching persistent test accounts', async () => {
+    const root = await mkdtemp(join(tmpdir(), 'gerclaw-auth-recovery-'))
+    roots.push(root)
+    const config = join(root, 'cordis.yml')
+    await writeFile(config, configFor(root))
+    const first = await boot('gerclaw-auth-recovery-test', config)
+    const initialPassword = 'Initial-test-password-2026'
+    const recoveredPassword = 'Recovered-test-password-2026'
+    try {
+      const auth = first.get('gerclawAuth')!
+      const registered = await auth.register('isolated-recovery-user', initialPassword, 'doctor')
+      await expect(auth.login('isolated-recovery-user', initialPassword)).resolves.toMatchObject({
+        account: { id: registered.account.id, audience: 'doctor' },
+      })
+      const nextCode = await auth.recover(
+        'isolated-recovery-user',
+        registered.recoveryCode,
+        recoveredPassword,
+      )
+      expect(nextCode).not.toBe(registered.recoveryCode)
+      await expect(auth.login('isolated-recovery-user', initialPassword)).rejects.toThrow('用户名或密码不正确')
+      await expect(auth.recover(
+        'isolated-recovery-user',
+        registered.recoveryCode,
+        'Another-test-password-2026',
+      )).rejects.toThrow('恢复信息不正确')
+    } finally {
+      await first.fiber.dispose()
+    }
+    const restored = await boot('gerclaw-auth-recovery-reload-test', config)
+    try {
+      await expect(restored.get('gerclawAuth')!.login(
+        'isolated-recovery-user',
+        recoveredPassword,
+      )).resolves.toMatchObject({ account: { audience: 'doctor' } })
+    } finally {
+      await restored.fiber.dispose()
+    }
+  })
+
   it('migrates accounts.json once and keeps the legacy source read-only', async () => {
     const root = await mkdtemp(join(tmpdir(), 'gerclaw-auth-storage-'))
     roots.push(root)

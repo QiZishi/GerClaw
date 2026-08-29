@@ -12,17 +12,20 @@
   },
   "files": ["lib/index.js", "lib/invariant.js", "lib/types/**/*.d.ts", "README.md"],
   "license": "MIT",
-  "dependencies": { "@gerclaw/artifact": "workspace:*" },
+  "dependencies": { "@gerclaw/artifact": "workspace:*", "zod": "4.4.3" },
   "peerDependencies": {
     "@deepseek-ai/cordis": "workspace:^",
     "@deepseek-ai/dsh-agent": "workspace:^",
     "@deepseek-ai/dsh-invariants": "workspace:^",
-    "@deepseek-ai/dsh-session": "workspace:^"
+    "@deepseek-ai/dsh-session": "workspace:^",
+    "@deepseek-ai/dsh-session-projection": "workspace:^"
   },
   "devDependencies": {
     "@deepseek-ai/cordis": "workspace:^",
     "@deepseek-ai/dsh-agent": "workspace:^",
     "@deepseek-ai/dsh-invariants": "workspace:^",
-    "@deepseek-ai/dsh-session": "workspace:^"
+    "@deepseek-ai/dsh-session": "workspace:^",
+    "@deepseek-ai/dsh-session-projection": "workspace:^",
+    "zod": "4.4.3"
   }
 }

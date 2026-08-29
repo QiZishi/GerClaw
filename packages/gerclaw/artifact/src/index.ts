@@ -28,6 +28,29 @@ export interface ArtifactFile {
   content: Uint8Array
 }
 
+/** A document owned by one exact Agent/session. `sourcePath` is provider-internal
+ * and is only used to hand the same workspace file to a parser provider. */
+export interface DocumentDescriptor {
+  documentId: string
+  name: string
+  size: number
+  createdAt: string
+  workspaceRef: string
+  parseStatus: 'ready' | 'pending' | 'failed'
+  parsedRef?: string
+}
+
+export interface StoredDocument {
+  descriptor: DocumentDescriptor
+  /** Provider-owned workspace path; never serialize this into a client response. */
+  sourcePath: string
+}
+
+export interface DocumentFile {
+  descriptor: DocumentDescriptor
+  content: Uint8Array
+}
+
 declare module '@deepseek-ai/cordis' {
   interface Context {
     gerclawArtifacts: GerclawArtifactService
@@ -41,6 +64,16 @@ export abstract class GerclawArtifactService extends Service {
   abstract list(agent?: Agent): ArtifactDescriptor[]
   /** Reads an artifact inside the current account Host boundary. */
   abstract read(artifactId: string): Promise<ArtifactFile | undefined>
+  /** Stores an uploaded document inside the exact Agent workspace. */
+  abstract storeDocument(agent: Agent, name: string, content: Uint8Array): Promise<StoredDocument>
+  /** Updates parser metadata without changing document ownership. */
+  abstract updateDocument(agent: Agent, documentId: string, patch: Pick<DocumentDescriptor, 'parseStatus' | 'parsedRef'>): Promise<DocumentDescriptor>
+  /** Lists documents owned by the exact Agent/session. */
+  abstract listDocuments(agent?: Agent): DocumentDescriptor[]
+  /** Reads an uploaded document through the DSH filesystem seam. */
+  abstract readDocument(documentId: string): Promise<DocumentFile | undefined>
+  /** Reads parsed text through the DSH filesystem seam. */
+  abstract readDocumentText(agent: Agent, documentId: string): Promise<string>
 }
 
 export default GerclawArtifactService

@@ -237,6 +237,7 @@
       name: "@gerclaw/artifact-local"
       config:
         dataDir: !!js process.env.GERCLAW_ACCOUNT_DATA_DIR || dshHomePath('gerclaw-data')
+        accountId: !!js process.env.GERCLAW_ACCOUNT_ID || 'local'
 
     - id: gerclaw-task-runtime
       name: "@gerclaw/task-runtime-local"

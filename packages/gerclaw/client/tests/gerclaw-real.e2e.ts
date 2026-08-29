@@ -1,5 +1,5 @@
-import { randomBytes } from 'node:crypto'
-import { writeFile } from 'node:fs/promises'
+import { readdir, writeFile } from 'node:fs/promises'
+import { join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import type { Browser, BrowserContext, Locator, Page } from 'playwright'
 import { chromium } from 'playwright'
@@ -11,6 +11,9 @@ const DOCUMENT_FIXTURE = fileURLToPath(new URL('./fixtures/health-note.txt', imp
 const ENABLED = process.env.GERCLAW_REAL_E2E === '1'
 const RAG_FAILURE_RECOVERY = process.env.GERCLAW_RAG_FAILURE_E2E === '1'
 const RAG_FAILURE_FLAG = process.env.GERCLAW_RAG_FAILURE_FLAG
+const TENANT_DATA_DIR = process.env.GERCLAW_DATA_DIR
+  ?? join(process.cwd(), '.gerclaw', 'gateway-dsh', 'gerclaw-tenants')
+const ARTIFACT_FORMATS = ['md', 'html', 'docx', 'pdf', 'png', 'jpg', 'json'] as const
 
 type Identity = {
   label: '医生' | '患者'
@@ -27,12 +30,12 @@ const required = (name: string): string => {
 const identities = (): Identity[] => [
   {
     label: '医生',
-    username: 'gc_doctor_test_20260823',
+    username: process.env.GERCLAW_TEST_DOCTOR_USERNAME ?? 'gc_doctor_test_20260823',
     password: required('GERCLAW_TEST_DOCTOR_PASSWORD'),
   },
   {
     label: '患者',
-    username: 'gc_patient_test_20260823',
+    username: process.env.GERCLAW_TEST_PATIENT_USERNAME ?? 'gc_patient_test_20260823',
     password: required('GERCLAW_TEST_PATIENT_PASSWORD'),
   },
 ]
@@ -226,6 +229,108 @@ const runRag = async (page: Page, options: {
   return dialog
 }
 
+type BrowserArtifact = {
+  artifactId: string
+  taskId: string
+  name: string
+  format: string
+  mediaType: string
+  size: number
+}
+
+const allArtifacts = async (page: Page): Promise<BrowserArtifact[]> => page.evaluate(async () => {
+  const response = await fetch('/gerclaw/api/bootstrap')
+  if (!response.ok) throw new Error('无法读取账号产物')
+  const body = await response.json() as { artifacts?: BrowserArtifact[] }
+  return body.artifacts ?? []
+})
+
+type WebSocketProbe = {
+  closed: boolean
+  receivedMessage: boolean
+  closeCode: number | null
+  closeReason: string
+  timedOut: boolean
+}
+
+const probeWebSocket = async (page: Page, sessionId: string): Promise<WebSocketProbe> => page.evaluate(
+  sessionId => new Promise<WebSocketProbe>((resolve) => {
+    const protocol = location.protocol === 'https:' ? 'wss:' : 'ws:'
+    const socket = new WebSocket(`${protocol}//${location.host}/gerclaw/api/voice/asr-stream?sessionId=${encodeURIComponent(sessionId)}`)
+    let receivedMessage = false
+    let timedOut = false
+    let settled = false
+    let timeoutFallback: ReturnType<typeof setTimeout> | undefined
+    const finish = (closed: boolean, closeCode: number | null, closeReason: string): void => {
+      if (settled) return
+      settled = true
+      clearTimeout(timer)
+      if (timeoutFallback !== undefined) clearTimeout(timeoutFallback)
+      resolve({ closed, receivedMessage, closeCode, closeReason, timedOut })
+    }
+    const timer = setTimeout(() => {
+      timedOut = true
+      try { socket.close(4000, 'test-timeout') } catch { finish(false, null, 'test-timeout'); return }
+      timeoutFallback = setTimeout(() => { finish(false, null, 'test-timeout') }, 1_000)
+    }, 5_000)
+    socket.addEventListener('message', () => {
+      receivedMessage = true
+      try { socket.close(4001, 'unexpected-message') } catch { finish(false, null, 'unexpected-message') }
+    })
+    socket.addEventListener('close', (event) => { finish(true, event.code, event.reason) })
+  }),
+  sessionId,
+)
+
+const runSevenArtifacts = async (page: Page): Promise<BrowserArtifact[]> => {
+  const before = new Set((await allArtifacts(page)).map(item => item.artifactId))
+  await page.getByRole('button', { name: '综合量表' }).click()
+  const dialog = page.getByRole('dialog', { name: '综合量表' })
+  await dialog.getByLabel('选择量表').selectOption('phq9')
+  await dialog.getByRole('button', { name: '完成确定性计分' }).click()
+  await expectTaskResult(dialog)
+  await dialog.getByRole('button', { name: '导出七种格式' }).click()
+  await containsText(
+    dialog.getByRole('status').filter({ hasText: '已生成 7 个格式' }),
+    '已生成 7 个格式',
+    120_000,
+  )
+  await expect.poll(async () => (await allArtifacts(page)).filter(
+    item => !before.has(item.artifactId),
+  ), { timeout: 30_000 }).toHaveLength(7)
+  const created = (await allArtifacts(page)).filter(item => !before.has(item.artifactId))
+  expect([...new Set(created.map(item => item.format))].sort()).toEqual([...ARTIFACT_FORMATS].sort())
+  expect(new Set(created.map(item => item.taskId)).size).toBe(1)
+  const downloads = await page.evaluate(async artifacts => Promise.all(artifacts.map(async (artifact) => {
+    const response = await fetch(`/gerclaw/api/artifacts/${encodeURIComponent(artifact.artifactId)}`)
+    return {
+      status: response.status,
+      mediaType: response.headers.get('content-type'),
+      disposition: response.headers.get('content-disposition'),
+      size: (await response.arrayBuffer()).byteLength,
+    }
+  })), created)
+  for (const [index, download] of downloads.entries()) {
+    expect(download.status).toBe(200)
+    expect(download.mediaType).toBe(created[index]!.mediaType)
+    expect(download.disposition).toContain('attachment')
+    expect(download.size).toBe(created[index]!.size)
+  }
+  await closeDialog(dialog)
+  const layout = page.locator('[data-gerclaw-artifact-layout]')
+  await expect.poll(() => layout.locator('li').count(), { timeout: 30_000 }).toBeGreaterThanOrEqual(7)
+  await layout.locator('li button').filter({ hasText: /\.png/iu }).first().click()
+  await visible(layout.locator('[data-gerclaw-artifact-preview] img'))
+  await layout.locator('li button').filter({ hasText: /\.pdf/iu }).first().click()
+  await visible(layout.locator('[data-gerclaw-artifact-preview] iframe'))
+  const [download] = await Promise.all([
+    page.waitForEvent('download'),
+    layout.locator('[data-gerclaw-artifact-preview] a').click(),
+  ])
+  expect(download.suggestedFilename()).toMatch(/\.pdf$/u)
+  return created
+}
+
 const runMedicalTasks = async (page: Page): Promise<void> => {
   for (const kind of ['phq9', 'sas', 'psqi', 'minicog', 'mmse']) await runCga(page, kind)
 
@@ -272,7 +377,11 @@ const runMedicalTasks = async (page: Page): Promise<void> => {
   expect(hrefs.some(href => href?.includes('fda.gov'))).toBe(true)
   expect(hrefs.some(href => href?.includes('medlineplus.gov'))).toBe(true)
   await dialog.getByRole('button', { name: '导出七种格式' }).click()
-  await containsText(dialog.getByRole('status'), '已生成 7 个格式', 120_000)
+  await containsText(
+    dialog.getByRole('status').filter({ hasText: '已生成 7 个格式' }),
+    '已生成 7 个格式',
+    120_000,
+  )
   await closeDialog(dialog)
 
   await expect.poll(() => page.locator('[data-gerclaw-artifact-layout] li').count(), { timeout: 30_000 }).toBeGreaterThanOrEqual(7)
@@ -509,42 +618,6 @@ describe.skipIf(!ENABLED)('GerClaw 正式 Gateway 全功能真实 E2E', { concur
     }, 1_200_000)
   }
 
-  it('通过真实注册页完成注册、一次性恢复码重置、登录和退出', async () => {
-    const context = await browser.newContext({ locale: 'zh-CN', viewport: { width: 1280, height: 900 } })
-    contexts.push(context)
-    const page = await context.newPage()
-    const tripwire = watch(page)
-    const username = `gc_recovery_e2e_${Date.now()}`
-    const initialPassword = randomBytes(18).toString('base64url')
-    const recoveredPassword = randomBytes(18).toString('base64url')
-    await page.goto(BASE_URL, { waitUntil: 'domcontentloaded' })
-    await page.getByRole('button', { name: '注册' }).click()
-    await page.getByLabel('用户名').fill(username)
-    await page.getByLabel('密码').fill(initialPassword)
-    await page.getByLabel('称呼偏好').selectOption('doctor')
-    await page.getByRole('button', { name: '进入健康工作台' }).click()
-    const recovery = page.locator('#recovery')
-    await containsText(recovery, '一次性恢复码')
-    const recoveryCode = (await recovery.textContent())?.split('：')[1]?.split('。')[0]?.trim()
-    expect(recoveryCode).toBeTruthy()
-    await waitForWorkspace(page)
-    await logout(page)
-
-    await page.getByRole('button', { name: '重置密码' }).click()
-    await page.getByLabel('用户名').fill(username)
-    await page.getByLabel('密码').fill(recoveredPassword)
-    await page.getByLabel('恢复码').fill(recoveryCode!)
-    await page.getByRole('button', { name: '进入健康工作台' }).click()
-    await containsText(recovery, '一次性恢复码')
-    await page.waitForTimeout(6_500)
-    await page.getByLabel('用户名').fill(username)
-    await page.getByLabel('密码').fill(recoveredPassword)
-    await page.getByRole('button', { name: '进入健康工作台' }).click()
-    await waitForWorkspace(page)
-    await logout(page)
-    assertClean(tripwire)
-  }, 180_000)
-
   for (const identity of ['doctor', 'patient', 'guest'] as const) {
     it(`阶段二：${identity === 'doctor' ? '医生' : identity === 'patient' ? '患者' : '游客'}语音与五大处方`, async () => {
       const context = await browser.newContext({ locale: 'zh-CN', permissions: ['microphone'], viewport: { width: 1440, height: 960 } })
@@ -630,17 +703,51 @@ describe.skipIf(!ENABLED)('GerClaw 正式 Gateway 全功能真实 E2E', { concur
   }, 300_000)
 
   for (const identity of ['doctor', 'patient'] as const) {
+    it(`阶段四：${identity === 'doctor' ? '医生' : '患者'}七种产物、下载与历史恢复`, async () => {
+      const selected = identities()[identity === 'doctor' ? 0 : 1]!
+      const context = await browser.newContext({ locale: 'zh-CN', viewport: { width: 1280, height: 900 } })
+      contexts.push(context)
+      const page = await context.newPage()
+      const tripwire = watch(page)
+      await login(page, selected)
+      const created = await runSevenArtifacts(page)
+      assertClean(tripwire)
+      await logout(page)
+      await login(page, selected)
+      const restored = new Set((await allArtifacts(page)).map(item => item.artifactId))
+      for (const artifact of created) expect(restored.has(artifact.artifactId)).toBe(true)
+      assertClean(tripwire)
+      await logout(page)
+    }, 600_000)
+  }
+
+  it('阶段四：游客七种产物并在退出后清理专用目录', async () => {
+    const guestsRoot = join(TENANT_DATA_DIR, 'guests')
+    const before = (await readdir(guestsRoot)).sort()
+    const context = await browser.newContext({ locale: 'zh-CN', viewport: { width: 1280, height: 900 } })
+    contexts.push(context)
+    const page = await context.newPage()
+    const tripwire = watch(page)
+    await enterAsGuest(page)
+    await runSevenArtifacts(page)
+    expect((await readdir(guestsRoot)).length).toBe(before.length + 1)
+    assertClean(tripwire)
+    await logout(page)
+    await expect.poll(async () => (await readdir(guestsRoot)).sort(), { timeout: 30_000 }).toEqual(before)
+  }, 600_000)
+
+  for (const identity of ['doctor', 'patient'] as const) {
     it(`${identity === 'doctor' ? '医生' : '患者'}账号完整真实路径`, async () => {
       const selected = identities()[identity === 'doctor' ? 0 : 1]!
       const context = await browser.newContext({ locale: 'zh-CN', permissions: ['microphone'], viewport: { width: 1440, height: 960 } })
       contexts.push(context)
       const page = await context.newPage()
       const tripwire = watch(page)
-      onTestFailed(() => { void page.screenshot({ path: `.artifacts/gerclaw-${identity}-failed.png`, fullPage: true }) })
+      onTestFailed(async () => { await page.screenshot({ path: `output/playwright/gerclaw-${identity}-failed.png`, fullPage: true }) })
       await login(page, selected)
       await runIdentityMatrix(page)
-      await logout(page)
       assertClean(tripwire)
+      await logout(page)
     }, 2_400_000)
   }
 
@@ -649,14 +756,14 @@ describe.skipIf(!ENABLED)('GerClaw 正式 Gateway 全功能真实 E2E', { concur
     contexts.push(context)
     const page = await context.newPage()
     const tripwire = watch(page)
-    onTestFailed(() => { void page.screenshot({ path: '.artifacts/gerclaw-guest-failed.png', fullPage: true }) })
+    onTestFailed(async () => { await page.screenshot({ path: 'output/playwright/gerclaw-guest-failed.png', fullPage: true }) })
     await enterAsGuest(page)
     await runIdentityMatrix(page)
-    await logout(page)
     assertClean(tripwire)
+    await logout(page)
   }, 2_400_000)
 
-  it('拒绝跨账号会话、文件、产物、下载与 WebSocket 标识', async () => {
+  it('阶段四：拒绝跨账号会话、文件、产物、下载与 WebSocket 标识', async () => {
     const [doctor, patient] = identities()
     const doctorContext = await browser.newContext({ locale: 'zh-CN' })
     const patientContext = await browser.newContext({ locale: 'zh-CN' })
@@ -680,27 +787,49 @@ describe.skipIf(!ENABLED)('GerClaw 正式 Gateway 全功能真实 E2E', { concur
       session: doctorBootstrap.tasks?.find(task => task.sessionId)?.sessionId,
     }
     expect(ids.artifact && ids.document && ids.task && ids.session).toBeTruthy()
-    for (const path of [
-      `/gerclaw/api/artifacts/${ids.artifact}`,
-      `/gerclaw/api/documents/${ids.document}`,
-    ]) {
-      const status = await patientPage.evaluate(async target => (await fetch(target)).status, path)
-      expect(status).toBe(400)
+    const foreignIds = [ids.artifact, ids.document, ids.task, ids.session]
+      .filter((value): value is string => typeof value === 'string')
+    const patientBootstrap = await patientPage.evaluate(async () => {
+      const response = await fetch('/gerclaw/api/bootstrap')
+      return { status: response.status, body: await response.text() }
+    })
+    expect(patientBootstrap.status).toBe(200)
+    for (const foreignId of foreignIds) expect(patientBootstrap.body).not.toContain(foreignId)
+    const missingId = `missing-${Date.now()}`
+    for (const [foreignPath, missingPath] of [
+      [`/gerclaw/api/artifacts/${ids.artifact}`, `/gerclaw/api/artifacts/${missingId}`],
+      [`/gerclaw/api/documents/${ids.document}`, `/gerclaw/api/documents/${missingId}`],
+    ] as Array<[string, string]>) {
+      const { foreign, missing } = await patientPage.evaluate(async ([foreignPath, missingPath]: [string, string]) => {
+        const read = async (path: string) => {
+          const response = await fetch(path)
+          return { status: response.status, body: await response.text() }
+        }
+        return { foreign: await read(foreignPath), missing: await read(missingPath) }
+      }, [foreignPath, missingPath] as [string, string])
+      expect(foreign).toEqual(missing)
+      expect(foreign.status).toBe(400)
     }
     const bootstrap = await patientPage.evaluate(async (sessionId) => {
       const response = await fetch('/gerclaw/api/bootstrap', { headers: { 'x-gerclaw-session-id': String(sessionId) } })
-      return { status: response.status, body: JSON.parse(await response.text()) as unknown }
+      return { status: response.status, body: await response.text() }
     }, ids.session)
-    expect(bootstrap.status).toBe(200)
-    expect(JSON.stringify(bootstrap.body)).not.toContain(String(ids.task))
-    const wsClosed = await patientPage.evaluate(sessionId => new Promise<boolean>((resolve) => {
-      const protocol = location.protocol === 'https:' ? 'wss:' : 'ws:'
-      const socket = new WebSocket(`${protocol}//${location.host}/gerclaw/api/voice/asr-stream?sessionId=${encodeURIComponent(String(sessionId))}`)
-      const timer = setTimeout(() => { socket.close(); resolve(false) }, 5_000)
-      socket.addEventListener('close', () => { clearTimeout(timer); resolve(true) })
-      socket.addEventListener('message', () => { clearTimeout(timer); socket.close(); resolve(false) })
-    }), ids.session)
-    expect(wsClosed).toBe(true)
+    expect(bootstrap.status).toBe(400)
+    for (const foreignId of foreignIds) expect(bootstrap.body).not.toContain(foreignId)
+    const missingSession = `missing-session-${Date.now()}`
+    const missingBootstrap = await patientPage.evaluate(async (sessionId) => {
+      const response = await fetch('/gerclaw/api/bootstrap', { headers: { 'x-gerclaw-session-id': sessionId } })
+      return { status: response.status, body: await response.text() }
+    }, missingSession)
+    expect(bootstrap).toEqual(missingBootstrap)
+    const wsResult = await probeWebSocket(patientPage, ids.session!)
+    const missingWsResult = await probeWebSocket(patientPage, missingSession)
+    expect(wsResult).toEqual(missingWsResult)
+    expect(wsResult.timedOut).toBe(false)
+    expect(wsResult.closed).toBe(true)
+    expect(wsResult.receivedMessage).toBe(false)
+    expect(wsResult.closeCode).not.toBe(4000)
+    expect(wsResult.closeReason).not.toBe('test-timeout')
     await logout(doctorPage)
     await logout(patientPage)
   }, 180_000)

@@ -1,9 +1,10 @@
 /** DSH Jobs-backed GerClaw medical task provider. */
 import { randomUUID } from 'node:crypto'
-import { Service } from '@deepseek-ai/cordis'
+import { Context, Service } from '@deepseek-ai/cordis'
 import type { Agent } from '@deepseek-ai/dsh-agent'
 import type { JobId as JobIdType, JobOutcome } from '@deepseek-ai/dsh-jobs'
 import type {} from '@deepseek-ai/dsh-subagent'
+import type {} from '@deepseek-ai/dsh-session-projection'
 import type { CgaAssessment, CgaResult } from '@gerclaw/cga'
 import type { ChronicMeasurement } from '@gerclaw/chronic-care'
 import { COMPANION_SYSTEM_PROMPT } from '@gerclaw/companion'
@@ -24,6 +25,10 @@ import {
   type MedicalTaskSubmitRequest,
   type MedicalTaskSubmitResult,
   type TaskRun,
+  applyTaskProjection,
+  initTaskProjection,
+  taskProjectionSchema,
+  TASK_PROJECTION_STATE_VERSION,
 } from '@gerclaw/task-runtime'
 import type {} from '@gerclaw/artifact'
 import type {} from '@gerclaw/health-repository'
@@ -55,8 +60,25 @@ export class LocalGerclawTaskRuntime extends GerclawTaskRuntime {
     'jobs', 'sessions', 'subagents', 'healthRepository', 'gerclawArtifacts',
     'gerclawCga', 'gerclawMedicationReview', 'gerclawMedicalEvidence',
     'gerclawHealthProfile', 'gerclawChronicCare', 'gerclawRiskAlert',
-    'gerclawCompanion', 'gerclawRag',
+    'gerclawCompanion', 'gerclawRag', 'sessionProjections',
   ]
+
+  constructor(ctx: Context) {
+    super(ctx)
+    ctx.inject(['sessionProjections'], (projectionCtx) => {
+      projectionCtx.sessionProjections.register<'gerclaw/task', ReturnType<typeof initTaskProjection>>({
+        key: 'gerclaw/task',
+        stateSchema: taskProjectionSchema,
+        init: initTaskProjection,
+        apply: applyTaskProjection,
+        wire: {
+          viewSchema: taskProjectionSchema,
+          view: state => state,
+        },
+        stateVersion: TASK_PROJECTION_STATE_VERSION,
+      })
+    })
+  }
 
   protected [Service.init](): void {
     this.ctx.effect(
@@ -73,6 +95,7 @@ export class LocalGerclawTaskRuntime extends GerclawTaskRuntime {
     const requestId = request.requestId.trim()
     if (!/^[A-Za-z0-9_-]{8,128}$/u.test(requestId)) throw new Error('任务请求编号无效')
     const label = `GerClaw:${requestId}`
+    const taskId = `gerclaw-${requestId}`
     if (this.ctx.jobs.list(agent).some(job => job.label === label
       && (job.status === 'running' || job.status === 'stopping'))) {
       throw new Error('该任务正在处理中')
@@ -94,13 +117,13 @@ export class LocalGerclawTaskRuntime extends GerclawTaskRuntime {
       owner: agent,
       run: () => {
         queueMicrotask(() => {
-          void this.runOwnedTask(agent, String(jobId), request.kind, request.input, controller.signal)
+          void this.runOwnedTask(agent, taskId, request.kind, request.input, controller.signal)
             .then((completed) => {
               resolveResult(completed)
               resolveDone({ status: 'completed', detail: request.kind })
             }, async (error: unknown) => {
               const cancelled = controller.signal.aborted
-              await this.failTask(agent, String(jobId), request.kind, error, cancelled)
+              await this.failTask(agent, taskId, request.kind, error, cancelled)
               rejectResult(new Error(cancelled ? '任务已停止' : safeError(error), { cause: error }))
               resolveDone({
                 status: cancelled ? 'killed' : 'failed',
@@ -134,13 +157,15 @@ export class LocalGerclawTaskRuntime extends GerclawTaskRuntime {
     if (job === undefined) return { cancelled: false }
     const result = this.ctx.jobs.kill(job.id, agent, '用户停止任务')
     return result === 'requested'
-      ? { cancelled: true, taskId: String(job.id) }
-      : { cancelled: false, taskId: String(job.id) }
+      ? { cancelled: true, taskId: `gerclaw-${request.requestId.trim()}` }
+      : { cancelled: false, taskId: `gerclaw-${request.requestId.trim()}` }
   }
 
   status(agent: Agent, request: MedicalTaskStatusRequest): MedicalTaskStatusResult {
-    const task = this.ctx.healthRepository.get(`task:${request.taskId}`) as TaskRun | undefined
-    return { task: task?.sessionId === agent.id ? task : null }
+    const task = this.ctx.sessionProjections.stateOf(agent.session, 'gerclaw/task')
+    return {
+      task: task?.taskId === request.taskId && task.sessionId === agent.id ? task : null,
+    }
   }
 
   async export(agent: Agent, request: MedicalTaskExportRequest): Promise<MedicalTaskExportResult> {
@@ -437,7 +462,7 @@ export class LocalGerclawTaskRuntime extends GerclawTaskRuntime {
   }
 
   private async runSubagentText(agent: Agent, text: string, signal: AbortSignal): Promise<string> {
-    const run = await agent.ctx.subagents.start('spawn', {
+    const run = await this.ctx.subagents.start('spawn', {
       label: '生成支持性回复', parent: agent, signal,
       prompt: [{ type: 'text', text }], persona: COMPANION_SYSTEM_PROMPT,
       maxDepth: 1, toolFilter: { allow: [] }, agentOptions: { maxTokens: 1600 },

@@ -21,9 +21,10 @@ const artifactUrl = (artifact: Artifact): string =>
 
 export interface ArtifactsTabProps extends TabComponentProps {
   subscribe?: (sessionId: string, listener: () => void) => () => void
+  getCurrentSessionId?: () => string | undefined
 }
 
-export function ArtifactsTab({ visible, scope, subscribe }: ArtifactsTabProps) {
+export function ArtifactsTab({ visible, scope, subscribe, getCurrentSessionId }: ArtifactsTabProps) {
   const [artifacts, setArtifacts] = useState<Artifact[]>([])
   const [selected, setSelected] = useState<Artifact | null>(null)
   const [showAll, setShowAll] = useState(false)
@@ -31,11 +32,12 @@ export function ArtifactsTab({ visible, scope, subscribe }: ArtifactsTabProps) {
   const load = useCallback(async () => {
     setError('')
     try {
+      const sessionId = getCurrentSessionId === undefined ? scope.sessionId : getCurrentSessionId()
       const response = await fetch(
         '/gerclaw/api/bootstrap',
-        showAll
+        showAll || sessionId === undefined
           ? {}
-          : { headers: { 'x-gerclaw-session-id': scope.sessionId } },
+          : { headers: { 'x-gerclaw-session-id': sessionId } },
       )
       if (!response.ok) throw new Error('产物列表暂时无法读取')
       const data = await response.json() as Bootstrap
@@ -47,7 +49,7 @@ export function ArtifactsTab({ visible, scope, subscribe }: ArtifactsTabProps) {
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : '产物列表暂时无法读取')
     }
-  }, [scope.sessionId, showAll])
+  }, [getCurrentSessionId, scope.sessionId, showAll])
   useEffect(() => {
     if (!visible) return
     void load()

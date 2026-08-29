@@ -12,8 +12,8 @@
 | --- | --- | --- |
 | 一：产品壳层与主对话 | 完成 | 游客 6/6、医生与患者 2/2、加载器 7/7 通过；`3ec56fd` |
 | 二：语音与五大处方 | 完成 | 三身份浏览器 3/3、加载器 3/3 通过；`9b586d4` |
-| 三：共享与私有医学资料 | 进行中 | 验收已通过，正在检查差异并提交 |
-| 四：账号隔离与七种产物 | 未开始 | 待阶段三提交后开始 |
+| 三：共享与私有医学资料 | 完成 | 三身份浏览器 4/4、故障恢复 1/1、真实加载器与外部检索 1/1 通过；`f63ce11` |
+| 四：账号隔离与七种产物 | 进行中 | 验收已通过，正在检查差异并提交 |
 | 五：热插拔与最终收口 | 未开始 | 待阶段四提交后开始 |
 
 ## 阶段一记录：产品壳层与主对话
@@ -109,7 +109,7 @@
 - 阶段二提交：`9b586d4fd1ed406187dfb99388d44c9cfbcefea1`，提交信息为
   `fix(health): complete voice and prescription flow`。
 
-## 当前阶段：共享与私有医学资料
+## 阶段三记录：共享与私有医学资料
 
 ### 当前任务
 
@@ -153,9 +153,48 @@
 - `pnpm gerclaw:dump-config`、相关包类型检查、21 项客户端测试、`pnpm build` 和
   `git diff --check`：退出码均为 0。
 - 当前阻塞：无。阶段三真实验收已通过，正在提交本阶段路径。
+- 阶段三提交：`f63ce11726c05dd884071b6d15750708c436d7d0`，提交信息为
+  `fix(rag): complete shared and private retrieval`。
 
 ### 下一步
 
-阶段三提交后立即进入阶段四。首个执行动作：盘点现有账号隔离、产物服务、下载与
-网页套接字边界，将需求映射到已有 DSH 会话、存储和 GerClaw 产物服务，再运行双账号
-标识交换与七种产物的一致性验证。
+阶段四首个执行动作：盘点现有账号隔离、产物服务、下载与网页套接字边界，将需求
+映射到已有 DSH 会话、存储和 GerClaw 产物服务，再运行双账号标识交换与七种产物的
+一致性验证。
+
+## 阶段四记录：账号隔离与七种产物
+
+### 复用与市场盘点
+
+- 2026-08-30 在开发前重新检索 DSH Market 的账号隔离、产物、预览、下载和恢复
+  候选；当前页面没有可直接采用的候选，本阶段不新增市场插件。
+- 继续复用 DSH 多租户进程、原生会话与会话投影、工作区、文件和存储能力，以及
+  现有 `GerclawArtifactService`。GerClaw 只补齐账号作用域、恢复和友好错误语义，
+  未建立第二套会话、存储、文件或产物机制。
+
+### 已完成与证据
+
+- 两个固定账号已使用安全配置中的密码通过真实浏览器登录和退出；未创建新的真实
+  测试账号，也未修改其他账号或历史医疗数据。
+- 注册与恢复码成功路径已在隔离存储的真实加载器测试中通过：恢复码仅可使用一次，
+  旧密码和已使用恢复码失效，卸载并重新加载后新密码仍有效。
+- 产物和文档统一经账号宿主内的 `GerclawArtifactService` 访问；会话任务改用浏览器
+  请求的全局唯一标识，并由 DSH 原生会话投影恢复，消除不同账号间任务标识碰撞。
+- 双账号交换产物、文档、任务、会话和网页套接字标识时均被拒绝；对外状态、正文与
+  网页套接字关闭结果和随机不存在标识完全一致，不泄露对象是否存在。
+- 七种格式 `Markdown`、`HTML`、`DOCX`、`PDF`、`PNG`、`JPG`、`JSON` 来自同一
+  计分任务；真实浏览器已验证七项下载、图片和 PDF 预览、浏览器下载及退出重登后的
+  历史恢复。
+- 游客用例验证登录期间只新增游客专用目录，退出后目录数量恢复到基线；持久账号宿主
+  与历史数据保持不变。
+- `pnpm exec vitest run packages/gerclaw/auth-storage/tests/loader.spec.ts packages/gerclaw/client/tests/session-projection.spec.ts packages/gerclaw/client/tests/gerclaw-plugins.spec.ts`：3 个测试文件、26 项测试通过。
+- `pnpm exec vitest run packages/gerclaw/auth-storage/tests/loader.spec.ts packages/gerclaw/profile-bundle/tests/service-hotplug.spec.ts -t 'account|auth|task runtime'`：2 个测试文件、5 项真实加载器测试通过，5 项按筛选跳过。
+- `GERCLAW_REAL_E2E=1 node --env-file=.env node_modules/vitest/vitest.mjs --config vitest.e2e.config.ts run --retry=0 packages/gerclaw/client/tests/gerclaw-real.e2e.ts -t '阶段四：'`：1 个测试文件、4 项真实浏览器测试通过，16 项按阶段筛选跳过，耗时 20.41 秒；覆盖医生、患者、游客七种产物和双账号标识交换。
+- `pnpm gerclaw:dump-config`、相关包类型检查、`pnpm build` 和 `git diff --check`：退出码均为 0。
+- 当前阻塞：无。阶段四真实验收已通过，正在提交本阶段路径。
+
+### 下一步
+
+阶段五首个执行动作：重新阅读 Cordis 生命周期和组合热更新文档，盘点全部可替换
+GerClaw 服务，并通过真实加载器验证依赖消失、资源释放、恢复、失败更新回退和无重复
+注册，随后运行完整三身份浏览器矩阵与全部工程检查。

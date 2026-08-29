@@ -1,7 +1,7 @@
 /** Local Workspace artifact provider for GerClaw normalized medical results. */
-import { createHash } from 'node:crypto'
+import { createHash, randomUUID } from 'node:crypto'
 import { mkdir, readFile, writeFile } from 'node:fs/promises'
-import { join, resolve, sep } from 'node:path'
+import { basename, extname, join, relative, resolve, sep } from 'node:path'
 import { Context, Service } from '@deepseek-ai/cordis'
 import type { Agent } from '@deepseek-ai/dsh-agent'
 import type {} from '@deepseek-ai/dsh-workspace'
@@ -15,12 +15,25 @@ import {
   type ArtifactFile,
   type ArtifactFormat,
   type ArtifactSource,
+  type DocumentDescriptor,
+  type DocumentFile,
+  type StoredDocument,
 } from '@gerclaw/artifact'
 import type {} from '@gerclaw/health-repository'
+import type {} from '@deepseek-ai/dsh-fs'
 
-export interface Config { dataDir: string }
+export interface Config { dataDir: string; accountId: string }
 
-interface StoredArtifact extends ArtifactDescriptor { absolutePath: string }
+interface StoredArtifact extends ArtifactDescriptor {
+  accountId?: string
+  sessionId: string
+  absolutePath?: string
+}
+interface StoredDocumentRecord extends DocumentDescriptor {
+  accountId?: string
+  sessionId?: string
+  sourcePath?: string
+}
 
 const mediaTypes: Record<ArtifactFormat, string> = {
   md: 'text/markdown; charset=utf-8',
@@ -49,22 +62,27 @@ const svgOf = (title: string, markdown: string): string => {
 }
 
 export class LocalGerclawArtifactService extends GerclawArtifactService {
-  static inject = ['healthRepository', 'workspaceRegistry']
-  static Config: z<Config> = z.object({ dataDir: z.string() })
+  static inject = ['healthRepository', 'workspaceRegistry', 'fs']
+  static Config: z<Config> = z.object({
+    dataDir: z.string(),
+    accountId: z.string().default('local'),
+  })
+  private readonly accountId: string
   private readonly root: string
 
   constructor(ctx: Context, config: Config) {
     super(ctx)
+    this.accountId = config.accountId
     this.root = resolve(config.dataDir)
   }
 
   protected async [Service.init](): Promise<void> {
-    await mkdir(join(this.root, 'artifacts'), { recursive: true })
-    await this.ctx.workspaceRegistry.create(this.root, 'GerClaw')
+    // Files are created lazily beneath the exact Agent session cwd. The
+    // provider must not use one process-global artifact root.
   }
 
   async export(agent: Agent, source: ArtifactSource, formats: ArtifactFormat[]): Promise<ArtifactDescriptor[]> {
-    if (source.sessionId !== undefined && source.sessionId !== agent.id)
+    if (source.sessionId === undefined || source.sessionId !== String(agent.id))
       throw new Error('该结果不属于当前对话')
     const title = `GerClaw ${source.kind} 结果`
     const markdown = markdownOf(title, source.result)
@@ -104,8 +122,7 @@ export class LocalGerclawArtifactService extends GerclawArtifactService {
       }
       const name = `gerclaw-${source.kind}-${source.taskId.slice(0, 8)}.${format}`
       const workspaceRef = `artifacts/${artifactId}.${format}`
-      const absolutePath = this.resolveWorkspaceRef(workspaceRef)
-      await writeFile(absolutePath, content, { flag: 'wx' })
+      const absolutePath = await this.writeWorkspaceFile(agent, workspaceRef, format, content)
       const descriptor: StoredArtifact = {
         artifactId,
         taskId: source.taskId,
@@ -116,6 +133,7 @@ export class LocalGerclawArtifactService extends GerclawArtifactService {
         mediaType: mediaTypes[format],
         size: content.length,
         createdAt: new Date().toISOString(),
+        accountId: this.accountId,
         absolutePath,
       }
       await this.ctx.healthRepository.put(`artifact:${artifactId}`, 'artifact', descriptor)
@@ -126,31 +144,177 @@ export class LocalGerclawArtifactService extends GerclawArtifactService {
 
   list(agent?: Agent): ArtifactDescriptor[] {
     return this.ctx.healthRepository.list<StoredArtifact>('artifact')
-      .filter(item => agent === undefined || item.sessionId === agent.id)
+      .filter(item => this.belongsToCurrentAccount(item.accountId)
+        && (agent === undefined || item.sessionId === String(agent.id)))
       .map(item => this.publicDescriptor(item))
   }
 
   async read(artifactId: string): Promise<ArtifactFile | undefined> {
     const stored = this.ctx.healthRepository.get(`artifact:${artifactId}`) as StoredArtifact | undefined
     if (stored === undefined) return undefined
-    const expectedPath = this.resolveWorkspaceRef(stored.workspaceRef)
-    if (stored.absolutePath !== expectedPath) throw new Error('产物路径无效')
+    if (!this.belongsToCurrentAccount(stored.accountId)) throw new Error('该结果不属于当前账号')
+    const expectedPath = stored.absolutePath === undefined
+      ? this.resolveLegacyPath(join('conversations', stored.workspaceRef))
+      : this.resolveLegacyPath(stored.absolutePath)
     return { descriptor: this.publicDescriptor(stored), content: await readFile(expectedPath) }
   }
 
-  private assertOwned(agent: Agent, stored: StoredArtifact): void {
-    if (stored.sessionId !== agent.id) throw new Error('该产物不属于当前对话')
+  async storeDocument(agent: Agent, name: string, content: Uint8Array): Promise<StoredDocument> {
+    const original = basename(name || 'document').slice(0, 160)
+    const suffix = extname(original).toLowerCase()
+    const documentId = randomUUID()
+    const workspaceRef = `uploads/${documentId}${suffix}`
+    const sourcePath = await this.writeBinaryWorkspaceFile(agent, workspaceRef, content)
+    const descriptor: DocumentDescriptor = {
+      documentId,
+      name: original,
+      size: content.byteLength,
+      createdAt: new Date().toISOString(),
+      workspaceRef,
+      parseStatus: 'pending',
+    }
+    const record: StoredDocumentRecord = {
+      ...descriptor,
+      accountId: this.accountId,
+      sessionId: String(agent.id),
+      sourcePath,
+    }
+    await this.ctx.healthRepository.put(`document:${documentId}`, 'document', record)
+    return { descriptor, sourcePath }
   }
 
-  private resolveWorkspaceRef(workspaceRef: string): string {
-    const absolute = resolve(this.root, workspaceRef)
+  async updateDocument(
+    agent: Agent,
+    documentId: string,
+    patch: Pick<DocumentDescriptor, 'parseStatus' | 'parsedRef'>,
+  ): Promise<DocumentDescriptor> {
+    const record = this.getDocument(agent, documentId)
+    const parsedRef = patch.parsedRef === undefined
+      ? undefined
+      : await this.normalizeWorkspaceRef(agent, patch.parsedRef)
+    const updated: StoredDocumentRecord = {
+      ...record,
+      ...patch,
+      ...(parsedRef === undefined ? {} : { parsedRef }),
+    }
+    await this.ctx.healthRepository.put(`document:${documentId}`, 'document', updated)
+    return this.publicDocument(updated)
+  }
+
+  listDocuments(agent?: Agent): DocumentDescriptor[] {
+    void agent
+    return this.ctx.healthRepository.list<StoredDocumentRecord>('document')
+      .filter(item => this.belongsToCurrentAccount(item.accountId))
+      .map(item => this.publicDocument(item))
+  }
+
+  async readDocument(documentId: string): Promise<DocumentFile | undefined> {
+    const record = this.ctx.healthRepository.get(`document:${documentId}`) as StoredDocumentRecord | undefined
+    if (record === undefined) return undefined
+    if (!this.belongsToCurrentAccount(record.accountId)) throw new Error('该资料不属于当前账号')
+    const content = record.sourcePath === undefined
+      ? await readFile(this.resolveLegacyPath(record.workspaceRef))
+      : await readFile(this.resolveLegacyPath(record.sourcePath))
+    return { descriptor: this.publicDocument(record), content }
+  }
+
+  async readDocumentText(agent: Agent, documentId: string): Promise<string> {
+    const record = this.getDocument(agent, documentId)
+    if (record.parsedRef === undefined) throw new Error('上传资料尚未解析完成')
+    if (resolve(record.parsedRef) === record.parsedRef)
+      return readFile(this.resolveLegacyPath(record.parsedRef), 'utf8')
+    const target = await this.resolveWorkspaceTarget(agent, record.parsedRef)
+    return this.ctx.fs.readText(target)
+  }
+
+  private assertOwned(agent: Agent, stored: StoredArtifact): void {
+    void agent
+    if (!this.belongsToCurrentAccount(stored.accountId)) throw new Error('该结果不属于当前账号')
+  }
+
+  private assertDocumentOwned(agent: Agent, stored: StoredDocumentRecord): void {
+    void agent
+    if (!this.belongsToCurrentAccount(stored.accountId)) throw new Error('该资料不属于当前账号')
+  }
+
+  private belongsToCurrentAccount(accountId: string | undefined): boolean {
+    // Legacy records predate explicit owner metadata but already live inside
+    // one account-isolated Host/storage domain, so they belong to this Host.
+    return accountId === undefined || accountId === this.accountId
+  }
+
+  private getDocument(agent: Agent, documentId: string): StoredDocumentRecord {
+    const record = this.ctx.healthRepository.get(`document:${documentId}`) as StoredDocumentRecord | undefined
+    if (record === undefined) throw new Error('文档不存在')
+    this.assertDocumentOwned(agent, record)
+    return record
+  }
+
+  private workspaceCwd(agent: Agent): string {
+    const cwd = agent.session.header.cwd
+    if (cwd === undefined || cwd.trim().length === 0) throw new Error('当前对话尚未绑定工作区')
+    return resolve(cwd)
+  }
+
+  private async resolveWorkspaceTarget(agent: Agent, workspaceRef: string) {
+    const cwd = this.workspaceCwd(agent)
+    const workspace = await this.ctx.fs.resolve('.', { cwd })
+    const target = await this.ctx.fs.resolve(workspaceRef, { cwd })
+    if (!this.ctx.fs.contains(workspace, target)) throw new Error('工作区路径无效')
+    return target
+  }
+
+  private async resolveWorkspacePath(agent: Agent, workspaceRef: string): Promise<string> {
+    const target = await this.resolveWorkspaceTarget(agent, workspaceRef)
+    return this.ctx.fs.processPath(target)
+  }
+
+  private resolveLegacyPath(path: string): string {
+    const absolute = resolve(this.root, path)
     if (absolute !== this.root && !absolute.startsWith(`${this.root}${sep}`))
-      throw new Error('产物路径无效')
+      throw new Error('工作区路径无效')
     return absolute
   }
 
+  private async normalizeWorkspaceRef(agent: Agent, path: string): Promise<string> {
+    const absolutePath = await this.resolveWorkspacePath(agent, path)
+    const workspaceRef = relative(this.workspaceCwd(agent), absolutePath)
+    if (workspaceRef === '' || workspaceRef.startsWith('..')) throw new Error('工作区路径无效')
+    return workspaceRef
+  }
+
+  private async writeWorkspaceFile(
+    agent: Agent,
+    workspaceRef: string,
+    format: ArtifactFormat,
+    content: Buffer,
+  ): Promise<string> {
+    const target = await this.resolveWorkspaceTarget(agent, workspaceRef)
+    const absolutePath = this.ctx.fs.processPath(target)
+    await mkdir(join(this.workspaceCwd(agent), 'artifacts'), { recursive: true })
+    if (format === 'md' || format === 'html' || format === 'json') {
+      await this.ctx.fs.writeText(target, content.toString('utf8'))
+    } else {
+      await writeFile(absolutePath, content, { flag: 'wx' })
+    }
+    return absolutePath
+  }
+
+  private async writeBinaryWorkspaceFile(agent: Agent, workspaceRef: string, content: Uint8Array): Promise<string> {
+    const target = await this.resolveWorkspaceTarget(agent, workspaceRef)
+    const absolutePath = this.ctx.fs.processPath(target)
+    await mkdir(join(this.workspaceCwd(agent), 'uploads'), { recursive: true })
+    await writeFile(absolutePath, content, { flag: 'wx' })
+    return absolutePath
+  }
+
   private publicDescriptor(stored: StoredArtifact): ArtifactDescriptor {
-    const { absolutePath: _hidden, ...descriptor } = stored
+    const { accountId: _account, absolutePath: _legacyPath, sessionId: _session, ...descriptor } = stored
+    return descriptor
+  }
+
+  private publicDocument(stored: StoredDocumentRecord): DocumentDescriptor {
+    const { accountId: _account, sessionId: _session, sourcePath: _path, ...descriptor } = stored
     return descriptor
   }
 }

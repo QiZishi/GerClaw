@@ -5,6 +5,7 @@
   "references": [
     { "path": "../../../vendor/cordis" },
     { "path": "../../core/agent" },
+    { "path": "../../fs/fs" },
     { "path": "../../workspace/workspace" },
     { "path": "../artifact" },
     { "path": "../health-repository" },

@@ -185,8 +185,10 @@ export async function apply(ctx: ClientContext): Promise<void> {
     }, HealthCapabilities)
   })
 
+  const getCurrentSessionId = (): string | undefined => ctx.sessions.list.getSnapshot().current
   const ArtifactsTabWithEvents = (props: Parameters<typeof ArtifactsTab>[0]) => createElement(ArtifactsTab, {
     ...props,
+    getCurrentSessionId,
     subscribe: (sessionId: string, listener: () => void) => ctx.on(
       'gerclaw/artifacts-created',
       (createdFor) => { if (createdFor === sessionId) listener() },

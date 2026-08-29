@@ -1,6 +1,8 @@
 /** Replaceable GerClaw medical-task runtime and durable event vocabulary. */
 import { Context, Service } from '@deepseek-ai/cordis'
 import type { Agent } from '@deepseek-ai/dsh-agent'
+import type {} from '@deepseek-ai/dsh-session'
+import type {} from '@deepseek-ai/dsh-session-projection'
 import type { ArtifactDescriptor, ArtifactFormat } from '@gerclaw/artifact'
 
 export type { ArtifactDescriptor, ArtifactFormat } from '@gerclaw/artifact'
@@ -56,9 +58,17 @@ export interface CompletedTaskInput {
   taskId?: string
 }
 
+export {
+  applyTaskProjection,
+  initTaskProjection,
+  taskProjectionSchema,
+  TASK_PROJECTION_STATE_VERSION,
+  type TaskProjectionState,
+} from './projection.ts'
+
 declare module '@deepseek-ai/dsh-session/types' {
   interface SessionEventMap {
-    /** Whole-value, replayable GerClaw medical task projection. */
+    /** Whole-value, replayable GerClaw medical task state. */
     'gerclaw/task': { version: 1; turn: null; task: TaskRun }
   }
 }
