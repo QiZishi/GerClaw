@@ -279,6 +279,7 @@ describe('GerClaw integration plugin contracts', () => {
     expect(profile).toContain('- "@gerclaw/app"')
     expect(client).toContain("from '@gerclaw/app/remote'")
     expect(client).toContain('ctx.remote.$mount(gerclawAppRemote)')
+    expect(client).toContain("ctx.inject(['remote.gerclawApp']")
     expect(client).toContain('ctx.remote.gerclawApp.submit')
     expect(client).toContain('sessionId as SessionId')
     expect(feature).not.toMatch(/fetch\(['"]\/gerclaw\/api\/(?:cga|medication|profile|chronic|companion|evidence)/u)

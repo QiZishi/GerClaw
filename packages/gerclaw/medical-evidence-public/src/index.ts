@@ -22,6 +22,9 @@ const aliases: ReadonlyArray<readonly [RegExp, string]> = [
   [/布洛芬/u, 'ibuprofen'], [/对乙酰氨基酚/u, 'acetaminophen'],
 ]
 
+const externalTerm = (query: string): string =>
+  aliases.find(([pattern]) => pattern.test(query))?.[1] ?? query.trim().slice(0, 200)
+
 const getJson = async (url: string, signal?: AbortSignal, emptyOnNotFound = false): Promise<unknown> => {
   const response = await fetch(url, {
     ...(signal === undefined ? {} : { signal }),
@@ -34,7 +37,7 @@ const getJson = async (url: string, signal?: AbortSignal, emptyOnNotFound = fals
 
 export class PublicMedicalEvidenceProvider extends MedicalEvidenceProvider {
   async searchPubMed(query: string, signal?: AbortSignal): Promise<MedicalEvidence[]> {
-    const term = query.trim().slice(0, 200)
+    const term = externalTerm(query)
     if (!term) return []
     const search = await getJson(
       `https://eutils.ncbi.nlm.nih.gov/entrez/eutils/esearch.fcgi?db=pubmed&retmode=json&retmax=5&term=${encodeURIComponent(term)}`,
@@ -81,7 +84,7 @@ export class PublicMedicalEvidenceProvider extends MedicalEvidenceProvider {
 
   async searchMedlinePlus(query: string, signal?: AbortSignal): Promise<MedicalEvidence[]> {
     const response = await fetch(
-      `https://wsearch.nlm.nih.gov/ws/query?db=healthTopics&retmax=5&term=${encodeURIComponent(query.trim().slice(0, 200))}`,
+      `https://wsearch.nlm.nih.gov/ws/query?db=healthTopics&retmax=5&term=${encodeURIComponent(externalTerm(query))}`,
       signal === undefined ? {} : { signal },
     )
     if (response.status === 404) return []

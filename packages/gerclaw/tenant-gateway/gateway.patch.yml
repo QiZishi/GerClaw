@@ -47,6 +47,7 @@
           - !!js "'link:' + process.getBuiltinModule('node:path').join(process.cwd(), 'packages/gerclaw/health-repository-storage')"
           - !!js "'link:' + process.getBuiltinModule('node:path').join(process.cwd(), 'packages/gerclaw/library')"
           - !!js "'link:' + process.getBuiltinModule('node:path').join(process.cwd(), 'packages/gerclaw/library-dsh')"
+          - !!js "'link:' + process.getBuiltinModule('node:path').join(process.cwd(), 'packages/gerclaw/library-dsh-runtime')"
           - !!js "'link:' + process.getBuiltinModule('node:path').join(process.cwd(), 'packages/gerclaw/local-rag')"
           - !!js "'link:' + process.getBuiltinModule('node:path').join(process.cwd(), 'packages/gerclaw/rag')"
           - !!js "'link:' + process.getBuiltinModule('node:path').join(process.cwd(), 'packages/gerclaw/storage-domain-isolated')"

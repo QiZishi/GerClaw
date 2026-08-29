@@ -37,9 +37,12 @@ describe('GerClaw RAG real Loader lifecycle invariant', () => {
       '- id: private-domain',
       `  name: ${quote(pluginUrl('packages/storage/storage-domain'))}`,
       '  config: { backend: sqlite }',
+      '- id: private-library-runtime',
+      `  name: ${quote(pluginUrl('packages/gerclaw/library-dsh-runtime'))}`,
+      '  config: { embeddingDimensions: 32 }',
       '- id: private-library',
       `  name: ${quote(pluginUrl('packages/gerclaw/library-dsh'))}`,
-      '  config: { embeddingDimensions: 32 }',
+      '  config: { library: gerclaw-test-private }',
       '- id: shared-group',
       '  name: cordis:group',
       '  group: true',
@@ -47,6 +50,7 @@ describe('GerClaw RAG real Loader lifecycle invariant', () => {
       '    storage: true',
       '    storage.backend.sqlite: true',
       '    storageDomain: true',
+      '    gerclawLibraryRuntime: true',
       '  config:',
       '    - id: shared-storage',
       `      name: ${quote(pluginUrl('packages/storage/storage'))}`,
@@ -56,6 +60,9 @@ describe('GerClaw RAG real Loader lifecycle invariant', () => {
       '    - id: shared-domain',
       `      name: ${quote(pluginUrl('packages/gerclaw/storage-domain-isolated'))}`,
       '      config: { backend: sqlite }',
+      '    - id: shared-library-runtime',
+      `      name: ${quote(pluginUrl('packages/gerclaw/library-dsh-runtime'))}`,
+      '      config: { embeddingDimensions: 32 }',
       '    - id: shared-knowledge',
       `      name: ${quote(pluginUrl('packages/gerclaw/local-rag'))}`,
       '      config:',
@@ -91,14 +98,16 @@ describe('GerClaw RAG real Loader lifecycle invariant', () => {
       expect(firstFiber?.state).toBe(FiberState.ACTIVE)
       expect(firstService).toBeDefined()
 
+      const runtime = byId('private-library-runtime')
       const library = byId('private-library')
-      await library.update({ disabled: true })
+      await runtime.update({ disabled: true })
       await vi.waitFor(() => {
+        expect(library.fiber?.state).toBe(FiberState.PENDING)
         expect(rag.fiber?.state).toBe(FiberState.PENDING)
         expect(ctx.get('gerclawRag')).toBeUndefined()
       })
 
-      await library.update({ disabled: false })
+      await runtime.update({ disabled: false })
       await vi.waitFor(() => {
         expect(rag.fiber?.state).toBe(FiberState.ACTIVE)
         expect(ctx.get('gerclawRag')).toBeDefined()

@@ -13,27 +13,21 @@ import {
 } from 'node:fs/promises'
 import { join, relative } from 'node:path'
 import { Context, Service } from '@deepseek-ai/cordis'
-import type { Domain } from '@deepseek-ai/dsh-storage-domain'
-import type {} from '@deepseek-ai/dsh-subprocess'
 import z from '@deepseek-ai/schemastery'
-import {
-  LibraryStore,
-  libraryDomainSpec,
-  resolveConfig,
-  type LibrarySearchHit,
-  type ResolvedConfig,
-} from 'dsh-library'
 import {
   GerclawSharedKnowledge,
   type GerclawRagHit as LocalRagHit,
   type GerclawRagStatus as LocalRagStatus,
 } from '@gerclaw/library'
+import type {
+  GerclawLibraryRuntime,
+  GerclawLibrarySearchHit,
+} from '@gerclaw/library-dsh-runtime'
 
 export interface LocalRagConfig {
   knowledgeBasePath: string
   sharedIndexRoot: string
   library?: string
-  embeddingCommand?: string
   embeddingDimensions?: number
   embeddingModel?: string
   rerankApiKey?: string
@@ -228,12 +222,11 @@ export const planSharedShards = (
 }
 
 export class SharedKnowledgeProvider extends GerclawSharedKnowledge {
-  static inject = ['storageDomain', 'subprocess']
+  static inject = ['gerclawLibraryRuntime']
   static Config: z<LocalRagConfig> = z.object({
     knowledgeBasePath: z.string().required(),
     sharedIndexRoot: z.string().required(),
     library: z.string().default('gerclaw-medical'),
-    embeddingCommand: z.string().default(''),
     embeddingDimensions: z.number().min(8).default(DEFAULT_EMBEDDING_DIMENSIONS),
     embeddingModel: z.string().default(DEFAULT_EMBEDDING_MODEL),
     rerankApiKey: z.string().required(),
@@ -244,73 +237,36 @@ export class SharedKnowledgeProvider extends GerclawSharedKnowledge {
   private readonly library: string
   private readonly baseSources = new Map<string, SharedSourceRef>()
   private readonly shardRoutes: SharedShardRoute[] = []
-  private domain: Domain<typeof libraryDomainSpec> | undefined
-  private store: LibraryStore | undefined
-  private readonly libraryConfig: ResolvedConfig
+  private readonly runtime: GerclawLibraryRuntime
   private current: LocalRagStatus = { state: 'indexing', total: 0, indexed: 0 }
   private ready: Promise<void> = Promise.resolve()
 
   constructor(ctx: Context, private readonly config: LocalRagConfig) {
     super(ctx)
     this.library = config.library ?? 'gerclaw-medical'
-    this.libraryConfig = this.resolveLibraryConfig()
-    ctx.effect(() => async () => {
+    this.runtime = ctx.gerclawLibraryRuntime
+    ctx.effect(() => () => {
       this.controller.abort()
-      this.store = undefined
-      const domain = this.domain
-      this.domain = undefined
-      await domain?.close()
     }, 'gerclaw.local-rag.lifecycle')
   }
 
   protected async [Service.init](): Promise<void> {
     await mkdir(this.config.sharedIndexRoot, { recursive: true })
-    this.domain = await this.ctx.storageDomain.open(libraryDomainSpec)
-    this.store = new LibraryStore(this.domain, this.libraryConfig, { subprocess: this.ctx.subprocess })
     this.ready = this.initialize()
     void this.ready.catch(() => {})
   }
 
   status(): LocalRagStatus { return { ...this.current } }
 
-  private resolveLibraryConfig(): ResolvedConfig {
-    return resolveConfig({
-      chunkSize: SHARED_CHUNK_SIZE,
-      chunkOverlap: SHARED_CHUNK_OVERLAP,
-      maxFileBytes: 5 * 1024 * 1024,
-      embedding: {
-        dims: this.config.embeddingDimensions ?? DEFAULT_EMBEDDING_DIMENSIONS,
-        ...(this.config.embeddingCommand ? { command: this.config.embeddingCommand } : {}),
-        timeoutMs: 120_000,
-        graceMs: 2_000,
-        maxOutputBytes: 64 * 1024 * 1024,
-        maxBatchItems: 64,
-      },
-      search: {
-        topK: 20,
-        hybridWeight: 0.7,
-        // dsh-library 0.1.3 treats one contiguous CJK phrase as one lexical
-        // token. The account-local SiliconFlow reranker owns the final gate.
-        minRelevance: 0,
-        diversityLambda: 0.55,
-        lostMiddleHead: 2,
-        lostMiddleTail: 1,
-        maxResultChars: 40_000,
-      },
-      injection: { enabled: false, maxChars: 12_000 },
-    })
-  }
 
   private async buildSharedIndex(manifest: CorpusManifest, versionDir: string): Promise<void> {
     const staging = join(this.config.sharedIndexRoot, `.building-${manifest.version}-${randomUUID()}`)
     await mkdir(staging, { recursive: true })
     try {
-      const store = this.store
-      if (!store) throw new Error('共享知识库 storage domain 尚未就绪')
       const versionPrefix = `${this.library}-${manifest.version.slice(0, 12)}-`
-      for (const entry of store.list().filter(row => row.library.startsWith(versionPrefix))) {
+      for (const entry of this.runtime.list().filter(row => row.library.startsWith(versionPrefix))) {
         this.controller.signal.throwIfAborted()
-        await store.remove(entry.library, entry.documentId)
+        await this.runtime.remove(entry.library, entry.documentId)
       }
       const documents = await Promise.all(manifest.files.map(async entry => ({
         path: entry.path,
@@ -326,7 +282,7 @@ export class SharedKnowledgeProvider extends GerclawSharedKnowledge {
         for (const [segmentIndex, segment] of shard.segments.entries()) {
           this.controller.signal.throwIfAborted()
           const sourceMarker = `<!-- gerclaw-source: ${segment.path}; segment: ${segment.seqBase} -->\n`
-          const added = await store.add(
+          const added = await this.runtime.add(
             library,
             segment.path,
             `${sourceMarker}${segment.content}`,
@@ -353,7 +309,7 @@ export class SharedKnowledgeProvider extends GerclawSharedKnowledge {
           routeText: routeParts.join('\n').slice(0, 4_000),
         })
       }
-      const entries = store.list().filter(entry => entry.library.startsWith(versionPrefix))
+      const entries = this.runtime.list().filter(entry => entry.library.startsWith(versionPrefix))
       const names = new Set(entries.map(entry => entry.name))
       for (const entry of manifest.files) {
         if (!names.has(entry.path)) throw new Error(`共享知识库索引缺少：${entry.path}`)
@@ -375,9 +331,8 @@ export class SharedKnowledgeProvider extends GerclawSharedKnowledge {
     const versionDir = join(this.config.sharedIndexRoot, manifest.version)
     const ready = join(versionDir, 'READY')
     if (await exists(ready)) {
-      const store = this.store
       const routing = JSON.parse(await readFile(join(versionDir, 'routing.json'), 'utf8')) as SharedRouting
-      const indexed = new Set(store?.list().map(entry => entry.documentId) ?? [])
+      const indexed = new Set(this.runtime.list().map(entry => entry.documentId))
       if (!Object.keys(routing.sources).every(documentId => indexed.has(documentId))) {
         await rm(versionDir, { recursive: true, force: true })
       }
@@ -457,7 +412,7 @@ export class SharedKnowledgeProvider extends GerclawSharedKnowledge {
     }
   }
 
-  private baseHits(hits: readonly LibrarySearchHit[]): LocalRagHit[] {
+  private baseHits(hits: readonly GerclawLibrarySearchHit[]): LocalRagHit[] {
     return hits.map((hit) => {
       const source = this.baseSources.get(hit.documentId)
       return {
@@ -538,8 +493,6 @@ export class SharedKnowledgeProvider extends GerclawSharedKnowledge {
       })
     }
     signal?.throwIfAborted()
-    const store = this.store
-    if (!store) throw new Error('共享知识库索引尚未就绪')
     const limit = Math.max(topK, 20)
     const selectedRoutes = await this.rerankIndexes(
       query,
@@ -550,7 +503,7 @@ export class SharedKnowledgeProvider extends GerclawSharedKnowledge {
     const baseGroups = await Promise.all(selectedRoutes.map(async ({ index }) => {
       const route = this.shardRoutes[index]
       if (route === undefined) throw new Error('共享知识库分片路由无效')
-      return this.baseHits(await store.search(route.library, query, limit))
+      return this.baseHits(await this.runtime.search(route.library, query, limit, signal))
     }))
     const candidates = baseGroups.flat()
       .sort((a, b) => b.score - a.score)

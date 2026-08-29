@@ -139,6 +139,7 @@ export class GerclawApp extends TypertRemoteService {
   protected async [Service.init](): Promise<void> {
     await mkdir(join(this.config.dataDir, 'uploads'), { recursive: true })
     await this.ensureConversationSpace()
+    this.registerLibrarySearch()
     this.registerChronicTool()
     this.registerPrescriptionIntake()
     this.ctx.effect(() => () => {
@@ -156,6 +157,39 @@ export class GerclawApp extends TypertRemoteService {
     const path = join(this.config.dataDir, 'conversations')
     await mkdir(path, { recursive: true })
     await this.ctx.workspaceRegistry.create(path, '健康对话')
+  }
+
+  private registerLibrarySearch(): void {
+    this.ctx.effect(() => this.ctx.tools.register(defineTool({
+      name: 'library_search',
+      description: '检索 GerClaw 固定医学知识库与当前账号私有资料，返回可追溯的来源、原文片段和相关度。不得把公共医学资料当作用户病历。',
+      parameters: {
+        query: { type: 'string', required: true, description: '需要核验的医学问题或关键词。' },
+        topK: { type: 'integer', description: '返回条数，默认 5，最多 10。' },
+      },
+      output: {
+        schema: { type: 'json' },
+        render: (_args, value) => [{
+          type: 'text',
+          text: `已检索本地医学资料，返回 ${Array.isArray(value) ? value.length : 0} 条可追溯结果。`,
+        }],
+      },
+      presentCall: args => ({ card: 'generic', title: `查阅医学资料 · ${args.query}`, kind: 'search' }),
+      execute: async (args, exec) => {
+        const hits = await this.ctx.gerclawRag.search(
+          args.query,
+          Math.min(10, Math.max(1, args.topK ?? 5)),
+          exec.signal,
+        )
+        return hits.map(hit => ({
+          source: hit.documentId,
+          location: `片段 ${hit.seq}`,
+          origin: hit.origin === 'user' ? '当前账号资料' : 'GerClaw 医学知识库',
+          snippet: hit.snippet,
+          score: hit.score,
+        }))
+      },
+    })), 'gerclaw.app.library-search-tool')
   }
 
   private registerChronicTool(): void {

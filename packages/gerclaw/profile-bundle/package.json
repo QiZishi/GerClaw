@@ -56,6 +56,7 @@
     "@gerclaw/health-repository-storage": "workspace:*",
     "@gerclaw/library": "workspace:*",
     "@gerclaw/library-dsh": "workspace:*",
+    "@gerclaw/library-dsh-runtime": "workspace:*",
     "@gerclaw/shared-knowledge": "workspace:*",
     "@gerclaw/rag": "workspace:*",
     "@gerclaw/storage-domain-isolated": "workspace:*",

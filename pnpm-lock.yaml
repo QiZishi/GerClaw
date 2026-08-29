@@ -53,6 +53,9 @@ importers:
       '@gerclaw/library-dsh':
         specifier: workspace:*
         version: link:packages/gerclaw/library-dsh
+      '@gerclaw/library-dsh-runtime':
+        specifier: workspace:*
+        version: link:packages/gerclaw/library-dsh-runtime
       '@gerclaw/medical-evidence':
         specifier: workspace:*
         version: link:packages/gerclaw/medical-evidence
@@ -5101,6 +5104,22 @@ importers:
       '@gerclaw/library':
         specifier: workspace:*
         version: link:../library
+      '@gerclaw/library-dsh-runtime':
+        specifier: workspace:*
+        version: link:../library-dsh-runtime
+    devDependencies:
+      '@deepseek-ai/cordis':
+        specifier: workspace:^
+        version: link:../../../vendor/cordis
+      '@deepseek-ai/dsh-invariants':
+        specifier: workspace:^
+        version: link:../../runtime-diagnostics/invariants
+
+  packages/gerclaw/library-dsh-runtime:
+    dependencies:
+      '@deepseek-ai/schemastery':
+        specifier: link:../../../vendor/schemastery
+        version: link:../../../vendor/schemastery
       dsh-library:
         specifier: 0.1.3
         version: 0.1.3(@deepseek-ai/cordis@vendor+cordis)(@deepseek-ai/dsh-fs@packages+fs+fs)(@deepseek-ai/dsh-llm@packages+llm+llm)(@deepseek-ai/dsh-session@packages+core+session)(@deepseek-ai/dsh-storage-domain@packages+storage+storage-domain)(@deepseek-ai/dsh-storage-json@packages+storage+storage-json)(@deepseek-ai/dsh-storage@packages+storage+storage)(@deepseek-ai/dsh-subprocess@packages+subprocess+subprocess)(@deepseek-ai/dsh-tools@packages+core+tools)(@deepseek-ai/schemastery@vendor+schemastery)(oxc-resolver@11.20.0)(publint@0.3.21)(tsx@4.22.4)
@@ -5126,9 +5145,9 @@ importers:
       '@gerclaw/library':
         specifier: workspace:*
         version: link:../library
-      dsh-library:
-        specifier: 0.1.3
-        version: 0.1.3(@deepseek-ai/cordis@vendor+cordis)(@deepseek-ai/dsh-fs@packages+fs+fs)(@deepseek-ai/dsh-llm@packages+llm+llm)(@deepseek-ai/dsh-session@packages+core+session)(@deepseek-ai/dsh-storage-domain@packages+storage+storage-domain)(@deepseek-ai/dsh-storage-json@packages+storage+storage-json)(@deepseek-ai/dsh-storage@packages+storage+storage)(@deepseek-ai/dsh-subprocess@packages+subprocess+subprocess)(@deepseek-ai/dsh-tools@packages+core+tools)(@deepseek-ai/schemastery@vendor+schemastery)(oxc-resolver@11.20.0)(publint@0.3.21)(tsx@4.22.4)
+      '@gerclaw/library-dsh-runtime':
+        specifier: workspace:*
+        version: link:../library-dsh-runtime
     devDependencies:
       '@deepseek-ai/cordis':
         specifier: workspace:^
@@ -5136,12 +5155,6 @@ importers:
       '@deepseek-ai/dsh-invariants':
         specifier: workspace:^
         version: link:../../runtime-diagnostics/invariants
-      '@deepseek-ai/dsh-storage-domain':
-        specifier: workspace:^
-        version: link:../../storage/storage-domain
-      '@deepseek-ai/dsh-subprocess':
-        specifier: workspace:^
-        version: link:../../subprocess/subprocess
 
   packages/gerclaw/medical-evidence:
     devDependencies:
@@ -5296,6 +5309,9 @@ importers:
       '@gerclaw/library-dsh':
         specifier: workspace:*
         version: link:../library-dsh
+      '@gerclaw/library-dsh-runtime':
+        specifier: workspace:*
+        version: link:../library-dsh-runtime
       '@gerclaw/medical-evidence':
         specifier: workspace:*
         version: link:../medical-evidence

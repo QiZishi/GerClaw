@@ -11,8 +11,8 @@
 | 阶段 | 状态 | 验收与提交 |
 | --- | --- | --- |
 | 一：产品壳层与主对话 | 完成 | 游客 6/6、医生与患者 2/2、加载器 7/7 通过；`3ec56fd` |
-| 二：语音与五大处方 | 进行中 | 正在盘点现有语音与处方链路 |
-| 三：共享与私有医学资料 | 未开始 | 待阶段二提交后开始 |
+| 二：语音与五大处方 | 完成 | 三身份浏览器 3/3、加载器 3/3 通过；`9b586d4` |
+| 三：共享与私有医学资料 | 进行中 | 验收已通过，正在检查差异并提交 |
 | 四：账号隔离与七种产物 | 未开始 | 待阶段三提交后开始 |
 | 五：热插拔与最终收口 | 未开始 | 待阶段四提交后开始 |
 
@@ -67,13 +67,15 @@
   密码重置为安全配置中的对应值，离线比对均通过；每个账号只修改 `salt` 和
   `passwordHash`，其他账号、恢复码字段、账号数量与历史数据均未变化。旧迁移来源已
   恢复原样，权威账号表备份保存在被 Git 忽略的账号运行目录。
+- 账号密码阻塞已解除：医生与患者均已使用安全配置中的密码通过真实网关登录；后续
+  阶段不再把账号凭据列为阻塞，也不会新建账号或重置历史数据。
 - `GERCLAW_REAL_E2E=1 node --env-file=.env node_modules/vitest/vitest.mjs --config vitest.e2e.config.ts run --retry=0 packages/gerclaw/client/tests/gerclaw-real.e2e.ts -t '阶段一：'`：1 个测试文件、医生与患者 2 项真实浏览器测试通过，9 项按阶段筛选跳过，耗时 853.14 秒；覆盖真实登录、产品壳层、主模型回复、计划审核、目标创建／编辑／暂停／恢复／清除和四项健康能力。
 - `pnpm exec vitest run packages/gerclaw/profile-bundle/tests/agent-preset-loader.spec.ts packages/gerclaw/profile-bundle/tests/service-hotplug.spec.ts`：2 个测试文件、7 项真实加载器测试通过。
 - `pnpm verify-md-wrap` 与 `git diff --check`：退出码均为 0。
 - 阶段一提交：`3ec56fdca715413a35d7b22ba6390e5158a517d8`，提交信息为
   `fix(web): stabilize GerClaw product shell`。
 
-## 当前阶段：语音与五大处方
+## 阶段二记录：语音与五大处方
 
 ### 当前任务
 
@@ -104,8 +106,56 @@
 - 首次三身份浏览器运行在逐字转写断言处 3 项失败；录音均已完成最终转写。将断言收敛为固定音频的稳定完整语义片段后，仍要求该片段真实出现在用户消息中。
 - 医生阶段二真实浏览器用例 1 项通过，耗时 257.18 秒；患者与游客 2 项通过，耗时 548.46 秒。三身份均覆盖浏览器录音、临时与最终转写、自动发送、音频上传、朗读、停止、重播、输入打断、录音取消和五章处方结果卡。
 - `pnpm gerclaw:dump-config` 与 `pnpm build`：退出码均为 0。
+- 阶段二提交：`9b586d4fd1ed406187dfb99388d44c9cfbcefea1`，提交信息为
+  `fix(health): complete voice and prescription flow`。
+
+## 当前阶段：共享与私有医学资料
+
+### 当前任务
+
+- 重新检索 DSH 市场的资料库、文档解析、向量嵌入和重排序候选，不新增重复插件。
+- 复用底座资料库、现有文档解析和硅基流动服务，删除重复检索运行时与跨包具体提供方依赖。
+- 验证 437 份共享资料、账号私有上传、合并检索、原文定位、失败恢复和跨账号不可串用。
+
+### 输入条件
+
+- 阶段二提交已形成，真实网关仍可用；两个固定账号的安全凭据继续有效。
+- 共享索引只在确认当前索引可重建且验收成功后清理旧版本，不删除账号资料。
+
+### 复用与市场盘点
+
+- 2026-08-30 在阶段三开发前重新检索 DSH Market 的资料库、检索增强生成、向量嵌入、
+  重排序和 MinerU（文档解析）候选；当前页面显示收录 0 个插件，因此不新增市场插件。
+- 继续复用现有 `dsh-library`、文档解析、硅基流动嵌入与重排序服务。GerClaw 仅保留
+  共享医学语料装配、账号作用域和来源投影，不建立第二套资料库或生命周期机制。
+
+### 已完成与当前证据
+
+- 已确认基础医学语料为 437 份，并由一个共享只读索引装配；账号上传资料仍进入对应
+  账号的私有存储域。
+- 已把 `dsh-library` 的具体存储内核收敛到唯一 Cordis 服务提供方；消费方只依赖服务
+  接口，未跨包实例化具体提供方。
+- 已修复租户进程启动竞态：不再以端口可连接或启动文本作为就绪条件，只有原生
+  `/api/host.describe` 接口真实返回成功后才向浏览器开放租户网关，避免启动期接口
+  偶发返回 404。
+- 已将医学资料界面注册放入原生远程服务依赖注入回调，消除客户端在远程服务尚未
+  激活时直接取值导致的加载失败。
+- `pnpm exec vitest run packages/gerclaw/local-rag/tests/loader-invariant.spec.ts packages/gerclaw/local-rag/tests/real-rag.spec.ts`：加载器约束 1 项通过，真实外部服务项按开关跳过。
+- `GERCLAW_REAL_RAG=1 node --env-file=.env node_modules/vitest/vitest.mjs run packages/gerclaw/local-rag/tests/real-rag.spec.ts`：1 项真实外部检索与加载器测试通过，耗时 20.72 秒；覆盖 437 份共享索引就绪、共享检索、账号私有资料不可串用、运行中禁用后等待和恢复后重新激活。
+- 最终复验同一真实外部检索与加载器测试再次通过，耗时 19.57 秒；加载器约束测试
+  1 项通过。
+- `pnpm exec tsc -b packages/gerclaw/library-dsh-runtime packages/gerclaw/library-dsh packages/gerclaw/local-rag packages/gerclaw/rag packages/gerclaw/medical-evidence-public`：退出码 0。
+- `GERCLAW_REAL_E2E=1 node --env-file=.env node_modules/vitest/vitest.mjs --config vitest.e2e.config.ts run --retry=0 packages/gerclaw/client/tests/gerclaw-real.e2e.ts -t '阶段三：'`：1 个测试文件、4 项真实浏览器测试通过，14 项按阶段筛选跳过，耗时 60.74 秒；覆盖医生、患者、游客共享检索、私有上传、可打开来源回溯，以及医生私有资料不会出现在患者检索结果中。
+- 使用真实 GerClaw 主网关和临时外部服务故障注入运行“医学资料服务失败”浏览器
+  用例：1 项通过，17 项按筛选跳过，耗时 8.77 秒；确认只显示可恢复中文提示，
+  不伪造结果、不泄露提供方和底层网络错误。临时故障注入文件与运行目录已移入系统
+  废纸篓，可恢复，未进入仓库。
+- `pnpm gerclaw:dump-config`、相关包类型检查、21 项客户端测试、`pnpm build` 和
+  `git diff --check`：退出码均为 0。
+- 当前阻塞：无。阶段三真实验收已通过，正在提交本阶段路径。
 
 ### 下一步
 
-首个执行动作：复核阶段二差异和敏感文件，只暂存语音与五大处方路径，提交
-`fix(health): complete voice and prescription flow`。
+阶段三提交后立即进入阶段四。首个执行动作：盘点现有账号隔离、产物服务、下载与
+网页套接字边界，将需求映射到已有 DSH 会话、存储和 GerClaw 产物服务，再运行双账号
+标识交换与七种产物的一致性验证。

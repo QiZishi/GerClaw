@@ -5,7 +5,8 @@
   "references": [
     { "path": "../../../vendor/cordis" },
     { "path": "../../runtime-diagnostics/invariants" },
-    { "path": "../library" },
-    { "path": "../library-dsh-runtime" }
+    { "path": "../../storage/storage-domain" },
+    { "path": "../../subprocess/subprocess" },
+    { "path": "../../../vendor/schemastery" }
   ]
 }

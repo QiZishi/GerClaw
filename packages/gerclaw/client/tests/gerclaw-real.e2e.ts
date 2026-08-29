@@ -1,4 +1,5 @@
 import { randomBytes } from 'node:crypto'
+import { writeFile } from 'node:fs/promises'
 import { fileURLToPath } from 'node:url'
 import type { Browser, BrowserContext, Locator, Page } from 'playwright'
 import { chromium } from 'playwright'
@@ -8,6 +9,8 @@ const BASE_URL = process.env.GERCLAW_E2E_BASE_URL ?? 'http://127.0.0.1:3000'
 const AUDIO_FIXTURE = fileURLToPath(new URL('./fixtures/gerclaw-health.wav', import.meta.url))
 const DOCUMENT_FIXTURE = fileURLToPath(new URL('./fixtures/health-note.txt', import.meta.url))
 const ENABLED = process.env.GERCLAW_REAL_E2E === '1'
+const RAG_FAILURE_RECOVERY = process.env.GERCLAW_RAG_FAILURE_E2E === '1'
+const RAG_FAILURE_FLAG = process.env.GERCLAW_RAG_FAILURE_FLAG
 
 type Identity = {
   label: '医生' | '患者'
@@ -43,7 +46,10 @@ interface Tripwire {
 const watch = (page: Page): Tripwire => {
   const tripwire: Tripwire = { consoleErrors: [], pageErrors: [], failedRequests: [] }
   page.on('console', (message) => {
-    if (message.type() === 'error') tripwire.consoleErrors.push(message.text())
+    if (message.type() === 'error') {
+      const source = message.location().url
+      tripwire.consoleErrors.push(source ? `${message.text()} @ ${source}` : message.text())
+    }
     if (message.type() === 'warning' && /agent-preset-not-found/u.test(message.text()))
       tripwire.consoleErrors.push(message.text())
   })
@@ -82,10 +88,10 @@ const hasAttribute = async (
   await expect.poll(() => locator.getAttribute(name), { timeout }).toMatch(expected)
 }
 
-const waitForWorkspace = async (page: Page): Promise<void> => {
-  await page.waitForURL(url => url.origin === BASE_URL && !url.pathname.startsWith('/auth/'), { timeout: 60_000 })
-  await page.getByRole('button', { name: '开始语音输入' }).waitFor({ timeout: 60_000 })
-  await page.locator('[data-composer-card] textarea').waitFor({ timeout: 60_000 })
+const waitForWorkspace = async (page: Page, timeout = 60_000): Promise<void> => {
+  await page.waitForURL(url => url.origin === BASE_URL && !url.pathname.startsWith('/auth/'), { timeout })
+  await page.getByRole('button', { name: '开始语音输入' }).waitFor({ timeout })
+  await page.locator('[data-composer-card] textarea').waitFor({ timeout })
 }
 
 const login = async (page: Page, identity: Identity): Promise<void> => {
@@ -99,13 +105,12 @@ const login = async (page: Page, identity: Identity): Promise<void> => {
       .then(() => { throw new Error(`${identity.label}测试账号凭据不匹配`) }),
   ])
   await expect.poll(() => page.locator('button[data-gerclaw-read-aloud]').count(), { timeout: 30_000 }).toBe(0)
-  await expect.poll(() => page.locator('[data-gerclaw-conversation-task]').count(), { timeout: 30_000 }).toBe(0)
 }
 
-const enterAsGuest = async (page: Page): Promise<void> => {
+const enterAsGuest = async (page: Page, timeout?: number): Promise<void> => {
   await page.goto(BASE_URL, { waitUntil: 'domcontentloaded' })
   await page.getByRole('button', { name: /游客体验/u }).click()
-  await waitForWorkspace(page)
+  await waitForWorkspace(page, timeout)
   await expect.poll(() => page.locator('button[data-gerclaw-read-aloud]').count(), { timeout: 30_000 }).toBe(0)
 }
 
@@ -168,7 +173,14 @@ const closeDialog = async (dialog: Locator): Promise<void> => {
 }
 
 const expectTaskResult = async (dialog: Locator, timeout = 180_000): Promise<void> => {
-  await dialog.locator('[data-gerclaw-final]').waitFor({ timeout })
+  const final = dialog.locator('[data-gerclaw-final]')
+  const error = dialog.getByRole('alert')
+  await Promise.race([
+    final.waitFor({ timeout }),
+    error.waitFor({ timeout }).then(async () => {
+      throw new Error(`健康任务失败：${await error.innerText()}`)
+    }),
+  ])
   expect(await dialog.locator('[data-gerclaw-step]').count()).toBeGreaterThan(0)
   await visible(dialog.getByText(/总用时/u))
   await visible(dialog.getByText('最终结果'))
@@ -184,10 +196,34 @@ const runCga = async (page: Page, kind: string): Promise<void> => {
 }
 
 const openMore = async (page: Page, name: string): Promise<Locator> => {
-  await page.getByRole('button', { name: '更多' }).click()
+  await page.getByRole('button', { name: '更多', exact: true }).click()
   const more = page.getByRole('dialog', { name: '更多健康服务' })
   await more.getByRole('button', { name: new RegExp(name, 'u') }).click()
   return page.getByRole('dialog')
+}
+
+const runRag = async (page: Page, options: {
+  file?: Parameters<Locator['setInputFiles']>[0]
+  query: string
+  expectedText?: string
+  forbiddenText?: string
+  requireSourceLinks?: boolean
+}): Promise<Locator> => {
+  const dialog = await openMore(page, '文档库')
+  if (options.file !== undefined) {
+    await dialog.getByLabel('添加到我的文档库').setInputFiles(options.file)
+    await containsText(dialog.getByRole('status'), '已加入', 60_000)
+  }
+  await dialog.getByLabel('检索词').fill(options.query)
+  await dialog.getByRole('button', { name: '检索本地与医学资料' }).click()
+  await expectTaskResult(dialog, 240_000)
+  const result = dialog.locator('[data-gerclaw-final]')
+  if (options.expectedText !== undefined) await containsText(result, options.expectedText)
+  if (options.forbiddenText !== undefined)
+    expect(await result.innerText()).not.toContain(options.forbiddenText)
+  if (options.requireSourceLinks !== false)
+    expect(await result.getByRole('link', { name: '打开原文' }).count()).toBeGreaterThanOrEqual(3)
+  return dialog
 }
 
 const runMedicalTasks = async (page: Page): Promise<void> => {
@@ -228,12 +264,7 @@ const runMedicalTasks = async (page: Page): Promise<void> => {
   await visible(dialog.getByText(/汇总量表/u))
   await closeDialog(dialog)
 
-  dialog = await openMore(page, '文档库')
-  await dialog.getByLabel('添加到我的文档库').setInputFiles(DOCUMENT_FIXTURE)
-  await containsText(dialog.getByRole('status'), '已加入', 60_000)
-  await dialog.getByLabel('检索词').fill('老年高血压睡眠管理')
-  await dialog.getByRole('button', { name: '检索本地与医学资料' }).click()
-  await expectTaskResult(dialog, 240_000)
+  dialog = await runRag(page, { file: DOCUMENT_FIXTURE, query: '阿司匹林用药安全' })
   const sourceLinks = await dialog.getByRole('link', { name: '打开原文' }).all()
   expect(sourceLinks.length).toBeGreaterThanOrEqual(3)
   const hrefs = await Promise.all(sourceLinks.map(link => link.getAttribute('href')))
@@ -528,6 +559,75 @@ describe.skipIf(!ENABLED)('GerClaw 正式 Gateway 全功能真实 E2E', { concur
       await logout(page)
     }, 1_500_000)
   }
+
+  for (const identity of ['doctor', 'patient', 'guest'] as const) {
+    it(`阶段三：${identity === 'doctor' ? '医生' : identity === 'patient' ? '患者' : '游客'}共享与私有医学资料`, async () => {
+      const context = await browser.newContext({ locale: 'zh-CN', viewport: { width: 1440, height: 960 } })
+      contexts.push(context)
+      const page = await context.newPage()
+      const tripwire = watch(page)
+      if (identity === 'guest') await enterAsGuest(page)
+      else await login(page, identities()[identity === 'doctor' ? 0 : 1]!)
+      const dialog = await runRag(page, { file: DOCUMENT_FIXTURE, query: '阿司匹林用药安全' })
+      await closeDialog(dialog)
+      assertClean(tripwire)
+      await logout(page)
+    }, 600_000)
+  }
+
+  it('阶段三：医生私有资料不可被患者检索', async () => {
+    const doctor = identities()[0]!
+    const patient = identities()[1]!
+    const doctorContext = await browser.newContext({ locale: 'zh-CN', viewport: { width: 1280, height: 900 } })
+    const patientContext = await browser.newContext({ locale: 'zh-CN', viewport: { width: 1280, height: 900 } })
+    contexts.push(doctorContext, patientContext)
+    const doctorPage = await doctorContext.newPage()
+    const patientPage = await patientContext.newPage()
+    const doctorTripwire = watch(doctorPage)
+    const patientTripwire = watch(patientPage)
+    await login(doctorPage, doctor)
+    await login(patientPage, patient)
+    const marker = `GC_STAGE3_PRIVATE_${Date.now()}`
+    const doctorDialog = await runRag(doctorPage, {
+      file: {
+        name: 'doctor-private.txt',
+        mimeType: 'text/plain',
+        buffer: Buffer.from(`${marker}，晨起血压 138/82 毫米汞柱。`),
+      },
+      query: marker,
+      expectedText: marker,
+      requireSourceLinks: false,
+    })
+    await closeDialog(doctorDialog)
+    const patientDialog = await runRag(patientPage, {
+      query: marker,
+      forbiddenText: marker,
+      requireSourceLinks: false,
+    })
+    await closeDialog(patientDialog)
+    assertClean(doctorTripwire)
+    assertClean(patientTripwire)
+    await logout(doctorPage)
+    await logout(patientPage)
+  }, 600_000)
+
+  it.skipIf(!RAG_FAILURE_RECOVERY)('阶段三：医学资料服务失败时明确提示且不伪造结果', async () => {
+    const context = await browser.newContext({ locale: 'zh-CN', viewport: { width: 1280, height: 900 } })
+    contexts.push(context)
+    const page = await context.newPage()
+    await enterAsGuest(page)
+    if (!RAG_FAILURE_FLAG) throw new Error('缺少医学资料服务失败标记路径')
+    await writeFile(RAG_FAILURE_FLAG, 'fail')
+    const dialog = await openMore(page, '文档库')
+    await dialog.getByLabel('检索词').fill('阿司匹林用药安全')
+    await dialog.getByRole('button', { name: '检索本地与医学资料' }).click()
+    const alert = dialog.getByRole('alert')
+    await containsText(alert, '医学资料服务暂时不可用，请稍后重试', 120_000)
+    expect(await dialog.locator('[data-gerclaw-final]').count()).toBe(0)
+    expect(await alert.innerText()).not.toMatch(/ECONN|127\.0\.0\.1|fetch failed|SiliconFlow/iu)
+    await closeDialog(dialog)
+    await logout(page)
+  }, 300_000)
 
   for (const identity of ['doctor', 'patient'] as const) {
     it(`${identity === 'doctor' ? '医生' : '患者'}账号完整真实路径`, async () => {

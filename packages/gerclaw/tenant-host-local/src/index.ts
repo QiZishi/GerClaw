@@ -1,5 +1,6 @@
 /** Local per-principal DSH Host provider over the native subprocess seam. */
-import { connect, createServer, type Socket } from 'node:net'
+import { request as httpRequest, type ClientRequest } from 'node:http'
+import { createServer } from 'node:net'
 import { mkdir, rm, writeFile } from 'node:fs/promises'
 import { join } from 'node:path'
 import { Context, Service } from '@deepseek-ai/cordis'
@@ -240,30 +241,26 @@ export class LocalTenantHostRuntime extends TenantHostRuntime {
 
   private waitUntilReady(ctx: Context, instance: TenantHostInstance): Promise<void> {
     const ready = Promise.withResolvers<void>()
-    const marker = `127.0.0.1:${String(instance.port)}`
     let settled = false
     let disposeTimeout = (): void => {}
     let disposeProbe = (): void => {}
-    const probes = new Set<Socket>()
+    const probes = new Set<ClientRequest>()
     const finish = (error?: Error): void => {
       if (settled) return
       settled = true
       disposeTimeout()
       disposeProbe()
-      for (const socket of probes) socket.destroy()
+      for (const request of probes) request.destroy()
       probes.clear()
       if (error === undefined) ready.resolve()
       else ready.reject(error)
     }
     instance.process.stdout?.setEncoding('utf8')
-    instance.process.stdout?.on('data', (chunk: string) => {
-      if (chunk.includes(marker)) finish()
-    })
+    instance.process.stdout?.on('data', () => {})
     let stderrTail = ''
     instance.process.stderr?.setEncoding('utf8')
     instance.process.stderr?.on('data', (chunk: string) => {
       stderrTail = `${stderrTail}${chunk}`.slice(-4_000)
-      if (chunk.includes(marker)) finish()
     })
     void instance.process.done.then(
       (outcome) => {
@@ -281,14 +278,22 @@ export class LocalTenantHostRuntime extends TenantHostRuntime {
     ctx.effect(() => disposeTimeout, 'gerclaw.tenant-host-local.readiness-timeout')
     const probe = (): void => {
       if (settled) return
-      const socket = connect(instance.port, instance.host)
-      probes.add(socket)
-      socket.once('connect', () => {
-        socket.destroy()
-        finish()
+      const request = httpRequest({
+        host: instance.host,
+        port: instance.port,
+        path: '/api/host.describe',
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'Content-Length': '2' },
+      }, (response) => {
+        response.resume()
+        response.once('end', () => {
+          if (response.statusCode === 200) finish()
+        })
       })
-      socket.once('error', () => { socket.destroy() })
-      socket.once('close', () => { probes.delete(socket) })
+      probes.add(request)
+      request.once('error', () => {})
+      request.once('close', () => { probes.delete(request) })
+      request.end('{}')
     }
     disposeProbe = this.ctx.interval(probe, 50)
     ctx.effect(() => disposeProbe, 'gerclaw.tenant-host-local.readiness-probe')

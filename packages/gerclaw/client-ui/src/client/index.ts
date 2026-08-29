@@ -38,34 +38,6 @@ export async function apply(ctx: ClientContext): Promise<void> {
   ctx.locale.setLocale('zh')
   const disposeRemote = await ctx.remote.$mount(gerclawAppRemote)
   ctx.effect(() => async () => { await disposeRemote() }, 'gerclaw client: medical remote')
-  const medicalRemote: MedicalRemoteActions = {
-    submit: async (
-      kind: MedicalTaskKind,
-      sessionId: string,
-      input: GerclawJsonValue,
-      requestId: string,
-      signal: AbortSignal,
-    ) => {
-      const result = await ctx.remote.gerclawApp.submit(sessionId as SessionId, { requestId, kind, input }, signal)
-      if (!result.ok) throw new Error(result.error.message)
-      return result.value
-    },
-    cancel: async (sessionId: string, requestId: string): Promise<boolean> => {
-      const result = await ctx.remote.gerclawApp.cancel(sessionId as SessionId, { requestId })
-      if (!result.ok) throw new Error(result.error.message)
-      return result.value.cancelled
-    },
-    export: async (
-      sessionId: string,
-      taskId: string,
-      formats: ArtifactDescriptor['format'][],
-    ): Promise<ArtifactDescriptor[]> => {
-      const result = await ctx.remote.gerclawApp.export(sessionId as SessionId, { taskId, formats })
-      if (!result.ok) throw new Error(result.error.message)
-      ctx.emit('gerclaw/artifacts-created', sessionId as SessionId)
-      return result.value.artifacts
-    },
-  }
   const ensureSessionId = async (): Promise<SessionId> => {
     const current = ctx.sessions.list.getSnapshot().current
     if (current !== undefined) return current
@@ -120,33 +92,67 @@ export async function apply(ctx: ClientContext): Promise<void> {
         yield ctx.slots.register({ name: 'conversation.hero.brand.mark', priority: -100 }, GerclawBrandMark)
       })))
 
-  ctx.slots.inject('sidebar.footer.action', () => ctx.slots.register({
-    name: 'sidebar.footer.action',
-    id: 'gerclaw-medical-navigation',
-    order: -100,
-    label: '健康功能',
-    inject: (): MedicalNavigationInjected => ({
-      getSessionId: () => ctx.sessions.list.getSnapshot().current,
-      ensureSessionId,
-      startPrescription: async (sessionId) => {
-        await sendConversationMessage(
-          '我想开始一份新的五大处方。请在当前对话中收集资料；如果信息不足，每次只问我一个问题。',
+  ctx.inject(['remote.gerclawApp'], (ctx) => {
+    const medicalRemote: MedicalRemoteActions = {
+      submit: async (
+        kind: MedicalTaskKind,
+        sessionId: string,
+        input: GerclawJsonValue,
+        requestId: string,
+        signal: AbortSignal,
+      ) => {
+        const result = await ctx.remote.gerclawApp.submit(
           sessionId as SessionId,
+          { requestId, kind, input },
+          signal,
         )
+        if (!result.ok) throw new Error(result.error.message)
+        return result.value
       },
-      medicalRemote,
-    }),
-  }, MedicalNavigation))
+      cancel: async (sessionId: string, requestId: string): Promise<boolean> => {
+        const result = await ctx.remote.gerclawApp.cancel(sessionId as SessionId, { requestId })
+        if (!result.ok) throw new Error(result.error.message)
+        return result.value.cancelled
+      },
+      export: async (
+        sessionId: string,
+        taskId: string,
+        formats: ArtifactDescriptor['format'][],
+      ): Promise<ArtifactDescriptor[]> => {
+        const result = await ctx.remote.gerclawApp.export(sessionId as SessionId, { taskId, formats })
+        if (!result.ok) throw new Error(result.error.message)
+        ctx.emit('gerclaw/artifacts-created', sessionId as SessionId)
+        return result.value.artifacts
+      },
+    }
+    ctx.slots.inject('sidebar.footer.action', () => ctx.slots.register({
+      name: 'sidebar.footer.action',
+      id: 'gerclaw-medical-navigation',
+      order: -100,
+      label: '健康功能',
+      inject: (): MedicalNavigationInjected => ({
+        getSessionId: () => ctx.sessions.list.getSnapshot().current,
+        ensureSessionId,
+        startPrescription: async (sessionId) => {
+          await sendConversationMessage(
+            '我想开始一份新的五大处方。请在当前对话中收集资料；如果信息不足，每次只问我一个问题。',
+            sessionId as SessionId,
+          )
+        },
+        medicalRemote,
+      }),
+    }, MedicalNavigation))
+
+    ctx.slots.inject('conversation.chat.node', () => ctx.slots.register({
+      name: 'conversation.chat.node',
+      key: 'gerclaw-task',
+      inject: sessionId => ({ sessionId, medicalRemote }),
+    }, MedicalTaskCard))
+  })
 
   ctx.slots.inject('sidebar.settings', () => ctx.slots.register({
     name: 'sidebar.settings',
   }, FriendlySettings))
-
-  ctx.slots.inject('conversation.chat.node', () => ctx.slots.register({
-    name: 'conversation.chat.node',
-    key: 'gerclaw-task',
-    inject: sessionId => ({ sessionId, medicalRemote }),
-  }, MedicalTaskCard))
 
   ctx.slots.inject('conversation.chat.node', () => ctx.slots.register({
     name: 'conversation.chat.node',

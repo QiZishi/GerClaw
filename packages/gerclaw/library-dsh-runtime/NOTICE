@@ -1,0 +1,8 @@
+GerClaw library runtime provider
+
+Derived from dsh-library 0.1.3 (Apache-2.0):
+https://github.com/PerryLink/dsh-library/tree/0.1.3
+
+This package keeps LibraryStore as the algorithm kernel and publishes it only
+through a replaceable Cordis Service. Storage and lifecycle are supplied by
+the DSH Loader composition.

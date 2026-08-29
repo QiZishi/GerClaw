@@ -162,6 +162,7 @@
     "@gerclaw/shared-knowledge": "workspace:*",
     "@gerclaw/library": "workspace:*",
     "@gerclaw/library-dsh": "workspace:*",
+    "@gerclaw/library-dsh-runtime": "workspace:*",
     "@gerclaw/rag": "workspace:*",
     "@gerclaw/storage-domain-isolated": "workspace:*",
     "@gerclaw/medical-evidence": "workspace:*",

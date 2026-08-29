@@ -43,9 +43,12 @@ const asObject = (value: GerclawJsonValue): Record<string, GerclawJsonValue> => 
   return value
 }
 const toJsonValue = (value: unknown): GerclawJsonValue => JSON.parse(JSON.stringify(value)) as GerclawJsonValue
-const safeError = (error: unknown): string => error instanceof Error
-  ? error.message.replace(/(?:sk-|Bearer\s+)[A-Za-z0-9._-]+/gu, '[已隐藏]')
-  : '操作失败，请稍后重试'
+const safeError = (error: unknown): string => {
+  if (!(error instanceof Error)) return '操作失败，请稍后重试'
+  if (/(?:fetch failed|ECONN|ENOTFOUND|EAI_AGAIN|SiliconFlow|embedding)/iu.test(error.message))
+    return '医学资料服务暂时不可用，请稍后重试'
+  return error.message.replace(/(?:sk-|Bearer\s+)[A-Za-z0-9._-]+/gu, '[已隐藏]')
+}
 
 export class LocalGerclawTaskRuntime extends GerclawTaskRuntime {
   static inject = [
@@ -98,7 +101,7 @@ export class LocalGerclawTaskRuntime extends GerclawTaskRuntime {
             }, async (error: unknown) => {
               const cancelled = controller.signal.aborted
               await this.failTask(agent, String(jobId), request.kind, error, cancelled)
-              rejectResult(error)
+              rejectResult(new Error(cancelled ? '任务已停止' : safeError(error), { cause: error }))
               resolveDone({
                 status: cancelled ? 'killed' : 'failed',
                 detail: cancelled ? '用户停止任务' : safeError(error),

@@ -149,14 +149,18 @@
     port: !!js Number(process.env.GERCLAW_HOST_PORT || 3080)
 
 - insert:
-    - id: gerclaw-library-dsh
-      name: "@gerclaw/library-dsh"
+    - id: gerclaw-library-dsh-runtime
+      name: "@gerclaw/library-dsh-runtime"
       config:
-        library: gerclaw-user
         chunkSize: 900
         chunkOverlap: 120
         embeddingCommand: !!js "process.execPath + ' --env-file=' + process.getBuiltinModule('node:path').join(process.env.GERCLAW_ROOT_DIR, '.env') + ' ' + process.getBuiltinModule('node:path').join(process.env.GERCLAW_ROOT_DIR, 'packages/gerclaw/local-rag/scripts/siliconflow-embedder.mjs')"
         embeddingDimensions: !!js Number(process.env.GERCLAW_RAG_EMBEDDING_DIMENSIONS || 1024)
+
+    - id: gerclaw-library-dsh
+      name: "@gerclaw/library-dsh"
+      config:
+        library: gerclaw-user
 
     - id: gerclaw-shared-rag-storage
       name: cordis:group
@@ -165,6 +169,7 @@
         storage: gerclaw-shared-rag
         storage.backend.sqlite: gerclaw-shared-rag
         storageDomain: gerclaw-shared-rag
+        gerclawLibraryRuntime: gerclaw-shared-rag
       config:
         - id: shared-storage
           name: "@deepseek-ai/dsh-storage"
@@ -175,13 +180,19 @@
         - id: shared-storage-domain
           name: "@gerclaw/storage-domain-isolated"
           config: { backend: sqlite }
+        - id: gerclaw-shared-library-dsh-runtime
+          name: "@gerclaw/library-dsh-runtime"
+          config:
+            chunkSize: 4000
+            chunkOverlap: 400
+            embeddingCommand: !!js "process.execPath + ' --env-file=' + process.getBuiltinModule('node:path').join(process.env.GERCLAW_ROOT_DIR, '.env') + ' ' + process.getBuiltinModule('node:path').join(process.env.GERCLAW_ROOT_DIR, 'packages/gerclaw/local-rag/scripts/siliconflow-embedder.mjs')"
+            embeddingDimensions: !!js Number(process.env.GERCLAW_RAG_EMBEDDING_DIMENSIONS || 1024)
         - id: gerclaw-shared-knowledge
           name: "@gerclaw/shared-knowledge"
           config:
             knowledgeBasePath: !!js "process.getBuiltinModule('node:path').join(process.env.GERCLAW_ROOT_DIR, 'knowledge-base')"
             sharedIndexRoot: !!js "process.getBuiltinModule('node:path').join(process.env.GERCLAW_ROOT_DIR, '.gerclaw', 'shared-rag')"
             library: gerclaw-medical-sf-v3
-            embeddingCommand: !!js "process.execPath + ' --env-file=' + process.getBuiltinModule('node:path').join(process.env.GERCLAW_ROOT_DIR, '.env') + ' ' + process.getBuiltinModule('node:path').join(process.env.GERCLAW_ROOT_DIR, 'packages/gerclaw/local-rag/scripts/siliconflow-embedder.mjs')"
             embeddingDimensions: !!js Number(process.env.GERCLAW_RAG_EMBEDDING_DIMENSIONS || 1024)
             embeddingModel: !!js "process.env.EMBEDDING_MODEL || 'BAAI/bge-m3'"
             rerankApiKey: !!js process.env.SILICONFLOW_API_KEY
