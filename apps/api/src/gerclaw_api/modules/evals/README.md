@@ -85,7 +85,7 @@ cd apps/api
 uv run gerclaw-eval-rag \
   --allow-external-rag \
   --cases evals/rag-retrieval-reviewed-v1.json \
-  --index-version markdown-heading-v1:lexical-cjk-ngram-v2:BAAI/bge-m3:1024 \
+  --index-version markdown-heading-v2-256-384-512-64:lexical-cjk-ngram-v2:BAAI/bge-m3:1024 \
   --top-k 5 --max-cases 8
 ```
 

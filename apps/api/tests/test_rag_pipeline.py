@@ -174,6 +174,42 @@ async def test_indexer_sync_is_incremental_and_removes_deleted_sources(tmp_path:
 
 
 @pytest.mark.asyncio
+async def test_indexer_reindexes_when_chunk_configuration_changes(tmp_path: Path) -> None:
+    source = tmp_path / "用药指南.md"
+    source.write_text("# 用药指南\n\n## 审查\n\n" + "评估药物相互作用。" * 200, encoding="utf-8")
+    parser = MarkdownMedicalParser(tmp_path, max_document_bytes=1_000_000)
+    embedding = DeterministicEmbedding()
+    store = RecordingStore()
+    baseline = CorpusIndexer(
+        parser=parser,
+        chunker=_chunker(),
+        embedding_model=embedding,  # type: ignore[arg-type]
+        store=store,  # type: ignore[arg-type]
+        index_lock=InProcessRAGIndexLock(),
+    )
+    changed = CorpusIndexer(
+        parser=parser,
+        chunker=MedicalMarkdownChunker(
+            min_tokens=128,
+            target_tokens=256,
+            max_tokens=384,
+            overlap_tokens=32,
+        ),
+        embedding_model=embedding,  # type: ignore[arg-type]
+        store=store,  # type: ignore[arg-type]
+        index_lock=InProcessRAGIndexLock(),
+    )
+
+    initial = await baseline.sync()
+    updated = await changed.sync()
+
+    assert initial.indexed == 1
+    assert updated.indexed == 1
+    assert updated.skipped == 0
+    assert changed.index_version != baseline.index_version
+
+
+@pytest.mark.asyncio
 async def test_indexer_rejects_embedding_count_mismatch(tmp_path: Path) -> None:
     source = tmp_path / "指南.md"
     source.write_text("# 指南\n\n" + "医学证据。" * 100, encoding="utf-8")

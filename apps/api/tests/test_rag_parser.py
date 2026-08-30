@@ -23,6 +23,20 @@ def _chunker() -> MedicalMarkdownChunker:
     )
 
 
+def test_chunker_index_version_includes_its_size_parameters() -> None:
+    baseline = _chunker()
+    smaller = MedicalMarkdownChunker(
+        min_tokens=128,
+        target_tokens=256,
+        max_tokens=384,
+        overlap_tokens=32,
+    )
+
+    assert baseline.index_version == "markdown-heading-v2-256-384-512-64"
+    assert smaller.index_version == "markdown-heading-v2-128-256-384-32"
+    assert smaller.index_version != baseline.index_version
+
+
 @pytest.mark.asyncio
 async def test_parser_sanitizes_active_content_and_keeps_relative_provenance(
     tmp_path: Path,

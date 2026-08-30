@@ -2,7 +2,10 @@
 
 from __future__ import annotations
 
+import pytest
+
 from gerclaw_api.modules.agent_harness.evidence import (
+    CitationMarkerValidationError,
     EvidenceAdmissionPolicy,
     ModelCitationBindingScope,
     audit_claim_evidence,
@@ -278,3 +281,147 @@ def test_turn_binding_projects_only_adopted_sources_and_renumbers_markers() -> N
     assert bound.text == "上传记录显示收缩压为 146 mmHg [C1]。"
     assert bound.citations == (attachment,)
     assert bound.claim_audit.claims[0].source_ids == ("attachment-1",)
+
+def test_invalid_model_citation_is_rejected_at_terminal_binding() -> None:
+    with pytest.raises(CitationMarkerValidationError):
+        bind_turn_evidence(
+            "无依据的临床结论 [C2]。",
+            initial_local=[
+                Citation(
+                    source_id="local-1",
+                    title="本地指南",
+                    locator="本地指南.md | 建议 | chunk 1/1",
+                    excerpt="本地知识库证据。",
+                    score=0.9,
+                    corpus="local_knowledge_base",
+                )
+            ],
+            additional_local=[],
+            web=[],
+            attachments=[],
+            is_clinical_claim=lambda _segment: True,
+            markers_already_bound=True,
+        )
+
+
+def test_unbound_deterministic_clinical_claim_is_removed_from_public_text() -> None:
+    text, removed_count = prune_unbound_clinical_claims(
+        "明确诊断为冠心病。\n请由医生进一步核实。",
+        citations=[],
+        is_clinical_claim=lambda segment: "明确诊断" in segment,
+    )
+
+    assert removed_count == 1
+    assert "明确诊断" not in text
+    assert text == "请由医生进一步核实。"
+
+
+def test_turn_binding_preserves_local_web_and_uploaded_source_provenance() -> None:
+    local = Citation(
+        source_id="local-1",
+        title="本地指南",
+        locator="本地指南.md | 建议 | chunk 1/1",
+        excerpt="本地知识库证据。",
+        score=0.9,
+        corpus="local_knowledge_base",
+    )
+    web = Citation(
+        source_id="web-1",
+        title="联网检索结果",
+        locator="https://example.test/evidence",
+        excerpt="联网搜索证据。",
+        score=0.8,
+        corpus="web",
+    )
+    uploaded = Citation(
+        source_id="upload-1",
+        title="用户上传资料",
+        locator="检查报告.pdf | 第 1 页",
+        excerpt="上传资料证据。",
+        score=1.0,
+        corpus="uploaded_document",
+    )
+
+    bound = bind_turn_evidence(
+        "本地建议 [E1]。联网补充 [W1]。上传记录 [A1]。",
+        initial_local=[local],
+        additional_local=[],
+        web=[web],
+        attachments=[uploaded],
+        is_clinical_claim=lambda _segment: True,
+        adopted_only=True,
+    )
+
+    assert bound.text == "本地建议 [C1]。联网补充 [C2]。上传记录 [C3]。"
+    assert [citation.corpus for citation in bound.citations] == [
+        "local_knowledge_base",
+        "web",
+        "uploaded_document",
+    ]
+    assert [claim.source_ids for claim in bound.claim_audit.claims] == [
+        ("local-1",),
+        ("web-1",),
+        ("upload-1",),
+    ]
+
+
+def test_low_score_local_evidence_cannot_support_a_deterministic_claim() -> None:
+    policy = EvidenceAdmissionPolicy(minimum_score=0.7, limit=5)
+    citations = policy.citations_from_local_results(
+        [
+            _result(
+                chunk_id="below-threshold",
+                source_type="guideline",
+                score=0.69,
+                content="分数不足的本地证据。",
+            )
+        ]
+    )
+
+    bound = bind_turn_evidence(
+        "明确诊断为冠心病 [E1]。",
+        initial_local=citations,
+        additional_local=[],
+        web=[],
+        attachments=[],
+        is_clinical_claim=lambda _segment: True,
+    )
+
+    text, removed_count = prune_unbound_clinical_claims(
+        bound.text,
+        citations=list(bound.citations),
+        is_clinical_claim=lambda _segment: True,
+    )
+
+    assert citations == []
+    assert bound.claim_audit.claims[0].status == "unbound"
+    assert removed_count == 1
+    assert text == ""
+
+def test_threshold_score_local_evidence_keeps_its_bound_claim() -> None:
+    policy = EvidenceAdmissionPolicy(minimum_score=0.7, limit=5)
+    citations = policy.citations_from_local_results(
+        [
+            _result(
+                chunk_id="at-threshold",
+                source_type="guideline",
+                score=0.7,
+                content="指南建议结合患者情况进行血压管理。",
+            )
+        ]
+    )
+
+    bound = bind_turn_evidence(
+        "指南建议结合患者情况进行血压管理 [E1]。",
+        initial_local=citations,
+        additional_local=[],
+        web=[],
+        attachments=[],
+        is_clinical_claim=lambda _segment: True,
+        adopted_only=True,
+    )
+
+    assert len(citations) == 1
+    assert bound.text == "指南建议结合患者情况进行血压管理 [C1]。"
+    assert bound.claim_audit.all_clinical_claims_bound is True
+    assert bound.citations[0].source_id == "at-threshold"

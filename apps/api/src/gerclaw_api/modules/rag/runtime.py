@@ -79,6 +79,7 @@ def create_rag_runtime(settings: Settings, qdrant_client: AsyncQdrantClient) -> 
         collection=settings.rag_collection_name,
         dimensions=settings.rag_embedding_dimensions,
         upsert_batch_size=settings.rag_upsert_batch_size,
+        dense_rrf_weight=settings.rag_dense_rrf_weight,
     )
     indexer = CorpusIndexer(
         parser=parser,

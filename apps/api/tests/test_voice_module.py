@@ -13,6 +13,7 @@ from gerclaw_api.modules.voice.module import (
     MiMoVoiceModule,
     VoiceProviderCapabilityUnavailable,
     VoiceProviderInvalidResponse,
+    VoiceProviderUnavailable,
 )
 
 
@@ -121,6 +122,31 @@ async def test_voice_module_rejects_malformed_sse_and_invalid_pcm16() -> None:
     )
     try:
         with pytest.raises(VoiceProviderInvalidResponse, match="PCM16"):
+            _ = [chunk async for chunk in module.synthesize("测试", voice="冰糖")]
+    finally:
+        await module.aclose()
+
+
+@pytest.mark.asyncio
+async def test_voice_provider_credential_rejection_is_a_stable_unavailable_error() -> None:
+    async def handler(_request: httpx.Request) -> httpx.Response:
+        return httpx.Response(401, text="provider detail must not be exposed")
+
+    module = MiMoVoiceModule(
+        asr_url="https://voice.test/v1",
+        tts_url="https://voice.test/v1",
+        api_key="expired-key",
+        auth_header="authorization",
+        asr_model="mimo-v2.5-asr",
+        tts_model="mimo-v2.5-tts",
+        default_voice="冰糖",
+        timeout_seconds=2,
+        transport=httpx.MockTransport(handler),
+    )
+    try:
+        with pytest.raises(VoiceProviderUnavailable, match="rejected"):
+            await module.transcribe(b"audio", audio_format="wav")
+        with pytest.raises(VoiceProviderUnavailable, match="rejected"):
             _ = [chunk async for chunk in module.synthesize("测试", voice="冰糖")]
     finally:
         await module.aclose()

@@ -60,6 +60,72 @@ def _embedded(
     return EmbeddedChunk(chunk=chunk, dense_vector=vector)
 
 
+def _point(item: EmbeddedChunk) -> SimpleNamespace:
+    chunk = item.chunk
+    return SimpleNamespace(
+        payload={
+            "chunk_id": chunk.chunk_id,
+            "document_id": chunk.document_id,
+            "document_sha256": chunk.document_sha256,
+            "source": chunk.source,
+            "title": chunk.title,
+            "chapter": chunk.chapter,
+            "category": chunk.category,
+            "source_type": chunk.source_type,
+            "publish_year": chunk.publish_year,
+            "chunk_index": chunk.chunk_index,
+            "total_chunks": chunk.total_chunks,
+            "content": chunk.content,
+        }
+    )
+
+
+def test_weighted_rrf_prefers_the_configured_dense_or_sparse_rank() -> None:
+    dense_first = _point(
+        _embedded(document="Dense 优先", sha="a" * 64, index=0, total=1, content="密集向量候选")
+    )
+    sparse_first = _point(
+        _embedded(document="Sparse 优先", sha="b" * 64, index=0, total=1, content="稀疏词法候选")
+    )
+    client = AsyncQdrantClient(location=":memory:")
+    try:
+        dense_weighted = QdrantHybridStore(
+            client,
+            collection="weighted_dense",
+            dimensions=4,
+            upsert_batch_size=1,
+            dense_rrf_weight=0.65,
+        )
+        sparse_weighted = QdrantHybridStore(
+            client,
+            collection="weighted_sparse",
+            dimensions=4,
+            upsert_batch_size=1,
+            dense_rrf_weight=0.35,
+        )
+
+        assert dense_weighted._fuse_ranked_results([dense_first], [sparse_first], limit=2)[
+            0
+        ].chunk.title == "Dense 优先"
+        assert sparse_weighted._fuse_ranked_results([dense_first], [sparse_first], limit=2)[
+            0
+        ].chunk.title == "Sparse 优先"
+    finally:
+        asyncio.run(client.close())
+
+
+@pytest.mark.parametrize("weight", [0.09, 0.91, float("nan")])
+def test_weighted_rrf_rejects_unsafe_dense_weight(weight: float) -> None:
+    with pytest.raises(ValueError, match="dense RRF weight"):
+        QdrantHybridStore(
+            AsyncQdrantClient(location=":memory:"),
+            collection="invalid_weight",
+            dimensions=4,
+            upsert_batch_size=1,
+            dense_rrf_weight=weight,
+        )
+
+
 @pytest.mark.asyncio
 async def test_index_lock_prevents_failed_worker_from_deleting_successful_generation(
     tmp_path: Path,

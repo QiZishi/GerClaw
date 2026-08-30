@@ -15,7 +15,7 @@
 1. `MarkdownMedicalParser` 在知识库根目录边界内解析 UTF-8 Markdown，清理可执行的 HTML/隐藏载体并保留标题、表格和引用信息。
 2. `MedicalMarkdownChunker` 按标题层级生成有界 chunk，并用相对路径、内容哈希和位置生成确定性 ID。
 3. `SiliconFlowEmbeddingModel` 使用根 `.env` 配置的 `BAAI/bge-m3`；`LexicalEncoder` 产生中英文 sparse vector。
-4. `QdrantHybridStore` 使用 dense+sparse prefetch 和 RRF 融合，然后交给 `BAAI/bge-reranker-v2-m3` 真实重排。
+4. `QdrantHybridStore` 对 dense 与 sparse 候选使用受配置约束的加权 RRF 融合，然后交给 `BAAI/bge-reranker-v2-m3` 真实重排。
    若 reranker 在有真实 hybrid 候选后不可用，模块仅按已返回的 RRF 分数有界回退，
    provenance 中明确保留 `rerank_score=null`；不会调用模型生成替代检索结果。
 5. 部署显式声明 `rag-capabilities-v1`、批量 embedding 和 relevance-score rerank 能力；任一能力不兼容时，Runtime 在创建 HTTP client 前拒绝启动该链路。

@@ -174,3 +174,48 @@ async def test_document_context_can_require_complete_material_without_silent_tru
         max_characters=100,
     )
     assert len(excerpt[0].content) == 100
+
+
+@pytest.mark.asyncio
+async def test_document_context_enforces_the_server_owned_aggregate_limit(
+    unit_settings: Settings,
+) -> None:
+    repository = _Repository()
+    settings = unit_settings.model_copy(update={"document_context_max_characters": 1_000})
+    service = DocumentService(repository, settings)  # type: ignore[arg-type]
+    session_id = uuid.uuid4()
+
+    async def register(filename: str) -> uuid.UUID:
+        document = await service.register(
+            UploadedDocumentCreate(
+                session_id=session_id,
+                filename=filename,
+                media_type="text/markdown",
+                parse_source="local_text",
+                markdown="x" * 600,
+            ),
+            tenant_id="tenant_public0001",
+            actor_id="usr_patient_test0001",
+        )
+        return document.document_id
+
+    first_id = await register("first.md")
+    second_id = await register("second.md")
+    excerpt = await service.resolve_context(
+        [first_id, second_id],
+        tenant_id="tenant_public0001",
+        actor_id="usr_patient_test0001",
+        session_id=session_id,
+        max_characters=1_000,
+    )
+
+    assert [item.document_id for item in excerpt] == [first_id, second_id]
+    assert [len(item.content) for item in excerpt] == [600, 400]
+    with pytest.raises(DocumentContextError, match="context limit is invalid"):
+        await service.resolve_context(
+            [first_id, second_id],
+            tenant_id="tenant_public0001",
+            actor_id="usr_patient_test0001",
+            session_id=session_id,
+            max_characters=1_001,
+        )

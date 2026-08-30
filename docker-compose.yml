@@ -13,6 +13,7 @@ x-api-base: &api-base
       required: false
   volumes:
     - runtime_secrets:/app/workspaces
+    - ${GERCLAW_KNOWLEDGE_BASE_HOST_PATH:-./knowledge-base/md}:/knowledge-base:ro
   networks:
     - edge
     - data

@@ -106,6 +106,10 @@ def test_scope_role_and_patient_proof_are_all_server_side_boundaries() -> None:
         ).code
         is PermissionCode.PATIENT_ACCESS_REQUIRED
     )
+    verified_patient = principal(patient_id=uuid.uuid4(), patient_access_verified=True)
+    assert engine.evaluate(verified_patient, invocation()).behavior is PermissionBehavior.ALLOW
+    with pytest.raises(ValidationError):
+        principal(patient_access_verified=True)
 
 
 def test_external_phi_requires_server_redaction_proof() -> None:

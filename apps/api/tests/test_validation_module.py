@@ -182,6 +182,16 @@ def test_model_output_contract_requires_the_declared_output_version() -> None:
             output_model=PrescriptionIntakeExtraction,
             schema_version=PRESCRIPTION_INTAKE_MODEL_OUTPUT_SCHEMA_VERSION,
         )
+    with pytest.raises(ModelOutputContractValidationError, match="model output"):
+        validate_versioned_model_output(
+            {
+                "model_output_schema_version": "prescription-intake-model-output-v0",
+                "answer_updates": {},
+                "follow_up_question": None,
+            },
+            output_model=PrescriptionIntakeExtraction,
+            schema_version=PRESCRIPTION_INTAKE_MODEL_OUTPUT_SCHEMA_VERSION,
+        )
 
 
 @pytest.mark.parametrize(

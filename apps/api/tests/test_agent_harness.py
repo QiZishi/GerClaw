@@ -1419,6 +1419,9 @@ async def test_uploaded_document_summary_uses_only_the_uploaded_material(
 
     assert rag.calls == []
     assert {citation.corpus for citation in response.citations} == {"uploaded_document"}
+    document_citation = response.citations[0]
+    assert document_citation.source_id == str(document.document_id)
+    assert document_citation.locator == f"uploaded_document:{document.document_id}"
     assert response.structured["document_focused"] is True
     document_message = next(
         message for message in model.last_messages if message.name == "uploaded_document_context"

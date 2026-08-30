@@ -266,6 +266,7 @@ class Settings(BaseSettings):
     rag_upsert_batch_size: int = Field(default=64, ge=1, le=256)
     rag_retrieval_candidates: int = Field(default=30, ge=5, le=100)
     rag_rerank_candidates: int = Field(default=30, ge=5, le=100)
+    rag_dense_rrf_weight: float = Field(default=0.50, ge=0.10, le=0.90)
     rag_min_rerank_score: float = Field(default=0.05, ge=0, le=1)
     rag_capability_version: str = Field(
         default="rag-capabilities-v1", pattern=r"^[a-z][a-z0-9_.-]+$"

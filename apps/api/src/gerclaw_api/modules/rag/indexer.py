@@ -35,7 +35,7 @@ class CorpusIndexer:
         self._index_lock = index_lock
         self.index_version = ":".join(
             (
-                self._chunker.INDEX_VERSION,
+                self._chunker.index_version,
                 LexicalEncoder.VERSION,
                 self._embedding_model.model,
                 str(self._embedding_model.dimensions),

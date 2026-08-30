@@ -2,7 +2,9 @@
 
 from __future__ import annotations
 
+import asyncio
 import hashlib
+import math
 import uuid
 from collections.abc import Iterable
 from dataclasses import dataclass, field
@@ -21,6 +23,7 @@ from gerclaw_api.modules.rag.protocols import RAGFilters
 
 _DENSE_VECTOR = "dense"
 _LEXICAL_VECTOR = "lexical"
+_RRF_RANKING_CONSTANT = 60
 _PAYLOAD_INDEXES: tuple[tuple[str, models.PayloadSchemaType], ...] = (
     ("document_id", models.PayloadSchemaType.KEYWORD),
     ("document_sha256", models.PayloadSchemaType.KEYWORD),
@@ -180,11 +183,15 @@ class QdrantHybridStore:
         collection: str,
         dimensions: int,
         upsert_batch_size: int,
+        dense_rrf_weight: float = 0.50,
     ) -> None:
+        if not math.isfinite(dense_rrf_weight) or not 0.10 <= dense_rrf_weight <= 0.90:
+            raise ValueError("dense RRF weight must be finite and between 0.10 and 0.90")
         self._client = client
         self.collection = collection
         self.dimensions = dimensions
         self._upsert_batch_size = upsert_batch_size
+        self._dense_rrf_weight = dense_rrf_weight
         self._ready = False
 
     async def ensure_collection(self) -> None:
@@ -571,13 +578,41 @@ class QdrantHybridStore:
         limit: int,
         filters: RAGFilters | None,
     ) -> list[StoredCandidate]:
-        """Fuse dense and sparse retrieval using Qdrant RRF."""
+        """Fuse dense and sparse retrieval using bounded weighted RRF."""
 
         await self.ensure_collection()
         if len(dense_vector) != self.dimensions:
             raise RAGStoreError("query embedding dimensions do not match the RAG collection")
         lexical = LexicalEncoder.encode(lexical_query)
         query_filter = _query_filter(filters)
+        if lexical.indices and self._dense_rrf_weight != 0.50:
+            dense_response, sparse_response = await asyncio.gather(
+                self._client.query_points(
+                    collection_name=self.collection,
+                    query=dense_vector,
+                    using=_DENSE_VECTOR,
+                    query_filter=query_filter,
+                    limit=limit,
+                    with_payload=True,
+                    with_vectors=False,
+                ),
+                self._client.query_points(
+                    collection_name=self.collection,
+                    query=models.SparseVector(
+                        indices=list(lexical.indices), values=list(lexical.values)
+                    ),
+                    using=_LEXICAL_VECTOR,
+                    query_filter=query_filter,
+                    limit=limit,
+                    with_payload=True,
+                    with_vectors=False,
+                ),
+            )
+            return self._fuse_ranked_results(
+                dense_response.points,
+                sparse_response.points,
+                limit=limit,
+            )
         if lexical.indices:
             response = await self._client.query_points(
                 collection_name=self.collection,
@@ -620,6 +655,35 @@ class QdrantHybridStore:
             if key not in candidates or candidate.hybrid_score > candidates[key].hybrid_score:
                 candidates[key] = candidate
         return sorted(candidates.values(), key=lambda item: item.hybrid_score, reverse=True)[:limit]
+
+    def _fuse_ranked_results(
+        self,
+        dense_points: Iterable[models.ScoredPoint],
+        sparse_points: Iterable[models.ScoredPoint],
+        *,
+        limit: int,
+    ) -> list[StoredCandidate]:
+        """Combine independently ranked candidates without exposing raw provider scores."""
+
+        candidates: dict[tuple[str, int], StoredCandidate] = {}
+
+        def add_ranked(points: Iterable[models.ScoredPoint], weight: float) -> None:
+            for rank, point in enumerate(points, start=1):
+                chunk = _chunk_from_payload(point.payload or {})
+                key = (chunk.document_id, chunk.chunk_index)
+                score = weight / (_RRF_RANKING_CONSTANT + rank)
+                existing = candidates.get(key)
+                candidates[key] = StoredCandidate(
+                    chunk=chunk if existing is None else existing.chunk,
+                    hybrid_score=score if existing is None else existing.hybrid_score + score,
+                )
+
+        add_ranked(dense_points, self._dense_rrf_weight)
+        add_ranked(sparse_points, 1 - self._dense_rrf_weight)
+        return sorted(
+            candidates.values(),
+            key=lambda item: (-item.hybrid_score, item.chunk.chunk_id),
+        )[:limit]
 
     async def stats(self) -> tuple[int, int]:
         """Return exact document and chunk counts for readiness."""

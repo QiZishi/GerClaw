@@ -73,3 +73,10 @@ def test_budget_rejects_negative_usage_and_token_overrun() -> None:
     with pytest.raises(RuntimeBudgetExceededError) as error:
         tracker.add_tokens(input_tokens=257, output_tokens=0)
     assert error.value.code == "RUNTIME_INPUT_TOKENS_EXCEEDED"
+
+
+def test_budget_denies_the_first_tool_call_when_limit_is_zero() -> None:
+    tracker = RuntimeBudgetTracker(ExecutionBudget(max_tool_calls=0))
+    with pytest.raises(RuntimeBudgetExceededError) as error:
+        tracker.add_tool_call()
+    assert error.value.code == "RUNTIME_TOOL_CALLS_EXCEEDED"

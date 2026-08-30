@@ -121,7 +121,7 @@ class DocumentService:
         out of truncation so it never treats a partial report as complete input.
         """
 
-        if max_characters < 1:
+        if not 1 <= max_characters <= self.context_max_characters:
             raise DocumentContextError("uploaded document context limit is invalid")
         if len(set(document_ids)) != len(document_ids):
             raise DocumentContextError("duplicate uploaded document reference")

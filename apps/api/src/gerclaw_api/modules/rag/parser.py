@@ -217,7 +217,7 @@ class MarkdownMedicalParser:
 class MedicalMarkdownChunker:
     """Create bounded chunks while retaining Markdown heading provenance."""
 
-    INDEX_VERSION = "markdown-heading-v1"
+    INDEX_VERSION = "markdown-heading-v2"
 
     def __init__(
         self,
@@ -231,6 +231,15 @@ class MedicalMarkdownChunker:
         self._target_tokens = target_tokens
         self._max_tokens = max_tokens
         self._overlap_tokens = overlap_tokens
+        self.index_version = "-".join(
+            (
+                self.INDEX_VERSION,
+                str(min_tokens),
+                str(target_tokens),
+                str(max_tokens),
+                str(overlap_tokens),
+            )
+        )
 
     def chunk(self, document: ParsedDocument) -> tuple[IndexChunk, ...]:
         """Chunk a parsed document and assign deterministic IDs and positions."""

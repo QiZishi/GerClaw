@@ -301,7 +301,7 @@ class RAGRetrievalEvalCase(BaseModel):
     ] = ()
     minimum_expected_hits: int = Field(default=0, ge=0, le=10)
     expect_no_evidence: bool = False
-    index_version: str = Field(min_length=1, max_length=64)
+    index_version: str = Field(min_length=1, max_length=128)
     provenance: Literal["synthetic_reviewed"] = "synthetic_reviewed"
 
     @staticmethod
@@ -374,7 +374,7 @@ class RAGEvaluationRunConfig(BaseModel):
     model_config = ConfigDict(extra="forbid", frozen=True)
 
     allow_external_rag: Literal[True]
-    index_version: str = Field(min_length=1, max_length=64)
+    index_version: str = Field(min_length=1, max_length=128)
     top_k: int = Field(default=5, ge=1, le=20)
     max_cases: int = Field(default=20, ge=1, le=50)
 

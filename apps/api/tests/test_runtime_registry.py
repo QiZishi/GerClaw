@@ -7,7 +7,7 @@ from typing import Any
 
 import pytest
 from agentscope.permission import PermissionBehavior as AgentScopeBehavior
-from agentscope.permission import PermissionContext
+from agentscope.permission import PermissionContext, PermissionEngine, PermissionRule
 from agentscope.permission import PermissionDecision as AgentScopeDecision
 from agentscope.tool import FunctionTool
 from pydantic import BaseModel, ConfigDict, Field
@@ -179,6 +179,57 @@ async def test_runtime_scope_denial_overrides_allowing_delegate() -> None:
 
 
 @pytest.mark.asyncio
+async def test_agentscope_permission_rules_are_secondary_and_fail_closed() -> None:
+    calls = 0
+
+    async def echo_tool(text: str) -> str:
+        nonlocal calls
+        calls += 1
+        return text
+
+    permitted_tool = build_registry(echo_tool).build_tools(principal=caller())[0]
+    deny_context = PermissionContext()
+    PermissionEngine(deny_context).add_rule(
+        PermissionRule(
+            tool_name="echo_tool",
+            rule_content=None,
+            behavior=AgentScopeBehavior.DENY,
+            source="runtime-boundary-test",
+        )
+    )
+    decision = await PermissionEngine(deny_context).check_permission(
+        permitted_tool,
+        {"text": "safe"},
+    )
+    assert decision.behavior is AgentScopeBehavior.DENY
+    with pytest.raises(ToolRegistryError, match="fresh Runtime permission"):
+        await permitted_tool(text="safe")
+    assert calls == 0
+
+    runtime_denied_tool = build_registry(echo_tool).build_tools(
+        principal=caller(scopes=frozenset())
+    )[0]
+    allow_context = PermissionContext()
+    PermissionEngine(allow_context).add_rule(
+        PermissionRule(
+            tool_name="echo_tool",
+            rule_content=None,
+            behavior=AgentScopeBehavior.ALLOW,
+            source="runtime-boundary-test",
+        )
+    )
+    decision = await PermissionEngine(allow_context).check_permission(
+        runtime_denied_tool,
+        {"text": "safe"},
+    )
+    assert decision.behavior is AgentScopeBehavior.DENY
+    assert decision.decision_reason == "RUNTIME_SCOPE_REQUIRED"
+    with pytest.raises(ToolRegistryError, match="fresh Runtime permission"):
+        await runtime_denied_tool(text="safe")
+    assert calls == 0
+
+
+@pytest.mark.asyncio
 async def test_each_allow_verdict_grants_exactly_one_matching_execution() -> None:
     async def echo_tool(text: str) -> str:
         return text
@@ -206,7 +257,7 @@ async def test_timeout_and_output_limit_fail_closed() -> None:
         await timeout_tool(text="safe")
 
     async def large_tool(text: str) -> str:
-        return text * 100
+        return "医" * 100
 
     output_tool = build_registry(large_tool, max_output_bytes=256).build_tools(principal=caller())[
         0

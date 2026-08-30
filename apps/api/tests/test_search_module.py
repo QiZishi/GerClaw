@@ -149,6 +149,37 @@ async def test_search_egress_audit_precedes_provider_and_uses_redaction_decision
 
 
 @pytest.mark.asyncio
+async def test_search_egress_audit_records_retry_and_tavily_fallback_separately() -> None:
+    primary = FakeProvider(
+        search_outcomes=[SearchProviderTimeout("timeout"), SearchProviderUnavailable("down")]
+    )
+    fallback = FakeProvider(search_outcomes=[[_raw()]])
+    audit = RecordingEgressAudit()
+    module = ProductionSearchModule(primary=primary, fallback=fallback, max_retries=1)
+
+    results = await module.search(
+        "患者姓名：李雷，电话 13800138000 老年健康指南",
+        egress_audit=audit,
+    )
+
+    assert results[0].provider == "tavily"
+    assert [provider for provider, _decision in audit.prepared] == [
+        "anysearch",
+        "anysearch",
+        "tavily",
+    ]
+    assert audit.finished == [
+        ("anysearch", "timeout"),
+        ("anysearch", "unavailable"),
+        ("tavily", "success"),
+    ]
+    for _provider, decision in audit.prepared:
+        assert decision.text == "患者，电话 [PHONE] 老年健康指南"
+        assert "李雷" not in decision.model_dump_json()
+        assert "13800138000" not in decision.model_dump_json()
+
+
+@pytest.mark.asyncio
 async def test_search_egress_audit_failure_blocks_provider_call() -> None:
     primary = FakeProvider(search_outcomes=[[_raw()]])
     module = ProductionSearchModule(primary=primary, fallback=None)
