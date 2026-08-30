@@ -8,10 +8,10 @@
 
 ## Cordis 架构与能力插件自管理
 
-- DSH 参考源码统一为 `/Users/qizs/conclusion/deepseek-harness` 当前最新标签 `dsh-v0.1.1-rc.2`（包版本 `0.1.1-rc.2`，基准提交 `b150a551b8d465e31e418e1b2eaf5e79bbb7d28e`）；每次开发前核对该仓库的 `package.json`、最新标签和 `HEAD`，参考源升级后同步更新本文件与依赖版本。
+- DSH 唯一参考源是 `/Users/qizs/conclusion/deepseek-harness` 的最新远程代码。每次开发前先检查工作区，执行 `git fetch origin` 并比较当前分支与 `origin/HEAD`；本地落后时执行 `git pull --ff-only`。存在未提交改动、分叉或冲突风险时不得重置、覆盖或私自暂存，先保留现场并报告。同步后重新读取根 `AGENTS.md`、`package.json`、架构文档、相关源码、生成目录和测试；标签、提交、路径、接口与工具清单都不得写死为长期事实。
 - 实施前阅读 `/Users/qizs/conclusion/deepseek-harness/Cordis架构审计与自定义插件构建指南.md`，先列出“需求 → DSH 现有能力 → GerClaw 插件服务／事件 → 组合项 → 清理与验证”；通用 Harness 能力必须复用 DSH。
 - DSH 原生插件或合规第三方插件能够满足需求时，优先直接接入底座；不能整体直接使用但存在可复用代码时，以其源码为基础建立本项目维护的适配插件，删除不适用代码，改进其余代码以符合本任务和 Cordis 生命周期，不得因局部不兼容而全部重写。不得修改已直接采用的上游插件；源码改造必须保留来源、版本和许可证记录。
-- 必须直接对照 `/Users/qizs/conclusion/deepseek-harness/docs/architecture.zh.md`、`/Users/qizs/conclusion/deepseek-harness/docs/cordis-primer.zh.md`、`/Users/qizs/conclusion/deepseek-harness/docs/cordis-tutorial/index.zh.md`、`/Users/qizs/conclusion/deepseek-harness/docs/cordis-api/`、`/Users/qizs/conclusion/deepseek-harness/docs/capability-seams.zh.md`、`/Users/qizs/conclusion/deepseek-harness/docs/cookbook/extension-cookbook.zh.md`、`/Users/qizs/conclusion/deepseek-harness/packages/extensions/tool-cordis/src/index.ts` 和 `/Users/qizs/conclusion/deepseek-harness/packages/extensions/cordis-host-runner/src/index.ts`；不得凭记忆猜测接口。
+- 同步后从 `/Users/qizs/conclusion/deepseek-harness/docs/architecture.zh.md`、`/Users/qizs/conclusion/deepseek-harness/docs/cordis-primer.zh.md`、`/Users/qizs/conclusion/deepseek-harness/docs/cordis-tutorial/`、`/Users/qizs/conclusion/deepseek-harness/docs/cordis-api/`、`/Users/qizs/conclusion/deepseek-harness/docs/subsystems/`、`/Users/qizs/conclusion/deepseek-harness/docs/cookbook/`、`/Users/qizs/conclusion/deepseek-harness/docs/user/develop/` 进入学习，再用 `rg` 定位当前能力的声明、提供方、使用方、组装和测试。路径缺失时查找最新所有者，不得沿用旧路径或凭记忆猜测接口；动态插件的精确接口必须以当前运行时检查结果为准。
 - 可替换能力必须完整包含服务定义、提供方和消费方；依赖用 `inject`，观察／拦截用类型化事件，资源用 effect，作用域用子上下文／`isolate`，配置用运行时 schema，并由真实 Profile／Bundle 加载。
 - 禁止跨包导入具体提供方、手动实例化 Service／调用 `apply()`，以及自建注册表、事件总线、依赖注入、生命周期或绕过 DSH 服务的模型／文件／进程路径。
 - 需求无现成能力时，智能体先用 `cordis_inspect_* → cordis_define → cordis_run → cordis_inspect_self → cordis_stop／cordis_undefine` 完成临时插件试制、诊断、更新和回滚；验证成功后必须重写为正式 TypeScript workspace package 并接入 Loader，不得把进程内临时定义当成交付。
@@ -23,7 +23,7 @@
 
 ## 初始化与代码来源
 
-首次开发先将 `/Users/qizs/conclusion/deepseek-harness` 的源码复制到本目录，保留本文件、根目录 `.env` 与 `icon.png`，排除 `.git/`、`node_modules/`、构建产物和缓存。此后只在本仓库开发，不回写两个参考仓库。
+首次开发先按上文同步 `/Users/qizs/conclusion/deepseek-harness` 的最新远程代码，再将源码复制到本目录，保留本文件、根目录 `.env` 与 `icon.png`，排除 `.git/`、`node_modules/`、构建产物和缓存。此后只在本仓库开发，不回写两个参考仓库；后续对照 DSH 时仍须先同步参考仓库并重新核对已变化的接口和组装方式。
 
 - DSH 是运行底座和插件规范来源。
 - `gerclaw-main-codex` 只提供领域需求、业务逻辑与效果基准。
