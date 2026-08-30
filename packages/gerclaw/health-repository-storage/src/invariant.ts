@@ -5,6 +5,7 @@ import type { InvariantInstaller } from '@deepseek-ai/dsh-invariants'
 const PACKAGE_NAME = '@gerclaw/health-repository-storage'
 export const name = 'gerclaw-health-repository-storage-invariant'
 export const inject = ['invariants']
+// No runtime invariant: repository integration tests own storage checks.
 const install: InvariantInstaller = () => {}
 export const apply = (ctx: Context): Promise<() => void> =>
   Promise.resolve(ctx.invariants.register(PACKAGE_NAME, install))

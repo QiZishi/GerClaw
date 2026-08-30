@@ -5,6 +5,7 @@ import { pathToFileURL } from 'node:url'
 import { FiberState } from '@deepseek-ai/cordis'
 import { boot } from '@deepseek-ai/dsh-app-boot'
 import { afterEach, describe, expect, it } from 'vitest'
+import type {} from '@gerclaw/auth'
 import type {} from '../src/index.ts'
 
 const repoRoot = join(import.meta.dirname, '../../../..')
@@ -74,7 +75,7 @@ describe('GerClaw account persistence through the real DSH Loader', () => {
     const initialPassword = 'Initial-test-password-2026'
     const recoveredPassword = 'Recovered-test-password-2026'
     try {
-      const auth = first.get('gerclawAuth')!
+      const auth = first.gerclawAuth
       const registered = await auth.register('isolated-recovery-user', initialPassword, 'doctor')
       await expect(auth.login('isolated-recovery-user', initialPassword)).resolves.toMatchObject({
         account: { id: registered.account.id, audience: 'doctor' },
@@ -96,7 +97,7 @@ describe('GerClaw account persistence through the real DSH Loader', () => {
     }
     const restored = await boot('gerclaw-auth-recovery-reload-test', config)
     try {
-      await expect(restored.get('gerclawAuth')!.login(
+      await expect(restored.gerclawAuth.login(
         'isolated-recovery-user',
         recoveredPassword,
       )).resolves.toMatchObject({ account: { audience: 'doctor' } })

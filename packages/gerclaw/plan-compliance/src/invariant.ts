@@ -1,10 +1,10 @@
-/** Package invariant for the DSH Jobs-backed GerClaw task provider. */
+/** Package invariant for GerClaw plan compliance. */
 import type { Context } from '@deepseek-ai/cordis'
 import type { InvariantInstaller } from '@deepseek-ai/dsh-invariants'
-const PACKAGE_NAME = '@gerclaw/task-runtime-local'
-export const name = 'gerclaw-task-runtime-local-invariant'
+const PACKAGE_NAME = '@gerclaw/plan-compliance'
+export const name = 'gerclaw-plan-compliance-invariant'
 export const inject = ['invariants']
-// No runtime invariant: task Loader tests own provider checks.
+// No runtime invariant: this event-only adapter has no service handle to inspect.
 const install: InvariantInstaller = () => {}
 export const apply = (ctx: Context): Promise<() => void> =>
   Promise.resolve(ctx.invariants.register(PACKAGE_NAME, install))

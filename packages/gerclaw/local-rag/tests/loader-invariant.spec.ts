@@ -74,10 +74,6 @@ describe('GerClaw RAG real Loader lifecycle invariant', () => {
       '        rerankModel: test-rerank',
       '- id: rag',
       `  name: ${quote(pluginUrl('packages/gerclaw/rag'))}`,
-      '  config:',
-      '    rerankApiKey: test-key',
-      '    rerankUrl: http://127.0.0.1:1',
-      '    rerankModel: test-rerank',
     ].join('\n'))
 
     const ctx = await boot('gerclaw-rag-loader-test', configPath)

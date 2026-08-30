@@ -5,6 +5,7 @@
   "references": [
     { "path": "../../../vendor/cordis" },
     { "path": "../../../vendor/timer" },
+    { "path": "../../runtime-diagnostics/invariants" },
     { "path": "../auth-storage" },
     { "path": "../../credentials/credentials" }
   ]

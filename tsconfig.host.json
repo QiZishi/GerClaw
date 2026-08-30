@@ -310,6 +310,8 @@
     { "path": "./packages/gerclaw/client" },
     { "path": "./packages/gerclaw/artifact" },
     { "path": "./packages/gerclaw/artifact-local" },
+    { "path": "./packages/gerclaw/auth" },
+    { "path": "./packages/gerclaw/auth-storage" },
     { "path": "./packages/gerclaw/cga" },
     { "path": "./packages/gerclaw/chronic-care" },
     { "path": "./packages/gerclaw/companion" },
@@ -339,6 +341,9 @@
     { "path": "./packages/gerclaw/task-runtime" },
     { "path": "./packages/gerclaw/task-runtime-local" },
     { "path": "./packages/gerclaw/tenant-gateway" },
+    { "path": "./packages/gerclaw/tenant-host" },
+    { "path": "./packages/gerclaw/tenant-host-local" },
+    { "path": "./packages/gerclaw/tenant-store" },
     { "path": "./packages/gerclaw/voice" },
     { "path": "./apps/cli" }
   ]

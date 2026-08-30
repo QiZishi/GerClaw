@@ -173,8 +173,10 @@ describe('GerClaw integration plugin contracts', () => {
     expect(shared).toContain('extends GerclawSharedKnowledge')
     expect(shared).toContain('createCorpusManifest')
     expect(shared).toContain('await rename(staging, versionDir)')
+    expect(shared).toContain('/rerank')
     expect(rag).toContain("static inject = ['gerclawLibrary', 'gerclawSharedKnowledge']")
-    expect(rag).toContain('/rerank')
+    expect(rag).not.toContain('/rerank')
+    expect(rag).toContain('.sort((left, right) => right.score - left.score)')
     expect(isolatedDomain).toContain("ctx.inject(['storage', ...backendServices]")
     expect(isolatedDomain).toContain('new DomainFacility(domainCtx, config)')
     for (const text of [privateProvider, shared, rag]) {

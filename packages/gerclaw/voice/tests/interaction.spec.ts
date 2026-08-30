@@ -54,7 +54,7 @@ describe('dsh-talk interaction consumer', () => {
     expect(transcriber).toContain("super(ctx, 'gerclawVoiceFiles')")
     expect(transcriber).toContain('context.decodeAudioData')
     expect(transcriber).toContain("file.type.startsWith('audio/')")
-    expect(transcriber).toContain('if (cancelled || isAborted())')
+    expect(transcriber).toContain('const isAborted = (): boolean => cancelled || signal?.aborted === true')
     expect(transcriber).toContain('ctx.effect(() => () =>')
     expect(upload).toContain('audio/*')
     expect(upload).toContain('getVoiceFiles()')

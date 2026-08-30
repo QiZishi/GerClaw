@@ -11,7 +11,11 @@ export type MedicalTaskCardProps = PropsRuntime<'conversation.chat.node', 'gercl
 /** Native conversation renderer for a restored GerClaw business task. */
 export function MedicalTaskCard({ node, sessionId, medicalRemote }: MedicalTaskCardProps) {
   return (
-    <article data-gerclaw-conversation-task aria-label="医疗任务结果">
+    <article
+      data-gerclaw-conversation-task
+      data-gerclaw-task-id={node.data.taskId}
+      aria-label="医疗任务结果"
+    >
       <TaskResult response={{ task: node.data, result: node.data.result }} sessionId={sessionId} remote={medicalRemote} />
     </article>
   )

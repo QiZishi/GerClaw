@@ -9,21 +9,17 @@
  */
 import type { Context } from '@deepseek-ai/cordis'
 import { storageBackendServiceKey } from '@deepseek-ai/dsh-storage'
-import { DomainFacility } from '@deepseek-ai/dsh-storage-domain'
-import z from '@deepseek-ai/schemastery'
+import {
+  Config as StorageDomainConfig,
+  DomainFacility,
+  type Config as StorageDomainConfigType,
+} from '@deepseek-ai/dsh-storage-domain'
 
 export const name = 'gerclaw-storage-domain-isolated'
 export const inject = ['storage']
 
-export interface Config {
-  backend: string
-  routes?: Record<string, string>
-}
-
-export const Config: z<Config> = z.object({
-  backend: z.string().required(),
-  routes: z.dict(z.string()).default({}),
-})
+export type Config = StorageDomainConfigType
+export const Config = StorageDomainConfig
 
 export function apply(ctx: Context, config: Config): Promise<void> {
   const backendServices = [...new Set([

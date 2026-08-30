@@ -1,7 +1,6 @@
-/** Product RAG consumer: shared medical corpus + account-private library + SiliconFlow rerank. */
+/** Product RAG consumer: shared medical corpus + account-private library. */
 import { readFile } from 'node:fs/promises'
 import { Context } from '@deepseek-ai/cordis'
-import z from '@deepseek-ai/schemastery'
 import {
   GerclawRag,
   type GerclawLibraryDocument,
@@ -10,23 +9,12 @@ import {
   type GerclawRagStatus,
 } from '@gerclaw/library'
 
-export interface Config {
-  rerankApiKey?: string
-  rerankUrl?: string
-  rerankModel?: string
-}
-
 export class GerclawRagProvider extends GerclawRag {
   static inject = ['gerclawLibrary', 'gerclawSharedKnowledge']
-  static Config: z<Config> = z.object({
-    rerankApiKey: z.string().required(),
-    rerankUrl: z.string().required(),
-    rerankModel: z.string().required(),
-  })
 
   private readonly controller = new AbortController()
 
-  constructor(ctx: Context, private readonly config: Config) {
+  constructor(ctx: Context) {
     super(ctx)
     ctx.effect(() => () => {
       this.controller.abort()
@@ -39,40 +27,6 @@ export class GerclawRagProvider extends GerclawRag {
 
   private signal(signal?: AbortSignal): AbortSignal {
     return signal ? AbortSignal.any([signal, this.controller.signal]) : this.controller.signal
-  }
-
-  private async rerank(
-    query: string,
-    candidates: readonly GerclawRagHit[],
-    topK: number,
-    signal?: AbortSignal,
-  ): Promise<GerclawRagHit[]> {
-    if (candidates.length === 0) return []
-    const response = await fetch(`${this.config.rerankUrl?.replace(/\/$/u, '')}/rerank`, {
-      method: 'POST',
-      headers: {
-        Authorization: `Bearer ${this.config.rerankApiKey}`,
-        'Content-Type': 'application/json',
-      },
-      body: JSON.stringify({
-        model: this.config.rerankModel,
-        query,
-        documents: candidates.map(hit => hit.snippet),
-        top_n: Math.min(topK, candidates.length),
-        return_documents: false,
-      }),
-      signal: this.signal(signal),
-    })
-    if (!response.ok) throw new Error(`SiliconFlow rerank 请求失败（${response.status}）`)
-    const payload = await response.json() as {
-      results?: Array<{ index?: number; relevance_score?: number }>
-    }
-    if (!payload.results?.length) throw new Error('SiliconFlow rerank 没有返回排序结果')
-    return payload.results.map((row) => {
-      const hit = candidates[row.index ?? -1]
-      if (!hit) throw new Error('SiliconFlow rerank 返回了无效索引')
-      return { ...hit, score: row.relevance_score ?? 0 }
-    })
   }
 
   async search(query: string, topK = 8, signal?: AbortSignal): Promise<GerclawRagHit[]> {
@@ -95,7 +49,7 @@ export class GerclawRagProvider extends GerclawRag {
       throw new Error(`当前账号资料检索失败：${error instanceof Error ? error.message : '未知错误'}`, { cause: error })
     }
     const user = privateHits.map(hit => ({ ...hit, origin: 'user' as const }))
-    return this.rerank(query, [...shared, ...user], topK, requestSignal)
+    return [...shared, ...user].sort((left, right) => right.score - left.score).slice(0, topK)
   }
 
   async addUserDocument(path: string, name: string): Promise<GerclawLibraryDocument> {

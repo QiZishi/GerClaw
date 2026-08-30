@@ -4,6 +4,7 @@ import type { InvariantInstaller } from '@deepseek-ai/dsh-invariants'
 const PACKAGE_NAME = '@gerclaw/document-parser'
 export const name = 'gerclaw-document-parser-invariant'
 export const inject = ['invariants']
+// No runtime invariant: providers own parser availability checks.
 const install: InvariantInstaller = () => {}
 export const apply = (ctx: Context): Promise<() => void> =>
   Promise.resolve(ctx.invariants.register(PACKAGE_NAME, install))

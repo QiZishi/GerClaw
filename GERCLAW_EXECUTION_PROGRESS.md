@@ -13,8 +13,8 @@
 | 一：产品壳层与主对话 | 完成 | 游客 6/6、医生与患者 2/2、加载器 7/7 通过；`3ec56fd` |
 | 二：语音与五大处方 | 完成 | 三身份浏览器 3/3、加载器 3/3 通过；`9b586d4` |
 | 三：共享与私有医学资料 | 完成 | 三身份浏览器 4/4、故障恢复 1/1、真实加载器与外部检索 1/1 通过；`f63ce11` |
-| 四：账号隔离与七种产物 | 进行中 | 验收已通过，正在检查差异并提交 |
-| 五：热插拔与最终收口 | 未开始 | 待阶段四提交后开始 |
+| 四：账号隔离与七种产物 | 完成 | 三身份浏览器 4/4、加载器 5/5 通过；`e815377` |
+| 五：热插拔与最终收口 | 完成 | 三身份完整路径、加载器 29/29、工程门禁 48/48 通过；提交待记录 |
 
 ## 阶段一记录：产品壳层与主对话
 
@@ -191,10 +191,56 @@
 - `pnpm exec vitest run packages/gerclaw/auth-storage/tests/loader.spec.ts packages/gerclaw/profile-bundle/tests/service-hotplug.spec.ts -t 'account|auth|task runtime'`：2 个测试文件、5 项真实加载器测试通过，5 项按筛选跳过。
 - `GERCLAW_REAL_E2E=1 node --env-file=.env node_modules/vitest/vitest.mjs --config vitest.e2e.config.ts run --retry=0 packages/gerclaw/client/tests/gerclaw-real.e2e.ts -t '阶段四：'`：1 个测试文件、4 项真实浏览器测试通过，16 项按阶段筛选跳过，耗时 20.41 秒；覆盖医生、患者、游客七种产物和双账号标识交换。
 - `pnpm gerclaw:dump-config`、相关包类型检查、`pnpm build` 和 `git diff --check`：退出码均为 0。
-- 当前阻塞：无。阶段四真实验收已通过，正在提交本阶段路径。
+- 当前阻塞：无。阶段四真实验收已通过并形成独立提交。
+- 阶段四提交：`e815377d090617dfe14f9a56b88e73ecbee02e7a`，提交信息为
+  `fix(tenant): close isolation and artifact workflows`。
 
 ### 下一步
 
 阶段五首个执行动作：重新阅读 Cordis 生命周期和组合热更新文档，盘点全部可替换
 GerClaw 服务，并通过真实加载器验证依赖消失、资源释放、恢复、失败更新回退和无重复
 注册，随后运行完整三身份浏览器矩阵与全部工程检查。
+
+## 阶段五记录：热插拔与最终收口
+
+### 复用与市场盘点
+
+- 已重新阅读 Cordis 生命周期、组合与热更新文档，并对照 DSH 架构指南核对真实
+  Loader 接入规则；未修改底座核心，也未建立平行生命周期或插件注册机制。
+- 2026-08-30 在阶段五开发前再次检索 DSH Market 的生命周期、热插拔、网关、语音、
+  检索和存储候选；产品页面当前显示收录 0 个插件，本阶段不新增市场插件。
+- 继续复用 DSH Profile、Bundle、Loader、`ctx.effect()`、`ctx.on()` 和原生服务依赖；
+  本阶段只补全现有服务的真实组合验收。
+
+### 已完成与当前证据
+
+- 新增一个参数化真实 Loader 矩阵，覆盖老年综合评估、用药核对、健康档案、慢病、
+  陪伴、风险提醒、公开医学证据、文档解析、健康资料库、产物、五大处方、任务运行、
+  租户宿主、租户存储、租户网关和客户端应用 16 个可替换服务。
+- `pnpm exec vitest run packages/gerclaw/profile-bundle/tests/all-service-hotplug.spec.ts packages/gerclaw/profile-bundle/tests/hotplug.spec.ts packages/gerclaw/profile-bundle/tests/service-hotplug.spec.ts packages/gerclaw/auth-storage/tests/loader.spec.ts packages/gerclaw/local-rag/tests/loader-invariant.spec.ts packages/gerclaw/profile-bundle/tests/cordis-lab.spec.ts`：6 个测试文件、29 项真实 Loader 测试通过；逐项覆盖活动、依赖消失后的等待或卸载、消费方级联停止、服务移除、资源归零、恢复、失败更新回退和无重复注册，未直接调用 `apply()`。
+- `pnpm gerclaw:dump-config`、`pnpm typecheck`、`pnpm lint`、`pnpm docs:check`、
+  `pnpm verify-md-links`、`pnpm verify-md-wrap` 和 `git diff --check`：退出码均为 0；
+  文档检查包含 64 项测试、2059 个链接和 1992 个格式检查。
+- 完整浏览器文件首次运行 20 项中 17 项通过、2 项失败、1 项按环境跳过；失败根因为
+  长会话虚拟化后问题卡定位不稳定。修复为类型化任务标识和当前可见问题卡定位后，
+  医生、患者完整路径复跑通过，游客完整路径最终复跑 1 项通过、19 项按筛选跳过，
+  耗时 806.52 秒。首次全文件成功项与三身份最终成功复跑共同闭合全部可运行路径，
+  未将首次失败写成通过。
+- 最终基线浏览器复验为 6 项通过、1 项按环境跳过，耗时 59.18 秒；覆盖三视口、
+  键盘焦点、双倍缩放、44 像素触控目标和产品壳层。
+- 已用应用内浏览器分别复验游客、医生和患者：三身份均显示品牌、五项健康入口、
+  模型选择器、麦克风和上传入口，均无工作区选择泄露，并获得主模型真实回复。
+- `pnpm build`：退出码 0。
+- 首次全量门禁暴露 GerClaw 包未完整接入底座全局约束；按现有约束清单、类型出口和
+  目录生成器完成最小接入，并删除检索聚合层重复重排序、客户端重复任务协议和租户
+  网关重复鉴权路径。最终 `pnpm check:all` 为 48 项通过、0 项失败、0 项跳过，耗时
+  154.54 秒；包含 266 个源码与 266 个编译后约束伴随项，重复代码检测为 0。
+- 成功证据形成后，旧 `.playwright-cli/`、`dsh/` 和 `output/` 运行产物已移入
+  `/Users/qizs/.Trash/gerclaw-final-cleanup-20260830-0904/`，可从系统废纸篓恢复；游客
+  目录确认为空。两个固定账号及其历史医疗数据未删除。
+
+### 收口状态
+
+- 当前阻塞：无。两个固定账号均已使用安全配置中的密码通过登录，密码不再是阻塞项。
+- 阶段五实现和验收已完成；最后动作是复查差异与敏感文件，提交
+  `chore: complete GerClaw acceptance`，随后回填提交号。

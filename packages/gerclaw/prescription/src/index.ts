@@ -266,7 +266,7 @@ const textValue = (value: unknown): string =>
   typeof value === 'string' || typeof value === 'number'
     ? String(value).trim()
     : ''
-const parseJsonOutput = (output: readonly { type: string; text?: string }[]): unknown | undefined => {
+const parseJsonOutput = (output: readonly { type: string; text?: string }[]): unknown => {
   const text = output.filter(block => block.type === 'text').map(block => block.text ?? '').join('\n').trim()
   const fenced = /^```(?:json)?\s*\n([\s\S]*?)\n```$/u.exec(text)
   try {

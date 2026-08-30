@@ -100,7 +100,7 @@ export function ConversationDocumentUpload({
             operation.current = controller
             setUploading(true)
             void voiceFiles.transcribe(audioFile, sessionId, {
-              onPartial: text => inputActions.setDraft(text),
+              onPartial: (text) => { inputActions.setDraft(text) },
               onStatus: setStatus,
             }, controller.signal).then(({ text, elapsedMs }) => {
               inputActions.setDraft(text)

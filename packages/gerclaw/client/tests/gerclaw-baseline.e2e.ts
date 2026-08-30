@@ -75,7 +75,7 @@ const collapseResponsiveSidebar = async (page: Page): Promise<void> => {
 const cleanupGuest = async (page: Page): Promise<void> => {
   await page.evaluate(async () => {
     const controller = new AbortController()
-    const timer = window.setTimeout(() => controller.abort(), 15_000)
+    const timer = window.setTimeout(() => { controller.abort() }, 15_000)
     try {
       await fetch('/auth/logout', { method: 'POST', signal: controller.signal })
     } finally {

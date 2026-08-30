@@ -404,7 +404,7 @@ Source: [`packages/compaction/compaction/src/types.ts:33`](../packages/compactio
 'dsh-talk/speech': DshTalkSpeechEvent
 ```
 
-Source: [`packages/gerclaw/voice/src/speech.ts:20`](../packages/gerclaw/voice/src/speech.ts)
+Source: [`packages/gerclaw/voice/src/speech.ts:22`](../packages/gerclaw/voice/src/speech.ts)
 
 ### `feedback/*`
 
@@ -437,29 +437,29 @@ Source: [`packages/feedback/command-feedback/src/index.ts:62`](../packages/feedb
 }
 ```
 
-Source: [`packages/gerclaw/client/src/index.ts:85`](../packages/gerclaw/client/src/index.ts)
+Source: [`packages/gerclaw/client/src/index.ts:52`](../packages/gerclaw/client/src/index.ts)
 
 <a id="gerclawtask--log-only"></a>
 
 #### `gerclaw/task` — log-only
 
 ```ts persistence-catalog
-/** Versioned, reconstructable GerClaw medical task result. */
+/** Whole-value, replayable GerClaw medical task state. */
 'gerclaw/task': { version: 1; turn: null; task: TaskRun }
 ```
 
-Source: [`packages/gerclaw/client/src/index.ts:83`](../packages/gerclaw/client/src/index.ts)
+Source: [`packages/gerclaw/task-runtime/src/index.ts:38`](../packages/gerclaw/task-runtime/src/index.ts)
 
 <a id="gerclawvoice--log-only"></a>
 
 #### `gerclaw/voice` — log-only
 
 ```ts persistence-catalog
-/** Versioned ASR/TTS outcome; never contains audio chunks, credentials or upstream addresses. */
+/** Versioned ASR/TTS outcome; raw audio, credentials and upstream addresses are excluded. */
 'gerclaw/voice': GerclawVoiceEvent
 ```
 
-Source: [`packages/gerclaw/voice/src/speech.ts:22`](../packages/gerclaw/voice/src/speech.ts)
+Source: [`packages/gerclaw/voice/src/speech.ts:24`](../packages/gerclaw/voice/src/speech.ts)
 
 ### `goal/*`
 

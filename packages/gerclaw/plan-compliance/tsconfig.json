@@ -4,6 +4,7 @@
   "include": ["src"],
   "references": [
     { "path": "../../../vendor/cordis" },
+    { "path": "../../runtime-diagnostics/invariants" },
     { "path": "../../core/agent" },
     { "path": "../../llm/llm" },
     { "path": "../../plan/plan-mode" },

@@ -35,7 +35,7 @@ import type {
   MedicalTaskSubmitRequest,
   MedicalTaskSubmitResult,
   TaskRun,
-} from './types.ts'
+} from '@gerclaw/task-runtime/types'
 import type {} from '@gerclaw/task-runtime'
 import {
   applyPrescriptionIntakeProjection,
@@ -324,7 +324,7 @@ export class GerclawApp extends TypertRemoteService {
       const record = this.ctx.gerclawArtifacts.listDocuments(agent).find(item => item.documentId === id)
       if (record?.parsedRef === undefined) throw new Error('上传资料尚未解析完成或不属于当前账号')
       return {
-        name: record.name ?? '健康资料',
+        name: record.name,
         text: await this.ctx.gerclawArtifacts.readDocumentText(agent, id),
       }
     }))

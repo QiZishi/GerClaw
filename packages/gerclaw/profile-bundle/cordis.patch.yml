@@ -201,10 +201,6 @@
 
     - id: gerclaw-rag
       name: "@gerclaw/rag"
-      config:
-        rerankApiKey: !!js process.env.SILICONFLOW_API_KEY
-        rerankUrl: !!js process.env.SILICONFLOW_URL
-        rerankModel: !!js process.env.RERANK_MODEL
 
     - id: memorix
       name: "@deepseek-ai/dsh-mcp-client"

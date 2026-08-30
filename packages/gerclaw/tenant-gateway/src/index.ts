@@ -10,6 +10,7 @@ import type { GerclawLoginSession } from '@gerclaw/auth'
 import type {} from '@gerclaw/tenant-host'
 
 const COOKIE = 'gerclaw_session'
+type CurrentSession = { token: string; session: GerclawLoginSession }
 
 export interface TenantGatewayConfig {
   rootDir: string
@@ -115,10 +116,20 @@ export class GerclawTenantGateway extends Service {
     }
   }
 
-  private current(req: IncomingMessage): { token: string; session: GerclawLoginSession } | undefined {
+  private current(req: IncomingMessage): CurrentSession | undefined {
     const token = cookieValue(req)
     const session = this.ctx.gerclawAuth.verify(token)
     return token === undefined || session === undefined ? undefined : { token, session }
+  }
+
+  private async tenantEndpoint(current: CurrentSession) {
+    const principal = principalOf(current.session)
+    await this.ctx.multiTenant.assertSessionAccess(principal, current.token)
+    return this.ctx.gerclawTenantHost.ensure({
+      principal,
+      guest: current.session.guest,
+      audience: current.session.audience,
+    })
   }
 
   private async publishLogin(
@@ -236,13 +247,7 @@ export class GerclawTenantGateway extends Service {
       return
     }
     try {
-      const principal = principalOf(current.session)
-      await this.ctx.multiTenant.assertSessionAccess(principal, current.token)
-      const endpoint = await this.ctx.gerclawTenantHost.ensure({
-        principal,
-        guest: current.session.guest,
-        audience: current.session.audience,
-      })
+      const endpoint = await this.tenantEndpoint(current)
       this.proxy(req, res, endpoint.port)
     } catch (error) {
       json(res, 503, { error: `健康工作台启动失败：${safeMessage(error)}` })
@@ -279,13 +284,7 @@ export class GerclawTenantGateway extends Service {
       return
     }
     try {
-      const principal = principalOf(current.session)
-      await this.ctx.multiTenant.assertSessionAccess(principal, current.token)
-      const endpoint = await this.ctx.gerclawTenantHost.ensure({
-        principal,
-        guest: current.session.guest,
-        audience: current.session.audience,
-      })
+      const endpoint = await this.tenantEndpoint(current)
       const { connect } = await import('node:net')
       const upstream = connect(endpoint.port, endpoint.host, () => {
         const forwarded = Object.entries({

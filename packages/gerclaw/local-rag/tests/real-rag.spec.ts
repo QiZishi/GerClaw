@@ -78,10 +78,6 @@ const createConfig = async (root: string): Promise<string> => {
     '        rerankModel: !!js process.env.RERANK_MODEL',
     '- id: rag',
     `  name: ${quote(pluginUrl('packages/gerclaw/rag'))}`,
-    '  config:',
-    '    rerankApiKey: !!js process.env.SILICONFLOW_API_KEY',
-    '    rerankUrl: !!js process.env.SILICONFLOW_URL',
-    '    rerankModel: !!js process.env.RERANK_MODEL',
   ].join('\n'))
   return configPath
 }

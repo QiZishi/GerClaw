@@ -7,10 +7,11 @@
   "types": "lib/types/index.d.ts",
   "exports": {
     ".": { "types": "./lib/types/index.d.ts", "default": "./lib/index.js" },
+    "./types": { "types": "./lib/types/types.d.ts", "default": "./lib/types/types.js" },
     "./invariant": { "types": "./lib/types/invariant.d.ts", "default": "./lib/invariant.js" },
     "./src/*": "./src/*"
   },
-  "files": ["lib/index.js", "lib/invariant.js", "lib/types/**/*.d.ts", "README.md"],
+  "files": ["lib/index.js", "lib/invariant.js", "lib/types/**/*.js", "lib/types/**/*.d.ts", "README.md"],
   "license": "MIT",
   "dependencies": { "@gerclaw/artifact": "workspace:*", "zod": "4.4.3" },
   "peerDependencies": {

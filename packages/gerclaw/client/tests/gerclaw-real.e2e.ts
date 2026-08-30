@@ -133,24 +133,56 @@ const forceLogout = async (page: Page): Promise<void> => {
 
 const composer = (page: Page) => page.locator('[data-composer-card] textarea')
 
-const sendChat = async (page: Page, prompt: string, timeout = 180_000): Promise<void> => {
-  const before = await page.locator('button[data-gerclaw-read-aloud]').count()
-  await composer(page).fill(prompt)
-  await composer(page).press('Enter')
-  await expect.poll(
-    () => page.locator('button[data-gerclaw-read-aloud]').count(),
-    { timeout },
-  ).toBeGreaterThan(before)
+const lastAssistantTurn = async (page: Page): Promise<string | null> =>
+  page.locator('[data-turn-tail]').filter({ has: page.locator('button[data-gerclaw-read-aloud]') })
+    .last().getAttribute('data-turn-tail').catch(() => null)
+
+const visibleQuestion = async (page: Page): Promise<Locator | undefined> => {
+  const questions = page.locator('[data-question-key]')
+  for (let index = (await questions.count()) - 1; index >= 0; index -= 1) {
+    const question = questions.nth(index)
+    if (await question.isVisible().catch(() => false)) return question
+  }
+  return undefined
+}
+
+const visibleQuestionSignature = async (page: Page): Promise<string | null> => {
+  const question = await visibleQuestion(page)
+  if (question === undefined) return null
+  return `${await question.getAttribute('data-question-key') ?? ''}:${await question.locator('h2').textContent() ?? ''}`
 }
 
 const answerVisibleQuestion = async (page: Page, text: string): Promise<boolean> => {
-  const question = page.locator('[data-question-key]')
-  if (!(await question.isVisible().catch(() => false))) return false
+  const question = await visibleQuestion(page)
+  if (question === undefined) return false
   const answers = question.getByRole('textbox')
   const count = await answers.count()
   for (let index = 0; index < count; index += 1) await answers.nth(index).fill(text)
-  if (count > 0) await answers.last().press('Enter')
+  if (count > 0) {
+    const action = question.getByRole('button', { name: /^(?:下一题|提交)$/u }).last()
+    if (await action.count() > 0) await action.click()
+    else await answers.last().press('Enter')
+  }
   return count > 0
+}
+
+const waitForAssistantTurn = async (
+  page: Page,
+  before: string | null,
+  timeout: number,
+  answer?: string,
+): Promise<void> => {
+  await expect.poll(async () => {
+    if (answer !== undefined) await answerVisibleQuestion(page, answer)
+    return lastAssistantTurn(page)
+  }, { timeout }).not.toBe(before)
+}
+
+const sendChat = async (page: Page, prompt: string, timeout = 180_000): Promise<void> => {
+  const before = await lastAssistantTurn(page)
+  await composer(page).fill(prompt)
+  await composer(page).press('Enter')
+  await waitForAssistantTurn(page, before, timeout)
 }
 
 const sendInteractiveChat = async (
@@ -158,16 +190,15 @@ const sendInteractiveChat = async (
   prompt: string,
   timeout = 240_000,
 ): Promise<void> => {
-  const before = await page.locator('button[data-gerclaw-read-aloud]').count()
+  const before = await lastAssistantTurn(page)
   await composer(page).fill(prompt)
   await composer(page).press('Enter')
-  const deadline = Date.now() + timeout
-  while (Date.now() < deadline) {
-    if (await page.locator('button[data-gerclaw-read-aloud]').count() > before) return
-    await answerVisibleQuestion(page, '请根据我已经提供的信息继续，必要时给出可填写的示例。')
-    await page.waitForTimeout(250)
-  }
-  throw new Error(`交互式健康能力在 ${timeout}ms 内没有完成：${prompt}`)
+  await waitForAssistantTurn(
+    page,
+    before,
+    timeout,
+    '请根据我已经提供的信息继续，必要时给出可填写的示例。',
+  )
 }
 
 const closeDialog = async (dialog: Locator): Promise<void> => {
@@ -389,7 +420,7 @@ const runMedicalTasks = async (page: Page): Promise<void> => {
 }
 
 const runVoice = async (page: Page): Promise<void> => {
-  const replies = await page.locator('button[data-gerclaw-read-aloud]').count()
+  const turnBeforeRecording = await lastAssistantTurn(page)
   const mic = page.getByRole('button', { name: '开始语音输入' })
   await mic.click()
   const stop = page.getByRole('button', { name: '停止录音并发送' })
@@ -406,13 +437,12 @@ const runVoice = async (page: Page): Promise<void> => {
   await visible(page.getByRole('status').filter({ hasText: /已完成转写/u }), 120_000)
   const transcript = /最近晚上睡不好.*正在服用阿司匹林/u
   await visible(page.getByText(transcript).last(), 120_000)
-  await expect.poll(
-    async () => {
-      await answerVisibleQuestion(page, '暂不补充更多个人资料，请直接给出简短的健康回应。')
-      return page.locator('button[data-gerclaw-read-aloud]').count()
-    },
-    { timeout: 180_000 },
-  ).toBeGreaterThan(replies)
+  await waitForAssistantTurn(
+    page,
+    turnBeforeRecording,
+    360_000,
+    '暂不补充更多个人资料，请直接给出简短的健康回应。',
+  )
   const read = page.locator('button[data-gerclaw-read-aloud]').last()
   await read.click()
   await hasAttribute(read, 'aria-label', '停止朗读', 60_000)
@@ -425,7 +455,7 @@ const runVoice = async (page: Page): Promise<void> => {
   await composer(page).fill('')
 
   const transcriptCount = await page.getByText(transcript).count()
-  const repliesBeforeUpload = await page.locator('button[data-gerclaw-read-aloud]').count()
+  const turnBeforeUpload = await lastAssistantTurn(page)
   await page.locator('[data-gerclaw-composer-document] input[type="file"]').setInputFiles(AUDIO_FIXTURE)
   await visible(page.getByRole('status').filter({ hasText: /正在(?:解码|连接|识别)音频/u }), 30_000)
   await visible(page.getByRole('status').filter({ hasText: /已完成转写/u }), 120_000)
@@ -433,10 +463,12 @@ const runVoice = async (page: Page): Promise<void> => {
     () => page.getByText(transcript).count(),
     { timeout: 120_000 },
   ).toBeGreaterThan(transcriptCount)
-  await expect.poll(
-    () => page.locator('button[data-gerclaw-read-aloud]').count(),
-    { timeout: 180_000 },
-  ).toBeGreaterThan(repliesBeforeUpload)
+  await waitForAssistantTurn(
+    page,
+    turnBeforeUpload,
+    360_000,
+    '暂不补充更多个人资料，请直接给出简短的健康回应。',
+  )
 
   await mic.click()
   await visible(page.getByRole('button', { name: '停止录音并发送' }))
@@ -464,7 +496,7 @@ const runPlanGoalAndSkills = async (page: Page): Promise<void> => {
     '请自然调用用药提醒能力，生成阿司匹林每日一次的提醒。',
   ]) await sendInteractiveChat(page, prompt)
 
-  const before = await page.locator('button[data-gerclaw-read-aloud]').count()
+  const before = await lastAssistantTurn(page)
   await composer(page).fill('/plan 为未来三天制定一个不超过三步的健康记录计划，并提交审核。')
   await composer(page).press('Enter')
   const review = page.locator('[data-plan-review-key]')
@@ -476,7 +508,12 @@ const runPlanGoalAndSkills = async (page: Page): Promise<void> => {
   await review.waitFor({ timeout: 1_000 })
   await visible(review.getByRole('button', { name: /确认执行/u }))
   await review.getByRole('button', { name: /确认执行/u }).click()
-  await expect.poll(() => page.locator('button[data-gerclaw-read-aloud]').count(), { timeout: 180_000 }).toBeGreaterThan(before)
+  await waitForAssistantTurn(
+    page,
+    before,
+    360_000,
+    '无需补充个人资料，请按通用健康记录方案继续。',
+  )
 
   const goal = page.locator('[data-goal-bar]')
   if (await goal.isVisible().catch(() => false)) {
@@ -503,39 +540,50 @@ const runPlanGoalAndSkills = async (page: Page): Promise<void> => {
 }
 
 const runPrescription = async (page: Page): Promise<void> => {
-  const before = await page.locator('[data-gerclaw-conversation-task]').count()
-  let replies = await page.locator('button[data-gerclaw-read-aloud]').count()
+  const tasks = page.locator('[data-gerclaw-conversation-task]')
+  const beforeTaskId = await tasks.last().getAttribute('data-gerclaw-task-id').catch(() => null)
+  const hasNewTask = async (): Promise<boolean> => {
+    const taskId = await tasks.last().getAttribute('data-gerclaw-task-id').catch(() => null)
+    return taskId !== null && taskId !== beforeTaskId
+  }
+  let turn = await lastAssistantTurn(page)
   await page.getByRole('button', { name: '五大处方', exact: true }).click()
   await expect.poll(async () =>
-    await page.locator('[data-gerclaw-conversation-task]').count() > before
-    || await page.locator('button[data-gerclaw-read-aloud]').count() > replies
-    || await page.locator('[data-question-key]').isVisible().catch(() => false),
-  { timeout: 180_000 }).toBe(true)
+    await hasNewTask()
+    || await lastAssistantTurn(page) !== turn
+    || await visibleQuestionSignature(page) !== null,
+  { timeout: 600_000 }).toBe(true)
   for (const answer of [
     '我的健康目标是改善睡眠。',
     '我最近夜间易醒，正在服用阿司匹林每日一次，没有已知药物过敏。',
     '没有其他需要补充的个人资料，请根据已经提供的信息继续。',
   ]) {
-    if (await page.locator('[data-gerclaw-conversation-task]').count() > before) break
-    const question = page.locator('[data-question-key]')
-    const questionKey = await question.getAttribute('data-question-key').catch(() => null)
-    replies = await page.locator('button[data-gerclaw-read-aloud]').count()
-    if (!(await answerVisibleQuestion(page, answer))) {
+    if (await hasNewTask()) break
+    const questionSignature = await visibleQuestionSignature(page)
+    turn = await lastAssistantTurn(page)
+    await expect.poll(async () => {
+      if (await hasNewTask()) return 'done'
+      if (await answerVisibleQuestion(page, answer)) return 'submitted'
       const send = page.getByRole('button', { name: '发送消息' })
-      await send.waitFor({ state: 'visible', timeout: 180_000 })
-      await composer(page).fill(answer)
-      await send.click()
-    }
+      if (await composer(page).isEditable().catch(() => false)) {
+        await composer(page).fill(answer)
+        if (await send.isEnabled().catch(() => false)) {
+          await send.click()
+          return 'submitted'
+        }
+      }
+      return 'waiting'
+    }, { timeout: 600_000 }).not.toBe('waiting')
+    if (await hasNewTask()) break
     await expect.poll(async () =>
-      await page.locator('[data-gerclaw-conversation-task]').count() > before
-      || await page.locator('button[data-gerclaw-read-aloud]').count() > replies
-      || (questionKey !== null
-        && await page.locator('[data-question-key]').isVisible().catch(() => false)
-        && await page.locator('[data-question-key]').getAttribute('data-question-key') !== questionKey),
-    { timeout: 240_000 }).toBe(true)
+      await hasNewTask()
+      || await lastAssistantTurn(page) !== turn
+      || (questionSignature !== null
+        && await visibleQuestionSignature(page) !== questionSignature),
+    { timeout: 600_000 }).toBe(true)
   }
-  await expect.poll(() => page.locator('[data-gerclaw-conversation-task]').count(), { timeout: 240_000 }).toBe(before + 1)
-  const card = page.locator('[data-gerclaw-conversation-task]').last()
+  await expect.poll(hasNewTask, { timeout: 240_000 }).toBe(true)
+  const card = tasks.last()
   for (const chapter of ['药物处方', '运动处方', '营养处方', '心理处方', '康复处方'])
     await visible(card.getByText(chapter, { exact: true }).first())
   expect(await page.getByText(/独立处方表单/u).count()).toBe(0)

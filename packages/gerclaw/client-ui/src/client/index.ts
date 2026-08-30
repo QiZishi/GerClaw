@@ -50,7 +50,7 @@ export async function apply(ctx: ClientContext): Promise<void> {
   }
   const sendConversationMessage = async (text: string, sessionId?: SessionId): Promise<void> => {
     const selected = sessionId ?? await ensureSessionId()
-    const conversation = ctx.sessions.scope(selected as never)?.get('conversation') as
+    const conversation = ctx.sessions.scope(selected)?.get('conversation') as
       | { send(text: string): Promise<void> }
       | undefined
     if (conversation === undefined) throw new Error('健康对话尚未就绪，请稍后重试')
