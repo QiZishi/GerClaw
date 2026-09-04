@@ -15,20 +15,19 @@ export function installTalkStyles(): () => void {
       display: inline-flex;
       justify-content: center;
       align-items: center;
-      width: 44px;
-      height: 44px;
+      width: 28px;
+      height: 28px;
       padding: 0;
       border: 0;
-      border-radius: 9px;
+      border-radius: 50%;
       background: transparent;
       cursor: pointer;
       font: inherit;
-      color: var(--dsw-alias-label-tertiary);
+      color: var(--dsw-alias-label-primary);
     }
-    [data-dsh-talk-mic] svg,
-    [data-gerclaw-read-aloud] svg {
-      width: 20px;
-      height: 20px;
+    [data-dsh-talk-mic] svg {
+      width: 24px;
+      height: 24px;
     }
     [data-gerclaw-read-aloud] {
       display: inline-flex;
@@ -36,12 +35,16 @@ export function installTalkStyles(): () => void {
       justify-content: center;
       width: 28px;
       height: 28px;
-      padding: 6px;
+      padding: 0;
       border: 0 !important;
       border-radius: 50%;
       background: transparent;
       color: var(--dsw-alias-label-tertiary);
       cursor: pointer;
+    }
+    [data-gerclaw-read-aloud] svg {
+      width: 24px;
+      height: 24px;
     }
     [data-gerclaw-read-aloud]:hover:not(:disabled),
     [data-gerclaw-read-aloud]:focus-visible,

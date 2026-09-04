@@ -5,7 +5,7 @@ import type { InvocationDescriptor } from '@deepseek-ai/dsh-typert-protocol'
 export interface TalkStatus {
   stt: { engine: 'qianwen'; model: 'qwen3-asr-flash-realtime'; language: string }
   tts: { engine: 'qianwen'; model: 'qwen3-tts-instruct-flash-realtime'; voice: string }
-  record: { enabled: boolean; hotkey: string | null; maxSeconds: 60; autoSubmit: true }
+  record: { enabled: boolean; hotkey: string | null; maxSeconds: 60 }
   interrupt: boolean
 }
 
@@ -24,7 +24,6 @@ export const TALK_STATUS_SCHEMA = z.object({
     enabled: z.boolean(),
     hotkey: z.string().nullable(),
     maxSeconds: z.literal(60),
-    autoSubmit: z.literal(true),
   }),
   interrupt: z.boolean(),
 })

@@ -7,15 +7,13 @@ const pkg = join(import.meta.dirname, '..')
 const source = (name: string) => readFile(join(pkg, name), 'utf8')
 
 describe('dsh-talk interaction consumer', () => {
-  it('keeps the 60-second auto-submit policy without provider credentials', () => {
+  it('keeps the 60-second recording cap without provider credentials', () => {
     expect(resolveConfig(undefined)).toMatchObject({
       sttEngine: 'qianwen',
       ttsEngine: 'qianwen',
       recordMaxSeconds: 60,
-      recordAutoSubmit: true,
     })
     expect(() => resolveConfig({ record: { maxSeconds: 61 } })).toThrow('固定为 60 秒')
-    expect(() => resolveConfig({ record: { autoSubmit: false } })).toThrow('必须自动发送')
   })
 
   it('is a Loader-mounted consumer of the replaceable speech service', async () => {
@@ -73,7 +71,9 @@ describe('dsh-talk interaction consumer', () => {
     expect(client).toContain('if (active?.lease === expectedLease) void stopActive()')
     expect(mic).toContain('interruptPlayback()')
     expect(mic).toContain('const actions = inputActionsRef.current')
-    expect(mic).toContain('if (text && finishing.current) actions.submit()')
+    expect(mic).toContain('if (text && finishing.current && directSend.current) actions.submit()')
+    expect(mic).toContain('onClick={() => { void finish(false) }}')
+    expect(mic).toContain('onClick={() => { void finish(true) }}')
     expect(mic).not.toContain('requestAnimationFrame')
     expect(mic).not.toContain('gerclaw:voice-interrupt')
   })

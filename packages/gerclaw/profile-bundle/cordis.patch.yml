@@ -264,7 +264,6 @@
         record:
           enabled: true
           maxSeconds: 60
-          autoSubmit: true
         stt:
           language: zh-CN
           interim: true

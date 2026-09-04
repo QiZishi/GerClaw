@@ -303,7 +303,6 @@ export class TalkService extends TypertRemoteService {
         enabled: this.resolved.recordEnabled,
         hotkey: this.resolved.recordHotkey,
         maxSeconds: 60,
-        autoSubmit: true,
       },
       interrupt: this.resolved.interruptEnabled,
     }

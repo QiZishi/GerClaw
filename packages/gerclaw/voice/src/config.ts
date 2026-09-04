@@ -13,8 +13,6 @@ export interface RecordConfig {
   hotkey?: string | null
   /** GerClaw intentionally caps every live/uploaded clip at 60 seconds. */
   maxSeconds?: number
-  /** Final Qianwen ASR text is submitted automatically. */
-  autoSubmit?: boolean
 }
 
 export interface Config {
@@ -30,7 +28,6 @@ export interface ResolvedConfig {
   recordEnabled: boolean
   recordHotkey: string | null
   recordMaxSeconds: 60
-  recordAutoSubmit: true
   sttEngine: 'qianwen'
   sttLanguage: string
   sttInterim: boolean
@@ -46,7 +43,6 @@ export const Config: z<Config> = z.object({
     enabled: z.boolean().default(true),
     hotkey: z.union([z.string(), z.const(null)]).default(null),
     maxSeconds: z.const(60).default(60),
-    autoSubmit: z.const(true).default(true),
   }),
   stt: z.object({
     language: z.string().default('zh-CN'),
@@ -75,8 +71,6 @@ const boundedNumber = (value: unknown, fallback: number, min: number, max: numbe
 export function resolveConfig(config: Config | undefined): ResolvedConfig {
   if (config?.record?.maxSeconds !== undefined && config.record.maxSeconds !== 60)
     throw new Error('GerClaw 语音录音时长固定为 60 秒')
-  if (config?.record?.autoSubmit === false)
-    throw new Error('GerClaw 语音最终转写必须自动发送')
   const hotkey = config?.record?.hotkey
   if (hotkey !== undefined && hotkey !== null && (typeof hotkey !== 'string' || hotkey.length > 40))
     throw new Error('GerClaw 语音快捷键不能超过 40 个字符')
@@ -84,7 +78,6 @@ export function resolveConfig(config: Config | undefined): ResolvedConfig {
     recordEnabled: config?.record?.enabled !== false,
     recordHotkey: hotkey ?? null,
     recordMaxSeconds: 60,
-    recordAutoSubmit: true,
     sttEngine: 'qianwen',
     sttLanguage: text(config?.stt?.language, 'zh-CN', 'stt.language'),
     sttInterim: config?.stt?.interim !== false,

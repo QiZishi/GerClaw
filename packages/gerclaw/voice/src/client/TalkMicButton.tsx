@@ -117,6 +117,7 @@ export function TalkMicButton({ interrupt, inputActions, sessionId }: TalkMicPro
   const resources = useRef<RecordingResources | null>(null)
   const activeSocket = useRef<WebSocket | null>(null)
   const finishing = useRef(false)
+  const directSend = useRef(false)
   const operationToken = useRef(0)
   // The native composer can replace its blank-session shell with the real
   // session shell while ASR is still streaming. Socket callbacks must always
@@ -139,6 +140,7 @@ export function TalkMicButton({ interrupt, inputActions, sessionId }: TalkMicPro
   const cancel = async (): Promise<void> => {
     operationToken.current += 1
     finishing.current = false
+    directSend.current = false
     const socket = resources.current?.socket ?? activeSocket.current
     if (socket?.readyState === WebSocket.OPEN)
       socket.send(JSON.stringify({ type: 'cancel' }))
@@ -218,9 +220,10 @@ export function TalkMicButton({ interrupt, inputActions, sessionId }: TalkMicPro
         const actions = inputActionsRef.current
         actions.setDraft(text)
         setMessage(`已完成转写 · ${((payload.elapsedMs ?? 0) / 1000).toFixed(2)} 秒`)
-        if (text && finishing.current) actions.submit()
+        if (text && finishing.current && directSend.current) actions.submit()
       } else if (payload.type === 'done') {
         finishing.current = false
+        directSend.current = false
         activeSocket.current = null
         setPhase('idle')
         socket.close(1000)
@@ -239,6 +242,7 @@ export function TalkMicButton({ interrupt, inputActions, sessionId }: TalkMicPro
 
   const start = async (): Promise<void> => {
     const token = ++operationToken.current
+    directSend.current = false
     setPhase('connecting')
     setMessage('正在连接语音识别…')
     interruptPlayback()
@@ -301,7 +305,7 @@ export function TalkMicButton({ interrupt, inputActions, sessionId }: TalkMicPro
       pendingStream = null
       pendingContext = null
       setPhase('recording')
-      setMessage('正在聆听，点击停止后发送')
+      setMessage('正在聆听')
     } catch (error) {
       pendingSocket?.close(1000)
       pendingStream?.getTracks().forEach((track) => { track.stop() })
@@ -314,10 +318,11 @@ export function TalkMicButton({ interrupt, inputActions, sessionId }: TalkMicPro
     }
   }
 
-  const finish = async (): Promise<void> => {
+  const finish = async (submit = false): Promise<void> => {
     const current = resources.current
     if (current === null) return
     finishing.current = true
+    directSend.current = submit
     setPhase('finishing')
     setMessage('正在确认转写…')
     await current.flush()
@@ -335,10 +340,10 @@ export function TalkMicButton({ interrupt, inputActions, sessionId }: TalkMicPro
             <CloseIcon />
           </button>
           <span data-gerclaw-recording-wave aria-hidden="true" />
-          <button type="button" data-gerclaw-recording-stop aria-label="停止录音并发送" title="停止录音并发送" disabled={phase !== 'recording'} onClick={() => { void finish() }}>
+          <button type="button" data-gerclaw-recording-stop aria-label="停止录音并编辑" title="停止录音并编辑" disabled={phase !== 'recording'} onClick={() => { void finish(false) }}>
             <StopIcon />
           </button>
-          <button type="button" data-gerclaw-recording-send aria-label="结束录音并发送" title="结束录音并发送" disabled={phase !== 'recording'} onClick={() => { void finish() }}>
+          <button type="button" data-gerclaw-recording-send aria-label="结束录音并直接发送" title="结束录音并直接发送" disabled={phase !== 'recording'} onClick={() => { void finish(true) }}>
             <SendIcon />
           </button>
         </span>
