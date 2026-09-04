@@ -17,6 +17,13 @@ type BrowserVoiceEvent = {
   elapsedMs?: number
 }
 
+const MicrophoneIcon = () => (
+  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+    <rect x="8" y="3" width="8" height="12" rx="4" />
+    <path d="M5 11a7 7 0 0 0 14 0M12 18v3M8.5 21h7" />
+  </svg>
+)
+
 interface RecordingResources {
   socket: WebSocket
   stream: MediaStream
@@ -326,7 +333,7 @@ export function TalkMicButton({ interrupt, inputActions, sessionId }: TalkMicPro
         disabled={phase === 'connecting' || phase === 'finishing'}
         onClick={() => { void (phase === 'recording' ? finish() : start()) }}
       >
-        {phase === 'recording' ? '■' : '🎙'}
+        <MicrophoneIcon />
       </button>
       {(phase === 'recording' || phase === 'connecting' || phase === 'finishing') && (
         <button type="button" aria-label="取消语音输入" title="取消语音输入" onClick={() => { void cancel() }}>×</button>

@@ -13,6 +13,7 @@ export function installTalkStyles(): () => void {
   style.textContent = `
     [data-dsh-talk-mic] {
       display: inline-flex;
+      justify-content: center;
       align-items: center;
       gap: 4px;
       padding: 4px 8px;
@@ -22,6 +23,16 @@ export function installTalkStyles(): () => void {
       cursor: pointer;
       font: inherit;
       color: inherit;
+    }
+    [data-dsh-talk-mic] svg,
+    [data-gerclaw-read-aloud] svg {
+      width: 20px;
+      height: 20px;
+    }
+    [data-gerclaw-read-aloud] {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
     }
     [data-dsh-talk-mic]:hover {
       background: rgba(127, 127, 127, 0.12);

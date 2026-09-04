@@ -5,6 +5,13 @@ import type { ConversationSnapshot } from '@deepseek-ai/dsh-client-runtime/clien
 import type {} from '@deepseek-ai/dsh-client-ui-conversation/client'
 
 type Props = PropsRuntime<'conversation.chat.assistant-actions'>
+
+const SpeakerIcon = () => (
+  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+    <path d="M4 10v4h4l5 4V6L8 10H4Z" />
+    <path d="M16 9.5a4 4 0 0 1 0 5M18.5 7a7.5 7.5 0 0 1 0 10" />
+  </svg>
+)
 type AudioLine = {
   type?: 'meta' | 'audio' | 'done'
   audio?: string
@@ -201,7 +208,7 @@ export function TalkMessageButton({ messageId, useSession, sessionId }: Props): 
       disabled={!text}
       onClick={() => { void (playing ? stopActive().then(() => { setPhase('idle') }) : speak()) }}
     >
-      {phase === 'loading' ? '…' : playing ? '■' : '🔊'}
+      {phase === 'loading' ? '…' : <SpeakerIcon />}
     </button>
   )
 }

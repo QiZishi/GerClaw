@@ -99,6 +99,11 @@ export class GerclawTenantGateway extends Service {
       path: '/favicon.ico',
       handler: serveIcon,
     }), 'gerclaw.gateway.favicon')
+    this.ctx.effect(() => this.ctx.webServer.register({
+      kind: 'exact',
+      path: '/favicon.svg',
+      handler: serveIcon,
+    }), 'gerclaw.gateway.favicon-svg')
     this.ctx.effect(
       () => this.ctx.webServer.registerFallback((req, res) => this.route(req, res)),
       'gerclaw.gateway.fallback',

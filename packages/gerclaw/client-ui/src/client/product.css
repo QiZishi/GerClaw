@@ -2,6 +2,10 @@
   font-family: "PingFang SC", "Microsoft YaHei", "Noto Sans CJK SC", system-ui, sans-serif;
 }
 
+#root {
+  zoom: 1.5;
+}
+
 body {
   background: #f3f7fa;
 }
@@ -77,6 +81,26 @@ span:has(> [data-gerclaw-brand-name]) {
   border-radius: 30%;
   box-shadow: 0 4px 14px rgb(49 119 170 / 18%);
   object-fit: contain;
+}
+
+/* The native hero remains the layout owner; GerClaw only replaces its
+   product copy and removes the upstream preview badge. */
+[data-phase='hero'] [class*='headlineText'] {
+  font-size: 0 !important;
+}
+
+[data-phase='hero'] [class*='headlineText']::after {
+  content: 'GerClaw｜老年慢病智慧诊疗助手';
+  font-size: 26px;
+}
+
+[data-phase='hero'] [class*='previewBadge'] {
+  display: none;
+}
+
+[data-phase='hero'] [class*='composerHero'] {
+  align-self: center !important;
+  margin-inline: auto !important;
 }
 
 [data-gerclaw-composer-document] {
