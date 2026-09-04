@@ -77,4 +77,16 @@ describe('dsh-talk interaction consumer', () => {
     expect(mic).not.toContain('requestAnimationFrame')
     expect(mic).not.toContain('gerclaw:voice-interrupt')
   })
+
+  it('replaces the composer with the recording strip while capture is active', async () => {
+    const [mic, styles] = await Promise.all([
+      source('src/client/TalkMicButton.tsx'),
+      source('src/client/styles.ts'),
+    ])
+    expect(mic).toContain("const recording = phase === 'connecting' || phase === 'recording' || phase === 'finishing'")
+    expect(mic).toContain('data-gerclaw-recording-strip')
+    expect(mic).toContain('data-gerclaw-recording-wave')
+    expect(mic).toContain('data-gerclaw-recording-send')
+    expect(styles).toContain('[data-composer-card]:has([data-gerclaw-recording-strip])')
+  })
 })

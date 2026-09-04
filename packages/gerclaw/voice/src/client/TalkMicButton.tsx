@@ -24,6 +24,10 @@ const MicrophoneIcon = () => (
   </svg>
 )
 
+const CloseIcon = () => <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" aria-hidden="true"><path d="m7 7 10 10M17 7 7 17" /></svg>
+const StopIcon = () => <svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><rect x="8" y="8" width="8" height="8" rx="1" /></svg>
+const SendIcon = () => <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d="M12 18V6M7 11l5-5 5 5" /></svg>
+
 interface RecordingResources {
   socket: WebSocket
   stream: MediaStream
@@ -322,23 +326,36 @@ export function TalkMicButton({ interrupt, inputActions, sessionId }: TalkMicPro
       current.socket.send(JSON.stringify({ type: 'commit' }))
   }
 
+  const recording = phase === 'connecting' || phase === 'recording' || phase === 'finishing'
   return (
-    <span data-gerclaw-voice-controls style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
-      <button
-        type="button"
-        data-dsh-talk-mic
-        data-recording={phase === 'recording' ? 'true' : 'false'}
-        aria-label={phase === 'recording' ? '停止录音并发送' : '开始语音输入'}
-        title={phase === 'recording' ? '停止录音并发送' : '语音输入'}
-        disabled={phase === 'connecting' || phase === 'finishing'}
-        onClick={() => { void (phase === 'recording' ? finish() : start()) }}
-      >
-        <MicrophoneIcon />
-      </button>
-      {(phase === 'recording' || phase === 'connecting' || phase === 'finishing') && (
-        <button type="button" aria-label="取消语音输入" title="取消语音输入" onClick={() => { void cancel() }}>×</button>
+    <span data-gerclaw-voice-controls>
+      {recording ? (
+        <span data-gerclaw-recording-strip role="status" aria-live="polite">
+          <button type="button" data-gerclaw-recording-cancel aria-label="取消语音输入" title="取消录音" onClick={() => { void cancel() }}>
+            <CloseIcon />
+          </button>
+          <span data-gerclaw-recording-wave aria-hidden="true" />
+          <button type="button" data-gerclaw-recording-stop aria-label="停止录音并发送" title="停止录音并发送" disabled={phase !== 'recording'} onClick={() => { void finish() }}>
+            <StopIcon />
+          </button>
+          <button type="button" data-gerclaw-recording-send aria-label="结束录音并发送" title="结束录音并发送" disabled={phase !== 'recording'} onClick={() => { void finish() }}>
+            <SendIcon />
+          </button>
+        </span>
+      ) : (
+        <>
+          <button
+            type="button"
+            data-dsh-talk-mic
+            aria-label="开始语音输入"
+            title="语音输入"
+            onClick={() => { void start() }}
+          >
+            <MicrophoneIcon />
+          </button>
+          {message && <span data-gerclaw-voice-status role="status" aria-live="polite">{message}</span>}
+        </>
       )}
-      {message && <span role="status" aria-live="polite" style={{ maxWidth: 220, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', fontSize: 12 }}>{message}</span>}
     </span>
   )
 }

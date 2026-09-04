@@ -15,14 +15,15 @@ export function installTalkStyles(): () => void {
       display: inline-flex;
       justify-content: center;
       align-items: center;
-      gap: 4px;
-      padding: 4px 8px;
-      border: 1px solid transparent;
-      border-radius: 6px;
+      width: 44px;
+      height: 44px;
+      padding: 0;
+      border: 0;
+      border-radius: 9px;
       background: transparent;
       cursor: pointer;
       font: inherit;
-      color: inherit;
+      color: var(--dsw-alias-label-tertiary);
     }
     [data-dsh-talk-mic] svg,
     [data-gerclaw-read-aloud] svg {
@@ -33,17 +34,101 @@ export function installTalkStyles(): () => void {
       display: inline-flex;
       align-items: center;
       justify-content: center;
+      width: 28px;
+      height: 28px;
+      padding: 6px;
+      border: 0 !important;
+      border-radius: 50%;
+      background: transparent;
+      color: var(--dsw-alias-label-tertiary);
+      cursor: pointer;
     }
-    [data-dsh-talk-mic]:hover {
-      background: rgba(127, 127, 127, 0.12);
+    [data-gerclaw-read-aloud]:hover:not(:disabled),
+    [data-gerclaw-read-aloud]:focus-visible,
+    [data-dsh-talk-mic]:hover,
+    [data-dsh-talk-mic]:focus-visible {
+      background: var(--dsw-alias-interactive-bg-hover);
+      color: var(--dsw-alias-label-secondary);
+      outline: none;
     }
-    [data-dsh-talk-mic][data-recording='true'] {
-      border-color: #d33;
-      color: #d33;
+    [data-gerclaw-voice-controls] {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
     }
-    [data-dsh-talk-mic][data-disabled='true'] {
-      opacity: 0.45;
-      cursor: default;
+    [data-gerclaw-voice-status] {
+      max-width: 220px;
+      overflow: hidden;
+      color: var(--dsw-alias-label-secondary);
+      font-size: 12px;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+    [data-composer-card]:has([data-gerclaw-recording-strip]) {
+      position: relative;
+      height: 52px;
+      min-height: 52px;
+      overflow: hidden;
+    }
+    [data-gerclaw-recording-strip] {
+      position: absolute;
+      z-index: 2;
+      inset: 0;
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      padding: 8px 12px;
+      border-radius: inherit;
+      background: var(--dsw-alias-bg-overlay);
+    }
+    [data-gerclaw-recording-strip] button {
+      display: inline-flex;
+      flex: none;
+      align-items: center;
+      justify-content: center;
+      width: 32px;
+      height: 32px;
+      padding: 0;
+      border: 0;
+      border-radius: 50%;
+      cursor: pointer;
+    }
+    [data-gerclaw-recording-strip] button svg {
+      width: 16px;
+      height: 16px;
+    }
+    [data-gerclaw-recording-cancel],
+    [data-gerclaw-recording-stop] {
+      background: var(--dsw-alias-interactive-bg-hover);
+      color: var(--dsw-alias-label-primary);
+    }
+    [data-gerclaw-recording-send] {
+      background: var(--dsw-alias-label-primary);
+      color: var(--dsw-alias-bg-overlay);
+    }
+    [data-gerclaw-recording-strip] button:disabled {
+      opacity: .45;
+      cursor: wait;
+    }
+    [data-gerclaw-recording-wave] {
+      position: relative;
+      flex: 1;
+      height: 20px;
+      background: radial-gradient(circle, var(--dsw-alias-label-caption) 1px, transparent 1.5px) center / 6px 4px repeat-x;
+    }
+    [data-gerclaw-recording-wave]::after {
+      position: absolute;
+      top: 1px;
+      left: 78%;
+      width: 2px;
+      height: 18px;
+      border-radius: 2px;
+      background: var(--dsw-alias-label-secondary);
+      content: '';
+      animation: gerclaw-recording-pulse 1.2s ease-in-out infinite;
+    }
+    @keyframes gerclaw-recording-pulse {
+      50% { transform: scaleY(.55); opacity: .65; }
     }
     [data-dsh-talk-settings] {
       display: flex;
@@ -71,6 +156,9 @@ export function installTalkStyles(): () => void {
     [data-dsh-talk-settings] .note {
       font-size: 0.8em;
       opacity: 0.75;
+    }
+    @media (prefers-reduced-motion: reduce) {
+      [data-gerclaw-recording-wave]::after { animation: none; }
     }
   `
   document.head.appendChild(style)
